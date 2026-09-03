@@ -111,8 +111,8 @@ test("converges authorization revisions through the durable outbox and polling r
 
     const releasePublish = deferred();
     let firstPublish = false;
-    const first = new PostgresAuthorizationOutboxDispatcher(pool, { applicationId, leaseMs: 1_000, publishTimeoutMs: 500 });
-    const second = new PostgresAuthorizationOutboxDispatcher(pool, { applicationId, leaseMs: 1_000, publishTimeoutMs: 500 });
+    const first = new PostgresAuthorizationOutboxDispatcher(pool, { applicationId, environment: "production", leaseMs: 1_000, publishTimeoutMs: 500 });
+    const second = new PostgresAuthorizationOutboxDispatcher(pool, { applicationId, environment: "production", leaseMs: 1_000, publishTimeoutMs: 500 });
     const firstClaim = first.dispatchNext({ publish: async () => { firstPublish = true; await releasePublish.promise; } });
     await waitFor(() => firstPublish, "first dispatcher did not claim the pending event");
     await assert.doesNotReject(async () => assert.deepEqual(await second.dispatchNext({ publish: async () => assert.fail("concurrent dispatcher published the same claim") }), { status: "idle" }));
@@ -131,13 +131,31 @@ test("converges authorization revisions through the durable outbox and polling r
         return pool.query(text, values);
       }
     };
-    const interrupted = new PostgresAuthorizationOutboxDispatcher(interruptedPool, { applicationId, leaseMs: 40, publishTimeoutMs: 10 });
+    const interrupted = new PostgresAuthorizationOutboxDispatcher(interruptedPool, { applicationId, environment: "production", leaseMs: 40, publishTimeoutMs: 10 });
     await assert.rejects(interrupted.dispatchNext({ publish: async () => { publications += 1; dispatcherStopped = true; } }), /stopped before acknowledgement/u);
     assert.equal((await pool.query("select status from k_nex_authorization_outbox where application_id=$1 and authorization_revision=$2", [applicationId, state.authorizationRevision])).rows[0].status, "processing");
     await new Promise((resolve) => setTimeout(resolve, 60));
-    const restarted = new PostgresAuthorizationOutboxDispatcher(pool, { applicationId, leaseMs: 40, publishTimeoutMs: 10 });
+    const restarted = new PostgresAuthorizationOutboxDispatcher(pool, { applicationId, environment: "production", leaseMs: 40, publishTimeoutMs: 10 });
     assert.equal((await restarted.dispatchNext({ publish: async () => { publications += 1; } })).status, "delivered");
     assert.equal(publications, 2);
+
+    await pool.query(
+      `insert into k_nex_authorization_outbox
+        (event_id, application_id, environment, authorization_revision, lifecycle_revision, event_json, attempt_count)
+       values
+        ('40882d66-c798-4d78-9d98-9464e637bc1d', $1, 'staging', 999998, 0, $2::jsonb, 0),
+        ('180e2a3f-542f-4970-b8a3-63ce5c18c76a', $1, 'staging', 999999, 0, $3::jsonb, 3)`,
+      [applicationId,
+        JSON.stringify({ applicationId, environment: "staging", scope: "environment", authorizationRevision: 999998, lifecycleRevision: 0 }),
+        JSON.stringify({ applicationId, environment: "staging", scope: "environment", authorizationRevision: 999999, lifecycleRevision: 0 })]
+    );
+    const productionOnly = new PostgresAuthorizationOutboxDispatcher(pool, { applicationId, environment: "production", maxAttempts: 3, leaseMs: 40, publishTimeoutMs: 10 });
+    assert.deepEqual(await productionOnly.dispatchNext({ publish: async () => assert.fail("production dispatcher published a staging event") }), { status: "idle" });
+    assert.deepEqual(
+      (await pool.query("select authorization_revision, status from k_nex_authorization_outbox where application_id=$1 and environment='staging' order by authorization_revision", [applicationId])).rows,
+      [{ authorization_revision: 999998, status: "pending" }, { authorization_revision: 999999, status: "pending" }],
+      "Production dispatch cannot claim, dead-letter, or deliver staging events."
+    );
   } finally {
     convergence?.stop();
     await pool.end();

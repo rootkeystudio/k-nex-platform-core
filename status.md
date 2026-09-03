@@ -7,15 +7,15 @@
 
 ## Last completed
 
-The reusable Sol-xhigh review found ten closeout gaps. Generated-name injection, owner-bootstrap races, server-side Puck policy bypasses, and action bypasses are fixed. Published revisions now atomically retain the exact full page record and normalized ACL snapshot.
+The Sol-xhigh closeout review gaps for generated-name safety, owner bootstrap, server-side Puck policy, bound actions, immutable page/ACL publication, and durable page invalidation are fixed. Page and authorization outbox workers now isolate exact application/environment state and lost notification delivery converges after restart.
 
 ## Validation
 
-Exact Node 24.19.0: workspace contract 8/8, workspace-page service 21/21, composition 89/89 and build PASS. PostgreSQL fixture syntax PASS; execution awaits container runtime. Generated journey proofs remain pending phase-end execution; exact-head Linux rerun remains.
+Exact Node 24.19.0: page/auth outbox unit 11/11, invalidation generation 4/4, payload/composition/customer builds PASS, authorization PostgreSQL convergence PASS. Generated PostgreSQL/HTTP/Chromium invalidation journey PASS before the final environment-scope type change; packed rerun awaits final artifact refresh.
 
 ## Next
 
-Close release trust/lock, invalidation, generated inventory/admin/readiness, malicious HTTP, and exact-evidence gaps; re-review the same Sol-xhigh session; then cumulative exact-head Gate 0–12.
+Close release trust/lock, generated route/inventory/readiness, malicious HTTP, and exact-evidence gaps; refresh packed artifacts; re-review the same Sol-xhigh session; then cumulative exact-head Gate 0–12.
 
 ## Blockers
 

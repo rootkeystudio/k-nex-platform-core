@@ -5,12 +5,14 @@ export interface WorkspacePageApplicationFilesOptions {
 function workspacePageRuntimeSource(): string {
   return `import { createHash, randomUUID } from "node:crypto";
 
-import { canonicalJson, type UiDocument, type UiNode, type WorkspacePublishedRevision } from "@k-nex/contracts";
+import { AuthorizationStateSchema, canonicalJson, type UiDocument, type UiNode, type WorkspacePublishedRevision } from "@k-nex/contracts";
 import {
   CurrentAuthorityWorkspacePageService,
   ExactWorkspacePageAclPolicy,
   PostgresWorkspaceNavigationStore,
   PostgresWorkspacePageStore,
+  WorkspacePageSessionRegistry,
+  parseWorkspacePageInvalidation,
   type RuntimeExtensionPool,
   type WorkspacePageDocumentValidator,
   type WorkspacePageScope,
@@ -33,6 +35,62 @@ const platformBlocks = new Map([
 ].map((id) => [id, 1] as const));
 const scope = Object.freeze({ applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment });
 const runtimes = new WeakMap<Payload, ReturnType<typeof createRuntime>>();
+const invalidationChannel = "k_nex_runtime_invalidation";
+
+type NotificationClient = {
+  query(text: string): Promise<unknown>;
+  on(event: "notification", listener: (message: Readonly<{ channel: string; payload?: string }>) => void): void;
+  on(event: "error" | "end", listener: () => void): void;
+  release(destroy?: boolean): void;
+};
+
+function validateNotification(payload: string | undefined): void {
+  if (payload === undefined) throw new TypeError("Runtime invalidation payload is missing.");
+  const value = JSON.parse(payload) as unknown;
+  if (value === null || typeof value !== "object" || Array.isArray(value)) throw new TypeError("Runtime invalidation envelope is invalid.");
+  const envelope = value as Record<string, unknown>;
+  if (envelope.type === "workspace-page") {
+    const event = parseWorkspacePageInvalidation(envelope.invalidation);
+    if (event.applicationId !== scope.applicationId || event.environment !== scope.environment || canonicalJson(value) !== canonicalJson({ type: "workspace-page", invalidation: event })) throw new TypeError("Workspace page invalidation identity is invalid.");
+    return;
+  }
+  if (envelope.type !== "authorization" || envelope.invalidation === null || typeof envelope.invalidation !== "object" || Array.isArray(envelope.invalidation)) throw new TypeError("Runtime invalidation type is invalid.");
+  const raw = envelope.invalidation as Record<string, unknown>;
+  const state = AuthorizationStateSchema.safeParse({ schemaVersion: 1, applicationId: raw.applicationId, environment: raw.environment, authorizationRevision: raw.authorizationRevision, lifecycleRevision: raw.lifecycleRevision });
+  if (!state.success || raw.scope !== "application" && raw.scope !== "environment") throw new TypeError("Authorization invalidation is invalid.");
+  const event = { applicationId: state.data.applicationId, environment: state.data.environment, scope: raw.scope, authorizationRevision: state.data.authorizationRevision, lifecycleRevision: state.data.lifecycleRevision };
+  if (event.applicationId !== scope.applicationId || event.environment !== scope.environment || canonicalJson(value) !== canonicalJson({ type: "authorization", invalidation: event })) throw new TypeError("Authorization invalidation identity is invalid.");
+}
+
+function listenForInvalidations(payload: Payload, synchronize: () => Promise<unknown>): void {
+  const pool = payload.db.pool as unknown as { connect(): Promise<NotificationClient> };
+  const connect = async (): Promise<void> => {
+    let client: NotificationClient | undefined;
+    try {
+      client = await pool.connect();
+      let finished = false;
+      const reconnect = () => {
+        if (finished) return;
+        finished = true;
+        client?.release(true);
+        setTimeout(() => { void connect(); }, 250);
+      };
+      client.on("notification", (message) => {
+        if (message.channel !== invalidationChannel) return;
+        try { validateNotification(message.payload); void synchronize().catch(() => undefined); } catch { /* untrusted notifications cannot alter watermarks */ }
+      });
+      client.on("error", reconnect);
+      client.on("end", reconnect);
+      await client.query("LISTEN k_nex_runtime_invalidation");
+      await synchronize();
+    } catch {
+      client?.release(true);
+      setTimeout(() => { void connect(); }, 250);
+    }
+  };
+  void connect();
+  setInterval(() => { void synchronize().catch(() => undefined); }, 1_000);
+}
 
 function digest(value: unknown): \`sha256:\${string}\` {
   return \`sha256:\${createHash("sha256").update(canonicalJson(value)).digest("hex")}\`;
@@ -143,7 +201,7 @@ import { bootKnexApplication } from "../../../../../boot.js";
 import { kNexRequestContext } from "../../../../../k-nex-authority.js";
 import { kNexThemePresentation } from "../../../../../k-nex-registry.js";
 import { loadWorkspaceSalesSources, workspaceSalesPermissions } from "../../../../../k-nex-sales-workspace.js";
-import { kNexWorkspacePages, kNexWorkspacePageScope } from "../../../../../k-nex-workspace-pages.js";
+import { openWorkspacePageSession } from "../../../../../k-nex-workspace-pages.js";
 import { WorkspacePageRuntime } from "../../../../components/k-nex-workspace-page-runtime.js";
 
 export const dynamic = "force-dynamic";
@@ -153,12 +211,15 @@ export default async function WorkspacePage({ params }: Readonly<{ params: Promi
   const headers = await getHeaders();
   const context = kNexRequestContext(headers, "workspace-page-view");
   const pageId = (await params).pageId;
-  let detail;
-  try { detail = await kNexWorkspacePages(payload).service.detail(context, kNexWorkspacePageScope, pageId, "view"); } catch { return notFound(); }
-  if (detail.page.state !== "published" || detail.impact.state !== "ready" || detail.publication === undefined) return notFound();
-  const document = detail.publication.revision.document;
-  const [permissions, sourceResults] = await Promise.all([workspaceSalesPermissions(payload, context), loadWorkspaceSalesSources(payload, context, document)]);
-  return <WorkspacePageRuntime pageId={pageId} document={document} permissions={permissions} initialSourceResults={sourceResults} themeRevision={detail.publication.revision.themeProfile?.revisionId ?? kNexThemePresentation.profileRevisionId} themeCss={kNexThemePresentation.cssText} />;
+  let session;
+  try { session = await openWorkspacePageSession(payload, context, pageId, "view", context.correlationId); } catch { return notFound(); }
+  try {
+    const detail = session.detail;
+    if (detail.page.state !== "published" || detail.impact.state !== "ready" || detail.publication === undefined) return notFound();
+    const document = detail.publication.revision.document;
+    const [permissions, sourceResults] = await Promise.all([workspaceSalesPermissions(payload, context, session.signal), loadWorkspaceSalesSources(payload, context, document, session.signal)]);
+    return <WorkspacePageRuntime pageId={pageId} document={document} permissions={permissions} initialSourceResults={sourceResults} themeRevision={detail.publication.revision.themeProfile?.revisionId ?? kNexThemePresentation.profileRevisionId} themeCss={kNexThemePresentation.cssText} />;
+  } finally { session.close(); }
 }
 `;
 }
@@ -172,10 +233,21 @@ import { salesPuckBlockBridges } from "@k-nex/module-sales/puck";
 import { presentUiRuntimeReact } from "@k-nex/ui-components";
 import { WorkspaceEditorSession, createAuthorizedPuckBuilderProfile } from "@k-nex/builder-puck";
 import { WorkspacePuckEditorHost } from "@k-nex/builder-puck/editor";
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type Resource = Readonly<{ id: string; version: number }>;
 export function WorkspacePageEditor({ pageId, workingCopy, permissions, authority, rollbackRevisions }: Readonly<{ pageId: string; workingCopy: { revision: number; document: UiDocument }; permissions: readonly string[]; authority: { blocks: readonly Resource[]; sources: readonly Resource[]; actions: readonly Resource[] }; rollbackRevisions: readonly { id: string; label: string }[] }>) {
+  const [revoked, setRevoked] = useState(false);
+  const operations = useRef(new AbortController());
+  useEffect(() => {
+    const controller = new AbortController();
+    operations.current = controller;
+    const timer = setInterval(async () => {
+      const response = await fetch("/api/k-nex/workspace-pages/" + encodeURIComponent(pageId) + "/session", { cache: "no-store", signal: controller.signal }).catch(() => undefined);
+      if (response?.status === 404 || response?.status === 403) { controller.abort(); setRevoked(true); }
+    }, 1_000);
+    return () => { clearInterval(timer); controller.abort(); };
+  }, [pageId]);
   const profile = useMemo(() => createAuthorizedPuckBuilderProfile({
     profile: "workspace", publication: "save-layout", blocks: salesPuckBlockBridges,
     sources: [salesOpportunitiesDescriptor, salesTasksDescriptor, salesTotalPotentialRevenueDescriptor], authority,
@@ -185,22 +257,23 @@ export function WorkspacePageEditor({ pageId, workingCopy, permissions, authorit
     profile, workingCopy, editorSessionId: "workspace-editor-" + crypto.randomUUID(), issueIdempotencyKey: (operation, sequence) => "workspace-" + operation + "-" + sequence + "-" + crypto.randomUUID(),
     persistence: {
       async autosave(input) {
-        const response = await fetch("/api/k-nex/workspace-pages/" + encodeURIComponent(pageId) + "/autosave", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input) });
+        const response = await fetch("/api/k-nex/workspace-pages/" + encodeURIComponent(pageId) + "/autosave", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input), signal: operations.current.signal });
         const body = await response.json();
         if (response.status === 409 && body.status === "conflict") return body;
         if (!response.ok) throw new Error(body.code ?? "Autosave failed.");
         return body;
       },
       async publish(input) {
-        const response = await fetch("/api/k-nex/workspace-pages/" + encodeURIComponent(pageId) + "/publish", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input) });
+        const response = await fetch("/api/k-nex/workspace-pages/" + encodeURIComponent(pageId) + "/publish", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input), signal: operations.current.signal });
         if (!response.ok) throw new Error((await response.json()).code ?? "Publish failed.");
       },
       async rollback(input) {
-        const response = await fetch("/api/k-nex/workspace-pages/" + encodeURIComponent(pageId) + "/rollback", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input) });
+        const response = await fetch("/api/k-nex/workspace-pages/" + encodeURIComponent(pageId) + "/rollback", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input), signal: operations.current.signal });
         if (!response.ok) throw new Error((await response.json()).code ?? "Rollback failed.");
       }
     }
   }), [pageId, profile, workingCopy]);
+  if (revoked) return <section role="alert"><h1>Editor access revoked</h1><p>Current authority no longer permits editing this page.</p></section>;
   return <WorkspacePuckEditorHost profile={profile} session={session} rollbackRevisions={rollbackRevisions} authentication="Authenticated" router="Workspace" sidebar="Block library" topBar="Page editor" systemScreens={null} globalDialogs={null} />;
 }
 `;
@@ -214,7 +287,7 @@ import { notFound } from "next/navigation";
 import { bootKnexApplication } from "../../../../../../boot.js";
 import { kNexRequestContext } from "../../../../../../k-nex-authority.js";
 import { workspaceSalesPermissions } from "../../../../../../k-nex-sales-workspace.js";
-import { kNexWorkspacePages, kNexWorkspacePageScope } from "../../../../../../k-nex-workspace-pages.js";
+import { openWorkspacePageSession } from "../../../../../../k-nex-workspace-pages.js";
 import { WorkspacePageEditor } from "../../../../../components/k-nex-workspace-page-editor.js";
 
 export const dynamic = "force-dynamic";
@@ -222,10 +295,12 @@ export default async function EditWorkspacePage({ params }: Readonly<{ params: P
   const payload = await bootKnexApplication("workspace-web");
   const context = kNexRequestContext(await getHeaders(), "workspace-page-editor");
   const pageId = (await params).pageId;
-  let detail;
-  try { detail = await kNexWorkspacePages(payload).service.detail(context, kNexWorkspacePageScope, pageId, "edit"); } catch { return notFound(); }
+  let session;
+  try { session = await openWorkspacePageSession(payload, context, pageId, "edit", context.correlationId); } catch { return notFound(); }
+  try {
+  const detail = session.detail;
   if (detail.workingCopy === undefined) return notFound();
-  const permissions = await workspaceSalesPermissions(payload, context);
+  const permissions = await workspaceSalesPermissions(payload, context, session.signal);
   const sources = [salesOpportunitiesDescriptor, salesTasksDescriptor, salesTotalPotentialRevenueDescriptor];
   const actions = [salesTaskCreateDescriptor, salesTaskUpdateDescriptor, salesOpportunityStageUpdateDescriptor];
   const authority = {
@@ -235,13 +310,16 @@ export default async function EditWorkspacePage({ params }: Readonly<{ params: P
   };
   const rollbackIds = [detail.publication?.pointer.publishedRevisionId, detail.publication?.pointer.previousPublishedRevisionId].filter((id): id is string => id !== undefined);
   return <WorkspacePageEditor pageId={pageId} workingCopy={{ revision: detail.workingCopy.revision, document: detail.workingCopy.document }} permissions={permissions} authority={authority} rollbackRevisions={rollbackIds.map((id, index) => ({ id, label: "Published revision " + (index + 1) }))} />;
+  } finally { session.close(); }
 }
 `;
 }
 
 function workspaceSalesServerTailSource(): string {
-  return `async function allowed(payload: Payload, context: KnexRequestContext, permissionId: string, recordId?: string) {
-  return kNexAuthority(payload).adapter.allows(context, target(permissionId, recordId));
+  return `async function allowed(payload: Payload, context: KnexRequestContext, permissionId: string, recordId?: string, signal?: AbortSignal) {
+  if (signal?.aborted) return false;
+  const result = await kNexAuthority(payload).adapter.allows(context, target(permissionId, recordId));
+  return !signal?.aborted && result;
 }
 
 async function actor(payload: Payload, context: KnexRequestContext) {
@@ -251,12 +329,12 @@ async function actor(payload: Payload, context: KnexRequestContext) {
   return { authorization: { principal: { kind: "user" as const, id: String(id) }, effectiveActor: { kind: "user" as const, id: String(id) } }, user: authentication.user };
 }
 
-export async function workspaceSalesPermissions(payload: Payload, context: KnexRequestContext) {
-  const results = await Promise.all(kNexSalesRegistry.permissionDescriptors.map(async (descriptor) => [descriptor.id, await allowed(payload, context, descriptor.id)] as const));
+export async function workspaceSalesPermissions(payload: Payload, context: KnexRequestContext, signal?: AbortSignal) {
+  const results = await Promise.all(kNexSalesRegistry.permissionDescriptors.map(async (descriptor) => [descriptor.id, await allowed(payload, context, descriptor.id, undefined, signal)] as const));
   return results.filter(([, result]) => result).map(([id]) => id);
 }
 
-export async function loadWorkspaceSalesSources(payload: Payload, context: KnexRequestContext, document: UiDocument) {
+export async function loadWorkspaceSalesSources(payload: Payload, context: KnexRequestContext, document: UiDocument, signal: AbortSignal) {
   const current = await actor(payload, context);
   const request = { payload, user: current.user };
   const output: Record<string, DataSourceBindingResult<unknown>> = {};
@@ -267,9 +345,9 @@ export async function loadWorkspaceSalesSources(payload: Payload, context: KnexR
     if (descriptor === undefined || descriptor.version !== binding.source.version || descriptor.structuralCompatibilityHash !== binding.structuralCompatibilityHash) throw new TypeError("Workspace Sales source binding is unavailable.");
     const selectedFields = binding.selectedFields ?? descriptor.outputFields?.filter(({ binding }) => binding === "required").map(({ id }) => id) ?? [];
     const permissions = [descriptor.permission, ...(descriptor.outputFields ?? []).filter(({ id }) => selectedFields.includes(id)).map(({ permission }) => permission)];
-    if (!(await Promise.all(permissions.map((permission) => allowed(payload, context, permission)))).every(Boolean)) { output[node.id] = { state: "insufficient-permission", problem: { code: "SOURCE_FIELD_PERMISSION_DENIED", status: 403 } }; continue; }
+    if (!(await Promise.all(permissions.map((permission) => allowed(payload, context, permission, undefined, signal)))).every(Boolean)) { output[node.id] = { state: "insufficient-permission", problem: { code: "SOURCE_FIELD_PERMISSION_DENIED", status: 403 } }; continue; }
     const recordScope = { kind: descriptor.id === salesOpportunitiesDescriptor.id ? "sales.opportunities" as const : "sales.tasks" as const };
-    const common = { actor: current.authorization, request, input: binding.input, query: { page: { number: 1, size: 25 }, filters: [], sort: [] }, selectedFields, recordScope, signal: new AbortController().signal };
+    const common = { actor: current.authorization, request, input: binding.input, query: { page: { number: 1, size: 25 }, filters: [], sort: [] }, selectedFields, recordScope, signal };
     const data = descriptor.id === salesOpportunitiesDescriptor.id ? await salesOpportunitiesHandler(common)
       : descriptor.id === salesTasksDescriptor.id ? await salesTasksHandler(common)
       : await salesTotalPotentialRevenueHandler(common);
@@ -278,7 +356,7 @@ export async function loadWorkspaceSalesSources(payload: Payload, context: KnexR
   return output;
 }
 
-export async function executeWorkspaceSalesAction(payload: Payload, context: KnexRequestContext, action: Readonly<{ id: string; version: number }>, input: unknown, idempotencyKey: string) {
+export async function executeWorkspaceSalesAction(payload: Payload, context: KnexRequestContext, action: Readonly<{ id: string; version: number }>, input: unknown, idempotencyKey: string, signal: AbortSignal) {
   const contribution = kNexSalesRegistry.scopedRegistration.contributions.actions.find((entry) => entry.id === action.id)?.value as { readonly descriptor?: { readonly id?: unknown; readonly version?: unknown } } | undefined;
   if (contribution?.descriptor?.id !== action.id || contribution.descriptor.version !== action.version) throw Object.assign(new Error("Workspace Sales action is unavailable."), { code: "NOT_FOUND" });
   const gateway = new RegisteredActionGateway(kNexSalesRegistry.scopedRegistration, {
@@ -290,7 +368,7 @@ export async function executeWorkspaceSalesAction(payload: Payload, context: Kne
     const recordId = typeof value === "object" && value !== null && "id" in value && typeof value.id === "string" ? value.id : undefined;
     return target(definition.descriptor.permission, recordId);
   }, { authorize: () => Object.freeze({}) }));
-  return gateway.execute({ correlationId: context.correlationId, rawRequest: { payload }, actionId: action.id, input, idempotencyKey, signal: new AbortController().signal });
+  return gateway.execute({ correlationId: context.correlationId, rawRequest: { payload }, actionId: action.id, input, idempotencyKey, signal });
 }
 `;
 }
@@ -495,7 +573,7 @@ export async function POST(request: Request) {
 
 function workspacePageMutationRouteSource(): string {
   return `import { kNexAuthority } from "../../../../../../k-nex-authority.js";
-import { kNexWorkspacePages, kNexWorkspacePageScope } from "../../../../../../k-nex-workspace-pages.js";
+import { kNexWorkspacePages, kNexWorkspacePageScope, openWorkspacePageSession } from "../../../../../../k-nex-workspace-pages.js";
 import { exactFields, idempotencyField, integerField, openWorkspaceForm, openWorkspaceJson, optionalTextField, textField, workspaceMutationError, workspaceRedirect } from "../../../../../../k-nex-workspace-page-http.js";
 
 export const dynamic = "force-dynamic";
@@ -512,28 +590,37 @@ export async function POST(request: Request, { params }: Readonly<{ params: Prom
       const service = kNexWorkspacePages(payload).service;
       if (operation === "autosave") {
         if (keys !== "document\\0editorSessionId\\0expectedRevision\\0idempotencyKey") throw new TypeError("Workspace autosave fields are invalid.");
+        const session = await openWorkspacePageSession(payload, context, pageId, "edit", context.correlationId);
         try {
-          const saved = await service.autosave(context, kNexWorkspacePageScope, pageId, value);
+          const saved = await service.autosave(context, kNexWorkspacePageScope, pageId, value, session.signal);
           return Response.json({ status: "saved", workingCopy: { revision: saved.revision, document: saved.document } }, { headers: { "cache-control": "no-store" } });
         } catch (error) {
           if (typeof error === "object" && error !== null && "code" in error && error.code === "REVISION_CONFLICT") {
-            const detail = await service.detail(context, kNexWorkspacePageScope, pageId, "edit");
+            const detail = await service.detail(context, kNexWorkspacePageScope, pageId, "edit", session.signal);
             return Response.json({ status: "conflict", workingCopy: { revision: detail.workingCopy!.revision, document: detail.workingCopy!.document } }, { status: 409, headers: { "cache-control": "no-store" } });
           }
           throw error;
-        }
+        } finally { session.close(); }
       }
       if (operation === "publish") {
         if (keys !== "idempotencyKey\\0workingCopyRevision" || !Number.isSafeInteger(value.workingCopyRevision) || typeof value.idempotencyKey !== "string") throw new TypeError("Workspace publish fields are invalid.");
-        const receipt = await service.publish(context, kNexWorkspacePageScope, pageId, { workingCopyRevision: value.workingCopyRevision as number, idempotencyKey: value.idempotencyKey });
-        return Response.json({ receipt }, { headers: { "cache-control": "no-store" } });
+        const session = await openWorkspacePageSession(payload, context, pageId, "edit", context.correlationId);
+        try {
+          const receipt = await service.publish(context, kNexWorkspacePageScope, pageId, { workingCopyRevision: value.workingCopyRevision as number, idempotencyKey: value.idempotencyKey }, session.signal);
+          return Response.json({ receipt }, { headers: { "cache-control": "no-store" } });
+        } finally { session.close(); }
       }
       if (keys !== "idempotencyKey\\0revisionId" || typeof value.revisionId !== "string" || typeof value.idempotencyKey !== "string") throw new TypeError("Workspace rollback fields are invalid.");
-      const receipt = await service.rollback(context, kNexWorkspacePageScope, pageId, value.revisionId, value.idempotencyKey);
-      return Response.json({ receipt }, { headers: { "cache-control": "no-store" } });
+      const session = await openWorkspacePageSession(payload, context, pageId, "edit", context.correlationId);
+      try {
+        const receipt = await service.rollback(context, kNexWorkspacePageScope, pageId, value.revisionId, value.idempotencyKey, session.signal);
+        return Response.json({ receipt }, { headers: { "cache-control": "no-store" } });
+      } finally { session.close(); }
     }
     const { payload, context, form } = await openWorkspaceForm(request, \`workspace-page-\${operation}\`);
     const service = kNexWorkspacePages(payload).service;
+    const session = await openWorkspacePageSession(payload, context, pageId, "edit", context.correlationId);
+    try {
     if (operation === "metadata") {
       exactFields(form, ["description", "expectedRevision", "idempotencyKey", "order", "parentNavigationId", "themeRevision", "title"]);
       await service.updateMetadata(context, kNexWorkspacePageScope, pageId, {
@@ -541,10 +628,10 @@ export async function POST(request: Request, { params }: Readonly<{ params: Prom
         ...(optionalTextField(form, "description", 320) === undefined ? {} : { description: optionalTextField(form, "description", 320) }),
         placementSelection: { parentNavigationId: textField(form, "parentNavigationId", 1, 128), order: integerField(form, "order", 0, 1_000_000) },
         themeSelection: form.get("themeRevision"), idempotencyKey: idempotencyField(form)
-      });
+      }, session.signal);
     } else if (operation === "archive") {
       exactFields(form, ["expectedRevision", "idempotencyKey"]);
-      await service.archive(context, kNexWorkspacePageScope, pageId, integerField(form, "expectedRevision", 1, 1_000_000_000), idempotencyField(form));
+      await service.archive(context, kNexWorkspacePageScope, pageId, integerField(form, "expectedRevision", 1, 1_000_000_000), idempotencyField(form), session.signal);
       return workspaceRedirect("/system/workspace-pages");
     } else {
       exactFields(form, ["assignment", "expectedAccessRevision", "expectedPageRevision", "idempotencyKey"], ["assignment"]);
@@ -567,9 +654,10 @@ export async function POST(request: Request, { params }: Readonly<{ params: Prom
       await service.replaceAccess(context, kNexWorkspacePageScope, pageId, {
         expectedPageRevision: integerField(form, "expectedPageRevision", 1, 1_000_000_000), expectedAccessRevision: integerField(form, "expectedAccessRevision", 0, 1_000_000_000),
         assignments: parsed.map(({ kind, id, capability }) => ({ subject: kind === "role" ? { kind, roleId: id } : { kind, userId: id }, capability })), idempotencyKey: idempotencyField(form)
-      });
+      }, session.signal);
     }
     return workspaceRedirect(\`/system/workspace-pages/\${encodeURIComponent(pageId)}\`);
+    } finally { session.close(); }
   } catch (error) { return workspaceMutationError(error); }
 }
 `;
@@ -597,13 +685,16 @@ function workspacePageSessionRouteSource(): string {
 
 import { bootKnexApplication } from "../../../../../../boot.js";
 import { kNexRequestContext } from "../../../../../../k-nex-authority.js";
-import { kNexWorkspacePages, kNexWorkspacePageScope } from "../../../../../../k-nex-workspace-pages.js";
+import { openWorkspacePageSession } from "../../../../../../k-nex-workspace-pages.js";
 
 export const dynamic = "force-dynamic";
 export async function GET(_request: Request, { params }: Readonly<{ params: Promise<{ pageId: string }> }>) {
   try {
-    const detail = await kNexWorkspacePages(await bootKnexApplication("workspace-web")).service.detail(kNexRequestContext(await getHeaders(), "workspace-page-session"), kNexWorkspacePageScope, (await params).pageId, "view");
-    return Response.json({ pageRevision: detail.page.revision, accessRevision: detail.page.accessRevision }, { headers: { "cache-control": "no-store" } });
+    const payload = await bootKnexApplication("workspace-web");
+    const context = kNexRequestContext(await getHeaders(), "workspace-page-session");
+    const session = await openWorkspacePageSession(payload, context, (await params).pageId, "view", context.correlationId);
+    try { return Response.json({ pageRevision: session.detail.page.revision, accessRevision: session.detail.page.accessRevision }, { headers: { "cache-control": "no-store" } }); }
+    finally { session.close(); }
   } catch {
     return Response.json({ code: "NOT_FOUND" }, { status: 404, headers: { "cache-control": "no-store" } });
   }
@@ -615,7 +706,7 @@ function workspaceSalesActionRouteSource(): string {
   return `import type { UiDocument, UiNode } from "@k-nex/contracts";
 
 import { executeWorkspaceSalesAction } from "../../../../../../../k-nex-sales-workspace.js";
-import { kNexWorkspacePages, kNexWorkspacePageScope } from "../../../../../../../k-nex-workspace-pages.js";
+import { openWorkspacePageSession } from "../../../../../../../k-nex-workspace-pages.js";
 import { openWorkspaceJson, workspaceMutationError } from "../../../../../../../k-nex-workspace-page-http.js";
 
 export const dynamic = "force-dynamic";
@@ -639,17 +730,20 @@ export async function POST(request: Request, { params }: Readonly<{ params: Prom
   try {
     const { payload, context, body } = await openWorkspaceJson(request, "workspace-sales-action");
     const { pageId, actionId } = await params;
-    let detail;
-    try { detail = await kNexWorkspacePages(payload).service.detail(context, kNexWorkspacePageScope, pageId, "view"); }
+    let session;
+    try { session = await openWorkspacePageSession(payload, context, pageId, "view", context.correlationId); }
     catch { return notFound(); }
-    if (detail.page.state !== "published" || detail.impact.state !== "ready" || detail.publication === undefined) return notFound();
-    const action = boundAction(detail.publication.revision.document, actionId);
-    if (action === undefined) return notFound();
-    if (body === null || typeof body !== "object" || Array.isArray(body) || Object.keys(body).sort().join("\\0") !== "idempotencyKey\\0input") throw new TypeError("Workspace Sales action body is invalid.");
-    const value = body as Record<string, unknown>;
-    if (typeof value.idempotencyKey !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._:-]{7,159}$/u.test(value.idempotencyKey)) throw new TypeError("Workspace Sales idempotency key is invalid.");
-    const result = await executeWorkspaceSalesAction(payload, context, action, value.input, value.idempotencyKey);
-    return Response.json(result.body, { status: result.status, headers: { "cache-control": "no-store" } });
+    try {
+      const detail = session.detail;
+      if (detail.page.state !== "published" || detail.impact.state !== "ready" || detail.publication === undefined) return notFound();
+      const action = boundAction(detail.publication.revision.document, actionId);
+      if (action === undefined) return notFound();
+      if (body === null || typeof body !== "object" || Array.isArray(body) || Object.keys(body).sort().join("\\0") !== "idempotencyKey\\0input") throw new TypeError("Workspace Sales action body is invalid.");
+      const value = body as Record<string, unknown>;
+      if (typeof value.idempotencyKey !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._:-]{7,159}$/u.test(value.idempotencyKey)) throw new TypeError("Workspace Sales idempotency key is invalid.");
+      const result = await executeWorkspaceSalesAction(payload, context, action, value.input, value.idempotencyKey, session.signal);
+      return Response.json(result.body, { status: result.status, headers: { "cache-control": "no-store" } });
+    } finally { session.close(); }
   } catch (error) { return workspaceMutationError(error); }
 }
 `;
@@ -693,7 +787,7 @@ function contribution(kind: "blocks" | "sources" | "actions", id: string, versio
 
 async function workspaceBuilderProfile(payload: Payload, context: KnexRequestContext, signal: AbortSignal) {
   if (signal.aborted) throw new TypeError("Workspace document validation was revoked.");
-  const permissions = new Set(await workspaceSalesPermissions(payload, context));
+  const permissions = new Set(await workspaceSalesPermissions(payload, context, signal));
   if (signal.aborted) throw new TypeError("Workspace document validation was revoked.");
   const sources = [salesOpportunitiesDescriptor, salesTasksDescriptor, salesTotalPotentialRevenueDescriptor].flatMap((candidate) => {
     const registered = contribution("sources", candidate.id, candidate.version) as typeof candidate | undefined;
@@ -717,7 +811,11 @@ async function workspaceBuilderProfile(payload: Payload, context: KnexRequestCon
 
 function workspaceDocumentValidator(payload: Payload): WorkspacePageDocumentValidator<KnexRequestContext> {
   return {
-    async validateChange({ context, previous, document, signal }) { return (await workspaceBuilderProfile(payload, context, signal)).validateChange(previous, document); },
+    async validateChange({ context, previous, document, signal }) {
+      const profile = await workspaceBuilderProfile(payload, context, signal);
+      profile.validateChange(previous, { ...document, version: previous.version });
+      return profile.validateDocument(document);
+    },
     async validateDocument({ context, document, signal }) { return (await workspaceBuilderProfile(payload, context, signal)).validateDocument(document); }
   };
 }
@@ -749,6 +847,14 @@ function createRuntime(payload: Payload) {
   const authority = kNexAuthority(payload);
   const store = new PostgresWorkspacePageStore(payload.db.pool as RuntimeExtensionPool);
   const folders = new PostgresWorkspaceNavigationStore(payload.db.pool as RuntimeExtensionPool);
+  const sessions = new WorkspacePageSessionRegistry();
+  const synchronizeInvalidations = async () => {
+    const state = await authority.store.readState(scope.applicationId, scope.environment);
+    if (state === undefined) throw new TypeError("Workspace authority state is unavailable.");
+    sessions.invalidate({ ...scope, authorizationRevision: state.authorizationRevision, lifecycleRevision: state.lifecycleRevision });
+    for (const page of await store.list(scope)) sessions.invalidate({ ...scope, pageId: page.identity.pageId, authorizationRevision: state.authorizationRevision, lifecycleRevision: state.lifecycleRevision, accessRevision: page.accessRevision, pageRevision: page.revision });
+    return state;
+  };
   const acl = new ExactWorkspacePageAclPolicy<KnexRequestContext>(async ({ decision, signal }) => {
     if (signal.aborted) return { roleIds: [], ownerOverride: false };
     const state = await authority.store.readState(scope.applicationId, scope.environment);
@@ -811,7 +917,8 @@ function createRuntime(payload: Payload) {
     },
     now: () => new Date()
   });
-  return Object.freeze({ service, store, folders, authority, resolvePlacement });
+  listenForInvalidations(payload, synchronizeInvalidations);
+  return Object.freeze({ service, store, folders, authority, sessions, synchronizeInvalidations, resolvePlacement });
 }
 
 export const kNexWorkspacePageScope = scope;
@@ -820,6 +927,14 @@ export function kNexWorkspacePages(payload: Payload) {
   let runtime = runtimes.get(payload);
   if (runtime === undefined) { runtime = createRuntime(payload); runtimes.set(payload, runtime); }
   return runtime;
+}
+
+export async function openWorkspacePageSession(payload: Payload, context: KnexRequestContext, pageId: string, capability: "view" | "edit", sessionId: string) {
+  const runtime = kNexWorkspacePages(payload);
+  const detail = await runtime.service.detail(context, scope, pageId, capability);
+  const state = await runtime.synchronizeInvalidations();
+  const session = runtime.sessions.open({ ...scope, pageId, sessionId, authorizationRevision: state.authorizationRevision, lifecycleRevision: state.lifecycleRevision, accessRevision: detail.page.accessRevision, pageRevision: detail.page.revision });
+  return Object.freeze({ detail, signal: session.signal, close: session.close });
 }
 
 async function folderDecision(payload: Payload, context: KnexRequestContext, operation: string) {

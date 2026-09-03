@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { createServer } from "node:net";
 import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -8,6 +8,7 @@ import { join, resolve } from "node:path";
 import test from "node:test";
 
 import { applyCreateKnexApplication, planCreateKnexApplication } from "@k-nex/composition";
+import { PackageReleaseManifestSchema, canonicalJson } from "@k-nex/contracts";
 import { PostgresAuthorizationStore } from "@k-nex/payload-adapter";
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import pg from "pg";
@@ -99,6 +100,19 @@ async function login(origin, email, password) {
   return { body, cookie: cookie(response) };
 }
 
+function verifiedPackageSource(manifestInput, directory) {
+  const manifest = PackageReleaseManifestSchema.parse(manifestInput);
+  const release = Object.freeze({});
+  const authority = {
+    async verify() { throw new Error("Fixture authority accepts only its issued release."); },
+    read(token) {
+      if (token !== release) throw new Error("Fixture release was not issued by this authority.");
+      return { manifest, digest: `sha256:${createHash("sha256").update(canonicalJson(manifest)).digest("hex")}`, attestation: Object.freeze({}) };
+    }
+  };
+  return { kind: "packed-mirror", directory, authority, release };
+}
+
 test("P12.9 generated app completes the durable authorized workspace journey", { timeout: 420_000 }, async () => {
   const container = await new PostgreSqlContainer(POSTGRES_IMAGE).withDatabase("p12_generated").withStartupTimeout(120_000).start();
   const root = realpathSync(mkdtempSync(join(tmpdir(), "p12-generated-auth-")));
@@ -118,10 +132,11 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
   let applicationProcess;
   let workerProcess;
   let pool;
+  let notificationClient;
   let browser;
   try {
     const releaseManifest = JSON.parse(readFileSync(resolve(repositoryRoot, "releases/1.0.0/package-release-manifest.json"), "utf8"));
-    const packageSource = { kind: "packed-mirror", directory: resolve(repositoryRoot, "fixtures/customer-gate-1/packages"), releaseManifest };
+    const packageSource = verifiedPackageSource(releaseManifest, resolve(repositoryRoot, "fixtures/customer-gate-1/packages"));
     const plan = planCreateKnexApplication({ applicationId, applicationName: "P12 Auth Proof", theme: "minimal", database: "external", packageSource });
     assert.equal(Object.values(plan.files).some((source) => source.includes(ownerEmail) || source.includes(ownerPassword) || source.includes(limitedPassword)), false);
     applyCreateKnexApplication(plan, application);
@@ -278,6 +293,8 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
       await transaction.write({ kind: "assignment", assignment: { schemaVersion: 1, id: "customer.workspace-viewer.assignment", applicationId, roleId: "customer.workspace-viewer", principal: { kind: "user", id: limitedUserId }, state: "active", revision: 0 } });
       await transaction.write({ kind: "role", role: { schemaVersion: 1, id: "customer.sales-manager", applicationId, label: "Sales manager", revision: 0 } });
       await transaction.write({ kind: "grant", grant: { schemaVersion: 1, id: "customer.sales-manager.workspace", applicationId, roleId: "customer.sales-manager", permissionId: "system.workspace-pages.read", owner: { kind: "platform", namespace: "system" }, revision: 0 } });
+      await transaction.write({ kind: "grant", grant: { schemaVersion: 1, id: "customer.sales-manager.workspace-edit", applicationId, roleId: "customer.sales-manager", permissionId: "system.workspace-pages.edit", owner: { kind: "platform", namespace: "system" }, revision: 0 } });
+      await transaction.write({ kind: "grant", grant: { schemaVersion: 1, id: "customer.sales-manager.workspace-publish", applicationId, roleId: "customer.sales-manager", permissionId: "system.workspace-pages.publish", owner: { kind: "platform", namespace: "system" }, revision: 0 } });
       for (const permissionId of [
         "sales.navigation.read", "sales.tasks.read", "sales.tasks.title.read", "sales.tasks.status.read", "sales.tasks.revenue.read",
         "sales.opportunities.read", "sales.opportunities.name.read", "sales.opportunities.stage.read", "sales.opportunities.value.read", "sales.opportunities.write"
@@ -314,12 +331,21 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     assert.equal(replayWorkspace.status, 307);
     assert.equal(replayWorkspace.headers.get("location"), "/login");
 
+    notificationClient = await pool.connect();
+    const notificationTypes = new Set();
+    notificationClient.on("notification", ({ channel, payload }) => {
+      if (channel === "k_nex_runtime_invalidation" && payload) notificationTypes.add(JSON.parse(payload).type);
+    });
+    await notificationClient.query("LISTEN k_nex_runtime_invalidation");
     workerProcess = start("node", ["dist/k-nex-worker.js"], { cwd: application, env: applicationEnvironment });
     await until(async () => workerProcess.output().includes("K_NEX_WORKER_READY"), `Generated worker did not start.\n${workerProcess.output()}`, workerProcess.child);
     await until(async () => {
       const result = await pool.query("select count(*)::int as count from k_nex_authorization_outbox where application_id=$1 and environment=$2 and status<>'delivered'", [applicationId, environmentName]);
       return result.rows[0].count === 0;
     }, "Authorization outbox did not converge.", workerProcess.child);
+    await until(async () => notificationTypes.has("authorization") && notificationTypes.has("workspace-page"), "Generated worker did not publish both invalidation classes.", workerProcess.child);
+    notificationClient.release();
+    notificationClient = undefined;
     assert.equal(workerProcess.output().includes(ownerEmail) || workerProcess.output().includes(ownerPassword) || workerProcess.output().includes(limitedPassword) || workerProcess.output().includes(managerPassword), false);
     await stop(workerProcess.child, "authorization worker");
     workerProcess = undefined;
@@ -354,7 +380,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     const access = new URLSearchParams({ expectedPageRevision: String(themedPageState.pageRevision), expectedAccessRevision: String(themedPageState.accessRevision), idempotencyKey: `workspace-access-${randomUUID()}` });
     access.append("assignment", `user|${ownerUserId}|edit`);
     access.append("assignment", "role|customer.sales-manager|view");
-    access.append("assignment", `user|${managerUserId}|view`);
+    access.append("assignment", `user|${managerUserId}|edit`);
     const replaceAccess = await fetch(`${applicationProcess.origin}/api/k-nex/workspace-pages/${encodeURIComponent(pageId)}/access`, {
       method: "POST", redirect: "manual",
       headers: { "content-type": "application/x-www-form-urlencoded", cookie: restartedOwner.cookie.header, origin: applicationProcess.origin }, body: access
@@ -444,9 +470,16 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     await managerPage.waitForURL(`${applicationProcess.origin}/`);
     await managerPage.goto(`${applicationProcess.origin}/workspace/pages/${encodeURIComponent(pageId)}`);
     await managerPage.getByRole("region", { name: "Sales opportunity Kanban" }).waitFor();
+    const managerEditorPage = await managerContext.newPage();
+    const managerEditorResponse = await managerEditorPage.goto(`${applicationProcess.origin}/workspace/pages/${encodeURIComponent(pageId)}/edit`);
+    assert.equal(managerEditorResponse?.status(), 200, "An assigned editor must enter the current editor route.");
+    await managerEditorPage.getByRole("region", { name: "Canvas block keyboard controls" }).waitFor();
 
     workerProcess = start("node", ["dist/k-nex-worker.js"], { cwd: application, env: applicationEnvironment });
     await until(async () => workerProcess.output().includes("K_NEX_WORKER_READY"), `Generated worker did not restart.\n${workerProcess.output()}`, workerProcess.child);
+    await until(async () => (await pool.query("select count(*)::int as count from k_nex_workspace_page_outbox where application_id=$1 and environment=$2 and status<>'delivered'", [applicationId, environmentName])).rows[0].count === 0, "Workspace page outbox did not converge after worker restart.", workerProcess.child);
+    await stop(workerProcess.child, "lost-notification boundary");
+    workerProcess = undefined;
     const currentPageSession = await fetch(`${applicationProcess.origin}/api/k-nex/workspace-pages/${encodeURIComponent(pageId)}/session`, { headers: { cookie: restartedOwner.cookie.header } });
     assert.equal(currentPageSession.status, 200);
     const currentPageState = await currentPageSession.json();
@@ -458,7 +491,19 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     });
     assert.equal(revoke.status, 303);
     await managerPage.getByRole("alert").getByText("Page access revoked", { exact: true }).waitFor({ timeout: 10_000 });
+    await managerEditorPage.getByRole("alert").getByText("Editor access revoked", { exact: true }).waitFor({ timeout: 10_000 });
     assert.equal((await fetch(`${applicationProcess.origin}/workspace/pages/${encodeURIComponent(pageId)}`, { headers: { cookie: manager.cookie.header } })).status, 404);
+    const revokedNavigation = await fetch(`${applicationProcess.origin}/`, { headers: { cookie: manager.cookie.header } });
+    assert.equal((await revokedNavigation.text()).includes("Sales command center"), false, "Revoked page must leave current sidebar authority.");
+    const staleWorkingCopy = (await pool.query("select working_copy_revision from k_nex_workspace_pages where application_id=$1 and environment=$2 and page_id=$3", [applicationId, environmentName, pageId])).rows[0].working_copy_revision;
+    const stalePublication = await fetch(`${applicationProcess.origin}/api/k-nex/workspace-pages/${encodeURIComponent(pageId)}/publish`, {
+      method: "POST", headers: { "content-type": "application/json", cookie: manager.cookie.header, origin: applicationProcess.origin },
+      body: JSON.stringify({ workingCopyRevision: staleWorkingCopy, idempotencyKey: `workspace-stale-publish-${randomUUID()}` })
+    });
+    assert.equal(stalePublication.status, 404, "Revoked editor publication authority cannot commit.");
+    workerProcess = start("node", ["dist/k-nex-worker.js"], { cwd: application, env: applicationEnvironment });
+    await until(async () => workerProcess.output().includes("K_NEX_WORKER_READY"), `Generated worker did not recover the lost page invalidation.\n${workerProcess.output()}`, workerProcess.child);
+    await until(async () => (await pool.query("select count(*)::int as count from k_nex_workspace_page_outbox where application_id=$1 and environment=$2 and status<>'delivered'", [applicationId, environmentName])).rows[0].count === 0, "Lost workspace invalidation did not converge from the durable outbox.", workerProcess.child);
 
     const rollback = await fetch(`${applicationProcess.origin}/api/k-nex/workspace-pages/${encodeURIComponent(pageId)}/rollback`, {
       method: "POST",
@@ -495,6 +540,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     await page.waitForFunction(() => document.activeElement?.getAttribute("aria-label") === "Open navigation");
     assert.equal(await openNavigation.evaluate((element) => document.activeElement === element), true);
     await context.close();
+    await browser.close();
     browser = undefined;
 
     await stop(workerProcess.child, "workspace worker restart boundary");
@@ -518,6 +564,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
   } finally {
     await stop(workerProcess?.child).catch(() => {});
     await stop(applicationProcess?.child).catch(() => {});
+    notificationClient?.release();
     await pool?.end().catch(() => {});
     await browser?.close().catch(() => {});
     await container.stop();

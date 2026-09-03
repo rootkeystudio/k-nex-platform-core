@@ -156,12 +156,20 @@ export const kNexWorkspacePageSchemaMigration = Object.freeze({
         "page_revision" integer NOT NULL,
         "event_json" jsonb NOT NULL,
         "status" varchar(16) DEFAULT 'pending' NOT NULL,
+        "attempt_count" integer DEFAULT 0 NOT NULL,
+        "claimed_at" timestamp(3) with time zone,
+        "lease_expires_at" timestamp(3) with time zone,
+        "claim_token" uuid,
+        "last_error_code" varchar(64),
+        "dead_lettered_at" timestamp(3) with time zone,
         "created_at" timestamp(3) with time zone NOT NULL,
-        CONSTRAINT "k_nex_workspace_page_outbox_status_check" CHECK ("status" IN ('pending','delivered')),
+        CONSTRAINT "k_nex_workspace_page_outbox_status_check" CHECK ("status" IN ('pending','processing','delivered','dead-letter')),
+        CONSTRAINT "k_nex_workspace_page_outbox_attempt_count_check" CHECK ("attempt_count" >= 0),
         CONSTRAINT "k_nex_workspace_page_outbox_revision_check" CHECK ("page_revision" BETWEEN 1 AND 1000000000),
         CONSTRAINT "k_nex_workspace_page_outbox_json_check" CHECK (jsonb_typeof("event_json")='object')
       );
-      CREATE INDEX "k_nex_workspace_page_outbox_pending_idx" ON "k_nex_workspace_page_outbox" ("application_id", "environment", "page_revision", "event_id") WHERE "status"='pending';
+      CREATE INDEX "k_nex_workspace_page_outbox_pending_idx" ON "k_nex_workspace_page_outbox" ("application_id", "attempt_count", "page_revision", "event_id") WHERE "status"='pending';
+      CREATE INDEX "k_nex_workspace_page_outbox_expired_lease_idx" ON "k_nex_workspace_page_outbox" ("lease_expires_at", "event_id") WHERE "status"='processing';
 
       CREATE FUNCTION "k_nex_workspace_reject_immutable_mutation"() RETURNS trigger AS $$
       BEGIN

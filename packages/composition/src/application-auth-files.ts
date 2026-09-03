@@ -167,7 +167,7 @@ import { kNexIdentity, payloadSecret } from "./k-nex-identity.js";
 const lifetimeMs = 15 * 60 * 1_000;
 
 type BootstrapTokenClient = {
-  query(text: string, values: unknown[]): Promise<{ rowCount: number }>;
+  query(text: string, values?: unknown[]): Promise<{ rowCount: number }>;
   release(): void;
 };
 
@@ -577,26 +577,46 @@ process.exit(0);
 }
 
 function workerSource(): string {
-  return `import { AuthorizationOutboxWorker, PostgresAuthorizationOutboxDispatcher } from "@k-nex/payload-adapter";
+  return `import { canonicalJson } from "@k-nex/contracts";
+import { AuthorizationOutboxWorker, PostgresAuthorizationOutboxDispatcher, PostgresWorkspacePageOutboxDispatcher, WorkspacePageOutboxWorker, type RuntimeExtensionPool } from "@k-nex/payload-adapter";
 
 import { bootKnexApplication } from "./boot.js";
 import { kNexIdentity } from "./k-nex-identity.js";
 
 const payload = await bootKnexApplication("authorization-worker");
-const dispatcher = new PostgresAuthorizationOutboxDispatcher(payload.db.pool as never, { applicationId: kNexIdentity.applicationId });
-const worker = new AuthorizationOutboxWorker(dispatcher, {
-  publish: async (invalidation) => {
+const channel = "k_nex_runtime_invalidation";
+const pool = payload.db.pool as RuntimeExtensionPool;
+async function notify(type: "authorization" | "workspace-page", invalidation: unknown, signal: AbortSignal) {
+  if (signal.aborted) throw new Error("Runtime invalidation publication was aborted.");
+  await pool.query("select pg_notify($1,$2)", [channel, canonicalJson({ type, invalidation })]);
+  if (signal.aborted) throw new Error("Runtime invalidation publication was aborted.");
+}
+const authorizationWorker = new AuthorizationOutboxWorker(
+  new PostgresAuthorizationOutboxDispatcher(pool, { applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment }),
+  { publish: (invalidation, signal) => {
     if (invalidation.applicationId !== kNexIdentity.applicationId || invalidation.environment !== kNexIdentity.environment) throw new Error("Authorization invalidation identity mismatch.");
-  }
-}, { onError: () => console.error("K_NEX_AUTHORIZATION_OUTBOX_ERROR") });
-worker.start();
+    return notify("authorization", invalidation, signal);
+  } },
+  { onError: () => console.error("K_NEX_AUTHORIZATION_OUTBOX_ERROR") }
+);
+const workspacePageWorker = new WorkspacePageOutboxWorker(
+  new PostgresWorkspacePageOutboxDispatcher(pool, { applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment }),
+  { publish: (invalidation, signal) => {
+    if (invalidation.applicationId !== kNexIdentity.applicationId || invalidation.environment !== kNexIdentity.environment) throw new Error("Workspace page invalidation identity mismatch.");
+    return notify("workspace-page", invalidation, signal);
+  } },
+  { onError: () => console.error("K_NEX_WORKSPACE_PAGE_OUTBOX_ERROR") }
+);
+authorizationWorker.start();
+workspacePageWorker.start();
 console.log("K_NEX_WORKER_READY");
 await new Promise<void>((resolve) => {
   const stop = () => { process.off("SIGINT", stop); process.off("SIGTERM", stop); resolve(); };
   process.on("SIGINT", stop);
   process.on("SIGTERM", stop);
 });
-worker.stop();
+authorizationWorker.stop();
+workspacePageWorker.stop();
 await payload.destroy();
 process.exit(0);
 `;
