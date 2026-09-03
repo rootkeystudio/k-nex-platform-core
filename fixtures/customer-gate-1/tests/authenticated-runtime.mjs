@@ -262,18 +262,18 @@ const createdTask = (await createResponse.json()).data;
 const updateResponse = await callAction(login.token, "sales.task.update", { id: createdTask.id, status: "done" }, "action-update-1");
 assert.equal(updateResponse.status, 200);
 assert.equal((await updateResponse.json()).data.status, "done");
-const stageResponse = await callAction(login.token, "sales.opportunity.stage.update", { id: String(leadOpportunity.id), stage: "qualified" }, "action-stage-1");
+const stageResponse = await callAction(login.token, "sales.opportunity.stage.update", { id: String(leadOpportunity.id), expectedStage: "lead", expectedRevision: leadOpportunity.updatedAt, stage: "qualified" }, "action-stage-1");
 assert.equal(stageResponse.status, 200);
 assert.equal((await stageResponse.json()).data.stage, "qualified");
 const forbiddenTask = await callAction(login.token, "sales.task.update", { id: String(doneTask.id), status: "open" }, "action-forbidden-task");
 assert.equal(forbiddenTask.status, 403);
 assert.equal((await forbiddenTask.json()).code, "ACTION_TARGET_FORBIDDEN");
-const forbiddenOpportunity = await callAction(login.token, "sales.opportunity.stage.update", { id: String(wonOpportunity.id), stage: "lost" }, "action-forbidden-opportunity");
+const forbiddenOpportunity = await callAction(login.token, "sales.opportunity.stage.update", { id: String(wonOpportunity.id), expectedStage: "won", expectedRevision: wonOpportunity.updatedAt, stage: "lost" }, "action-forbidden-opportunity");
 assert.equal(forbiddenOpportunity.status, 403);
 assert.equal((await forbiddenOpportunity.json()).code, "ACTION_TARGET_FORBIDDEN");
 const doneTaskUpdate = await callAction(doneLogin.token, "sales.task.update", { id: String(doneTask.id), title: "Done actor mutation" }, "action-done-task");
 assert.equal(doneTaskUpdate.status, 200);
-const doneOpportunityUpdate = await callAction(doneLogin.token, "sales.opportunity.stage.update", { id: String(wonOpportunity.id), stage: "won" }, "action-done-opportunity");
+const doneOpportunityUpdate = await callAction(doneLogin.token, "sales.opportunity.stage.update", { id: String(wonOpportunity.id), expectedStage: "won", expectedRevision: wonOpportunity.updatedAt, stage: "won" }, "action-done-opportunity");
 assert.equal(doneOpportunityUpdate.status, 200);
 
 const unauthenticatedRequest = await createPayloadRequest({
@@ -319,6 +319,7 @@ assert.deepEqual(inventory.plugins, [{
     },
     blocks: {
       "sales.opportunity-detail": "required",
+      "sales.opportunity-kanban": "required",
       "sales.opportunity-list": "required",
       "sales.revenue-metric": "required",
       "sales.settings-summary": "required",
@@ -355,6 +356,7 @@ assert.deepEqual(inventory.plugins, [{
       "sales.page.tasks": "required"
     },
     permissions: {
+      "sales.navigation.read": "required",
       "sales.opportunities.name.read": "required",
       "sales.opportunities.read": "required",
       "sales.opportunities.stage.read": "required",
@@ -414,7 +416,7 @@ assert.deepEqual(inventory.plugins, [{
   },
   actualContributions: {
     actions: ["sales.opportunity.stage.update", "sales.task.create", "sales.task.update"],
-    blocks: ["sales.opportunity-detail", "sales.opportunity-list", "sales.revenue-metric", "sales.settings-summary", "sales.task-quick-create", "sales.task-table"],
+    blocks: ["sales.opportunity-detail", "sales.opportunity-kanban", "sales.opportunity-list", "sales.revenue-metric", "sales.settings-summary", "sales.task-quick-create", "sales.task-table"],
     components: ["sales.detail.opportunity", "sales.form.task-quick-create", "sales.list.opportunities", "sales.metric.total-potential-revenue", "sales.status.pipeline-stage", "sales.table.tasks"],
     events: ["sales.event.opportunity-changed", "sales.event.task-changed"],
     healthAudit: ["sales.health.runtime"],
@@ -424,7 +426,7 @@ assert.deepEqual(inventory.plugins, [{
     migrations: ["sales.migration.initial"],
     navigation: ["sales.navigation.opportunities", "sales.navigation.overview", "sales.navigation.settings", "sales.navigation.tasks"],
     pageTemplates: ["sales.page.opportunities", "sales.page.overview", "sales.page.settings", "sales.page.tasks"],
-    permissions: ["sales.opportunities.name.read", "sales.opportunities.read", "sales.opportunities.stage.read", "sales.opportunities.value.read", "sales.opportunities.write", "sales.settings.read", "sales.settings.write", "sales.tasks.private-note.read", "sales.tasks.read", "sales.tasks.revenue.read", "sales.tasks.status.read", "sales.tasks.title.read", "sales.tasks.write"],
+    permissions: ["sales.navigation.read", "sales.opportunities.name.read", "sales.opportunities.read", "sales.opportunities.stage.read", "sales.opportunities.value.read", "sales.opportunities.write", "sales.settings.read", "sales.settings.write", "sales.tasks.private-note.read", "sales.tasks.read", "sales.tasks.revenue.read", "sales.tasks.status.read", "sales.tasks.title.read", "sales.tasks.write"],
     policyBindings: ["sales.policy.opportunities.name.read", "sales.policy.opportunities.read", "sales.policy.opportunities.stage.read", "sales.policy.opportunities.value.read", "sales.policy.opportunities.write", "sales.policy.tasks.private-note.read", "sales.policy.tasks.read", "sales.policy.tasks.revenue.read", "sales.policy.tasks.status.read", "sales.policy.tasks.title.read", "sales.policy.tasks.write"],
     realtimeTopics: ["sales.realtime.opportunities", "sales.realtime.tasks"],
     roleTemplates: ["sales.template.administrator", "sales.template.manager", "sales.template.representative", "sales.template.viewer"],

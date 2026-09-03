@@ -34,6 +34,7 @@
         },
         "blocks": {
           "sales.opportunity-detail": "required",
+          "sales.opportunity-kanban": "required",
           "sales.opportunity-list": "required",
           "sales.revenue-metric": "required",
           "sales.settings-summary": "required",
@@ -160,7 +161,7 @@
         "purge": "supported",
         "uninstall": "unsupported"
       },
-      "manifestDigest": "sha256:5962d6a1ef476301d20626c01576d9ee7350abbd24c837d133d070df0494afdf",
+      "manifestDigest": "sha256:23109fe4e53481f27bb5084fcc8ee6babfcb9ef729443d0a59092c5e33d5aea1",
       "optional": [],
       "package": "@k-nex/module-sales",
       "required": [],

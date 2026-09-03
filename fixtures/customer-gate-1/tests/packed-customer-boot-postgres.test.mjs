@@ -17,6 +17,16 @@ import { createFixtureDeploymentVerifier } from "../../../scripts/lib/fixture-de
 const POSTGRES_IMAGE = "postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94";
 const repositoryRoot = resolve(import.meta.dirname, "../../..");
 
+function applicationEnvironment(applicationId, secret, connectionString) {
+  return {
+    ...process.env,
+    DATABASE_URL: connectionString,
+    K_NEX_ENVIRONMENT: "production",
+    K_NEX_PUBLIC_ORIGIN: `https://${applicationId}.example.test`,
+    PAYLOAD_SECRET: secret
+  };
+}
+
 async function startPostgres() {
   let failure;
   for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -30,10 +40,11 @@ async function startPostgres() {
 }
 
 function bootCustomer(customerDirectory, customer, connectionString) {
+  const environment = applicationEnvironment(customer, `phase-8-${customer}-packed-boot-secret`, connectionString);
   return new Promise((resolveProcess, reject) => {
     const child = spawn(process.execPath, [resolve(import.meta.dirname, "packed-customer-boot-child.mjs"), customerDirectory, customer], {
       cwd: customerDirectory,
-      env: { ...process.env, DATABASE_URL: connectionString, NODE_ENV: "production", PAYLOAD_SECRET: `phase-8-${customer}-packed-boot-secret` },
+      env: { ...environment, DATABASE_URL: connectionString, NODE_ENV: "production" },
       stdio: ["ignore", "pipe", "pipe"]
     });
     let stdout = "";
@@ -60,7 +71,7 @@ async function protectedObservation(pool, inventory) {
         (select revision from k_nex_release_revision where application_id = $1) as revision,
         (select count(*)::int from k_nex_default_pages) as pages`, [inventory.applicationId]);
       const row = state.rows[0];
-      if (row.tasks !== "sales_tasks" || row.opportunities !== "sales_opportunities" || row.migrations !== 2 || row.revision !== 1 || row.pages !== 2) {
+      if (row.tasks !== "sales_tasks" || row.opportunities !== "sales_opportunities" || row.migrations !== 5 || row.revision !== 1 || row.pages !== 2) {
         response.writeHead(503).end();
         return;
       }
@@ -112,7 +123,7 @@ test("boots both customer apps from packed packages and verifies protected runti
       for (const command of generatedPlan.installCommands) {
         execFileSync(command[0], command.slice(1), { cwd: generatedApplication, env: process.env, stdio: "pipe", encoding: "utf8" });
       }
-      execFileSync("pnpm", ["build"], { cwd: generatedApplication, env: process.env, stdio: "pipe", encoding: "utf8" });
+      execFileSync("pnpm", ["build"], { cwd: generatedApplication, env: applicationEnvironment(applicationId, `phase-8-${applicationId}-packed-build-secret`, container.getConnectionUri()), stdio: "pipe", encoding: "utf8" });
       const database = `gate_eight_${label}`;
       await administrator.query(`create database ${database}`);
       const generatedUrl = new URL(container.getConnectionUri());
@@ -128,7 +139,7 @@ test("boots both customer apps from packed packages and verifies protected runti
         (select count(*)::int from payload_migrations) as migrations,
         (select revision from k_nex_release_revision where application_id = $1) as revision,
         (select count(*)::int from k_nex_default_pages) as pages`, [applicationId]);
-      assert.deepEqual(generatedState.rows, [{ tasks: "sales_tasks", opportunities: "sales_opportunities", migrations: 2, revision: 1, pages: 2 }]);
+      assert.deepEqual(generatedState.rows, [{ tasks: "sales_tasks", opportunities: "sales_opportunities", migrations: 5, revision: 1, pages: 2 }]);
     }
 
     assert.equal(pools.length, 1);
