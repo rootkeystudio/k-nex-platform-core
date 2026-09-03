@@ -443,19 +443,24 @@ test("preserves accepted artifacts while reconciling fresh revocation decisions 
 
     const release = releaseDefinition(9, "1.0.0", "accepted-bytes", { status: "compatible", windowId: "accepted-window", closesAt: "2026-08-30T09:00:00.000Z", migrationDigest: digest("9"), dataRevision: 1 });
     const acceptedCatalog = signedCatalog([release.entry], 1, "2026-08-29T09:01:00.000Z");
+    const artifactPolicy = { catalog: acceptedCatalog };
     const checkpoints = new PostgresCatalogCheckpointStore(pool, { applicationId: "customer-alpha", environment: "production" });
     const verifier = new ArtifactVerifier(new CatalogClient({ [catalogSigner.identity]: catalogSigner.publicKey }, checkpoints, () => now.valueOf()), { [publisher.identity]: publisher.publicKey });
-    const artifacts = new PostgresVerifiedArtifactStore(pool, verifier, fixtureCatalogMirror({ applicationId: "customer-alpha", environment: "production" }, { catalog: acceptedCatalog }), { applicationId: "customer-alpha", environment: "production" });
+    const artifacts = new PostgresVerifiedArtifactStore(pool, verifier, fixtureCatalogMirror({ applicationId: "customer-alpha", environment: "production" }, artifactPolicy), { applicationId: "customer-alpha", environment: "production" });
     const lifecycleArtifacts = stateArtifacts(pool, now);
     const storeA = lifecycleStore(pool, clock, lifecycleArtifacts);
     const storeB = lifecycleStore(pool, clock, lifecycleArtifacts);
     const acceptedRelease = verifiedRelease(release, acceptedCatalog);
     await artifacts.stage(acceptedRelease.stage);
     now = new Date("2026-08-29T09:02:00.000Z");
-    await verifier.currentSecurityDecision(signedCatalog([release.entry], 2, "2030-01-01T00:00:00.000Z"), {
+    artifactPolicy.catalog = undefined;
+    await assert.rejects(artifacts.resolve({ owner: acceptedRelease.stage.owner, generationId: release.generationId, artifactDigest: release.entry.artifactDigest }), { code: "ARTIFACT_UNAVAILABLE" });
+    const currentCatalog = signedCatalog([release.entry], 2, "2030-01-01T00:00:00.000Z");
+    await verifier.currentSecurityDecision(currentCatalog, {
       deliveryClass: "hot-application", id: release.entry.id, version: release.version, sourceCommit: source.commit,
       artifactDigest: release.entry.artifactDigest, manifestDigest: release.entry.manifestDigest, provenanceDigest: release.entry.provenanceDigest, sbomDigest: release.entry.sbomDigest
     });
+    artifactPolicy.catalog = currentCatalog;
     assert.equal((await artifacts.resolve({ owner: acceptedRelease.stage.owner, generationId: release.generationId, artifactDigest: release.entry.artifactDigest }))?.authority.generationId, release.generationId);
     await pool.query("update runtime_extension_artifacts set artifact_bytes=set_byte(artifact_bytes, 0, (get_byte(artifact_bytes, 0)+1)%256) where artifact_digest=$1", [release.entry.artifactDigest]);
     await assert.rejects(artifacts.read(release.entry.artifactDigest, acceptedRelease.authority.catalogDigest), { code: "ARTIFACT_INVALID" });

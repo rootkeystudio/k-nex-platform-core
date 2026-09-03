@@ -4,7 +4,7 @@
 - **Gate:** Gate 11
 - **Accepted base:** Phase 10 / PR #29
 - **Decision:** **READY FOR PHASE REVIEW**
-- **Review state:** Fifth owner-review finding fixed by refreshing both customer lockfiles against the exact current-v1 Sales archive; replacement exact-head focused CI, cumulative Gate 0–11, and re-review remain pending.
+- **Review state:** Sixth owner-review code findings fixed with one coherent current-v1 package closure, current migration evidence, and exact signed catalog policy; hosted release evidence refresh, replacement exact-head focused CI, cumulative Gate 0–11, and re-review remain pending.
 
 ## Scope proved
 
@@ -49,6 +49,8 @@ A staged Hot Application that needs generation-validated settings reserves one f
 - `fast-uri` is pinned to patched `3.1.6`; compatibility passed generated contract compilation and the 30-test architecture validator. `pnpm audit --audit-level high` reports no high-severity findings.
 - The canonical composition writer refreshed the committed current-v1 Sales package integrity in the Gate 1 resolved graph; its isolated reproducibility check passes.
 - Both customer lockfiles bind that same exact Sales archive digest; frozen customer-alpha and customer-beta installs pass without weakening integrity enforcement.
+- The complete changed current-v1 package closure, manifest, and customer locks move atomically; a pre-PostgreSQL packed ABI export check plus both packed customer boot paths prevent Sales/runtime drift.
+- Gate 1 migration evidence asserts catalog mirror revision 24 with predecessor 23 and the catalog/operations migration identities and tables. Artifact reconciliation separately proves missing catalog policy fails closed before installing the exact signed current snapshot.
 
 ## Known limits and next decision
 

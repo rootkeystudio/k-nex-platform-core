@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { posix, resolve } from "node:path";
 import { gunzipSync } from "node:zlib";
 
 const root = resolve(import.meta.dirname, "..");
@@ -24,6 +24,21 @@ function entries(archive) {
     offset = start + Math.ceil(size / 512) * 512;
   }
   return result;
+}
+
+function exportedNames(packed, path, seen = new Set()) {
+  if (seen.has(path)) return new Set();
+  seen.add(path);
+  const source = packed.get(path)?.toString("utf8");
+  assert.ok(source, `Packed ABI entrypoint ${path} is missing.`);
+  const names = new Set([...source.matchAll(/export\s+(?:async\s+)?(?:function|class|const|let|var)\s+([A-Za-z_$][\w$]*)/gu)].map((match) => match[1]));
+  for (const match of source.matchAll(/export\s*\{([^}]+)\}/gu)) {
+    for (const binding of match[1].split(",")) names.add(binding.trim().split(/\s+as\s+/u).at(-1));
+  }
+  for (const match of source.matchAll(/export\s*\*\s*from\s*["'](\.\/[^"']+)["']/gu)) {
+    for (const name of exportedNames(packed, posix.normalize(posix.join(posix.dirname(path), match[1])), seen)) names.add(name);
+  }
+  return names;
 }
 
 const archives = new Map();
@@ -64,4 +79,12 @@ for (const release of releases) for (const expected of release.packages) {
 
 assert.deepEqual([...archives.keys()].filter((identity) => identity.startsWith("@k-nex/")).sort(), [...releasedIdentities].sort(), "Packed release closure and manifest package sets differ.");
 for (const identity of releasedIdentities) assert.match(identity, /@1\.0\.0$/u, `First-party packed identity must remain v1.0.0: ${identity}`);
+const salesServer = archives.get("@k-nex/module-sales@1.0.0").packed.get("package/dist/server.js")?.toString("utf8");
+assert.ok(salesServer, "Packed Sales server entrypoint is missing.");
+const runtimeImports = [...salesServer.matchAll(/import\s*\{([^}]+)\}\s*from\s*["']@k-nex\/runtime["']/gu)]
+  .flatMap((match) => match[1].split(",").map((binding) => binding.trim().split(/\s+as\s+/u)[0]));
+const runtimeExports = exportedNames(archives.get("@k-nex/runtime@1.0.0").packed, "package/dist/index.js");
+assert.ok(runtimeImports.length > 0, "Packed Sales server must import its runtime ABI explicitly.");
+for (const name of runtimeImports) assert.ok(runtimeExports.has(name), `Packed @k-nex/runtime does not export ${name} required by packed Sales.`);
+process.stdout.write("P8_PACKED_ABI_EXPORT_PASS\n");
 process.stdout.write(`P8_PACKED_RELEASE_CLOSURE_PASS ${releasedIdentities.size}\n`);
