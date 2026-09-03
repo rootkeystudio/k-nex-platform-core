@@ -4,7 +4,7 @@ import { createOutboxRealtimeRelay, writeTransactionalOutboxEvent } from "@k-nex
 import { DataSourceGatewayError, definePluginRegistration, projectSystemSettingsValues } from "@k-nex/runtime";
 import { salesCreateTaskToolDescriptor, salesCreateTaskInputRuntimeSchema, salesCreateTaskOutputRuntimeSchema, salesEmptyInputRuntimeSchema, salesEventDescriptors, salesNavigationDescriptors, salesOpportunitiesDescriptor, salesOpportunitiesOutputRuntimeSchema, salesOpportunityStageInputRuntimeSchema, salesOpportunityStageOutputRuntimeSchema, salesOpportunityStageUpdateDescriptor, salesPageTemplates, salesPermissionDescriptors, salesPermissionPolicyBindings, salesRealtimeTopicDescriptors, salesReferenceMetadata, salesRouteDescriptors, salesRoleTemplates, salesSearchTasksDescriptor, salesTaskCreateDescriptor, salesTaskFields, salesTaskUpdateDescriptor, salesTasksDescriptor, salesTasksOutputRuntimeSchema, salesTotalPotentialRevenueDescriptor, salesTotalPotentialRevenueOutputRuntimeSchema, salesUiBlockDescriptors, salesUiComponentDescriptors, salesUpdateTaskInputRuntimeSchema, salesUpdateTaskOutputRuntimeSchema, salesWorkspaceSettingsDescriptor } from "./contracts.js";
 import { salesUiBlockDefinitions, salesUiComponentDefinitions } from "./ui.js";
-export { salesCreateTaskToolDescriptor, salesNavigationDescriptors, salesPermissionDescriptors, salesPermissionPolicyBindings, salesRouteDescriptors, salesRoleTemplates, salesSearchTasksDescriptor, salesTaskCreateDescriptor, salesTaskPageTemplate, salesTasksDescriptor, salesTotalPotentialRevenueDescriptor, salesWorkspaceSettingsDescriptor } from "./contracts.js";
+export { salesCreateTaskToolDescriptor, salesNavigationDescriptors, salesPermissionDescriptors, salesPermissionPolicyBindings, salesReferenceMetadata, salesRouteDescriptors, salesRoleTemplates, salesSearchTasksDescriptor, salesTaskCreateDescriptor, salesTaskPageTemplate, salesTasksDescriptor, salesTotalPotentialRevenueDescriptor, salesWorkspaceSettingsDescriptor } from "./contracts.js";
 const salesTaskFieldStorage = {
     title: "title",
     status: "status",
@@ -523,6 +523,17 @@ export const salesOpportunitiesCollection = {
     indexes: [{ fields: ["stage"] }]
 };
 export const salesDefaultSettings = projectSystemSettingsValues(salesWorkspaceSettingsDescriptor);
+const permissionPolicy = (namespace) => {
+    const executor = {
+        evaluate: ({ permissionId }) => ({ schemaVersion: 1, outcome: permissionId === namespace || permissionId.startsWith(`${namespace}.`) ? "allow" : "deny" })
+    };
+    return Object.freeze(executor);
+};
+/** Static domain policy executors bound by the host to the exact Sales generation. */
+export const salesPermissionPolicyExecutors = Object.freeze({
+    "sales.tasks.domain": permissionPolicy("sales.tasks"),
+    "sales.opportunities.domain": permissionPolicy("sales.opportunities")
+});
 export const salesRegistration = definePluginRegistration({
     pluginId: "module.sales",
     contracts: (context) => {

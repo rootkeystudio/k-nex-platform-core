@@ -62,11 +62,15 @@ import {
   createCurrentAuthorityTarget,
   createEffectiveAuthorizationRequest,
   createEffectiveAuthorizationCatalog,
-  createTrustedAuthorizationSession
+  createPlatformPluginPolicyExecutable,
+  createPlatformPluginRegistrationAuthorizationContribution,
+  createTrustedAuthorizationSession,
+  platformPermissionDescriptors
 } from "@k-nex/runtime";
 import type { Payload } from "payload";
 
 import { kNexIdentity } from "./k-nex-identity.js";
+import { kNexSalesRegistry } from "./k-nex-registry.js";
 
 export interface KnexRequestContext { readonly headers: Headers; readonly correlationId: string; }
 
@@ -93,12 +97,19 @@ function createRuntime(payload: Payload) {
   const store = new PostgresAuthorizationStore(payload.db.pool as RuntimeExtensionPool, {
     validate: (applicationId, subject) => applicationId === kNexIdentity.applicationId && subject.kind === "user" ? "accepted" : "rejected"
   });
+  const salesContribution = createPlatformPluginRegistrationAuthorizationContribution({ registration: kNexSalesRegistry.scopedRegistration, generation: kNexSalesRegistry.authorizationGeneration });
+  const salesExecutables = kNexSalesRegistry.policyBindings.map((binding) => {
+    const executor = kNexSalesRegistry.policyExecutors[binding.policyReference as keyof typeof kNexSalesRegistry.policyExecutors];
+    if (executor === undefined || binding.publisher.kind !== "extension" || binding.publisher.deliveryClass !== "platform-plugin") throw new Error("Sales policy executable is unavailable.");
+    return createPlatformPluginPolicyExecutable({ kind: "platform-plugin", publisher: binding.publisher, bindingId: binding.id, policyReference: binding.policyReference, executor });
+  });
   const catalogProvider = createAuthorizationCatalogProvider(({ applicationId, lifecycleRevision }) => {
     if (applicationId !== kNexIdentity.applicationId) return undefined;
+    if (lifecycleRevision !== 0 && lifecycleRevision !== 1) return undefined;
     return {
       applicationId,
       lifecycleRevision,
-      catalog: createEffectiveAuthorizationCatalog({ applicationId, lifecycleRevision, extensions: [], executables: [] })
+      catalog: createEffectiveAuthorizationCatalog({ applicationId, lifecycleRevision, extensions: lifecycleRevision === 0 ? [] : [salesContribution], executables: lifecycleRevision === 0 ? [] : salesExecutables })
     };
   });
   const resolver = new EffectiveAuthorityResolver({ store, catalogProvider });
@@ -129,6 +140,12 @@ export async function authorizePayloadUser(payload: Payload, user: unknown, perm
 export async function authorizeRequest(payload: Payload, context: KnexRequestContext, permissionId: string, resource: string): Promise<boolean> {
   const target = createCurrentAuthorityTarget({ permissionId, scope: { kind: "application", resource }, facts: { boundary: "workspace-http" } });
   return kNexAuthority(payload).adapter.allows(context, target);
+}
+
+export async function authorizeNavigationPermission(payload: Payload, context: KnexRequestContext, permissionId: string): Promise<boolean> {
+  const descriptor = [...platformPermissionDescriptors, ...kNexSalesRegistry.permissionDescriptors].find(({ id }) => id === permissionId);
+  if (descriptor === undefined || descriptor.scope !== "application") return false;
+  return authorizeRequest(payload, context, descriptor.id, descriptor.resource);
 }
 `;
 }
@@ -232,6 +249,29 @@ import { bootKnexApplication } from "./boot.js";
 import { assertIssuedBootstrapToken, consumeBootstrapToken, readBootstrapToken } from "./k-nex-bootstrap-token.js";
 import { kNexAuthority } from "./k-nex-authority.js";
 import { kNexIdentity } from "./k-nex-identity.js";
+import { kNexSalesRegistry } from "./k-nex-registry.js";
+
+async function ensureInitialSalesOwner(payload: Awaited<ReturnType<typeof bootKnexApplication>>, userId: string) {
+  const store = kNexAuthority(payload).store;
+  const state = await store.readState(kNexIdentity.applicationId, kNexIdentity.environment);
+  if (state === undefined) throw new Error("Authorization state is unavailable.");
+  if (state.lifecycleRevision === 0) {
+    await store.transaction({ applicationId: state.applicationId, environment: state.environment, authorizationRevision: state.authorizationRevision, lifecycleRevision: state.lifecycleRevision }, async (transaction) => {
+      await transaction.write({ kind: "extension-generation", generation: kNexSalesRegistry.authorizationGeneration });
+      await transaction.write({ kind: "role", role: { schemaVersion: 1, id: "customer.initial-sales-administrator", applicationId: kNexIdentity.applicationId, label: "Sales administrator", revision: 0 } });
+      for (const descriptor of kNexSalesRegistry.permissionDescriptors) await transaction.write({ kind: "grant", grant: { schemaVersion: 1, id: "customer.initial-sales-administrator." + descriptor.id, applicationId: kNexIdentity.applicationId, roleId: "customer.initial-sales-administrator", permissionId: descriptor.id, owner: kNexSalesRegistry.authorizationGeneration.owner, revision: 0 } });
+      await transaction.write({ kind: "assignment", assignment: { schemaVersion: 1, id: "customer.initial-sales-administrator.owner", applicationId: kNexIdentity.applicationId, roleId: "customer.initial-sales-administrator", principal: { kind: "user", id: userId }, state: "active", revision: 0 } });
+    });
+    return;
+  }
+  if (state.lifecycleRevision !== 1) throw new Error("Sales authorization lifecycle is incompatible.");
+  const result = await (payload.db.pool as { query(text: string, values: unknown[]): Promise<{ rows: Array<{ assignment_count: number; generation_count: number; grant_count: number }> }> }).query(
+    "select (select count(*)::int from k_nex_role_assignments where application_id=$1 and assignment_id='customer.initial-sales-administrator.owner' and subject_kind='user' and subject_id=$2 and state='active') assignment_count, (select count(*)::int from k_nex_extension_authorization_generations where application_id=$1 and delivery_class='platform-plugin' and extension_id='module.sales' and authorization_generation=1 and state='current') generation_count, (select count(*)::int from k_nex_role_permission_grants where application_id=$1 and role_id='customer.initial-sales-administrator') grant_count",
+    [kNexIdentity.applicationId, userId]
+  );
+  const proof = result.rows[0];
+  if (proof?.assignment_count !== 1 || proof.generation_count !== 1 || proof.grant_count !== kNexSalesRegistry.permissionDescriptors.length) throw new Error("Initial Sales authority is incomplete.");
+}
 
 const email = process.env.K_NEX_OWNER_EMAIL;
 const password = process.env.K_NEX_OWNER_PASSWORD;
@@ -241,19 +281,21 @@ const token = readBootstrapToken(process.argv.slice(2));
 const payload = await bootKnexApplication("owner-bootstrap");
 try {
   const runtime = kNexAuthority(payload);
-  if (await runtime.store.readProtectedRoleBaselineReceipt(kNexIdentity.applicationId)) throw new Error("First owner already exists.");
   await assertIssuedBootstrapToken(payload, token);
   const existing = await payload.find({ collection: "users", overrideAccess: true, limit: 2, where: { email: { equals: email } } });
   if (existing.totalDocs > 1) throw new Error("Owner email identity is ambiguous.");
   const user = existing.docs[0] ?? await payload.create({ collection: "users", overrideAccess: true, data: { email, password } });
   if (existing.docs[0]) await payload.login({ collection: "users", data: { email, password } });
-  const outcome = await bootstrapFirstOwner({
-    store: runtime.store,
-    expected: { applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment, authorizationRevision: 0, lifecycleRevision: 0 },
-    firstOwner: { kind: "user", id: String(user.id) }
-  });
+  const priorReceipt = await runtime.store.readProtectedRoleBaselineReceipt(kNexIdentity.applicationId);
+  if (priorReceipt !== undefined && (priorReceipt.ownerPrincipal.kind !== "user" || priorReceipt.ownerPrincipal.id !== String(user.id))) throw new Error("First owner identity does not match the bootstrap receipt.");
+  const outcome = priorReceipt ?? (await bootstrapFirstOwner({
+      store: runtime.store,
+      expected: { applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment, authorizationRevision: 0, lifecycleRevision: 0 },
+      firstOwner: { kind: "user", id: String(user.id) }
+    })).value;
+  await ensureInitialSalesOwner(payload, String(user.id));
   await consumeBootstrapToken(payload, token);
-  console.log(\`K_NEX_OWNER_BOOTSTRAP_PASS \${outcome.value.id}\`);
+  console.log(\`K_NEX_OWNER_BOOTSTRAP_PASS \${outcome.id}\`);
 } finally { await payload.destroy(); }
 process.exit(0);
 `;
@@ -322,7 +364,7 @@ export default async function WorkspaceHome() {
   const authentication = await payload.auth({ headers, canSetHeaders: false });
   if (!authentication.user) redirect("/login");
   if (!await authorizeRequest(payload, kNexRequestContext(headers, "workspace-home"), "system.workspace-pages.read", "system.workspace-pages")) redirect("/forbidden");
-  return <main className="workspace-home" data-k-nex-theme-profile={kNexThemePresentation.profileRevisionId}><style>{kNexThemePresentation.cssText}</style><p className="eyebrow">K-Nex workspace</p><h1>${applicationName.replaceAll("<", "&lt;").replaceAll(">", "&gt;")}</h1><p>Authenticated workspace ready.</p><LogoutButton /></main>;
+  return <section className="workspace-home" data-k-nex-theme-profile={kNexThemePresentation.profileRevisionId}><style>{kNexThemePresentation.cssText}</style><p className="eyebrow">K-Nex workspace</p><h1>${applicationName.replaceAll("<", "&lt;").replaceAll(">", "&gt;")}</h1><p>Authenticated workspace ready.</p><LogoutButton /></section>;
 }
 `;
 }
@@ -340,6 +382,96 @@ export default async function LoginPage() {
   const payload = await bootKnexApplication("workspace-web");
   if ((await payload.auth({ headers: await getHeaders(), canSetHeaders: false })).user) redirect("/");
   return <main className="workspace-home"><h1>Sign in</h1><LoginForm /></main>;
+}
+`;
+}
+
+function workspaceNavigationSource(): string {
+  return `import { resolveWorkspaceNavigation } from "@k-nex/ui-runtime";
+import type { Payload } from "payload";
+
+import { authorizeNavigationPermission, kNexAuthority, kNexRequestContext } from "./k-nex-authority.js";
+import { kNexIdentity } from "./k-nex-identity.js";
+import { kNexSalesRegistry } from "./k-nex-registry.js";
+
+export async function resolveCurrentWorkspaceNavigation(payload: Payload, headers: Headers) {
+  const authentication = await payload.auth({ headers, canSetHeaders: false });
+  if (!authentication.user) return undefined;
+  const state = await kNexAuthority(payload).store.readState(kNexIdentity.applicationId, kNexIdentity.environment);
+  if (state === undefined) return undefined;
+  const context = kNexRequestContext(headers, "workspace-navigation");
+  const navigation = await resolveWorkspaceNavigation({
+    applicationId: kNexIdentity.applicationId,
+    environment: kNexIdentity.environment,
+    revision: state.authorizationRevision,
+    plugins: [kNexSalesRegistry.navigationSection],
+    customerFolders: [],
+    pages: [],
+    preferences: { sidebar: "expanded", favoritePageIds: [], recentPageIds: [] },
+    authorize: (permissionId) => authorizeNavigationPermission(payload, context, permissionId),
+    pageAccess: async () => false
+  });
+  return Object.freeze({ navigation, preferenceKey: kNexIdentity.applicationId + ":user:" + String(authentication.user.id) + ":workspace-sidebar" });
+}
+`;
+}
+
+function shellClientSource(): string {
+  return `"use client";
+
+import { WorkspaceShell } from "@k-nex/ui-components";
+import type { ResolvedWorkspaceNavigation } from "@k-nex/ui-runtime";
+import { usePathname } from "next/navigation";
+import type { ReactNode } from "react";
+
+export function KnexWorkspaceShell(props: Readonly<{ applicationLabel: string; environment: string; navigation: ResolvedWorkspaceNavigation; preferenceKey: string; children: ReactNode }>) {
+  return <WorkspaceShell {...props} currentHref={usePathname()} />;
+}
+`;
+}
+
+function workspaceLayoutSource(applicationName: string): string {
+  return `import { headers as getHeaders } from "next/headers";
+import { redirect } from "next/navigation";
+import type { ReactNode } from "react";
+
+import { bootKnexApplication } from "../../boot.js";
+import { kNexIdentity } from "../../k-nex-identity.js";
+import { resolveCurrentWorkspaceNavigation } from "../../k-nex-workspace-navigation.js";
+import { KnexWorkspaceShell } from "../components/k-nex-workspace-shell.js";
+
+export const dynamic = "force-dynamic";
+
+export default async function WorkspaceLayout({ children }: Readonly<{ children: ReactNode }>) {
+  const payload = await bootKnexApplication("workspace-web");
+  const resolved = await resolveCurrentWorkspaceNavigation(payload, await getHeaders());
+  if (resolved === undefined) redirect("/login");
+  return <KnexWorkspaceShell applicationLabel=${JSON.stringify(applicationName)} environment={kNexIdentity.environment} navigation={resolved.navigation} preferenceKey={resolved.preferenceKey}>{children}</KnexWorkspaceShell>;
+}
+`;
+}
+
+function registeredRoutePageSource(routeClass: "sales" | "system"): string {
+  const prefix = `/${routeClass}`;
+  return `import { resolveAuthorizedWorkspacePath } from "@k-nex/ui-runtime";
+import { headers as getHeaders } from "next/headers";
+import { notFound } from "next/navigation";
+
+import { bootKnexApplication } from "../../../../boot.js";
+import { resolveCurrentWorkspaceNavigation } from "../../../../k-nex-workspace-navigation.js";
+
+export const dynamic = "force-dynamic";
+
+export default async function Registered${routeClass === "sales" ? "Sales" : "System"}Page({ params }: Readonly<{ params: Promise<{ path?: string[] }> }>) {
+  const payload = await bootKnexApplication("workspace-web");
+  const resolved = await resolveCurrentWorkspaceNavigation(payload, await getHeaders());
+  if (resolved === undefined) return notFound();
+  const segments = (await params).path ?? [];
+  const pathname = ${JSON.stringify(prefix)} + (segments.length === 0 ? "" : "/" + segments.map(encodeURIComponent).join("/"));
+  const route = resolveAuthorizedWorkspacePath(resolved.navigation, pathname);
+  if (route === undefined || route.target.class !== ${JSON.stringify(routeClass === "sales" ? "platform-plugin" : "system")}) return notFound();
+  const label = resolved.navigation.tree.nodes.find((node) => node.target !== undefined && JSON.stringify(node.target) === JSON.stringify(route.target))?.label ?? ${JSON.stringify(routeClass === "sales" ? "Sales" : "System")};
+  return <section><p className="eyebrow">${routeClass === "sales" ? "Sales" : "K-Nex administration"}</p><h1>{label}</h1><p>Registered workspace route.</p></section>;
 }
 `;
 }
@@ -434,11 +566,15 @@ export function applicationAuthFiles(options: ApplicationAuthFilesOptions): Read
   return {
     "src/app/(auth)/forbidden/page.tsx": `import { LogoutButton } from "../../components/logout-button.js";\n\nexport default function ForbiddenPage() { return <main className="workspace-home"><h1>Access denied</h1><LogoutButton /></main>; }\n`,
     "src/app/(auth)/login/page.tsx": loginPageSource(),
+    "src/app/(workspace)/layout.tsx": workspaceLayoutSource(options.applicationName),
     "src/app/(workspace)/page.tsx": workspacePageSource(options.applicationName),
+    "src/app/(workspace)/sales/[[...path]]/page.tsx": registeredRoutePageSource("sales"),
+    "src/app/(workspace)/system/[[...path]]/page.tsx": registeredRoutePageSource("system"),
     "src/app/api/k-nex/inventory/route.ts": inventoryRouteSource(),
     "src/app/api/readiness/route.ts": readinessRouteSource(),
     "src/app/components/login-form.tsx": loginFormSource(),
     "src/app/components/logout-button.tsx": logoutButtonSource(),
+    "src/app/components/k-nex-workspace-shell.tsx": shellClientSource(),
     "src/k-nex-authority.ts": authoritySource(),
     "src/k-nex-bootstrap-owner.ts": bootstrapOwnerSource(),
     "src/k-nex-bootstrap-token.ts": bootstrapTokenSource(),
@@ -446,6 +582,7 @@ export function applicationAuthFiles(options: ApplicationAuthFilesOptions): Read
     "src/k-nex-issue-bootstrap-token.ts": issueTokenSource(),
     "src/k-nex-readiness.ts": readinessCommandSource(),
     "src/k-nex-worker.ts": workerSource(),
-    "src/k-nex-users.ts": usersSource()
+    "src/k-nex-users.ts": usersSource(),
+    "src/k-nex-workspace-navigation.ts": workspaceNavigationSource()
   };
 }

@@ -11,6 +11,7 @@ import { applyCreateKnexApplication, planCreateKnexApplication } from "@k-nex/co
 import { PostgresAuthorizationStore } from "@k-nex/payload-adapter";
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import pg from "pg";
+import { chromium } from "playwright";
 
 const POSTGRES_IMAGE = "postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94";
 const repositoryRoot = resolve(import.meta.dirname, "../../..");
@@ -98,7 +99,7 @@ async function login(origin, email, password) {
   return { body, cookie: cookie(response) };
 }
 
-test("P12.3 generated app bootstraps one owner and rechecks durable session authority", { timeout: 360_000 }, async () => {
+test("P12.4 generated app serves an authority-filtered accessible workspace shell", { timeout: 420_000 }, async () => {
   const container = await new PostgreSqlContainer(POSTGRES_IMAGE).withDatabase("p12_generated").withStartupTimeout(120_000).start();
   const root = realpathSync(mkdtempSync(join(tmpdir(), "p12-generated-auth-")));
   const application = join(root, "application");
@@ -112,6 +113,7 @@ test("P12.3 generated app bootstraps one owner and rechecks durable session auth
   let applicationProcess;
   let workerProcess;
   let pool;
+  let browser;
   try {
     const releaseManifest = JSON.parse(readFileSync(resolve(repositoryRoot, "releases/1.0.0/package-release-manifest.json"), "utf8"));
     const packageSource = { kind: "packed-mirror", directory: resolve(repositoryRoot, "fixtures/customer-gate-1/packages"), releaseManifest };
@@ -176,7 +178,7 @@ test("P12.3 generated app bootstraps one owner and rechecks durable session auth
     applicationProcess = await startApplication(application, applicationEnvironment);
     const readiness = await fetch(`${applicationProcess.origin}/api/readiness`);
     assert.equal(readiness.status, 200);
-    assert.deepEqual(await readiness.json(), { schemaVersion: 1, status: "ready", applicationId, authorizationRevision: 1, lifecycleRevision: 0 });
+    assert.deepEqual(await readiness.json(), { schemaVersion: 1, status: "ready", applicationId, authorizationRevision: 2, lifecycleRevision: 1 });
 
     const publicSignup = await fetch(`${applicationProcess.origin}/api/users`, {
       method: "POST",
@@ -193,10 +195,14 @@ test("P12.3 generated app bootstraps one owner and rechecks durable session auth
     assert.equal(ownerWorkspace.status, 200);
     const ownerHtml = await ownerWorkspace.text();
     assert.match(ownerHtml, /P12 Auth Proof/u);
+    assert.match(ownerHtml, /Sales/u);
+    assert.match(ownerHtml, /System/u);
     for (const secret of [ownerEmail, ownerPassword, limitedPassword]) assert.equal(ownerHtml.includes(secret), false);
     const inventory = await fetch(`${applicationProcess.origin}/api/k-nex/inventory`, { headers: { cookie: owner.cookie.header } });
     assert.equal(inventory.status, 200);
     assert.deepEqual((await inventory.json()).plugins, ["module.sales"]);
+    assert.equal((await fetch(`${applicationProcess.origin}/sales`, { headers: { cookie: owner.cookie.header } })).status, 200);
+    assert.equal((await fetch(`${applicationProcess.origin}/system/access/roles`, { headers: { cookie: owner.cookie.header } })).status, 200);
 
     const createLimited = await fetch(`${applicationProcess.origin}/api/users`, {
       method: "POST",
@@ -219,7 +225,12 @@ test("P12.3 generated app bootstraps one owner and rechecks durable session auth
       await transaction.write({ kind: "assignment", assignment: { schemaVersion: 1, id: "customer.workspace-viewer.assignment", applicationId, roleId: "customer.workspace-viewer", principal: { kind: "user", id: limitedUserId }, state: "active", revision: 0 } });
     });
     const limited = await login(applicationProcess.origin, limitedEmail, limitedPassword);
-    assert.equal((await fetch(`${applicationProcess.origin}/`, { headers: { cookie: limited.cookie.header } })).status, 200);
+    const limitedWorkspace = await fetch(`${applicationProcess.origin}/`, { headers: { cookie: limited.cookie.header } });
+    assert.equal(limitedWorkspace.status, 200);
+    const limitedHtml = await limitedWorkspace.text();
+    assert.equal(limitedHtml.includes("sales.route.overview"), false);
+    assert.equal(limitedHtml.includes("/sales"), false);
+    assert.equal((await fetch(`${applicationProcess.origin}/sales`, { headers: { cookie: limited.cookie.header } })).status, 404);
     assert.equal((await fetch(`${applicationProcess.origin}/api/k-nex/inventory`, { headers: { cookie: limited.cookie.header } })).status, 403);
 
     await store.transaction(expected(granted.state), async (transaction) => {
@@ -252,10 +263,47 @@ test("P12.3 generated app bootstraps one owner and rechecks durable session auth
     applicationProcess = await startApplication(application, applicationEnvironment);
     const restartedOwner = await login(applicationProcess.origin, ownerEmail, ownerPassword);
     assert.equal((await fetch(`${applicationProcess.origin}/`, { headers: { cookie: restartedOwner.cookie.header } })).status, 200);
+
+    browser = await chromium.launch();
+    const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: "reduce" });
+    const page = await context.newPage();
+    await page.goto(`${applicationProcess.origin}/login`);
+    await page.getByLabel("Email").fill(ownerEmail);
+    await page.getByLabel("Password").fill(ownerPassword);
+    await page.getByRole("button", { name: "Sign in" }).click();
+    await page.waitForURL(`${applicationProcess.origin}/`);
+    await page.getByRole("navigation", { name: "Workspace navigation" }).getByText("Sales", { exact: true }).waitFor();
+    await page.getByRole("navigation", { name: "Workspace navigation" }).getByText("System", { exact: true }).waitFor();
+    assert.equal(await page.locator('[data-k-nex-component="workspace-shell"]').evaluate((element) => getComputedStyle(element).transitionDuration), "0s");
+    const collapse = page.getByRole("button", { name: "Collapse sidebar" });
+    await collapse.focus();
+    await page.keyboard.press("Enter");
+    await page.locator('[data-k-nex-component="workspace-shell"][data-sidebar="collapsed"]').waitFor();
+    await page.reload();
+    await page.locator('[data-k-nex-component="workspace-shell"][data-sidebar="collapsed"]').waitFor();
+    await page.emulateMedia({ forcedColors: "active", reducedMotion: "reduce" });
+    assert.equal(await page.evaluate(() => matchMedia("(forced-colors: active)").matches), true);
+
+    await page.setViewportSize({ width: 375, height: 720 });
+    await page.evaluate(() => { document.documentElement.dir = "rtl"; });
+    const openNavigation = page.getByRole("button", { name: "Open navigation" });
+    await openNavigation.focus();
+    await page.keyboard.press("Enter");
+    const drawer = page.getByRole("dialog", { name: "Mobile workspace navigation" });
+    await drawer.waitFor();
+    assert.equal(await drawer.evaluate((element) => element.contains(document.activeElement)), true);
+    const bounds = await page.locator(".workspace-drawer").boundingBox();
+    assert.ok(bounds && bounds.x + bounds.width >= 374, "RTL drawer must anchor to logical start.");
+    await page.keyboard.press("Escape");
+    await drawer.waitFor({ state: "hidden" });
+    assert.equal(await openNavigation.evaluate((element) => document.activeElement === element), true);
+    await context.close();
+    browser = undefined;
   } finally {
     await stop(workerProcess?.child).catch(() => {});
     await stop(applicationProcess?.child).catch(() => {});
     await pool?.end().catch(() => {});
+    await browser?.close().catch(() => {});
     await container.stop();
     rmSync(root, { recursive: true, force: true });
   }

@@ -39,6 +39,7 @@
       "sales.service.domain": "required"
     },
     "permissions": {
+      "sales.navigation.read": "required",
       "sales.settings.read": "required",
       "sales.settings.write": "required",
       "sales.opportunities.name.read": "required",

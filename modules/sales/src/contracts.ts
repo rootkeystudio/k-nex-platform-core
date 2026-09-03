@@ -517,6 +517,7 @@ function permission(
 }
 
 export const salesPermissionDescriptors: readonly AuthorizationPermissionDescriptor[] = Object.freeze([
+  permission("sales.navigation.read", "Open Sales workspace", "Open registered Sales workspace routes and navigation.", "sales.navigation", "read", "application"),
   permission("sales.settings.read", "Read Sales settings", "Read non-secret Sales workspace settings.", "sales.settings", "read", "application"),
   permission("sales.settings.write", "Change Sales settings", "Change validated Sales workspace settings.", "sales.settings", "write", "application"),
   permission("sales.tasks.read", "Read Sales tasks", "Read actor-authorized Sales task records.", "sales.tasks", "read", "record"),
@@ -663,6 +664,7 @@ export const salesRoleTemplates: readonly RoleTemplate[] = Object.freeze([
     title: "Sales Viewer",
     description: "View core Sales tasks and opportunities.",
     permissionIds: [
+      "sales.navigation.read",
       "sales.opportunities.name.read",
       "sales.opportunities.read",
       "sales.opportunities.stage.read",
@@ -680,6 +682,7 @@ export const salesRoleTemplates: readonly RoleTemplate[] = Object.freeze([
     title: "Sales Representative",
     description: "View core Sales data and manage assigned tasks.",
     permissionIds: [
+      "sales.navigation.read",
       "sales.opportunities.name.read",
       "sales.opportunities.read",
       "sales.opportunities.stage.read",
@@ -699,6 +702,7 @@ export const salesRoleTemplates: readonly RoleTemplate[] = Object.freeze([
     title: "Sales Manager",
     description: "Manage the Sales pipeline and view revenue data.",
     permissionIds: [
+      "sales.navigation.read",
       "sales.opportunities.name.read",
       "sales.opportunities.read",
       "sales.opportunities.stage.read",
@@ -721,6 +725,7 @@ export const salesRoleTemplates: readonly RoleTemplate[] = Object.freeze([
     title: "Sales Administrator",
     description: "Manage all Sales data and workspace settings.",
     permissionIds: [
+      "sales.navigation.read",
       "sales.opportunities.name.read",
       "sales.opportunities.read",
       "sales.opportunities.stage.read",
@@ -746,7 +751,7 @@ export const salesRouteDescriptors = Object.freeze([
     parameters: {},
     surface: "workspace",
     audience: "authenticated",
-    permission: "sales.tasks.read",
+    permission: "sales.navigation.read",
     viewId: "sales.page.overview"
   },
   {
@@ -756,7 +761,7 @@ export const salesRouteDescriptors = Object.freeze([
     parameters: {},
     surface: "workspace",
     audience: "authenticated",
-    permission: "sales.tasks.read",
+    permission: "sales.navigation.read",
     viewId: "sales.page.tasks"
   },
   {
@@ -766,7 +771,7 @@ export const salesRouteDescriptors = Object.freeze([
     parameters: {},
     surface: "workspace",
     audience: "authenticated",
-    permission: "sales.opportunities.read",
+    permission: "sales.navigation.read",
     viewId: "sales.page.opportunities"
   },
   {
@@ -776,7 +781,7 @@ export const salesRouteDescriptors = Object.freeze([
     parameters: {},
     surface: "workspace",
     audience: "authenticated",
-    permission: "sales.settings.read",
+    permission: "sales.navigation.read",
     viewId: "sales.page.settings"
   }
 ] satisfies readonly PluginRouteDescriptor[]);
@@ -787,7 +792,7 @@ export const salesNavigationDescriptors = Object.freeze([
     ownerPluginId: "module.sales",
     labelMessageId: "sales.message.navigation-overview",
     route: { routeId: "sales.route.overview", params: {} },
-    permission: "sales.tasks.read",
+    permission: "sales.navigation.read",
     order: 10
   },
   {
@@ -795,7 +800,7 @@ export const salesNavigationDescriptors = Object.freeze([
     ownerPluginId: "module.sales",
     labelMessageId: "sales.message.navigation-tasks",
     route: { routeId: "sales.route.tasks", params: {} },
-    permission: "sales.tasks.read",
+    permission: "sales.navigation.read",
     order: 20
   },
   {
@@ -803,7 +808,7 @@ export const salesNavigationDescriptors = Object.freeze([
     ownerPluginId: "module.sales",
     labelMessageId: "sales.message.navigation-opportunities",
     route: { routeId: "sales.route.opportunities", params: {} },
-    permission: "sales.opportunities.read",
+    permission: "sales.navigation.read",
     order: 30
   },
   {
@@ -811,7 +816,7 @@ export const salesNavigationDescriptors = Object.freeze([
     ownerPluginId: "module.sales",
     labelMessageId: "sales.message.navigation-settings",
     route: { routeId: "sales.route.settings", params: {} },
-    permission: "sales.settings.read",
+    permission: "sales.navigation.read",
     order: 40
   }
 ] satisfies readonly PluginNavigationDescriptor[]);

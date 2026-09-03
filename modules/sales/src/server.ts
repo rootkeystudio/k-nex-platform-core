@@ -11,7 +11,8 @@ import type {
   ActionDefinition,
   ActionHandler,
   DataSourceHandler,
-  DataSourceHandlerRequest
+  DataSourceHandlerRequest,
+  PlatformPluginPolicyExecutor
 } from "@k-nex/runtime";
 import { DataSourceGatewayError, definePluginRegistration, projectSystemSettingsValues } from "@k-nex/runtime";
 import type { CollectionConfig } from "payload";
@@ -63,6 +64,7 @@ export {
   salesNavigationDescriptors,
   salesPermissionDescriptors,
   salesPermissionPolicyBindings,
+  salesReferenceMetadata,
   salesRouteDescriptors,
   salesRoleTemplates,
   salesSearchTasksDescriptor,
@@ -690,6 +692,19 @@ export const salesOpportunitiesCollection: CollectionConfig = {
 };
 
 export const salesDefaultSettings = projectSystemSettingsValues(salesWorkspaceSettingsDescriptor);
+
+const permissionPolicy = (namespace: "sales.tasks" | "sales.opportunities"): PlatformPluginPolicyExecutor => {
+  const executor: PlatformPluginPolicyExecutor = {
+    evaluate: ({ permissionId }) => ({ schemaVersion: 1, outcome: permissionId === namespace || permissionId.startsWith(`${namespace}.`) ? "allow" : "deny" })
+  };
+  return Object.freeze(executor);
+};
+
+/** Static domain policy executors bound by the host to the exact Sales generation. */
+export const salesPermissionPolicyExecutors = Object.freeze({
+  "sales.tasks.domain": permissionPolicy("sales.tasks"),
+  "sales.opportunities.domain": permissionPolicy("sales.opportunities")
+});
 
 export const salesRegistration = definePluginRegistration({
   pluginId: "module.sales",

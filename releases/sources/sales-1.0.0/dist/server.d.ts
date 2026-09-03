@@ -1,10 +1,10 @@
 import { type DataSourceDefinition } from "@k-nex/contracts";
 import { createOutboxRealtimeRelay } from "@k-nex/payload-adapter";
-import type { ActionDefinition, ActionHandler, DataSourceHandler } from "@k-nex/runtime";
+import type { ActionDefinition, ActionHandler, DataSourceHandler, PlatformPluginPolicyExecutor } from "@k-nex/runtime";
 import type { CollectionConfig } from "payload";
 import type { CollectionAfterChangeHook } from "payload";
 import { type CreateTaskInput, type CreateTaskOutput, type UpdateOpportunityStageInput, type UpdateOpportunityStageOutput, type UpdateTaskInput, type UpdateTaskOutput } from "./contracts.js";
-export { salesCreateTaskToolDescriptor, salesNavigationDescriptors, salesPermissionDescriptors, salesPermissionPolicyBindings, salesRouteDescriptors, salesRoleTemplates, salesSearchTasksDescriptor, salesTaskCreateDescriptor, salesTaskPageTemplate, salesTasksDescriptor, salesTotalPotentialRevenueDescriptor, salesWorkspaceSettingsDescriptor } from "./contracts.js";
+export { salesCreateTaskToolDescriptor, salesNavigationDescriptors, salesPermissionDescriptors, salesPermissionPolicyBindings, salesReferenceMetadata, salesRouteDescriptors, salesRoleTemplates, salesSearchTasksDescriptor, salesTaskCreateDescriptor, salesTaskPageTemplate, salesTasksDescriptor, salesTotalPotentialRevenueDescriptor, salesWorkspaceSettingsDescriptor } from "./contracts.js";
 export declare const salesEventAfterChange: CollectionAfterChangeHook;
 export declare function createSalesRealtimeRelay(gateway: Parameters<typeof createOutboxRealtimeRelay>[0]["gateway"]): import("@k-nex/payload-adapter").OutboxSubscriber;
 export declare function salesPipelineAuditJob(input: {
@@ -41,6 +41,11 @@ export declare const salesDefaultSettings: Readonly<Record<string, string | numb
     provider: "environment";
     key: string;
 } | null>>;
+/** Static domain policy executors bound by the host to the exact Sales generation. */
+export declare const salesPermissionPolicyExecutors: Readonly<{
+    "sales.tasks.domain": PlatformPluginPolicyExecutor;
+    "sales.opportunities.domain": PlatformPluginPolicyExecutor;
+}>;
 export declare const salesRegistration: Readonly<{
     readonly pluginId: "module.sales";
     readonly contracts: (context: import("@k-nex/runtime").ContractsRegistrationContext) => void;

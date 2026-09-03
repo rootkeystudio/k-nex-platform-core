@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-09-03
 - **Phase:** Phase 12 — Runnable Customer Workspace and Dashboard Builder
-- **Active task:** P12.4 — deliver the workspace shell and navigation resolver
+- **Active task:** P12.5 — build PostgreSQL custom-page storage
 - **State:** In progress
 
 ## Last completed
 
-P12.3 composes generated Payload sessions, current authority, authorization schema/outbox worker, application inventory, readiness, and signed one-time first-owner bootstrap. Public signup is denied; application/environment-bound tokens, logout replay denial, durable role revocation, restart, owner, and limited-user journeys are proven.
+P12.4 delivers the fixed K-Nex/System shell, statically registered Sales navigation, customer-page placement, server authority filtering, direct-route denial, desktop/mobile navigation, presentation-only sidebar persistence, and accessible keyboard/RTL/forced-colors/reduced-motion behavior.
 
 ## Validation
 
-Exact Node 24.19.0: payload-adapter/composition builds and focused composition tests PASS. Packed release closure PASS. Isolated P12.3 generated-app proof PASS after frozen install, clean PostgreSQL migration, production build/start, bootstrap, app/env rejection, session replay denial, owner/limited/revoked authority, outbox convergence, and restart. Cumulative Gate 0–11 remains deferred to phase closeout.
+Exact Node 24.19.0: Sales, ui-runtime, ui-components, and composition focused suites/builds PASS; packed v1.0.0 closure PASS. Isolated P12.4 generated-app proof PASS with fresh PostgreSQL, frozen install, production build/start, owner/limited/revoked authority, worker/restart, HTTP direct-route denial, and Chromium desktop/mobile/keyboard/RTL/forced-colors/reduced-motion checks. Cumulative Gate 0–11 remains deferred to phase closeout.
 
 ## Next
 
-Execute P12.4 shell/navigation resolver with real registries, strict placement validation, server authority filtering, and focused browser accessibility proof.
+Execute P12.5 PostgreSQL workspace-page documents, revisions, placement, preferences, optimistic concurrency, audit/outbox, and restart proof.
 
 ## Blockers
 
