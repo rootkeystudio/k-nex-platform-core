@@ -7,15 +7,15 @@
 
 ## Last completed
 
-P11.10 and the fourth owner-review fix are complete: the canonical Gate 1 writer refreshed the committed Sales package integrity in the deterministic customer resolved graph.
+P11.10 and the fifth owner-review fix are complete: both customer lockfiles now bind the exact current-v1 Sales archive integrity.
 
 ## Validation
 
-Exact Node 24.19.0: canonical composition build/generate/check PASS. Prior exact-head focused CI passed; cumulative CI reached Gate 1 and failed only on the now-regenerated stale resolved graph.
+Exact Node 24.19.0: packed release closure PASS; customer-alpha and customer-beta checksum refresh plus frozen installs PASS. Prior exact-head focused CI passed; cumulative CI failed only on the now-fixed stale customer lock integrity.
 
 ## Next
 
-Commit/push the generated Gate 1 evidence, obtain replacement exact-head focused CI, run cumulative Linux/AppArmor Gate 0–11, then request owner re-review.
+Commit/push the refreshed customer locks, obtain replacement exact-head focused CI, run cumulative Linux/AppArmor Gate 0–11, then request owner re-review.
 
 ## Blockers
 

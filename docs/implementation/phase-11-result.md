@@ -4,7 +4,7 @@
 - **Gate:** Gate 11
 - **Accepted base:** Phase 10 / PR #29
 - **Decision:** **READY FOR PHASE REVIEW**
-- **Review state:** Fourth owner-review finding fixed with the canonical Gate 1 generator; replacement exact-head focused CI, cumulative Gate 0–11, and re-review remain pending.
+- **Review state:** Fifth owner-review finding fixed by refreshing both customer lockfiles against the exact current-v1 Sales archive; replacement exact-head focused CI, cumulative Gate 0–11, and re-review remain pending.
 
 ## Scope proved
 
@@ -48,6 +48,7 @@ A staged Hot Application that needs generation-validated settings reserves one f
 - The thirteen attack classes now reference exact executed assertions/process markers and fail the corpus if any mapping is missing or unexecuted.
 - `fast-uri` is pinned to patched `3.1.6`; compatibility passed generated contract compilation and the 30-test architecture validator. `pnpm audit --audit-level high` reports no high-severity findings.
 - The canonical composition writer refreshed the committed current-v1 Sales package integrity in the Gate 1 resolved graph; its isolated reproducibility check passes.
+- Both customer lockfiles bind that same exact Sales archive digest; frozen customer-alpha and customer-beta installs pass without weakening integrity enforcement.
 
 ## Known limits and next decision
 
