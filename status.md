@@ -11,7 +11,7 @@ P12.10 focused Gate 12 passes: exact v1 builds and packed closure, selected cont
 
 ## Validation
 
-Exact Node 24.19.0: `pnpm gate:12:focused` and Gate 8 PASS. Hosted release attestations verify. Gate 9 unit/browser and local Docker isolation proofs pass; production runtime remains Linux/AppArmor-only. Gate 10 reached 14/15 with one stale authorization fixture revision updated to the canonical catalog mirror `23→24`; isolated rerun and downstream gates remain.
+Exact Node 24.19.0: `pnpm gate:12:focused` and Gate 8 PASS. Hosted release attestations verify. Gate 9 unit/browser and local Docker isolation proofs pass; production runtime remains Linux/AppArmor-only. All 15 Gate 10 technical proofs pass; its cumulative result check now recognizes the merged phase's stronger `ACCEPTED` state. Gates 11–12 and Linux/AppArmor cumulative remain.
 
 ## Next
 
