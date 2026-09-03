@@ -178,6 +178,27 @@ describe("P12.6 current-authority workspace page service", () => {
     expect(value.store.saveWorkingCopy).not.toHaveBeenCalled();
   });
 
+  it("binds autosave to the server-derived page and access revisions", async () => {
+    const snapshot = {
+      ...baseSnapshot,
+      page: { ...baseSnapshot.page, revision: 7, accessRevision: 3 },
+      access: { ...baseSnapshot.access, accessRevision: 3 }
+    } as WorkspacePageSnapshot;
+    const value = setup(snapshot);
+    await value.service.autosave(editor, scope, identity.pageId, {
+      expectedRevision: 1,
+      editorSessionId: "editor-session-one",
+      idempotencyKey: "workspace-save-server-revisions",
+      document: { ...document, version: 2 }
+    });
+    expect(value.store.saveWorkingCopy).toHaveBeenCalledWith(
+      identity,
+      expect.objectContaining({ expectedRevision: 1, document: expect.objectContaining({ version: 2 }) }),
+      { kind: "user", id: editor.userId },
+      { expectedPageRevision: 7, expectedAccessRevision: 3 }
+    );
+  });
+
   it.each([
     ["unsafe props", (prior: UiDocument): UiDocument => ({ ...prior, version: 2, regions: { main: [{ id: "task-table", type: "sales.task-table", version: 1, props: { title: "Safe", administratorOnly: true } }] } })],
     ["binding substitution", (prior: UiDocument): UiDocument => ({ ...prior, version: 2, regions: { main: [{ id: "task-table", type: "sales.task-table", version: 1, props: { title: "Safe" }, bindings: { action: { id: "sales.opportunity.stage.update", version: 1 } } }] } })],

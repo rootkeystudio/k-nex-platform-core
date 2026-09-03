@@ -65,6 +65,12 @@ export interface WorkspacePageAuditEntry {
   readonly occurredAt: string;
 }
 
+/** Revisions observed by the current-authority service before an autosave may enter storage. */
+export interface WorkspaceWorkingCopyExpectedRevisions {
+  readonly expectedPageRevision: number;
+  readonly expectedAccessRevision: number;
+}
+
 export type WorkspacePageOperationKind = "create" | "metadata" | "working-copy" | "access" | "publish" | "rollback";
 
 interface PageRow {
@@ -309,15 +315,25 @@ export class PostgresWorkspacePageStore {
     });
   }
 
-  async saveWorkingCopy(identityValue: unknown, changeValue: unknown, updatedByValue: unknown): Promise<WorkspaceWorkingCopy> {
+  async saveWorkingCopy(
+    identityValue: unknown,
+    changeValue: unknown,
+    updatedByValue: unknown,
+    expected: WorkspaceWorkingCopyExpectedRevisions
+  ): Promise<WorkspaceWorkingCopy> {
     const identity = parseIdentity(identityValue);
     const change = WorkspaceWorkingCopyChangeInputSchema.safeParse(changeValue);
     if (!change.success) fail("INVALID_INPUT", "Workspace working-copy change is invalid.");
     const updatedBy = assertActor(updatedByValue);
+    if (typeof expected !== "object" || expected === null || !Number.isSafeInteger(expected.expectedPageRevision) || expected.expectedPageRevision < 1 || !Number.isSafeInteger(expected.expectedAccessRevision) || expected.expectedAccessRevision < 0) {
+      fail("INVALID_INPUT", "Workspace working-copy expected revisions are invalid.");
+    }
     if (change.data.document.id !== identity.documentId || change.data.document.version !== change.data.expectedRevision + 1) fail("INVALID_INPUT", "Workspace working-copy document revision is invalid.");
-    return this.mutate(identity, "working-copy", change.data.idempotencyKey, change.data, updatedBy, parseWorkingCopy, async (session) => {
+    return this.mutate(identity, "working-copy", change.data.idempotencyKey, { change: change.data, expected }, updatedBy, parseWorkingCopy, async (session) => {
       const current = await this.readPageLocked(session, identity);
-      if (current.state === "archived" || current.workingCopyRevision !== change.data.expectedRevision) fail("REVISION_CONFLICT", "Workspace working copy changed or is archived.");
+      if (current.state === "archived" || current.workingCopyRevision !== change.data.expectedRevision || current.revision !== expected.expectedPageRevision || current.accessRevision !== expected.expectedAccessRevision) {
+        fail("REVISION_CONFLICT", "Workspace working copy, page access, or archive state changed.");
+      }
       const occurredAt = timestamp(this.now);
       const workingCopy = parseWorkingCopy({ schemaVersion: 1, identity, revision: change.data.document.version, document: change.data.document, editorSessionId: change.data.editorSessionId, idempotencyKey: change.data.idempotencyKey, updatedBy, updatedAt: occurredAt });
       const page = parsePage({ ...current, workingCopyRevision: workingCopy.revision, revision: current.revision + 1, updatedBy, updatedAt: occurredAt });

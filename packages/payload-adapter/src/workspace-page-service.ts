@@ -285,7 +285,10 @@ export class CurrentAuthorityWorkspacePageService<TContext> {
     const candidate = { ...snapshot, workingCopy: { ...snapshot.workingCopy, revision: document.version, document } };
     await safeCall(() => this.options.catalog.dependencies({ context, snapshot: candidate, signal: active })) ?? failure("DEPENDENCY_UNAVAILABLE", "Workspace autosave dependencies are unavailable.");
     await this.authorize(context, scope, "system.workspace-pages.edit", pageId, "autosave-commit", active);
-    return this.options.store.saveWorkingCopy((await this.locate(scope, pageId)).page.identity, { ...change.data, document }, decision.effectiveActor);
+    return this.options.store.saveWorkingCopy(snapshot.page.identity, { ...change.data, document }, decision.effectiveActor, {
+      expectedPageRevision: snapshot.page.revision,
+      expectedAccessRevision: snapshot.access.accessRevision
+    });
   }
 
   async replaceAccess(context: TContext, scope: WorkspacePageScope, pageId: string, input: Readonly<{ expectedPageRevision: number; expectedAccessRevision: number; assignments: readonly WorkspacePageAccessAssignment[]; idempotencyKey: string }>, signal?: AbortSignal) {

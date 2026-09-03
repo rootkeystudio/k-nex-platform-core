@@ -42,6 +42,23 @@ function nextPage(page, changes) {
   return { ...page, ...changes, revision: page.revision + 1, updatedBy: actor, updatedAt: instant };
 }
 
+function saveExpected(snapshot) {
+  return { expectedPageRevision: snapshot.page.revision, expectedAccessRevision: snapshot.access.accessRevision };
+}
+
+function pageLockKey(identity) {
+  return `${JSON.stringify([identity.applicationId, identity.environment, identity.pageId], null, 2)}\n`;
+}
+
+async function waitForAdvisoryWaiters(pool, count) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const result = await pool.query("select count(*)::int as count from pg_locks where locktype='advisory' and not granted");
+    if (result.rows[0].count >= count) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`Timed out waiting for ${count} workspace-page mutations to contend on the lock.`);
+}
+
 test("P12.5 stores workspace pages, ACL, CAS copies, immutable publications, rollback, and physical restore", { timeout: 240_000 }, async () => {
   const container = await new PostgreSqlContainer(POSTGRES_IMAGE).withDatabase("workspace_pages").withStartupTimeout(120_000).start();
   let pool = new pg.Pool({ connectionString: container.getConnectionUri() });
@@ -70,21 +87,41 @@ test("P12.5 stores workspace pages, ACL, CAS copies, immutable publications, rol
     assert.equal((await navigationStore.list({ applicationId: "customer-beta", environment: "production" })).length, 0);
 
     const save = { expectedRevision: 1, editorSessionId: "editor-session-one", idempotencyKey: "workspace-save-one", document: { ...alpha.document, version: 2 } };
-    const saved = await store.saveWorkingCopy(alpha.identity, save, actor);
+    const saved = await store.saveWorkingCopy(alpha.identity, save, actor, saveExpected(await store.read(alpha.identity)));
     assert.equal(saved.revision, 2);
-    assert.deepEqual(await store.saveWorkingCopy(alpha.identity, save, actor), saved, "accepted autosave replay must survive the newer page revision");
+    assert.deepEqual(await store.saveWorkingCopy(alpha.identity, save, actor, { expectedPageRevision: themedDraft.revision, expectedAccessRevision: 0 }), saved, "accepted autosave replay must survive the newer page revision");
+    let snapshot = await store.read(alpha.identity);
     const race = await Promise.allSettled([
-      store.saveWorkingCopy(alpha.identity, { ...save, expectedRevision: saved.revision, idempotencyKey: "workspace-save-race-a", document: { ...alpha.document, version: 3 } }, actor),
-      store.saveWorkingCopy(alpha.identity, { ...save, expectedRevision: saved.revision, idempotencyKey: "workspace-save-race-b", document: { ...alpha.document, version: 3 } }, actor)
+      store.saveWorkingCopy(alpha.identity, { ...save, expectedRevision: saved.revision, idempotencyKey: "workspace-save-race-a", document: { ...alpha.document, version: 3 } }, actor, saveExpected(snapshot)),
+      store.saveWorkingCopy(alpha.identity, { ...save, expectedRevision: saved.revision, idempotencyKey: "workspace-save-race-b", document: { ...alpha.document, version: 3 } }, actor, saveExpected(snapshot))
     ]);
     assert.deepEqual(race.map(({ status }) => status).sort(), ["fulfilled", "rejected"]);
     assert.equal(race.find(({ status }) => status === "rejected").reason.code, "REVISION_CONFLICT", "stale tab must receive a conflict");
     console.log("P12_ATK_08_STALE_AUTOSAVE_CAS_POSTGRES_DENIED=PASS");
 
-    let snapshot = await store.read(alpha.identity);
-    assert.ok(snapshot);
-    const access = { ...snapshot.access, accessRevision: 1, assignments: [{ subject: { kind: "user", userId: "private-page-viewer" }, capability: "view" }] };
-    await store.replaceAccess({ access, expectedPageRevision: snapshot.page.revision, expectedAccessRevision: 0, idempotencyKey: "workspace-access-one", updatedBy: actor });
+    snapshot = await store.read(alpha.identity);
+    const access = { ...snapshot.access, accessRevision: snapshot.access.accessRevision + 1, assignments: [{ subject: { kind: "user", userId: "private-page-viewer" }, capability: "view" }] };
+    const lock = await pool.connect();
+    try {
+      await lock.query("begin");
+      await lock.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [pageLockKey(alpha.identity)]);
+      const revocation = store.replaceAccess({ access, expectedPageRevision: snapshot.page.revision, expectedAccessRevision: snapshot.access.accessRevision, idempotencyKey: "workspace-access-one", updatedBy: actor });
+      await waitForAdvisoryWaiters(pool, 1);
+      const staleAutosave = store.saveWorkingCopy(alpha.identity, {
+        expectedRevision: snapshot.workingCopy.revision,
+        editorSessionId: "editor-session-revoked",
+        idempotencyKey: "workspace-save-revoked-race",
+        document: { ...snapshot.workingCopy.document, version: snapshot.workingCopy.revision + 1 }
+      }, actor, saveExpected(snapshot));
+      await waitForAdvisoryWaiters(pool, 2);
+      await lock.query("commit");
+      await revocation;
+      await assert.rejects(staleAutosave, { code: "REVISION_CONFLICT" }, "ACL revocation that wins the page lock must reject the stale autosave");
+    } finally {
+      await lock.query("rollback").catch(() => {});
+      lock.release();
+    }
+    console.log("P12_ATK_20_REVOKED_AUTOSAVE_POSTGRES_DENIED=PASS");
     snapshot = await store.read(alpha.identity);
     assert.equal(snapshot.access.accessRevision, 1);
 
@@ -112,7 +149,7 @@ test("P12.5 stores workspace pages, ACL, CAS copies, immutable publications, rol
     assert.deepEqual(historical.access, firstRevision.access, "published ACL must remain reconstructable after replacement");
     assert.deepEqual(snapshot.access, replacementAccess, "current ACL remains separate from published history");
     const secondSave = { expectedRevision: snapshot.workingCopy.revision, editorSessionId: "editor-session-two", idempotencyKey: "workspace-save-two", document: { ...snapshot.workingCopy.document, version: snapshot.workingCopy.revision + 1 } };
-    await store.saveWorkingCopy(alpha.identity, secondSave, actor);
+    await store.saveWorkingCopy(alpha.identity, secondSave, actor, saveExpected(snapshot));
     snapshot = await store.read(alpha.identity);
     const secondRevisionId = "workspace-publication-two";
     const secondDependencies = { ...firstRevision.dependencies, digest: digest("c") };
