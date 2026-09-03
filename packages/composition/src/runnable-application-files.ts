@@ -38,7 +38,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
-  serverExternalPackages: ["@k-nex/module-sales", "@k-nex/theme-${options.theme}"],
+  serverExternalPackages: ["@k-nex/theme-${options.theme}"],
   webpack(config) {
     config.resolve.extensionAlias = { ".js": [".ts", ".tsx", ".js"] };
     return config;

@@ -14,7 +14,7 @@ import type {
   DataSourceHandlerRequest,
   PlatformPluginPolicyExecutor
 } from "@k-nex/runtime";
-import { DataSourceGatewayError, definePluginRegistration, projectSystemSettingsValues } from "@k-nex/runtime";
+import { ActionGatewayError, DataSourceGatewayError, definePluginRegistration, projectSystemSettingsValues } from "@k-nex/runtime";
 import type { CollectionConfig } from "payload";
 import type { CollectionAfterChangeHook, PayloadRequest } from "payload";
 
@@ -90,6 +90,7 @@ interface SalesPayloadRequest {
     find(options: SalesFindOptions): Promise<SalesFindResult>;
     create(options: SalesCreateOptions): Promise<SalesCreatedTask>;
     update(options: SalesUpdateOptions): Promise<SalesUpdatedRecord>;
+    update(options: SalesConditionalOpportunityUpdateOptions): Promise<SalesConditionalUpdateResult>;
   };
   readonly locale?: string;
   readonly transactionID?: number | string;
@@ -130,6 +131,7 @@ interface SalesOpportunityDocument {
   readonly name?: unknown;
   readonly stage?: unknown;
   readonly value?: unknown;
+  readonly updatedAt?: unknown;
 }
 
 interface SalesCreateOptions {
@@ -164,12 +166,23 @@ interface SalesUpdateOptions {
   readonly context: { readonly kNexSalesEvent: SalesEventContext };
 }
 
+interface SalesConditionalOpportunityUpdateOptions extends Omit<SalesUpdateOptions, "id"> {
+  readonly collection: "sales-opportunities";
+  readonly where: unknown;
+}
+
 interface SalesUpdatedRecord {
   readonly id?: string | number;
   readonly title?: unknown;
   readonly status?: unknown;
   readonly name?: unknown;
   readonly stage?: unknown;
+  readonly updatedAt?: unknown;
+}
+
+interface SalesConditionalUpdateResult {
+  readonly docs: readonly SalesUpdatedRecord[];
+  readonly errors: readonly unknown[];
 }
 
 interface SalesTaskScope {
@@ -493,7 +506,7 @@ async function tasksTable(context: DataSourceHandlerRequest): Promise<unknown> {
   };
 }
 
-const opportunityStorage = { name: "name", stage: "stage", value: "value" } as const;
+const opportunityStorage = { name: "name", stage: "stage", revision: "updatedAt", value: "value" } as const;
 
 function opportunityCell(fieldId: string, document: SalesOpportunityDocument): Record<string, unknown> | null {
   const value = document[opportunityStorage[fieldId as keyof typeof opportunityStorage]];
@@ -633,12 +646,20 @@ export const salesOpportunityStageUpdateHandler: ActionHandler<UpdateOpportunity
   if (!parsed.success) throw parsed.error;
   const payloadRequest = updateRequest(request);
   const user = payloadUser(actor);
-  const updated = await payloadRequest.payload.update({
-    collection: "sales-opportunities", id: parsed.data.id, data: { stage: parsed.data.stage }, depth: 0, overrideAccess: true,
+  const update = await payloadRequest.payload.update({
+    collection: "sales-opportunities",
+    where: { and: [
+      { id: { equals: parsed.data.id } },
+      { stage: { equals: parsed.data.expectedStage } },
+      { updatedAt: { equals: parsed.data.expectedRevision } }
+    ] },
+    data: { stage: parsed.data.stage }, depth: 0, overrideAccess: true,
     ...(user === undefined ? {} : { user }), req: payloadRequest,
     context: eventContext("sales.event.opportunity-changed", idempotencyKey)
   });
-  const result = { id: String(updated.id), name: updated.name, stage: updated.stage };
+  if (update.errors.length > 0 || update.docs.length !== 1) throw new ActionGatewayError("STALE_RECORD", 409, "Sales opportunity changed before the stage update.");
+  const updated = update.docs[0]!;
+  const result = { id: String(updated.id), name: updated.name, stage: updated.stage, revision: updated.updatedAt };
   const validated = salesOpportunityStageOutputRuntimeSchema.safeParse(result);
   if (!validated.success) throw validated.error;
   return validated.data;

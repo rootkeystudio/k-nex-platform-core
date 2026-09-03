@@ -22,6 +22,10 @@
       "types": "./dist/ui.d.ts",
       "default": "./dist/ui.js"
     },
+    "./puck": {
+      "types": "./dist/puck.d.ts",
+      "default": "./dist/puck.js"
+    },
     "./pages": {
       "types": "./dist/pages.d.ts",
       "default": "./dist/pages.js"

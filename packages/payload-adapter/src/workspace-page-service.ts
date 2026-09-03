@@ -19,7 +19,7 @@ type WorkspaceNavigationPlacement = WorkspacePage["navigation"];
 type WorkspacePageAccessAssignment = WorkspacePageAccessSnapshot["assignments"][number];
 type WorkspaceThemeProfileRef = NonNullable<WorkspacePage["themeProfile"]>;
 
-export type WorkspacePageServiceErrorCode = "NOT_FOUND" | "ACCESS_DENIED" | "DEPENDENCY_UNAVAILABLE" | "INVALID_INPUT";
+export type WorkspacePageServiceErrorCode = "NOT_FOUND" | "ACCESS_DENIED" | "DEPENDENCY_UNAVAILABLE" | "INVALID_INPUT" | "REVISION_CONFLICT";
 
 export class WorkspacePageServiceError extends Error {
   constructor(readonly code: WorkspacePageServiceErrorCode, message: string) {
@@ -258,7 +258,9 @@ export class CurrentAuthorityWorkspacePageService<TContext> {
     const active = combineSignals(signal, sessionSignal);
     const change = WorkspaceWorkingCopyChangeInputSchema.safeParse(changeValue);
     if (!change.success) failure("INVALID_INPUT", "Workspace autosave input is invalid.");
-    const { decision } = await this.authorizedSnapshot(context, scope, pageId, "system.workspace-pages.edit", "autosave", active, "edit");
+    const { snapshot, decision } = await this.authorizedSnapshot(context, scope, pageId, "system.workspace-pages.edit", "autosave", active, "edit");
+    const candidate = { ...snapshot, workingCopy: { ...snapshot.workingCopy, revision: change.data.document.version, document: change.data.document } };
+    await safeCall(() => this.options.catalog.dependencies({ context, snapshot: candidate, signal: active })) ?? failure("DEPENDENCY_UNAVAILABLE", "Workspace autosave dependencies are unavailable.");
     await this.authorize(context, scope, "system.workspace-pages.edit", pageId, "autosave-commit", active);
     return this.options.store.saveWorkingCopy((await this.locate(scope, pageId)).page.identity, change.data, decision.effectiveActor);
   }
@@ -286,9 +288,10 @@ export class CurrentAuthorityWorkspacePageService<TContext> {
     return this.options.store.listAudit((await this.locate(scope, pageId)).page.identity, limit);
   }
 
-  async publish(context: TContext, scope: WorkspacePageScope, pageId: string, idempotencyKey: string, signal?: AbortSignal): Promise<WorkspacePublicationReceipt> {
+  async publish(context: TContext, scope: WorkspacePageScope, pageId: string, input: Readonly<{ workingCopyRevision: number; idempotencyKey: string }>, signal?: AbortSignal): Promise<WorkspacePublicationReceipt> {
     const active = combineSignals(signal);
     const { snapshot, decision } = await this.authorizedSnapshot(context, scope, pageId, "system.workspace-pages.publish", "publish", active, "edit");
+    if (snapshot.workingCopy.revision !== input.workingCopyRevision) failure("REVISION_CONFLICT", "Workspace publication working copy changed.");
     const dependencies = await this.options.catalog.dependencies({ context, snapshot, signal: active });
     const impact = await this.options.catalog.impact({ context, snapshot, signal: active });
     if (impact.state !== "ready" || active.aborted) failure("DEPENDENCY_UNAVAILABLE", "Workspace page dependencies are unavailable.");
@@ -298,7 +301,7 @@ export class CurrentAuthorityWorkspacePageService<TContext> {
     const pointerRevision = (snapshot.publication?.pointer.pointerRevision ?? 0) + 1;
     const pointer = { schemaVersion: 1, identity: snapshot.page.identity, pointerRevision, publishedRevisionId: ids.revisionId, publishedDocumentRevision: snapshot.workingCopy.revision, ...(snapshot.publication ? { previousPublishedRevisionId: snapshot.publication.pointer.publishedRevisionId } : {}), updatedAt: occurredAt };
     const page = { ...snapshot.page, state: "published", publishedRevisionId: ids.revisionId, dependencyDigest: dependencies.digest, revision: snapshot.page.revision + 1, updatedBy: decision.effectiveActor, updatedAt: occurredAt };
-    const receipt = { schemaVersion: 1, receiptId: ids.receiptId, operation: "publish", identity: snapshot.page.identity, pointerRevision, publishedRevisionId: ids.revisionId, ...(snapshot.publication ? { previousPublishedRevisionId: snapshot.publication.pointer.publishedRevisionId } : {}), accessRevision: snapshot.access.accessRevision, dependencyDigest: dependencies.digest, requestedBy: decision.effectiveActor, authorityDigest: sha256(decision), idempotencyKey, occurredAt };
+    const receipt = { schemaVersion: 1, receiptId: ids.receiptId, operation: "publish", identity: snapshot.page.identity, pointerRevision, publishedRevisionId: ids.revisionId, ...(snapshot.publication ? { previousPublishedRevisionId: snapshot.publication.pointer.publishedRevisionId } : {}), accessRevision: snapshot.access.accessRevision, dependencyDigest: dependencies.digest, requestedBy: decision.effectiveActor, authorityDigest: sha256(decision), idempotencyKey: input.idempotencyKey, occurredAt };
     await this.authorize(context, scope, "system.workspace-pages.publish", pageId, "publish-commit", active);
     return this.options.store.publish({ page, revision, pointer, receipt });
   }
@@ -398,7 +401,11 @@ export class CurrentAuthorityWorkspacePageService<TContext> {
   private async authorize(context: TContext, scope: WorkspacePageScope, permissionId: string, pageId: string | undefined, operation: string, signal: AbortSignal, required: false): Promise<AuthorizationDecision | undefined>;
   private async authorize(context: TContext, scope: WorkspacePageScope, permissionId: string, pageId: string | undefined, operation: string, signal: AbortSignal, required = true): Promise<AuthorizationDecision | undefined> {
     if (signal.aborted) failure("ACCESS_DENIED", "Workspace page operation was revoked.");
-    const target = createCurrentAuthorityTarget({ permissionId, scope: pageId === undefined ? { kind: "application", resource: "system.workspace-pages" } : { kind: "record", resource: "system.workspace-pages", recordId: pageId }, facts: { boundary: "workspace-page-service", operation } });
+    const target = createCurrentAuthorityTarget({
+      permissionId,
+      scope: { kind: "application", resource: "system.workspace-pages" },
+      facts: { boundary: "workspace-page-service", operation, ...(pageId === undefined ? {} : { pageId }) }
+    });
     const decision = await safeCall(() => this.options.authority.authorize(context, target, signal));
     const valid = decision?.outcome === "allow" && decision.applicationId === scope.applicationId && decision.environment === scope.environment && decision.permissionId === permissionId;
     if (!valid && required) failure("ACCESS_DENIED", "Current authority denied the workspace page operation.");

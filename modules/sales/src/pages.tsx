@@ -65,7 +65,7 @@ export const salesOpportunitiesTableDefinition = defineDataTable({
   defaultPageSize: 25,
   searchField: "name",
   facets: { stage: ["lead", "qualified", "won", "lost"] },
-  rowActions: [{ id: salesOpportunityStageMutation.action.id, action: salesOpportunityStageMutation.action, mutation: salesOpportunityStageMutation, input: (rowKey: string) => ({ id: rowKey, stage: "won" }), label: "Change stage" }]
+  rowActions: []
 });
 
 export function createSalesTaskQuickCreateController(transport: BrowserDataTransport, idempotencyKey: string) {

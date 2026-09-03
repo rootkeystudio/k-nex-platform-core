@@ -127,6 +127,8 @@ describe("P12.6 current-authority workspace page service", () => {
     expect("snapshot" in listed!).toBe(false);
     expect(await value.service.audit(reader, scope, identity.pageId, 10)).toEqual([{ auditId: "audit-one", operation: "create", pageRevision: 1, workingCopyRevision: 1, accessRevision: 0, actor, occurredAt }]);
     expect(value.authorityCalls.every((target) => target.permissionId.startsWith("system.workspace-pages."))).toBe(true);
+    expect(value.authorityCalls.every((target) => target.scope.kind === "application" && target.scope.resource === "system.workspace-pages")).toBe(true);
+    expect(value.authorityCalls.some((target) => target.facts.pageId === identity.pageId)).toBe(true);
   });
 
   it("derives page, placement, theme, actor, and document identity on the server", async () => {
@@ -202,13 +204,13 @@ describe("P12.6 current-authority workspace page service", () => {
   it("requires current publish authority and fresh ready dependencies before storage", async () => {
     const value = setup();
     value.setImpact({ state: "dependency-unavailable", code: "theme-unavailable", catalogRevision: 2, dependencyDigest });
-    await expect(value.service.publish(owner, scope, identity.pageId, "workspace-publish-one")).rejects.toMatchObject({ code: "DEPENDENCY_UNAVAILABLE" });
+    await expect(value.service.publish(owner, scope, identity.pageId, { workingCopyRevision: 1, idempotencyKey: "workspace-publish-one" })).rejects.toMatchObject({ code: "DEPENDENCY_UNAVAILABLE" });
     expect(value.store.publish).not.toHaveBeenCalled();
   });
 
   it("derives publication and rollback identities, authority digest, and dependencies server-side", async () => {
     const publishValue = setup();
-    const receipt = await publishValue.service.publish(owner, scope, identity.pageId, "workspace-publish-one");
+    const receipt = await publishValue.service.publish(owner, scope, identity.pageId, { workingCopyRevision: 1, idempotencyKey: "workspace-publish-one" });
     expect(receipt).toMatchObject({ operation: "publish", identity, publishedRevisionId: "workspace.publication-1", dependencyDigest });
     const publishedInput = publishValue.store.publish.mock.calls[0]![0] as any;
     expect(publishedInput.revision.document).toEqual(document);

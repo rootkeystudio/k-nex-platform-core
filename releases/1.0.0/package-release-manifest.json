@@ -19,7 +19,7 @@
       "package": "@k-nex/builder-puck",
       "version": "1.0.0",
       "role": "builder",
-      "integrity": "sha512-4eqZm12jW3QpKv0krSLjaHPHhj6EuHuagf+VspncGTiy3ufBaEX56NBeXkp7ZQZLTs7WjME9Ia5HJptZuc8ooA==",
+      "integrity": "sha512-ufFCd0Vgn3cl1nkQs4VTjyYhTmj8hK92wJffT6LfbIi234TUH1YA6nDpRjE4sxHjjy/otfdhShyzSBLMuhlN0g==",
       "peerCompatibility": {
         "core": "1.0.0",
         "payload": "3.88.0",
@@ -32,7 +32,7 @@
       "package": "@k-nex/composition",
       "version": "1.0.0",
       "role": "core",
-      "integrity": "sha512-Wo6Smq+yGBzC8f2hXg/ja68WDwdq6J1FNG1zel/lrcpb0pQu4AXdDl6JYIxz3xE3uWwoCZWWmFWfd1mpdkBf/A==",
+      "integrity": "sha512-bpcpUK/3x6w9IE0Esc6YIg9YMcV8HbWQm/MQ3vYttE2jI9MrA7tN6DHPBqRox1QnmMjqa/wGqDUc8X+rW5iQxA==",
       "peerCompatibility": {
         "core": "1.0.0",
         "payload": "3.88.0",
@@ -45,7 +45,7 @@
       "package": "@k-nex/contracts",
       "version": "1.0.0",
       "role": "core",
-      "integrity": "sha512-J9n0i8/eN/kL/Ef1e2bVfhuNuxw0E/1wV/XoUXHN9RjuybhxDAcC23JZJDgYy+9vNY3+ircAXXVb4xl9l46pig==",
+      "integrity": "sha512-0aVPUzIYn7CIe5yy62/PJofSBlEduUJHp3lS4dIcmNq/bNpg82mJr5IhHO13wM4aXz17N0SrjgCIB6cfLhiAQQ==",
       "peerCompatibility": {
         "core": "1.0.0",
         "payload": "3.88.0",
@@ -71,7 +71,7 @@
       "package": "@k-nex/module-sales",
       "version": "1.0.0",
       "role": "plugin",
-      "integrity": "sha512-ilg/K5jx3PNNWg3FsIBUjbv9r/i0ZD+x+hxvZ4p0kQWOfdJoAQsx5CBV85Z5WtG96tlQ8+jKpeeY5nscNFVX2A==",
+      "integrity": "sha512-AkGShzMo5KL8ujeg8Gi+saYmmC4GI+Z0uxioMJWpN7W0zqmAIlasB4Oqby0A87RnC4OoP/pJfGCkijO9inaPSg==",
       "peerCompatibility": {
         "core": "1.0.0",
         "payload": "3.88.0",
@@ -84,7 +84,7 @@
       "package": "@k-nex/payload-adapter",
       "version": "1.0.0",
       "role": "core",
-      "integrity": "sha512-a7dk7Dqm8olvc4mgTGGmDEjR6YLAlcn8KZDgNWxiA6Ug6HZRJoRZpR2+Yxh71D52EX6u9Vlm2ktDukLRWau3+g==",
+      "integrity": "sha512-h47Jp6WZ94quxbjrMfhfKUGuZY+Sxpd27+b0dD/vW84xV+EzwnCVmf99/+6Jarz6/HcAJlr5e18V5cQSZkMxsg==",
       "peerCompatibility": {
         "core": "1.0.0",
         "payload": "3.88.0",
@@ -149,7 +149,7 @@
       "package": "@k-nex/ui-builder-blocks",
       "version": "1.0.0",
       "role": "builder",
-      "integrity": "sha512-mD39oVqrLmWc4OmCaHDGrORFWY5rGN1tvcw1sYqd//9UhtMYh0wK2Uu0gXDQeyNDUdpOUbIyBtoyFgIj+JZtzQ==",
+      "integrity": "sha512-/3ChO9Jh1gcpITN30wn6a+zmpvQ2FubKtnfQDtXlqLwMF2uagI2Zk9hzxs3E+XcPHYmCwQC6x7H4Q362AUfJjQ==",
       "peerCompatibility": {
         "core": "1.0.0",
         "payload": "3.88.0",

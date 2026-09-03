@@ -1,7 +1,8 @@
+import { createElement, useState, type ReactNode } from "react";
 import { defineUiContributionBinding, type UiBlockRenderInput, type UiContributionDefinition } from "@k-nex/ui-runtime";
-import { createKNextActionFormElement, createKNextComponentElement, createPuckBlockLibrary } from "@k-nex/ui-builder-blocks";
 import { Section, Status } from "@k-nex/ui-components";
 import { DataList, DataTable, KeyValueList, Metric, QueryBoundary, createDataTableState } from "@k-nex/ui-data";
+import { Form, FormActions, Select, TextInput } from "@k-nex/ui-forms";
 import type { MetricScalar, TableRecords } from "@k-nex/contracts";
 
 import {
@@ -10,6 +11,7 @@ import {
   salesUiBlockDescriptors,
   salesUiComponentDescriptors,
   salesOpportunityStageUpdateDescriptor,
+  salesOpportunityKanbanBlockDescriptor,
   salesOpportunitiesDescriptor,
   salesTaskCreateDescriptor,
   salesTaskUpdateDescriptor,
@@ -37,7 +39,7 @@ export interface SalesTaskTablePresentation {
 }
 
 export interface SalesContributionPresentation {
-  readonly kind: "data-table" | "metric" | "form" | "data-list" | "detail" | "status" | "settings-summary";
+  readonly kind: "data-table" | "metric" | "form" | "data-list" | "detail" | "status" | "settings-summary" | "kanban";
   readonly component: string;
   readonly title: string;
   readonly accessibility: Readonly<{ readonly role: "table" | "form" | "list" | "status" | "region"; readonly label: string }>;
@@ -46,6 +48,31 @@ export interface SalesContributionPresentation {
   readonly action?: NonNullable<UiBlockRenderInput["action"]>;
   readonly data?: unknown;
   readonly problemCode?: string;
+}
+
+function componentElement(component: unknown, props: Record<string, unknown>): unknown {
+  if (typeof component !== "function") throw new TypeError("K-Nex component definition is not executable.");
+  return createElement(component as (props: Record<string, unknown>) => ReactNode, props);
+}
+
+interface ActionFormProps {
+  readonly label: string;
+  readonly enabled: boolean;
+  readonly onSubmit: (values: Readonly<Record<string, string>>) => void | Promise<void>;
+}
+
+function SalesTaskActionForm({ label, enabled, onSubmit }: ActionFormProps) {
+  const [title, setTitle] = useState("");
+  const [status, setStatus] = useState("open");
+  return createElement(Form, {
+    label,
+    onSubmit: () => enabled && title.trim().length > 0 ? onSubmit({ title, status }) : undefined,
+    children: [
+      createElement(TextInput, { key: "title", name: "title", label: "Title", value: title, required: true, onChange: setTitle }),
+      createElement(Select, { key: "status", name: "status", label: "Status", value: status, options: [{ id: "open", label: "Open" }, { id: "done", label: "Done" }], onChange: setStatus }),
+      createElement(FormActions, { key: "actions", children: createElement("button", { type: "submit", disabled: !enabled || title.trim().length === 0 }, "Create task") })
+    ]
+  });
 }
 
 export function salesTaskTableRenderer(input: UiBlockRenderInput): Readonly<SalesTaskTablePresentation> {
@@ -57,7 +84,7 @@ export function salesTaskTableRenderer(input: UiBlockRenderInput): Readonly<Sale
     title: props.title,
     accessibility: Object.freeze({ role: "table" as const, label: props.title }),
     state,
-    element: createKNextComponentElement(DataTable, {
+    element: componentElement(DataTable, {
       definition: salesTasksTableDefinition,
       viewState: createDataTableState(salesTasksTableDefinition),
       requestState: dataTableRequestState(input.sourceResult),
@@ -69,7 +96,8 @@ export function salesTaskTableRenderer(input: UiBlockRenderInput): Readonly<Sale
   });
 }
 
-function rendererKind(id: string): "data-table" | "metric" | "form" | "data-list" | "detail" | "status" | "settings-summary" {
+function rendererKind(id: string): "data-table" | "metric" | "form" | "data-list" | "detail" | "status" | "settings-summary" | "kanban" {
+  if (id.includes("kanban")) return "kanban";
   if (id.includes("revenue")) return "metric";
   if (id.includes("quick-create")) return "form";
   if (id.includes("opportunity-list") || id === "sales.list.opportunities") return "data-list";
@@ -116,34 +144,69 @@ function tableItems(value: unknown, fields: readonly string[]) {
 
 function queryElement(kind: ReturnType<typeof rendererKind>, input: UiBlockRenderInput, title: string): unknown {
   const children = (value: unknown) => {
-    if (kind === "metric") return createKNextComponentElement(Metric, { label: title, metric: value as MetricScalar });
-    if (kind === "data-list") return createKNextComponentElement(DataList, { label: title, items: tableItems(value, ["name", "stage", "value"]) });
-    return createKNextComponentElement(Section, { label: title, children: createKNextComponentElement(KeyValueList, { label: title, items: tableItems(value, ["name", "stage", "value"]).map(({ id, label, value: itemValue }) => ({ id, key: label, value: itemValue })) }) });
+    if (kind === "metric") return componentElement(Metric, { label: title, metric: value as MetricScalar });
+    if (kind === "data-list") return componentElement(DataList, { label: title, items: tableItems(value, ["name", "stage", "value"]) });
+    return componentElement(Section, { label: title, children: componentElement(KeyValueList, { label: title, items: tableItems(value, ["name", "stage", "value"]).map(({ id, label, value: itemValue }) => ({ id, key: label, value: itemValue })) }) });
   };
-  return createKNextComponentElement(QueryBoundary, { state: queryRequestState(input.sourceResult), children });
+  return componentElement(QueryBoundary, { state: queryRequestState(input.sourceResult), children });
+}
+
+const opportunityStages = ["lead", "qualified", "won", "lost"] as const;
+
+function SalesOpportunityKanban({ table, title, input }: { readonly table: TableRecords; readonly title: string; readonly input: UiBlockRenderInput }) {
+  const [announcement, setAnnouncement] = useState("");
+  const move = async (id: string, name: string, expectedStage: string, expectedRevision: string, stage: typeof opportunityStages[number]) => {
+    if (input.action === undefined || input.dispatchAction === undefined || !opportunityStages.includes(expectedStage as typeof opportunityStages[number])) return;
+    try {
+      await input.dispatchAction({ action: input.action, input: { id, expectedStage, expectedRevision, stage }, nodeId: input.node.id });
+      setAnnouncement(`${name} moved to ${stage}.`);
+    } catch {
+      setAnnouncement(`${name} was not moved. Refresh and try again.`);
+    }
+  };
+  return createElement("section", { "aria-label": title, "data-k-nex-component": "sales-opportunity-kanban" }, [
+    createElement("h2", { key: "title" }, title),
+    createElement("div", { key: "columns", "data-slot": "kanban-columns" }, opportunityStages.map((stage) => createElement("section", { key: stage, "aria-label": `${stage} opportunities` }, [
+      createElement("h3", { key: "heading" }, stage[0]!.toUpperCase() + stage.slice(1)),
+      createElement("ul", { key: "cards" }, table.rows.filter((row) => cellText(row.values.stage) === stage).map((row) => {
+        const name = cellText(row.values.name);
+        const revision = cellText(row.values.revision);
+        return createElement("li", { key: row.key, "data-opportunity-id": row.key }, [
+          createElement("strong", { key: "name" }, name),
+          input.action === undefined || input.dispatchAction === undefined ? null : createElement("div", { key: "moves", "aria-label": `Move ${name}` }, opportunityStages.filter((target) => target !== stage).map((target) =>
+            createElement("button", { key: target, type: "button", onClick: () => move(row.key, name, stage, revision, target) }, `Move to ${target}`)))
+        ]);
+      }))
+    ]))),
+    createElement("p", { key: "announcement", role: "status", "aria-live": "polite" }, announcement)
+  ]);
+}
+
+function kanbanElement(input: UiBlockRenderInput, title: string): unknown {
+  return componentElement(QueryBoundary, {
+    state: queryRequestState(input.sourceResult),
+    children: (value: unknown) => componentElement(SalesOpportunityKanban, { table: value as TableRecords, title, input })
+  });
 }
 
 function contributionElement(kind: ReturnType<typeof rendererKind>, input: UiBlockRenderInput, title: string): unknown {
-  if (kind === "data-table") return createKNextComponentElement(DataTable, {
+  if (kind === "data-table") return componentElement(DataTable, {
     definition: salesOpportunitiesTableDefinition,
     viewState: createDataTableState(salesOpportunitiesTableDefinition),
     requestState: dataTableRequestState(input.sourceResult),
     label: title
   });
   if (kind === "metric" || kind === "data-list" || kind === "detail") return queryElement(kind, input, title);
-  if (kind === "form") return createKNextActionFormElement({
-    label: title,
-    fields: [{ name: "title", label: "Title", kind: "text", required: true }, { name: "status", label: "Status", kind: "select", options: [{ id: "open", label: "Open" }, { id: "done", label: "Done" }] }],
-    initialValues: { title: "", status: "open" },
-    submitLabel: "Create task",
-    enabled: input.action !== undefined && input.dispatchAction !== undefined,
+  if (kind === "form") return componentElement(SalesTaskActionForm, {
+    label: title, enabled: input.action !== undefined && input.dispatchAction !== undefined,
     onSubmit: async (values: Readonly<Record<string, string>>) => {
       if (input.action === undefined || input.dispatchAction === undefined) return;
       await input.dispatchAction({ action: input.action, input: values, nodeId: input.node.id });
     }
   });
-  if (kind === "status") return createKNextComponentElement(Status, { children: title });
-  return createKNextComponentElement(Section, { label: title, children: createKNextComponentElement(KeyValueList, { label: title, items: [{ id: "summary", key: title, value: "Available" }] }) });
+  if (kind === "status") return componentElement(Status, { children: title });
+  if (kind === "kanban") return kanbanElement(input, title);
+  return componentElement(Section, { label: title, children: componentElement(KeyValueList, { label: title, items: [{ id: "summary", key: title, value: "Available" }] }) });
 }
 
 function componentName(kind: ReturnType<typeof rendererKind>): string {
@@ -152,6 +215,7 @@ function componentName(kind: ReturnType<typeof rendererKind>): string {
   if (kind === "detail" || kind === "settings-summary") return "KeyValueList";
   if (kind === "metric") return "Metric";
   if (kind === "form") return "Form";
+  if (kind === "kanban") return "Kanban";
   return "Status";
 }
 
@@ -191,29 +255,6 @@ export const salesUiComponentDefinitions = Object.freeze(salesUiComponentDescrip
   descriptor.id === salesTaskTableComponent.id ? salesTaskTableComponent : definition(descriptor)));
 export const salesUiBlockDefinitions = Object.freeze(salesUiBlockDescriptors.map((descriptor) =>
   descriptor.id === salesTaskTableBlock.id ? salesTaskTableBlock : definition(descriptor)));
-
-export const salesTaskTablePuckAuthoring = Object.freeze({
-  label: "Sales task table",
-  fields: Object.freeze([{ prop: "title", label: "Title", kind: "text" as const }]),
-  allowChildren: false,
-  defaultProps: Object.freeze({ title: "Sales tasks" })
-});
-
-const salesBlockLabels: Readonly<Record<string, string>> = Object.freeze({
-  "sales.task-table": "Sales task table",
-  "sales.revenue-metric": "Sales revenue metric",
-  "sales.task-quick-create": "Sales task quick-create",
-  "sales.opportunity-list": "Sales opportunity list",
-  "sales.opportunity-detail": "Sales opportunity detail",
-  "sales.settings-summary": "Sales settings summary"
-});
-export const salesPuckBlockAuthoring = Object.freeze(Object.fromEntries(salesUiBlockDefinitions.map((definition) => [definition.id, Object.freeze({
-  label: salesBlockLabels[definition.id]!,
-  fields: Object.freeze([{ prop: "title", label: "Title", kind: "text" as const }]),
-  allowChildren: false,
-  defaultProps: Object.freeze({ title: salesBlockLabels[definition.id]! })
-})])));
-export const salesPuckBlockBridges = createPuckBlockLibrary(salesUiBlockDefinitions, salesPuckBlockAuthoring);
 
 export const salesWorkspaceUiContract = Object.freeze({
   pluginId: "module.sales" as const,

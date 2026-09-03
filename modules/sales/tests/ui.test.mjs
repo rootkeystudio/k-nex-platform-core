@@ -13,12 +13,11 @@ import {
 } from "../dist/contracts.js";
 import {
   salesTaskTableBlock,
-  salesTaskTablePuckAuthoring,
-  salesPuckBlockBridges,
   salesWorkspaceUiContract,
   salesUiBlockDefinitions,
   salesUiComponentDefinitions
 } from "../dist/ui.js";
+import { salesTaskTablePuckAuthoring, salesPuckBlockBridges } from "../dist/puck.js";
 
 const document = {
   id: "sales.page.tasks",
@@ -62,10 +61,11 @@ const tableData = {
   page: { number: 1, pageSize: 25, hasNext: false }
 };
 const opportunityData = {
-  fields: ["name", "stage", "value"],
+  fields: ["name", "stage", "revision", "value"],
   rows: [{ key: "opportunity-1", values: {
     name: { kind: "text", value: "Acme" },
     stage: { kind: "status", value: "qualified" },
+    revision: { kind: "text", value: "2026-09-03T00:00:00.000Z" },
     value: { kind: "money", value: "200", currency: "USD", scale: 2 }
   } }],
   page: { number: 1, pageSize: 25, hasNext: false }
@@ -88,7 +88,7 @@ function nodeFor(bridge) {
     input: {},
     structuralCompatibilityHash: source.structuralCompatibilityHash,
     ...(source.id === salesTasksDescriptor.id ? { selectedFields: ["title", "status", "potential-revenue"] } : {}),
-    ...(source.id === salesOpportunitiesDescriptor.id ? { selectedFields: ["name", "stage", "value"] } : {})
+    ...(source.id === salesOpportunitiesDescriptor.id ? { selectedFields: ["name", "stage", "revision", "value"] } : {})
   };
   const bindings = sourceBinding === undefined && action === undefined ? undefined : {
     ...(sourceBinding === undefined ? {} : { source: sourceBinding }),
@@ -143,7 +143,7 @@ test("every Sales UI contribution renders outside the editor and every block rec
     assert.equal(definition.descriptor.requiredStates.length, 4);
     assert.deepEqual(definition.actionPolicy, definition.descriptor.actionPolicy);
   }
-  assert.deepEqual([...kinds].sort(), ["data-list", "data-table", "detail", "form", "metric", "settings-summary", "status"]);
+  assert.deepEqual([...kinds].sort(), ["data-list", "data-table", "detail", "form", "kanban", "metric", "settings-summary", "status"]);
   const assertEquivalentRender = (actual, expected) => {
     assert.deepEqual({ ...actual, element: undefined }, { ...expected, element: undefined });
     assert.equal(renderToStaticMarkup(actual.element), renderToStaticMarkup(expected.element));
@@ -194,6 +194,7 @@ test("every Sales Puck block preserves source/action authority and DOM role pari
     assert.equal(editorMarkup, productionMarkup);
     const componentName = bridge.definition.id.includes("task-table") ? "data-table"
       : bridge.definition.id.includes("metric") ? "query-boundary"
+      : bridge.definition.id.includes("kanban") ? "query-boundary"
       : bridge.definition.id.includes("opportunity") ? (bridge.definition.id.includes("detail") ? "query-boundary" : "data-list")
       : bridge.definition.id.includes("quick-create") ? "form" : "section";
     assert.match(productionMarkup, new RegExp(`data-k-nex-component="${componentName}"`));
@@ -207,7 +208,25 @@ test("every Sales Puck block preserves source/action authority and DOM role pari
       assert.match(productionMarkup, /disabled=""/);
     }
     if (bridge.definition.id.includes("opportunity")) assert.match(productionMarkup, /<section\b[^>]*aria-label=/);
+    if (bridge.definition.id.includes("kanban")) {
+      assert.match(productionMarkup, /data-k-nex-component="sales-opportunity-kanban"/);
+      assert.match(productionMarkup, /aria-live="polite"/);
+    }
   }
+});
+
+test("Sales Kanban exposes native pointer and keyboard stage controls only with exact action authority", () => {
+  const definition = salesUiBlockDefinitions.find(({ id }) => id === "sales.opportunity-kanban");
+  assert.ok(definition);
+  const rendered = definition.render({
+    node: nodeFor(salesPuckBlockBridges.find(({ definition }) => definition.id === "sales.opportunity-kanban")),
+    props: { title: "Pipeline" }, surface: "workspace", actor, sourceResult: { state: "success", data: opportunityData },
+    action: { id: "sales.opportunity.stage.update", version: 1 }, dispatchAction: async () => undefined
+  });
+  const markup = renderToStaticMarkup(rendered.element);
+  assert.match(markup, /<button[^>]*>Move to lead<\/button>/);
+  assert.match(markup, /<button[^>]*>Move to won<\/button>/);
+  assert.match(markup, /role="status" aria-live="polite"/);
 });
 
 test("Sales UI contributions expose labelled semantic regions", () => {
@@ -228,5 +247,5 @@ test("Sales public UI inventory reconciles every canonical source action route p
   assert.deepEqual(salesWorkspaceUiContract.pageTemplateIds, ["sales.page.opportunities", "sales.page.overview", "sales.page.settings", "sales.page.tasks"]);
   assert.equal(salesWorkspaceUiContract.routeIds.length, 4);
   assert.equal(salesWorkspaceUiContract.componentIds.length, 6);
-  assert.equal(salesWorkspaceUiContract.blockIds.length, 6);
+  assert.equal(salesWorkspaceUiContract.blockIds.length, 7);
 });

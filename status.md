@@ -2,21 +2,21 @@
 
 - **Updated:** 2026-09-03
 - **Phase:** Phase 12 — Runnable Customer Workspace and Dashboard Builder
-- **Active task:** P12.9 — run the clean generated-application integration journey
+- **Active task:** P12.10 — Gate 12 closeout
 - **State:** In progress
 
 ## Last completed
 
-P12.8 adds current-authority page/folder administration, CAS folder persistence/reorder/restore, exact role/user ACL replacement, exact admin Theme Profile selection, safe audit/impact views, durable parent-removal unplacement, and generated mutation boundaries with same-origin validation.
+P12.9 proves the complete generated packed-app journey: owner bootstrap/login, nested Sales page navigation, real Puck authoring, lost-response autosave recovery, exact page ACL and Sales authority, Theme Profile publication, pointer/keyboard Kanban actions, live revocation, rollback, and restart durability. Generated v1 now includes the current transactional outbox schema and bundles Sales UI with Next's React runtime.
 
 ## Validation
 
-Exact Node 24.19.0: touched-package builds and focused page/folder/service/admin/theme/navigation/factory tests PASS; real PostgreSQL page/folder CAS and restore PASS; generated Next build/migration/auth/browser assertions PASS; packed v1.0.0 ABI/release closure 17 PASS. Node test runner retained one post-proof handle and was stopped after the passing assertion; use force-exit for the P12.9 journey. Cumulative Gate 0–11 remains deferred to phase closeout.
+Exact Node 24.19.0: affected package builds and focused contract/composition/Sales/page-service tests PASS; real PostgreSQL workspace storage PASS; P12.9 generated Next/Payload/PostgreSQL/Chromium journey PASS in 100.3s. Production page runtime excludes Puck/editor imports. Cumulative Gate 0–11 remains deferred to P12.10.
 
 ## Next
 
-Execute P12.9 clean generated-app owner/editor/viewer journey with real Sales blocks, autosave/publish/render/action/revoke/rollback/restart proof.
+Create Phase 12 result and Gate 12, run exact closeout evidence, obtain one reusable Sol xhigh phase review, fix until PASS, then push/open the phase PR.
 
 ## Blockers
 
-None. Owner requires cumulative suites only at phase closeout.
+None.

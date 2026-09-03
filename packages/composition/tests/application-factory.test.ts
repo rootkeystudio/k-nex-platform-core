@@ -32,7 +32,12 @@ describe("create-knex-app", () => {
     expect(first.files["tsconfig.scripts.json"]).toContain('"module": "NodeNext"');
     expect(first.files["src/k-nex-registry.ts"]).toContain("salesRegistration");
     expect(first.files["src/k-nex-registry.ts"]).toContain('surface: "admin"');
+    expect(first.files["next.config.ts"]).not.toContain('"@k-nex/module-sales"');
     expect(first.files["src/k-nex-workspace-pages.ts"]).toContain("CurrentAuthorityWorkspacePageService");
+    expect(first.files["src/k-nex-workspace-pages.ts"]).toContain("registered?.descriptor ?? registered");
+    expect(first.files["src/k-nex-sales-workspace.ts"]).toContain('descriptor.id === salesOpportunitiesDescriptor.id ? "sales.opportunities" as const : "sales.tasks" as const');
+    expect(first.files["src/app/components/k-nex-workspace-page-runtime.tsx"]).not.toMatch(/builder-puck|module-sales\/puck/u);
+    expect(first.files["src/app/components/k-nex-workspace-page-editor.tsx"]).toMatch(/builder-puck|module-sales\/puck/u);
     expect(first.files["src/k-nex-readiness.ts"]).toContain("K_NEX_APPLICATION_READY");
     expect(first.files["src/app/(payload)/api/[...slug]/route.ts"]).toContain("REST_GET(config)");
     expect(first.files["src/app/(workspace)/page.tsx"]).toContain("Customer Alpha");
@@ -44,6 +49,7 @@ describe("create-knex-app", () => {
     expect(first.files["src/k-nex-bootstrap-owner.ts"]).toContain("bootstrapFirstOwner");
     expect(first.files["src/migrations/20260903_000003_knex_authorization.ts"]).toContain("kNexAuthorizationSchemaMigration");
     expect(first.files["src/migrations/20260903_000004_knex_workspace_pages.ts"]).toContain("kNexWorkspacePageSchemaMigration");
+    expect(first.files["src/migrations/20260903_000005_knex_event_outbox.ts"]).toContain("kNexEventOutboxSchemaMigration");
     expect(first.files["src/app/api/k-nex/inventory/route.ts"]).toContain("system.extensions.read");
     expect(Object.values(first.files).every((source) => !source.includes("fixtures/customer-gate-1"))).toBe(true);
     const packageJson = JSON.parse(first.files["package.json"]!);

@@ -341,7 +341,15 @@ export class PostgresWorkspacePageStore {
     return this.mutate(next.identity, "metadata", input.idempotencyKey, input, next.updatedBy, parsePage, async (session) => {
       const current = await this.readPageLocked(session, next.identity);
       if (current.revision !== input.currentRevision || next.revision !== current.revision + 1) fail("REVISION_CONFLICT", "Workspace page metadata revision changed.");
-      const immutable = (value: WorkspacePage) => ({ identity: value.identity, createdBy: value.createdBy, createdAt: value.createdAt, workingCopyRevision: value.workingCopyRevision, accessRevision: value.accessRevision, publishedRevisionId: value.publishedRevisionId, dependencyDigest: value.dependencyDigest });
+      const immutable = (value: WorkspacePage) => ({
+        identity: value.identity,
+        createdBy: value.createdBy,
+        createdAt: value.createdAt,
+        workingCopyRevision: value.workingCopyRevision,
+        accessRevision: value.accessRevision,
+        ...(value.publishedRevisionId === undefined ? {} : { publishedRevisionId: value.publishedRevisionId }),
+        ...(value.dependencyDigest === undefined ? {} : { dependencyDigest: value.dependencyDigest })
+      });
       if (canonicalJson(immutable(current)) !== canonicalJson(immutable(next)) || ![current.state, "archived"].includes(next.state)) fail("INVALID_INPUT", "Workspace page metadata changed protected publication state.");
       const updated = await session.query(
         `update k_nex_workspace_pages set state=$4, page_revision=$5, page_json=$6::jsonb, updated_at=$7 where application_id=$1 and environment=$2 and page_id=$3 and page_revision=$8`,

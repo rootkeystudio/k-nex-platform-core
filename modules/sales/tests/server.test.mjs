@@ -463,9 +463,9 @@ test("the opportunities source returns bounded canonical rows", async () => {
   const result = await salesOpportunitiesHandler(handlerContext({
     request: { payload: { find: async (options) => {
       assert.equal(options.collection, "sales-opportunities");
-      return { docs: [{ id: "opp-1", name: "Platform rollout", stage: "qualified", value: "1200.50" }], hasNextPage: false };
+      return { docs: [{ id: "opp-1", name: "Platform rollout", stage: "qualified", value: "1200.50", updatedAt: "2026-09-03T00:00:00.000Z" }], hasNextPage: false };
     } } },
-    selectedFields: ["name", "stage", "value"],
+    selectedFields: ["name", "stage", "revision", "value"],
     recordScope: { kind: "sales.opportunities" }
   }));
   assert.deepEqual(result.rows[0], {
@@ -473,6 +473,7 @@ test("the opportunities source returns bounded canonical rows", async () => {
     values: {
       name: { kind: "text", value: "Platform rollout" },
       stage: { kind: "status", value: "qualified" },
+      revision: { kind: "text", value: "2026-09-03T00:00:00.000Z" },
       value: { kind: "money", value: "1200.5", currency: "USD", scale: 2 }
     }
   });
@@ -487,13 +488,26 @@ test("Sales update actions use actor-scoped Payload updates exactly once", async
         calls.push(options);
         return options.collection === "sales-tasks"
           ? { id: options.id, title: options.data.title ?? "Existing", status: options.data.status ?? "open" }
-          : { id: options.id, name: "Platform rollout", stage: options.data.stage };
+          : { docs: [{ id: "opp-1", name: "Platform rollout", stage: options.data.stage, updatedAt: "2026-09-03T00:01:00.000Z" }], errors: [] };
       }
     }
   };
   const base = { actor: handlerContext().actor, request, authorizationContext: {}, idempotencyKey: "update-1", signal: new AbortController().signal };
   assert.deepEqual(await salesTaskUpdateHandler({ ...base, input: { id: "task-1", status: "done" } }), { id: "task-1", title: "Existing", status: "done" });
-  assert.deepEqual(await salesOpportunityStageUpdateHandler({ ...base, input: { id: "opp-1", stage: "won" } }), { id: "opp-1", name: "Platform rollout", stage: "won" });
+  assert.deepEqual(await salesOpportunityStageUpdateHandler({ ...base, input: { id: "opp-1", expectedStage: "qualified", expectedRevision: "2026-09-03T00:00:00.000Z", stage: "won" } }), { id: "opp-1", name: "Platform rollout", stage: "won", revision: "2026-09-03T00:01:00.000Z" });
   assert.equal(calls.length, 2);
   assert.equal(calls.every((call) => call.overrideAccess === true && call.user.id === "user-1"), true);
+  assert.deepEqual(calls[1].where, { and: [
+    { id: { equals: "opp-1" } },
+    { stage: { equals: "qualified" } },
+    { updatedAt: { equals: "2026-09-03T00:00:00.000Z" } }
+  ] });
+});
+
+test("Sales rejects a stale opportunity card without a blind update", async () => {
+  const request = { payload: { find: async () => ({ docs: [] }), create: async () => ({}), update: async () => ({ docs: [], errors: [] }) } };
+  await assert.rejects(salesOpportunityStageUpdateHandler({
+    actor: handlerContext().actor, request, authorizationContext: {}, idempotencyKey: "stale-1", signal: new AbortController().signal,
+    input: { id: "opp-1", expectedStage: "lead", expectedRevision: "2026-09-03T00:00:00.000Z", stage: "won" }
+  }), (error) => error?.code === "STALE_RECORD" && error?.status === 409);
 });

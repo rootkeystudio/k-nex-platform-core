@@ -98,6 +98,7 @@ export const salesTasksDescriptor = {
 export const salesOpportunityFields = [
     { id: "name", kind: "text", binding: "required", nullable: false, permission: "sales.opportunities.name.read", sortable: true, filterOperators: ["eq", "contains"] },
     { id: "stage", kind: "status", binding: "required", nullable: false, permission: "sales.opportunities.stage.read", sortable: true, filterOperators: ["eq", "in"] },
+    { id: "revision", kind: "text", binding: "optional", nullable: false, permission: "sales.opportunities.stage.read", sortable: false, filterOperators: [] },
     { id: "value", kind: "money", binding: "optional", nullable: true, permission: "sales.opportunities.value.read", sortable: false, filterOperators: [] }
 ];
 export const salesOpportunitiesDescriptor = {
@@ -109,7 +110,7 @@ export const salesOpportunitiesDescriptor = {
     audience: "authenticated",
     surfaces: ["workspace"],
     permission: "sales.opportunities.read",
-    structuralCompatibilityHash: "sha256:1bffe6601229801384d7f058f71607d6dc9ebeb09defabb7b74b53b5d9feb569",
+    structuralCompatibilityHash: "sha256:09311605c4c5afaab4ff5f902f88f5c206fc1c7dd5e925f713d72d6a2ddba066",
     presentationMetadataRevision: 1,
     title: "Sales opportunities",
     inputFields: [],
@@ -217,16 +218,19 @@ export const salesUpdateTaskInputRuntimeSchema = {
 export const salesUpdateTaskOutputRuntimeSchema = salesCreateTaskOutputRuntimeSchema;
 export const salesOpportunityStageInputRuntimeSchema = {
     safeParse(value) {
-        if (!salesRecord(value) || Object.keys(value).sort().join("\u0000") !== "id\u0000stage" || !boundedId(value.id) ||
-            !["lead", "qualified", "won", "lost"].includes(value.stage))
+        if (!salesRecord(value) || Object.keys(value).sort().join("\u0000") !== "expectedRevision\u0000expectedStage\u0000id\u0000stage" || !boundedId(value.id) ||
+            typeof value.expectedRevision !== "string" || !Number.isFinite(Date.parse(value.expectedRevision)) ||
+            ![value.expectedStage, value.stage].every((stage) => ["lead", "qualified", "won", "lost"].includes(stage))) {
             return invalidRuntimeValue("Sales opportunity stage input is invalid.");
+        }
         return { success: true, data: value };
     }
 };
 export const salesOpportunityStageOutputRuntimeSchema = {
     safeParse(value) {
-        if (!salesRecord(value) || Object.keys(value).sort().join("\u0000") !== "id\u0000name\u0000stage" || !boundedId(value.id) ||
-            typeof value.name !== "string" || value.name.length < 1 || value.name.length > 256 || !["lead", "qualified", "won", "lost"].includes(value.stage)) {
+        if (!salesRecord(value) || Object.keys(value).sort().join("\u0000") !== "id\u0000name\u0000revision\u0000stage" || !boundedId(value.id) ||
+            typeof value.name !== "string" || value.name.length < 1 || value.name.length > 256 || !["lead", "qualified", "won", "lost"].includes(value.stage) ||
+            typeof value.revision !== "string" || !Number.isFinite(Date.parse(value.revision))) {
             return invalidRuntimeValue("Sales opportunity stage output is invalid.");
         }
         return { success: true, data: value };
@@ -330,9 +334,11 @@ export const salesOpportunityStageUpdateDescriptor = {
         type: "object",
         properties: {
             id: { type: "string", minLength: 1, maxLength: 128 },
+            expectedStage: { type: "string", enum: ["lead", "qualified", "won", "lost"] },
+            expectedRevision: { type: "string", minLength: 20, maxLength: 32 },
             stage: { type: "string", enum: ["lead", "qualified", "won", "lost"] }
         },
-        required: ["id", "stage"],
+        required: ["id", "expectedStage", "expectedRevision", "stage"],
         additionalProperties: false
     },
     outputSchema: {
@@ -340,9 +346,10 @@ export const salesOpportunityStageUpdateDescriptor = {
         properties: {
             id: { type: "string", minLength: 1, maxLength: 128 },
             name: { type: "string", minLength: 1, maxLength: 256 },
-            stage: { type: "string", enum: ["lead", "qualified", "won", "lost"] }
+            stage: { type: "string", enum: ["lead", "qualified", "won", "lost"] },
+            revision: { type: "string", minLength: 20, maxLength: 32 }
         },
-        required: ["id", "name", "stage"],
+        required: ["id", "name", "stage", "revision"],
         additionalProperties: false
     },
     permission: "sales.opportunities.write",
@@ -817,7 +824,7 @@ export const salesOpportunitiesPageTemplate = {
         id: "sales.page.opportunities", version: 1, schemaVersion: 1, profile: "workspace",
         regions: { main: [{
                     id: "sales-opportunities", type: "sales.opportunity-list", version: 1, props: { title: "Opportunities" },
-                    bindings: { source: { source: { id: salesOpportunitiesDescriptor.id, version: 1 }, input: {}, structuralCompatibilityHash: salesOpportunitiesDescriptor.structuralCompatibilityHash, selectedFields: ["name", "stage", "value"] } }
+                    bindings: { source: { source: { id: salesOpportunitiesDescriptor.id, version: 1 }, input: {}, structuralCompatibilityHash: salesOpportunitiesDescriptor.structuralCompatibilityHash, selectedFields: ["name", "stage", "revision", "value"] } }
                 }] }
     }
 };
@@ -876,7 +883,7 @@ function uiContribution(id, kind, permissionId, sourcePolicy, actionPolicy) {
     };
 }
 const metricSourcePolicy = { required: true, contracts: [{ id: "metric.scalar", version: 1 }], requiredFields: [] };
-const opportunitySourcePolicy = { required: true, contracts: [{ id: "table.records", version: 1 }], requiredFields: ["name", "stage"] };
+const opportunitySourcePolicy = { required: true, contracts: [{ id: "table.records", version: 1 }], requiredFields: ["name", "stage", "revision"] };
 export const salesRevenueMetricComponentDescriptor = uiContribution("sales.metric.total-potential-revenue", "component", "sales.tasks.revenue.read", metricSourcePolicy);
 export const salesQuickCreateComponentDescriptor = uiContribution("sales.form.task-quick-create", "component", "sales.tasks.write", undefined, { required: true, actions: [{ id: salesTaskCreateDescriptor.id, version: 1 }] });
 export const salesOpportunityListComponentDescriptor = uiContribution("sales.list.opportunities", "component", "sales.opportunities.read", opportunitySourcePolicy);
@@ -886,6 +893,7 @@ export const salesRevenueMetricBlockDescriptor = uiContribution("sales.revenue-m
 export const salesQuickCreateBlockDescriptor = uiContribution("sales.task-quick-create", "block", "sales.tasks.write", undefined, { required: true, actions: [{ id: salesTaskCreateDescriptor.id, version: 1 }] });
 export const salesOpportunityListBlockDescriptor = uiContribution("sales.opportunity-list", "block", "sales.opportunities.read", opportunitySourcePolicy);
 export const salesOpportunityDetailBlockDescriptor = uiContribution("sales.opportunity-detail", "block", "sales.opportunities.read", opportunitySourcePolicy, { required: false, actions: [{ id: salesOpportunityStageUpdateDescriptor.id, version: 1 }] });
+export const salesOpportunityKanbanBlockDescriptor = uiContribution("sales.opportunity-kanban", "block", "sales.opportunities.read", opportunitySourcePolicy, { required: false, actions: [{ id: salesOpportunityStageUpdateDescriptor.id, version: 1 }] });
 export const salesSettingsSummaryBlockDescriptor = uiContribution("sales.settings-summary", "block", "sales.settings.read");
 export const salesUiComponentDescriptors = Object.freeze([
     salesTaskTableComponentDescriptor, salesRevenueMetricComponentDescriptor, salesQuickCreateComponentDescriptor,
@@ -893,7 +901,7 @@ export const salesUiComponentDescriptors = Object.freeze([
 ]);
 export const salesUiBlockDescriptors = Object.freeze([
     salesTaskTableBlockDescriptor, salesRevenueMetricBlockDescriptor, salesQuickCreateBlockDescriptor,
-    salesOpportunityListBlockDescriptor, salesOpportunityDetailBlockDescriptor, salesSettingsSummaryBlockDescriptor
+    salesOpportunityListBlockDescriptor, salesOpportunityDetailBlockDescriptor, salesOpportunityKanbanBlockDescriptor, salesSettingsSummaryBlockDescriptor
 ]);
 export const salesEventDescriptors = Object.freeze([
     { id: "sales.event.task-changed", version: 1, ownerPluginId: "module.sales", eventClass: "durable-integration", sourceId: "sales.tasks" },

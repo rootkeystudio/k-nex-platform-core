@@ -91,6 +91,7 @@ describe("P12.1 workspace contracts", () => {
   it("separates page ACL from platform and block data authority", () => {
     const access = { schemaVersion: 1, identity, accessRevision: 4, assignments: [{ subject: { kind: "role", roleId: "sales-manager" }, capability: "edit" }, { subject: { kind: "user", userId: "user:viewer" }, capability: "view" }] } as const;
     expect(WorkspacePageAccessSnapshotSchema.safeParse(access).success).toBe(true);
+    expect(WorkspacePageAccessSnapshotSchema.safeParse({ ...access, assignments: [{ subject: { kind: "user", userId: "1" }, capability: "edit" }] }).success).toBe(true);
     expect(WorkspacePageAccessSnapshotSchema.safeParse({ ...access, permissionId: "sales.opportunities.read" }).success).toBe(false);
     expect(WorkspacePageAccessSnapshotSchema.safeParse({ ...access, assignments: [...access.assignments, access.assignments[0]] }).success).toBe(false);
     expect(WorkspacePageAccessSnapshotSchema.safeParse({ ...access, assignments: [{ subject: { kind: "service", id: "service:admin" }, capability: "edit" }] }).success).toBe(false);

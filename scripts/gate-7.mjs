@@ -11,7 +11,7 @@ import { componentInventory, referenceComponentNames } from "../packages/ui-comp
 import { componentEvidenceMap, componentStateMatrix, componentThemeMatrix, validateComponentEvidenceMap } from "../packages/ui-testing/dist/index.js";
 import { genericPuckBlockBridges } from "../packages/ui-builder-blocks/dist/index.js";
 import { salesDefaultPageContract } from "../modules/sales/dist/pages.js";
-import { salesPuckBlockBridges } from "../modules/sales/dist/ui.js";
+import { salesPuckBlockBridges } from "../modules/sales/dist/puck.js";
 import { minimalThemePackage } from "../packages/theme-minimal/dist/index.js";
 import { neobrutalismThemePackage } from "../packages/theme-neobrutalism/dist/index.js";
 
@@ -43,7 +43,7 @@ assert.equal(componentStateMatrix.length, 16);
 assert.deepEqual(componentThemeMatrix, ["theme.minimal", "theme.neobrutalism"]);
 assert.equal(minimalThemePackage.primitiveOverrides?.Button, neobrutalismThemePackage.primitiveOverrides?.Button, "themes cannot fork component behavior");
 assert.equal(genericPuckBlockBridges.length, 13);
-assert.equal(salesPuckBlockBridges.length, 6);
+assert.equal(salesPuckBlockBridges.length, 7);
 assert.equal(salesDefaultPageContract.templates.length, 4);
 assert.equal(/from\s+["'](?:payload|@k-nex\/theme-|@tanstack\/|@puckeditor\/)/.test(salesPages), false, "Sales pages bypass platform UI boundaries.");
 assert.equal(componentManifest.dependencies["@react-aria/focus"], "3.22.1");

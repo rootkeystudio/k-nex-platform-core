@@ -21,8 +21,8 @@ const taskRecords = {
   page: { number: 1, pageSize: 25, hasNext: false }
 };
 const opportunityRecords = {
-  fields: ["name", "stage", "value"],
-  rows: [{ key: "opp-1", values: { name: { kind: "text" as const, value: "Platform rollout" }, stage: { kind: "status" as const, value: "qualified" }, value: { kind: "money" as const, value: "1200", currency: "USD", scale: 2 } } }],
+  fields: ["name", "stage", "revision", "value"],
+  rows: [{ key: "opp-1", values: { name: { kind: "text" as const, value: "Platform rollout" }, stage: { kind: "status" as const, value: "qualified" }, revision: { kind: "text" as const, value: "2026-09-03T00:00:00.000Z" }, value: { kind: "money" as const, value: "1200", currency: "USD", scale: 2 } } }],
   page: { number: 1, pageSize: 25, hasNext: false }
 };
 
@@ -51,11 +51,11 @@ describe("P7.7 Sales default pages", () => {
     const actions: string[] = [];
     const transport: BrowserDataTransport = {
       query: async () => ({ ok: false, problem: { code: "UNUSED", status: 500 } }),
-      mutate: async (request) => { actions.push(request.action.id); return request.action.id === "sales.task.create" ? { ok: true, data: { id: "task-1", title: "Follow up", status: "open" } } : { ok: true, data: { id: "opp-1", name: "Platform rollout", stage: "won" } }; }
+      mutate: async (request) => { actions.push(request.action.id); return request.action.id === "sales.task.create" ? { ok: true, data: { id: "task-1", title: "Follow up", status: "open" } } : { ok: true, data: { id: "opp-1", name: "Platform rollout", stage: "won", revision: "2026-09-03T00:01:00.000Z" } }; }
     };
     const task = createSalesTaskQuickCreateController(transport, "create-1");
     await task.submit(task.change(task.initial(), "title", "Follow up"), new AbortController().signal);
-    const opportunity = createSalesOpportunityStageController(transport, { id: "opp-1", stage: "qualified" }, "stage-1");
+    const opportunity = createSalesOpportunityStageController(transport, { id: "opp-1", expectedStage: "qualified", expectedRevision: "2026-09-03T00:00:00.000Z", stage: "qualified" }, "stage-1");
     await opportunity.submit(opportunity.change(opportunity.initial(), "stage", "won"), new AbortController().signal);
     expect(actions).toEqual(["sales.task.create", "sales.opportunity.stage.update"]);
   });
@@ -77,7 +77,7 @@ describe("P7.7 Sales default pages", () => {
     const record = source.state === "success" ? source.data.rows[0]! : undefined;
     const name = record?.values.name;
     const options = record === undefined || name?.kind !== "text" ? [] : [{ id: record.key, label: name.value }];
-    const controller = createSalesOpportunityStageController(transport, { id: "opp-1", stage: "qualified" }, "edit-1");
+    const controller = createSalesOpportunityStageController(transport, { id: "opp-1", expectedStage: "qualified", expectedRevision: "2026-09-03T00:00:00.000Z", stage: "qualified" }, "edit-1");
     const markup = renderToStaticMarkup(<SalesOpportunityEditForm opportunity={controller.initial()} opportunityOptions={options} onOpportunityChange={() => undefined} onOpportunitySubmit={() => undefined} />);
 
     expect(markup).toContain('aria-label="Edit opportunity"');

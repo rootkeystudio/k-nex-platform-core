@@ -28,6 +28,7 @@ export const workspacePagePermissionIds = Object.freeze([
 const applicationIdSchema = z.string().regex(/^[a-z][a-z0-9-]{2,127}$/u);
 const environmentSchema = z.string().regex(/^[a-z][a-z0-9-]{1,63}$/u);
 const recordIdSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:@/-]{2,159}$/u);
+const subjectIdSchema = z.string().min(1).max(160).regex(/^[A-Za-z0-9][A-Za-z0-9._:@/-]*$/u);
 const idempotencyKeySchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{7,159}$/u);
 const revisionSchema = z.number().finite().int().nonnegative().max(1_000_000_000);
 const positiveRevisionSchema = z.number().finite().int().min(1).max(1_000_000_000);
@@ -177,7 +178,7 @@ export const WorkspacePageSchema = z.strictObject({
 
 export const WorkspacePageAccessSubjectSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("role"), roleId: recordIdSchema }),
-  z.strictObject({ kind: z.literal("user"), userId: recordIdSchema })
+  z.strictObject({ kind: z.literal("user"), userId: subjectIdSchema })
 ]);
 
 export const WorkspacePageAccessAssignmentSchema = z.strictObject({

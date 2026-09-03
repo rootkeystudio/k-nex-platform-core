@@ -9,6 +9,7 @@ export * from "./mcp-adapter.js";
 export * from "./outbox-processor.js";
 export * from "./outbox-realtime-relay.js";
 export * from "./transactional-outbox.js";
+export * from "./event-outbox-schema-migration.js";
 export * from "./runtime-extension-store.js";
 export * from "./runtime-extension-outbox.js";
 export * from "./theme-profile-store.js";

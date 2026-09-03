@@ -29,7 +29,7 @@ export const salesOpportunitiesQuery = defineSourceQuery({
     input: salesEmptyInputRuntimeSchema,
     output: salesOpportunitiesOutputRuntimeSchema,
     defaults: {},
-    selectedFields: ["name", "stage", "value"],
+    selectedFields: ["name", "stage", "revision", "value"],
     isEmpty: (value) => value.rows.length === 0
 });
 export const salesCreateTaskMutation = defineActionMutation({

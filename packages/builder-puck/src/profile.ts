@@ -167,7 +167,7 @@ function assertAuthorizedChange(
     const bridge = blockDefinitions.get(`${current.node.type}@${current.node.version}`)!;
     const editable = bridge.constraints?.locked ? [] : bridge.constraints?.editableFields ?? bridge.fields.map(({ prop }) => prop);
     const declared = new Set(bridge.fields.map(({ prop }) => prop));
-    if (current.node.bindings !== undefined || current.node.layout !== undefined || current.node.engineMetadata !== undefined ||
+    if (canonicalJson(current.node.bindings ?? null) !== canonicalJson(bridge.defaultBindings ?? null) || current.node.layout !== undefined || current.node.engineMetadata !== undefined ||
         Object.keys(current.node.props).some((prop) => !declared.has(prop))) {
       throw new TypeError(`Inserted block ${id} contains protected configuration.`);
     }

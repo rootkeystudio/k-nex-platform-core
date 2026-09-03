@@ -59,6 +59,8 @@ test("P12.5 stores workspace pages, ACL, CAS copies, immutable publications, rol
     await store.create({ page: beta.page, access: beta.access, workingCopy: beta.workingCopy, idempotencyKey: "workspace-create-beta" });
     assert.equal((await store.list({ applicationId: "customer-alpha", environment: "production" })).length, 1);
     assert.equal((await store.list({ applicationId: "customer-beta", environment: "production" })).length, 1);
+    const themedDraft = nextPage(alpha.page, { title: "private-page-title-themed" });
+    assert.equal((await store.updateMetadata({ currentRevision: alpha.page.revision, page: themedDraft, idempotencyKey: "workspace-theme-draft" })).title, themedDraft.title);
 
     const folder = { id: "customer.folder.reports", owner: { kind: "customer" }, kind: "folder", parentId: "sales.navigation.root", label: "Reports", icon: "folder", order: 20 };
     assert.deepEqual(await navigationStore.create({ applicationId: "customer-alpha", environment: "production" }, folder, actor), { node: folder, revision: 1 });

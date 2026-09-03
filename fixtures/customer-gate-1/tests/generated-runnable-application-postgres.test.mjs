@@ -99,7 +99,7 @@ async function login(origin, email, password) {
   return { body, cookie: cookie(response) };
 }
 
-test("P12.4 generated app serves an authority-filtered accessible workspace shell", { timeout: 420_000 }, async () => {
+test("P12.9 generated app completes the durable authorized workspace journey", { timeout: 420_000 }, async () => {
   const container = await new PostgreSqlContainer(POSTGRES_IMAGE).withDatabase("p12_generated").withStartupTimeout(120_000).start();
   const root = realpathSync(mkdtempSync(join(tmpdir(), "p12-generated-auth-")));
   const application = join(root, "application");
@@ -110,6 +110,8 @@ test("P12.4 generated app serves an authority-filtered accessible workspace shel
   const ownerPassword = randomBytes(24).toString("base64url");
   const limitedEmail = `limited-${randomUUID()}@example.test`;
   const limitedPassword = randomBytes(24).toString("base64url");
+  const managerEmail = `manager-${randomUUID()}@example.test`;
+  const managerPassword = randomBytes(24).toString("base64url");
   let applicationProcess;
   let workerProcess;
   let pool;
@@ -197,10 +199,11 @@ test("P12.4 generated app serves an authority-filtered accessible workspace shel
     assert.match(ownerHtml, /P12 Auth Proof/u);
     assert.match(ownerHtml, /Sales/u);
     assert.match(ownerHtml, /System/u);
-    for (const secret of [ownerEmail, ownerPassword, limitedPassword]) assert.equal(ownerHtml.includes(secret), false);
+    for (const secret of [ownerEmail, ownerPassword, limitedPassword, managerPassword]) assert.equal(ownerHtml.includes(secret), false);
     const inventory = await fetch(`${applicationProcess.origin}/api/k-nex/inventory`, { headers: { cookie: owner.cookie.header } });
     assert.equal(inventory.status, 200);
-    assert.deepEqual((await inventory.json()).plugins, ["module.sales"]);
+    const inventoryBody = await inventory.json();
+    assert.deepEqual(inventoryBody.plugins, ["module.sales"]);
     assert.equal((await fetch(`${applicationProcess.origin}/sales`, { headers: { cookie: owner.cookie.header } })).status, 200);
     assert.equal((await fetch(`${applicationProcess.origin}/system/access/roles`, { headers: { cookie: owner.cookie.header } })).status, 200);
 
@@ -213,9 +216,47 @@ test("P12.4 generated app serves an authority-filtered accessible workspace shel
     const limitedUser = await createLimited.json();
     const limitedUserId = String(limitedUser.doc.id);
 
+    const createManager = await fetch(`${applicationProcess.origin}/api/users`, {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie: owner.cookie.header },
+      body: JSON.stringify({ email: managerEmail, password: managerPassword })
+    });
+    assert.equal(createManager.status, 201);
+    const managerUser = await createManager.json();
+    const managerUserId = String(managerUser.doc.id);
+    const ownerUserId = String(owner.body.user.id);
+
+    const createPage = await fetch(`${applicationProcess.origin}/api/k-nex/workspace-pages`, {
+      method: "POST",
+      redirect: "manual",
+      headers: { "content-type": "application/x-www-form-urlencoded", cookie: owner.cookie.header, origin: applicationProcess.origin },
+      body: new URLSearchParams({
+        title: "Sales command center", description: "Bounded Sales workspace", parentNavigationId: "sales.navigation.root", order: "100",
+        themeRevision: "", idempotencyKey: `workspace-create-${randomUUID()}`
+      })
+    });
+    assert.equal(createPage.status, 303, `${await createPage.clone().text()}\n${applicationProcess.output()}`);
+    const pageLocation = new URL(createPage.headers.get("location"), applicationProcess.origin);
+    const pageId = decodeURIComponent(pageLocation.pathname.split("/").at(-1));
+    assert.match(pageId, /^workspace\.page\./u);
+
+    const pageSession = await fetch(`${applicationProcess.origin}/api/k-nex/workspace-pages/${encodeURIComponent(pageId)}/session`, { headers: { cookie: owner.cookie.header } });
+    assert.equal(pageSession.status, 200, `${await pageSession.clone().text()}\n${applicationProcess.output()}`);
+    const pageState = await pageSession.json();
+    const assignTheme = await fetch(`${applicationProcess.origin}/api/k-nex/workspace-pages/${encodeURIComponent(pageId)}/metadata`, {
+      method: "POST", redirect: "manual",
+      headers: { "content-type": "application/x-www-form-urlencoded", cookie: owner.cookie.header, origin: applicationProcess.origin },
+      body: new URLSearchParams({
+        expectedRevision: String(pageState.pageRevision), title: "Sales command center", description: "Bounded Sales workspace",
+        parentNavigationId: "sales.navigation.root", order: "100", themeRevision: inventoryBody.theme.profileRevisionId,
+        idempotencyKey: `workspace-theme-${randomUUID()}`
+      })
+    });
+    assert.equal(assignTheme.status, 303, `${await assignTheme.clone().text()}\n${applicationProcess.output()}`);
+
     pool = new pg.Pool({ connectionString: container.getConnectionUri() });
     const store = new PostgresAuthorizationStore(pool, {
-      validate: (requestedApplicationId, subject) => requestedApplicationId === applicationId && subject.kind === "user" && subject.id === limitedUserId ? "accepted" : "rejected"
+      validate: (requestedApplicationId, subject) => requestedApplicationId === applicationId && subject.kind === "user" && [limitedUserId, managerUserId].includes(subject.id) ? "accepted" : "rejected"
     });
     const state = await store.readState(applicationId, environmentName);
     assert.ok(state);
@@ -223,7 +264,15 @@ test("P12.4 generated app serves an authority-filtered accessible workspace shel
       await transaction.write({ kind: "role", role: { schemaVersion: 1, id: "customer.workspace-viewer", applicationId, label: "Workspace viewer", revision: 0 } });
       await transaction.write({ kind: "grant", grant: { schemaVersion: 1, id: "customer.workspace-viewer.read", applicationId, roleId: "customer.workspace-viewer", permissionId: "system.workspace-pages.read", owner: { kind: "platform", namespace: "system" }, revision: 0 } });
       await transaction.write({ kind: "assignment", assignment: { schemaVersion: 1, id: "customer.workspace-viewer.assignment", applicationId, roleId: "customer.workspace-viewer", principal: { kind: "user", id: limitedUserId }, state: "active", revision: 0 } });
+      await transaction.write({ kind: "role", role: { schemaVersion: 1, id: "customer.sales-manager", applicationId, label: "Sales manager", revision: 0 } });
+      await transaction.write({ kind: "grant", grant: { schemaVersion: 1, id: "customer.sales-manager.workspace", applicationId, roleId: "customer.sales-manager", permissionId: "system.workspace-pages.read", owner: { kind: "platform", namespace: "system" }, revision: 0 } });
+      for (const permissionId of [
+        "sales.navigation.read", "sales.tasks.read", "sales.tasks.title.read", "sales.tasks.status.read", "sales.tasks.revenue.read",
+        "sales.opportunities.read", "sales.opportunities.name.read", "sales.opportunities.stage.read", "sales.opportunities.value.read", "sales.opportunities.write"
+      ]) await transaction.write({ kind: "grant", grant: { schemaVersion: 1, id: `customer.sales-manager.${permissionId}`, applicationId, roleId: "customer.sales-manager", permissionId, owner: { kind: "extension", deliveryClass: "platform-plugin", extensionId: "module.sales", generation: 1 }, revision: 0 } });
+      await transaction.write({ kind: "assignment", assignment: { schemaVersion: 1, id: "customer.sales-manager.assignment", applicationId, roleId: "customer.sales-manager", principal: { kind: "user", id: managerUserId }, state: "active", revision: 0 } });
     });
+
     const limited = await login(applicationProcess.origin, limitedEmail, limitedPassword);
     const limitedWorkspace = await fetch(`${applicationProcess.origin}/`, { headers: { cookie: limited.cookie.header } });
     assert.equal(limitedWorkspace.status, 200);
@@ -232,6 +281,10 @@ test("P12.4 generated app serves an authority-filtered accessible workspace shel
     assert.equal(limitedHtml.includes("/sales"), false);
     assert.equal((await fetch(`${applicationProcess.origin}/sales`, { headers: { cookie: limited.cookie.header } })).status, 404);
     assert.equal((await fetch(`${applicationProcess.origin}/api/k-nex/inventory`, { headers: { cookie: limited.cookie.header } })).status, 403);
+    assert.equal((await fetch(`${applicationProcess.origin}/workspace/pages/${encodeURIComponent(pageId)}`, { headers: { cookie: limited.cookie.header } })).status, 404);
+
+    const manager = await login(applicationProcess.origin, managerEmail, managerPassword);
+    assert.equal((await fetch(`${applicationProcess.origin}/workspace/pages/${encodeURIComponent(pageId)}`, { headers: { cookie: manager.cookie.header } })).status, 404, "Draft pages cannot be viewed through the normal route.");
 
     await store.transaction(expected(granted.state), async (transaction) => {
       await transaction.write({ kind: "assignment", assignment: { schemaVersion: 1, id: "customer.workspace-viewer.assignment", applicationId, roleId: "customer.workspace-viewer", principal: { kind: "user", id: limitedUserId }, state: "revoked", revision: 1 } });
@@ -255,7 +308,7 @@ test("P12.4 generated app serves an authority-filtered accessible workspace shel
       const result = await pool.query("select count(*)::int as count from k_nex_authorization_outbox where application_id=$1 and environment=$2 and status<>'delivered'", [applicationId, environmentName]);
       return result.rows[0].count === 0;
     }, "Authorization outbox did not converge.", workerProcess.child);
-    assert.equal(workerProcess.output().includes(ownerEmail) || workerProcess.output().includes(ownerPassword) || workerProcess.output().includes(limitedPassword), false);
+    assert.equal(workerProcess.output().includes(ownerEmail) || workerProcess.output().includes(ownerPassword) || workerProcess.output().includes(limitedPassword) || workerProcess.output().includes(managerPassword), false);
     await stop(workerProcess.child, "authorization worker");
     workerProcess = undefined;
 
@@ -263,6 +316,23 @@ test("P12.4 generated app serves an authority-filtered accessible workspace shel
     applicationProcess = await startApplication(application, applicationEnvironment);
     const restartedOwner = await login(applicationProcess.origin, ownerEmail, ownerPassword);
     assert.equal((await fetch(`${applicationProcess.origin}/`, { headers: { cookie: restartedOwner.cookie.header } })).status, 200);
+
+    const themedPageSession = await fetch(`${applicationProcess.origin}/api/k-nex/workspace-pages/${encodeURIComponent(pageId)}/session`, { headers: { cookie: restartedOwner.cookie.header } });
+    assert.equal(themedPageSession.status, 200);
+    const themedPageState = await themedPageSession.json();
+    const access = new URLSearchParams({ expectedPageRevision: String(themedPageState.pageRevision), expectedAccessRevision: String(themedPageState.accessRevision), idempotencyKey: `workspace-access-${randomUUID()}` });
+    access.append("assignment", `user|${ownerUserId}|edit`);
+    access.append("assignment", "role|customer.sales-manager|view");
+    access.append("assignment", `user|${managerUserId}|view`);
+    const replaceAccess = await fetch(`${applicationProcess.origin}/api/k-nex/workspace-pages/${encodeURIComponent(pageId)}/access`, {
+      method: "POST", redirect: "manual",
+      headers: { "content-type": "application/x-www-form-urlencoded", cookie: restartedOwner.cookie.header, origin: applicationProcess.origin }, body: access
+    });
+    assert.equal(replaceAccess.status, 303, await replaceAccess.clone().text());
+
+    const alpha = await pool.query("insert into sales_opportunities (name, stage, value) values ('Alpha renewal','lead','12000') returning id");
+    const beta = await pool.query("insert into sales_opportunities (name, stage, value) values ('Beta expansion','lead','8000') returning id");
+    await pool.query("insert into sales_tasks (title, status, potential_revenue) values ('Prepare Alpha proposal','open','12000')");
 
     browser = await chromium.launch();
     const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: "reduce" });
@@ -275,7 +345,102 @@ test("P12.4 generated app serves an authority-filtered accessible workspace shel
     await page.getByRole("navigation", { name: "Workspace navigation" }).getByText("Sales", { exact: true }).waitFor();
     await page.getByRole("navigation", { name: "Workspace navigation" }).getByText("System", { exact: true }).waitFor();
     assert.equal(await page.locator('[data-k-nex-component="workspace-shell"]').evaluate((element) => getComputedStyle(element).transitionDuration), "0s");
+
+    let lostAutosaveResponse = false;
+    await page.route(`**/api/k-nex/workspace-pages/${encodeURIComponent(pageId)}/autosave`, async (route) => {
+      if (lostAutosaveResponse) return route.continue();
+      lostAutosaveResponse = true;
+      const response = await route.fetch();
+      assert.equal(response.status(), 200, `The autosave must commit before its response is lost.\n${await response.text()}\n${applicationProcess.output()}`);
+      await route.abort("failed");
+    });
+    await page.goto(`${applicationProcess.origin}/workspace/pages/${encodeURIComponent(pageId)}/edit`);
+    const controls = page.getByRole("region", { name: "Canvas block keyboard controls" });
+    const blockSelect = controls.getByRole("combobox", { name: "Block to add" });
+    const addBlock = controls.getByRole("button", { name: "Add block to canvas" });
+    for (const label of ["Sales opportunity Kanban", "Sales revenue metric", "Sales task table"]) {
+      await blockSelect.selectOption({ label });
+      await addBlock.click();
+    }
+    await page.getByText("All changes saved.", { exact: true }).waitFor({ timeout: 15_000 });
+    assert.equal(lostAutosaveResponse, true);
+    await page.unroute(`**/api/k-nex/workspace-pages/${encodeURIComponent(pageId)}/autosave`);
+    const savedWorkingCopy = await pool.query("select working_copy_json from k_nex_workspace_working_copies where application_id=$1 and environment=$2 and page_id=$3", [applicationId, environmentName, pageId]);
+    const savedNodes = savedWorkingCopy.rows[0].working_copy_json.document.regions.main;
+    assert.deepEqual(savedNodes.map(({ type }) => type), ["sales.opportunity-kanban", "sales.revenue-metric", "sales.task-table"]);
+    assert.equal(savedNodes.every(({ bindings }) => bindings?.source !== undefined || bindings?.action !== undefined), true, "Inserted Sales blocks must retain trusted runtime bindings.");
+
+    const publication = page.getByRole("region", { name: "Page publication controls" });
+    await publication.getByRole("button", { name: "Publish page" }).click();
+    await publication.getByText("Page published.", { exact: true }).waitFor({ timeout: 10_000 });
+    const firstPointerResult = await pool.query("select pointer_json from k_nex_workspace_publication_pointers where application_id=$1 and environment=$2 and page_id=$3", [applicationId, environmentName, pageId]);
+    const firstPublishedRevisionId = firstPointerResult.rows[0].pointer_json.publishedRevisionId;
+    assert.match(firstPublishedRevisionId, /^workspace\.publication\./u);
+
+    const selectedBlock = controls.getByRole("combobox", { name: "Selected canvas block" });
+    await selectedBlock.selectOption("2");
+    await page.getByRole("textbox", { name: "Title" }).last().fill("Sales task table revised");
+    await page.getByText("All changes saved.", { exact: true }).waitFor({ timeout: 10_000 });
+    await publication.getByRole("button", { name: "Publish page" }).click();
+    await publication.getByText("Page published.", { exact: true }).waitFor({ timeout: 10_000 });
+    const secondPointerResult = await pool.query("select pointer_json from k_nex_workspace_publication_pointers where application_id=$1 and environment=$2 and page_id=$3", [applicationId, environmentName, pageId]);
+    assert.equal(secondPointerResult.rows[0].pointer_json.previousPublishedRevisionId, firstPublishedRevisionId);
+
+    await page.goto(`${applicationProcess.origin}/`);
+    const publishedNavigationLink = page.locator('[data-navigation-node="sales.navigation.root"]').getByRole("link", { name: "Sales command center" });
+    assert.equal(await publishedNavigationLink.getAttribute("href"), `/workspace/pages/${pageId}`);
+    await page.goto(`${applicationProcess.origin}/workspace/pages/${encodeURIComponent(pageId)}`);
+    const alphaMove = page.locator(`[data-opportunity-id="${String(alpha.rows[0].id)}"]`).getByRole("button", { name: "Move to qualified" });
+    assert.equal(await alphaMove.count(), 1, `Published Kanban action is missing.\n${await page.locator("body").innerText()}\n${JSON.stringify(savedNodes[0])}\n${applicationProcess.output()}`);
+    await alphaMove.click();
+    const alphaStatus = page.getByRole("region", { name: "Sales opportunity Kanban" }).getByRole("status");
+    await alphaStatus.filter({ hasText: /moved/u }).waitFor({ timeout: 10_000 });
+    assert.equal(await alphaStatus.textContent(), "Alpha renewal moved to qualified.", applicationProcess.output());
+    const betaMove = page.locator(`[data-opportunity-id="${String(beta.rows[0].id)}"]`).getByRole("button", { name: "Move to won" });
+    await betaMove.focus();
+    await page.keyboard.press("Enter");
+    await page.getByText("Beta expansion moved to won.", { exact: true }).waitFor();
+    const moved = await pool.query("select name, stage from sales_opportunities order by id");
+    assert.deepEqual(moved.rows, [{ name: "Alpha renewal", stage: "qualified" }, { name: "Beta expansion", stage: "won" }]);
+    assert.equal(await page.locator("[data-k-nex-theme-profile]").getAttribute("data-k-nex-theme-profile"), inventoryBody.theme.profileRevisionId);
+
+    const managerContext = await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: "reduce" });
+    const managerPage = await managerContext.newPage();
+    await managerPage.goto(`${applicationProcess.origin}/login`);
+    await managerPage.getByLabel("Email").fill(managerEmail);
+    await managerPage.getByLabel("Password").fill(managerPassword);
+    await managerPage.getByRole("button", { name: "Sign in" }).click();
+    await managerPage.waitForURL(`${applicationProcess.origin}/`);
+    await managerPage.goto(`${applicationProcess.origin}/workspace/pages/${encodeURIComponent(pageId)}`);
+    await managerPage.getByRole("region", { name: "Sales opportunity Kanban" }).waitFor();
+
+    workerProcess = start("node", ["dist/k-nex-worker.js"], { cwd: application, env: applicationEnvironment });
+    await until(async () => workerProcess.output().includes("K_NEX_WORKER_READY"), `Generated worker did not restart.\n${workerProcess.output()}`, workerProcess.child);
+    const currentPageSession = await fetch(`${applicationProcess.origin}/api/k-nex/workspace-pages/${encodeURIComponent(pageId)}/session`, { headers: { cookie: restartedOwner.cookie.header } });
+    assert.equal(currentPageSession.status, 200);
+    const currentPageState = await currentPageSession.json();
+    const revokeAccess = new URLSearchParams({ expectedPageRevision: String(currentPageState.pageRevision), expectedAccessRevision: String(currentPageState.accessRevision), idempotencyKey: `workspace-revoke-${randomUUID()}` });
+    revokeAccess.append("assignment", `user|${ownerUserId}|edit`);
+    const revoke = await fetch(`${applicationProcess.origin}/api/k-nex/workspace-pages/${encodeURIComponent(pageId)}/access`, {
+      method: "POST", redirect: "manual",
+      headers: { "content-type": "application/x-www-form-urlencoded", cookie: restartedOwner.cookie.header, origin: applicationProcess.origin }, body: revokeAccess
+    });
+    assert.equal(revoke.status, 303);
+    await managerPage.getByRole("alert").getByText("Page access revoked", { exact: true }).waitFor({ timeout: 10_000 });
+    assert.equal((await fetch(`${applicationProcess.origin}/workspace/pages/${encodeURIComponent(pageId)}`, { headers: { cookie: manager.cookie.header } })).status, 404);
+
+    const rollback = await fetch(`${applicationProcess.origin}/api/k-nex/workspace-pages/${encodeURIComponent(pageId)}/rollback`, {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie: restartedOwner.cookie.header, origin: applicationProcess.origin },
+      body: JSON.stringify({ revisionId: firstPublishedRevisionId, idempotencyKey: `workspace-rollback-${randomUUID()}` })
+    });
+    assert.equal(rollback.status, 200);
+    const rollbackBody = await rollback.json();
+    assert.equal(rollbackBody.receipt.publishedRevisionId, firstPublishedRevisionId);
+    await managerContext.close();
+
     const collapse = page.getByRole("button", { name: "Collapse sidebar" });
+    await page.goto(`${applicationProcess.origin}/`);
     await collapse.focus();
     await page.keyboard.press("Enter");
     await page.locator('[data-k-nex-component="workspace-shell"][data-sidebar="collapsed"]').waitFor();
@@ -299,6 +464,24 @@ test("P12.4 generated app serves an authority-filtered accessible workspace shel
     assert.equal(await openNavigation.evaluate((element) => document.activeElement === element), true);
     await context.close();
     browser = undefined;
+
+    await stop(workerProcess.child, "workspace worker restart boundary");
+    workerProcess = undefined;
+    await stop(applicationProcess.child, "durability restart boundary");
+    applicationProcess = undefined;
+    await pool.end();
+    pool = new pg.Pool({ connectionString: container.getConnectionUri() });
+    applicationProcess = await startApplication(application, applicationEnvironment);
+    const durableOwner = await login(applicationProcess.origin, ownerEmail, ownerPassword);
+    const durablePage = await fetch(`${applicationProcess.origin}/workspace/pages/${encodeURIComponent(pageId)}`, { headers: { cookie: durableOwner.cookie.header } });
+    assert.equal(durablePage.status, 200);
+    const durableHtml = await durablePage.text();
+    assert.match(durableHtml, /Sales task table/u);
+    assert.equal(durableHtml.includes("Sales task table revised"), false, "Restart must serve the rolled-back publication.");
+    const durablePointer = await pool.query("select pointer_json from k_nex_workspace_publication_pointers where application_id=$1 and environment=$2 and page_id=$3", [applicationId, environmentName, pageId]);
+    assert.equal(durablePointer.rows[0].pointer_json.publishedRevisionId, firstPublishedRevisionId);
+    const durableSales = await pool.query("select name, stage from sales_opportunities order by id");
+    assert.deepEqual(durableSales.rows, [{ name: "Alpha renewal", stage: "qualified" }, { name: "Beta expansion", stage: "won" }]);
   } finally {
     await stop(workerProcess?.child).catch(() => {});
     await stop(applicationProcess?.child).catch(() => {});
