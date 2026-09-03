@@ -2,7 +2,8 @@ import { createServer } from "node:http";
 import { execFile } from "node:child_process";
 import { createHash, sign } from "node:crypto";
 import { readdirSync } from "node:fs";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
 import pg from "pg";
@@ -109,7 +110,12 @@ async function composition(sourceDirectory) {
 
 async function regenerateLockAndGraph(sourceDirectory) {
   const npm = "npm";
-  await execute(npm, ["install", "--package-lock-only", "--legacy-peer-deps", "--ignore-scripts", "--no-audit", "--no-fund"], { cwd: sourceDirectory, maxBuffer: 8 * 1024 * 1024 });
+  const cacheDirectory = await mkdtemp(join(tmpdir(), "k-nex-npm-cache-"));
+  try {
+    await execute(npm, ["install", "--package-lock-only", "--legacy-peer-deps", "--ignore-scripts", "--no-audit", "--no-fund", "--cache", cacheDirectory], { cwd: sourceDirectory, maxBuffer: 8 * 1024 * 1024 });
+  } finally {
+    await rm(cacheDirectory, { recursive: true, force: true });
+  }
   const lock = await readJson(join(sourceDirectory, "package-lock.json"));
   const sales = lock.packages?.["node_modules/@k-nex/module-sales"];
   if (!sales) throw new Error("Approved module.sales was absent from the regenerated lock.");
