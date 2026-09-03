@@ -303,7 +303,9 @@ export function WorkspacePageEditor({ pageId, initialProjection }: Readonly<{ pa
     let active = true;
     const failClosed = (reason: "access" | "authority") => { if (active) { controller.abort(); setUnavailable(reason); } };
     const synchronize = async () => {
-      const response = await fetch("/api/k-nex/workspace-pages/" + encodeURIComponent(pageId) + "/session?mode=edit&watermark=" + encodeURIComponent(JSON.stringify(currentWatermark.current)), { cache: "no-store", signal: controller.signal }).catch(() => undefined);
+      const request = () => fetch("/api/k-nex/workspace-pages/" + encodeURIComponent(pageId) + "/session?mode=edit&watermark=" + encodeURIComponent(JSON.stringify(currentWatermark.current)), { cache: "no-store", signal: controller.signal }).catch(() => undefined);
+      let response = await request();
+      if (response?.status === 404) response = await request();
       if (response === undefined || response.status === 409) return;
       if (!response.ok) return failClosed("access");
       const body = await response.json().catch(() => undefined) as { watermark?: unknown } | undefined;

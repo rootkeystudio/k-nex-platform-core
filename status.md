@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Focused CI still produced false editor access revocation after the 409 mapping; generated-app failure output now records exact editor-poll response/failure statuses before further protocol changes.
+Editor polling now confirms a 404 once before closing access; deterministic browser routing injects network loss and a false 404 before later real ACL denial.
 
 ## Validation
 
-Hosted evidence run 33812534708 PASS. Local generated-app proof PASS; focused run 33813445986 failed only at the lost-autosave UI assertion with false access revocation. Cumulative run 33813443734 cancelled.
+Exact Node 24.19.0: composition build and focused unit 6/6 PASS. Isolated generated-app PostgreSQL/HTTP/Chromium proof PASS for forced network loss, false 404 recovery, durable autosave, Sales-authority revocation, and real ACL denial.
 
 ## Next
 
-Run focused CI once with poll-status telemetry; diagnose exact denial class, then apply the smallest verified fix.
+Refresh immutable packed closure and exact hosted release evidence, then rerun focused and cumulative CI.
 
 ## Blockers
 
