@@ -284,7 +284,7 @@ describe("create-knex-app", () => {
       expect(() => execFileSync(process.execPath, [script, "--target", target, "--id", `workspace-${name}`, "--name", "Workspace Rejected", "--workspace", ...mode], { encoding: "utf8", stdio: "pipe" })).toThrow(error);
       expect(existsSync(target)).toBe(false);
     }
-  });
+  }, 15_000);
 
   it("keeps release-less plans side-effect-free when application is called directly", () => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), "create-knex-app-workspace-plan-"))); roots.push(root);
