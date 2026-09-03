@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Transient editor-poll retry is bound into a freshly regenerated immutable 1.0.0 composition archive, both factory locks, release manifest, and customer lockfiles.
+Hosted release evidence run 33808512371 binds the immutable transient editor-poll closure and both customer bundles to source head 9a521db6.
 
 ## Validation
 
-Exact Node 24.19.0: clean 17-package regeneration; factory-lock, ABI, packed-closure, Gate 1 generated-clean, and both frozen customer installs PASS. Focused unit 6/6 and isolated generated-app PostgreSQL/HTTP/Chromium proof PASS.
+Exact Node 24.19.0: focused unit 6/6, isolated generated-app PostgreSQL/HTTP/Chromium, 17-package closure, both frozen installs, hosted attestations, customer fixture regeneration, and generated-evidence clean check PASS.
 
 ## Next
 
-Refresh exact-head hosted release evidence, then require focused and cumulative CI.
+Require exact-head focused PR CI and Linux/AppArmor cumulative Gate 0–12, then resume the same Sol-xhigh reviewer until PASS.
 
 ## Blockers
 
