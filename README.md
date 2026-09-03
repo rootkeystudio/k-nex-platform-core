@@ -1,14 +1,14 @@
 # K-Nex Platform Core
 
-K-Nex is a Payload/PostgreSQL application factory for independently deployed customer CMS, CRM, operations, analytics, and future vertical products.
+K-Nex is a Payload/PostgreSQL application factory for independently deployed customer CRM, CMS, operations, analytics, and future vertical products.
 
 ```text
-Payload + Postgres
+Payload + PostgreSQL
 + deterministic Platform Plugins
 + isolated live Hot Applications
 + live Theme Skins
 + customer-owned data/settings/content/authorization
-+ immutable Docker releases and verifiable operations
++ immutable releases and verifiable operations
 = independently deployable customer application
 ```
 
@@ -16,15 +16,28 @@ Each customer has a separate repository, database, storage/secrets boundary, dep
 
 ## Current state
 
-Gates 0–8 are accepted executable platform foundation. The active phase is:
+Gates 0–11 built and exercised the platform foundation:
 
 ```text
-Phase 9 — Dynamic Application Runtime and Zero-Downtime Delivery
+typed contracts and deterministic composition
+authorized sources, actions, tools, outbox, and realtime
+canonical UiDocument, Puck adapter, themes, and headless components
+application factory, immutable releases, backup/restore, and fleet evidence
+isolated Hot Applications, Remote UI, Theme Skins, and zero-downtime delivery
+customer-owned RBAC, roles, grants, assignments, and revocation
+system settings, catalog refresh, extension/theme administration, and operations
 ```
 
-Phase 10 then completes central RBAC, extension permissions/policies, customer roles, role templates, and user-operated lifecycle administration.
+Phase 11 merged as `main@9cb386e649aca5dfa90f04f3f1e3121b5debef93`.
 
-Read [`status.md`](./status.md), [`AGENTS.md`](./AGENTS.md), and the [Phase 9 plan](./docs/implementation/phase-9-dynamic-application-runtime.md) before implementation.
+The selected product sequence is now:
+
+```text
+Phase 12  runnable customer workspace and custom internal dashboard builder
+Phase 13  CRM-first productization and pilot readiness
+```
+
+Phase 12 closes the current product gap: `create-knex-app` must generate a real Next/Payload application that can be started, signed into, navigated, administered, and extended with safe customer-owned internal pages. See [`status.md`](./status.md) and the [post-Gate-11 roadmap](./docs/implementation/post-gate-11-product-roadmap.md).
 
 ## Extension model
 
@@ -53,7 +66,7 @@ A signed prebuilt `app.*` bundle that can be downloaded, validated, warmed, and 
 isolated server runner
 capability-scoped host API
 fixed /apps/:appId/* host route
-Web Worker remote UI
+credentialless Remote UI realm
 allowlisted K-Nex components
 namespaced quota-bound app storage
 atomic generation update/rollback
@@ -65,9 +78,27 @@ It cannot add host Payload collections/hooks, import into the main Node process,
 
 A signed `skin.*` bundle containing data-only tokens, palettes, recipes, scoped CSS, and approved assets. It activates live. A full theme package containing JavaScript or native primitive overrides remains a Platform Plugin release.
 
+## Workspace and custom pages
+
+The Phase 12 direction keeps the application shell fixed and makes only the internal canvas composable:
+
+```text
+fixed authentication and application shell
+collapsible permission-filtered sidebar
+plugin-defined navigation and static routes
+fixed K-Nex settings/access/extensions/themes/operations
+one fixed /workspace/pages/:pageId custom-page route
+Puck authoring over canonical workspace UiDocuments
+built-in and registered plugin block/component library
+server-authoritative page ACL plus underlying source/action permission
+published Theme Profile with optional exact page override
+```
+
+Database/browser content never creates a Next route, import, React implementation, JavaScript, SQL, CSS program, or policy. Puck remains an editor adapter; production rendering uses the canonical K-Nex UI runtime.
+
 ## Plugin Manager outcome
 
-The future Plugin Manager gives one product experience while exposing the real delivery path:
+The Plugin Manager exposes one product experience while preserving the real delivery path:
 
 ```text
 Install live             Hot Application / Theme Skin
@@ -92,34 +123,13 @@ signed official catalog
 
 The web application never runs `pnpm add`, `npm install`, install scripts, or a downloaded dynamic import. It never receives the Docker socket.
 
-## Twenty comparison
-
-Twenty's application system demonstrates the live-app pattern: package resolution/download, declarative manifest synchronization, metadata migration, stored prebuilt files, isolated server logic execution, and remote UI. K-Nex adopts the architectural pattern through its own contracts while preserving static Payload composition for deep Platform Plugins.
-
-## Accepted foundation
-
-```text
-Gate 0   typed contracts, schemas, fixtures, deterministic governance
-Gate 1   exact package resolution, static registries, Payload/Postgres boot
-Gate 2   source/record/field authorization, contracts, budgets, cache
-Gate 2A  safe explicit tools and bounded MCP adapter
-Gate 3   transactional outbox, processing, realtime convergence
-Gate 4   canonical UiDocument and Puck adapter
-Gate 5   theme ABI, atomic publication, deterministic layouts
-Gate 6   complete plugin surface and Sales conformance
-Gate 7   comprehensive components, forms, pages, DataTable, Puck
-Gate 8   lifecycle, application factory, restore, provenance, fleet
-```
-
-This is not yet a finished CRM/CMS product or production-observed customer fleet.
-
 ## Strategic boundaries
 
-- Payload is the strategic V1 application framework; Postgres is the V1 primary database.
-- `module.sales` remains the sole first-party domain reference through Phases 9–10.
+- Payload is the strategic V1 application framework; PostgreSQL is the V1 primary database.
+- `module.sales` remains the sole first-party domain through Phase 12 and becomes the CRM product in Phase 13.
 - Platform Plugin composition stays static, exact, reconciled, and frozen.
 - Hot Application code runs outside the host process and behind capability contracts.
-- Server authorization is authoritative; UI visibility and role labels are not authority.
+- Server authorization is authoritative; UI visibility, sidebar placement, and role labels are not authority.
 - Realtime invalidates and refetches; transactional outbox holds durable intent.
 - Builder documents and Theme Skins contain no arbitrary JavaScript, SQL, host imports, secrets, or unrestricted URLs.
 - Pre-v1 obsolete APIs are removed rather than shimmed.
@@ -140,16 +150,16 @@ separate deployment supervisor
 ## Documentation
 
 - [Documentation index](./docs/README.md)
-- [Dynamic applications and zero-downtime delivery](./docs/35-dynamic-applications-and-zero-downtime-delivery.md)
-- [Phase 9 execution plan](./docs/implementation/phase-9-dynamic-application-runtime.md)
-- [Phase 10 RBAC plan](./docs/implementation/phase-10-rbac-and-authorization-control-plane.md)
-- [Master plan](./docs/implementation/codex-master-plan.md)
+- [Post-Gate-11 product roadmap](./docs/implementation/post-gate-11-product-roadmap.md)
+- [Phase 12 runnable workspace plan](./docs/implementation/phase-12-runnable-workspace-and-dashboard-builder.md)
+- [Phase 13 CRM-first plan](./docs/implementation/phase-13-crm-first-productization.md)
+- [Master plan through Gate 11](./docs/implementation/codex-master-plan.md)
 - [Executable gates](./docs/30-executable-poc-gates.md)
 - [Decision register](./docs/21-decision-register.md)
 
-## Roadmap boundary
+## Readiness boundary
 
-Before Gate 10 PASS, do not start broad CRM/CMS or another first-party domain module. After the dynamic runtime and authorization gates, the next layer is system settings, full extension/theme administration, official catalog operations, and Docker operations center.
+This repository contains a deeply exercised platform core, but it is not yet a finished CRM/CMS product or a production-observed customer fleet. Gate 12 must prove a generated runnable product shell; Gate 13 must prove one coherent CRM workflow and pilot-readiness evidence.
 
 ## License
 
