@@ -26,6 +26,23 @@ describe("generated workspace invalidation runtime", () => {
     expect(worker).toContain('notify("workspace-page", invalidation, signal)');
   });
 
+  it("refreshes an already-open sidebar from a server-owned authority watermark", () => {
+    const files = applicationAuthFiles({ applicationId: "customer-alpha", applicationName: "Customer Alpha", theme: "minimal" });
+    const navigation = files["src/k-nex-workspace-navigation.ts"]!;
+    const shell = files["src/app/components/k-nex-workspace-shell.tsx"]!;
+    const route = files["src/app/api/k-nex/navigation/revision/route.ts"]!;
+
+    expect(navigation).toContain('const watermark = "sha256:" + createHash("sha256")');
+    expect(navigation).toContain("authorizationRevision: state.authorizationRevision");
+    expect(navigation).toContain("page.accessRevision");
+    expect(route).toContain("resolveCurrentWorkspaceNavigation");
+    expect(route).toContain('"cache-control": "no-store"');
+    expect(shell).toContain('fetch("/api/k-nex/navigation/revision", { cache: "no-store" })');
+    expect(route).toContain("navigation: resolved.navigation");
+    expect(shell).toContain("setNavigation(body.navigation as ResolvedWorkspaceNavigation)");
+    expect(shell).not.toContain("router.refresh()");
+  });
+
   it("consumes validated notifications into one periodically reconciled session registry", () => {
     const files = workspacePageApplicationFiles({ applicationId: "customer-alpha" });
     const runtime = files["src/k-nex-workspace-pages.ts"]!;

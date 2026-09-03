@@ -355,13 +355,18 @@ export function planCreateKnexApplication(options: CreateKnexApplicationOptions)
     artifactDigests: orderedArtifactDigests,
     installCommands: Object.freeze(options.packageSource === undefined ? [] : [Object.freeze(["pnpm", "install", "--frozen-lockfile"])])
   });
-  verifiedPlanArtifacts.set(plan, new Map([...artifacts].map(([name, bytes]) => [name, new Uint8Array(bytes)])));
+  if (options.packageSource !== undefined) {
+    verifiedPlanArtifacts.set(plan, new Map([...artifacts].map(([name, bytes]) => [name, new Uint8Array(bytes)])));
+  }
   return plan;
 }
 
 export function applyCreateKnexApplication(plan: ApplicationFactoryPlan, targetDirectory: string): ApplicationFactoryApplyResult {
   const artifacts = verifiedPlanArtifacts.get(plan);
-  if (artifacts === undefined || !/^sha256:[0-9a-f]{64}$/u.test(plan.digest) ||
+  if (artifacts === undefined) {
+    throw new Error("Application factory apply requires a verified packed release plan.");
+  }
+  if (!/^sha256:[0-9a-f]{64}$/u.test(plan.digest) ||
     plan.digest !== `sha256:${createHash("sha256").update(canonicalJson({ files: plan.files, artifactDigests: plan.artifactDigests })).digest("hex")}`) {
     throw new Error("Application factory plan digest is invalid.");
   }

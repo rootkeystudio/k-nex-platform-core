@@ -49,6 +49,16 @@ function failedRun(command, arguments_, options) {
   assert.fail(`${command} unexpectedly succeeded.`);
 }
 
+function crashedRun(command, arguments_, options) {
+  try {
+    run(command, arguments_, options);
+  } catch (error) {
+    assert.equal(error.status, 86, "Bootstrap crash injection must stop immediately after its committed boundary.");
+    return `${error.stdout ?? ""}${error.stderr ?? ""}`;
+  }
+  assert.fail(`${command} unexpectedly succeeded.`);
+}
+
 async function until(check, failure, child) {
   for (let attempt = 0; attempt < 120; attempt += 1) {
     if (child?.exitCode !== null && child?.exitCode !== undefined) throw new Error(`${failure}: process exited ${child.exitCode}.`);
@@ -156,6 +166,51 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     run("pnpm", ["knex:migrate"], { cwd: application, env: applicationEnvironment, stdio: "pipe" });
     run("pnpm", ["build"], { cwd: application, env: applicationEnvironment, stdio: "pipe" });
     pool = new pg.Pool({ connectionString: container.getConnectionUri() });
+
+    const resetBootstrapState = async () => {
+      await pool.query("drop schema public cascade; create schema public;");
+      run("pnpm", ["knex:migrate"], { cwd: application, env: applicationEnvironment, stdio: "pipe" });
+    };
+    for (const boundary of ["protected-owner", "sales-authority", "token-consumption"]) {
+      await resetBootstrapState();
+      const crashTokenFile = join(root, `crash-${boundary}.token`);
+      const staleCrashTokenFile = join(root, `crash-stale-${boundary}.token`);
+      run("pnpm", ["knex:issue-bootstrap-token", "--output", staleCrashTokenFile], { cwd: application, env: applicationEnvironment, stdio: "pipe" });
+      run("pnpm", ["knex:issue-bootstrap-token", "--output", crashTokenFile], { cwd: application, env: applicationEnvironment, stdio: "pipe" });
+      crashedRun("pnpm", ["knex:bootstrap-owner", "--token-file", crashTokenFile], {
+        cwd: application,
+        env: { ...ownerEnvironment, NODE_ENV: "test", K_NEX_BOOTSTRAP_CRASH_AFTER_COMMIT: boundary },
+        stdio: "pipe"
+      });
+      assert.equal(existsSync(crashTokenFile), boundary !== "token-consumption", `${boundary} crash must leave exactly the recoverable token-file state.`);
+      assert.equal((await pool.query("select count(*)::int as count from users")).rows[0].count, 1, `${boundary} crash must commit exactly the intended owner.`);
+      const differentToken = failedRun("pnpm", ["knex:bootstrap-owner", "--token-file", staleCrashTokenFile], { cwd: application, env: staleOwnerEnvironment, stdio: "pipe" });
+      assert.match(differentToken, /Bootstrap token is unavailable, expired, or consumed/u);
+      if (boundary !== "token-consumption") {
+        const differentActor = failedRun("pnpm", ["knex:bootstrap-owner", "--token-file", crashTokenFile], { cwd: application, env: staleOwnerEnvironment, stdio: "pipe" });
+        assert.match(differentActor, /Bootstrap receipt does not match the issued owner/u);
+        assert.equal((await pool.query("select count(*)::int as count from users")).rows[0].count, 1, "A mismatched resume actor cannot create a user.");
+      }
+      if (boundary === "protected-owner") {
+        const priorReceipt = (await pool.query("select protected_baseline_digest from k_nex_authorization_bootstrap_receipts where application_id=$1", [applicationId])).rows[0];
+        assert.ok(priorReceipt);
+        await pool.query("update k_nex_authorization_bootstrap_receipts set protected_baseline_digest=$2 where application_id=$1", [applicationId, `sha256:${"0".repeat(64)}`]);
+        const differentReceipt = failedRun("pnpm", ["knex:bootstrap-owner", "--token-file", crashTokenFile], { cwd: application, env: ownerEnvironment, stdio: "pipe" });
+        assert.match(differentReceipt, /Bootstrap receipt does not match the issued owner/u);
+        await pool.query("update k_nex_authorization_bootstrap_receipts set protected_baseline_digest=$2 where application_id=$1", [applicationId, priorReceipt.protected_baseline_digest]);
+      }
+      if (boundary === "token-consumption") {
+        assert.equal((await pool.query("select count(*)::int as count from k_nex_owner_bootstrap_tokens where application_id=$1 and environment=$2 and consumed_at is null", [applicationId, environmentName])).rows[0].count, 0, "Token-consumption crash must leave no active bootstrap token.");
+      } else {
+        const resumed = run("pnpm", ["knex:bootstrap-owner", "--token-file", crashTokenFile], { cwd: application, env: ownerEnvironment, stdio: "pipe" });
+        assert.match(resumed, /K_NEX_OWNER_BOOTSTRAP_PASS bootstrap\.receipt\./u);
+        assert.equal(existsSync(crashTokenFile), false, `${boundary} recovery must consume and remove the exact issued token.`);
+      }
+      const recovered = run("pnpm", ["knex:doctor"], { cwd: application, env: applicationEnvironment, stdio: "pipe" });
+      assert.match(recovered, /K_NEX_APPLICATION_READY/u);
+      console.log(`P12_BOOTSTRAP_CRASH_${boundary.toUpperCase().replaceAll("-", "_")}_RECOVERY=PASS`);
+    }
+    await resetBootstrapState();
 
     applicationProcess = await startApplication(application, applicationEnvironment);
     const beforeBootstrap = await fetch(`${applicationProcess.origin}/api/readiness`);
@@ -483,6 +538,9 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     assert.equal(await page.locator('[data-k-nex-component="workspace-shell"]').evaluate((element) => getComputedStyle(element).transitionDuration), "0s");
 
     let lostAutosaveResponse = false;
+    const autosaveTraffic = [];
+    page.on("response", (response) => { if (response.url().endsWith(`/api/k-nex/workspace-pages/${encodeURIComponent(pageId)}/autosave`)) autosaveTraffic.push(`response:${response.status()}`); });
+    page.on("requestfailed", (request) => { if (request.url().endsWith(`/api/k-nex/workspace-pages/${encodeURIComponent(pageId)}/autosave`)) autosaveTraffic.push(`failed:${request.failure()?.errorText ?? "unknown"}`); });
     await page.route(`**/api/k-nex/workspace-pages/${encodeURIComponent(pageId)}/autosave`, async (route) => {
       if (lostAutosaveResponse) return route.continue();
       lostAutosaveResponse = true;
@@ -498,7 +556,8 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
       await blockSelect.selectOption({ label });
       await addBlock.click();
     }
-    await page.getByText("All changes saved.", { exact: true }).waitFor({ timeout: 15_000 });
+    try { await page.getByText("All changes saved.", { exact: true }).waitFor({ timeout: 15_000 }); }
+    catch (error) { throw new Error(`${error}\nautosave=${JSON.stringify(autosaveTraffic)}\nui=${await page.locator("body").innerText()}\nprocess=${applicationProcess.output()}`); }
     assert.equal(lostAutosaveResponse, true);
     await page.unroute(`**/api/k-nex/workspace-pages/${encodeURIComponent(pageId)}/autosave`);
     const savedWorkingCopy = await pool.query("select working_copy_json from k_nex_workspace_working_copies where application_id=$1 and environment=$2 and page_id=$3", [applicationId, environmentName, pageId]);
@@ -559,7 +618,29 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     await store.transaction(expected(limitedAuthority), async (transaction) => {
       await transaction.write({ kind: "assignment", assignment: { schemaVersion: 1, id: "customer.workspace-viewer.assignment", applicationId, roleId: "customer.workspace-viewer", principal: { kind: "user", id: limitedUserId }, state: "active", revision: 2 } });
     });
-    assert.equal((await fetch(`${applicationProcess.origin}/workspace/pages/${encodeURIComponent(pageId)}`, { headers: { cookie: limited.cookie.header } })).status, 200, "Exact page view access must not grant Sales action authority.");
+    const pageAclOnlySource = await fetch(`${applicationProcess.origin}/workspace/pages/${encodeURIComponent(pageId)}`, { headers: { cookie: limited.cookie.header } });
+    assert.equal(pageAclOnlySource.status, 200, "Exact page view access must not grant Sales source or record authority.");
+    const pageAclOnlySourceHtml = await pageAclOnlySource.text();
+    assert.match(pageAclOnlySourceHtml, /Unavailable: PERMISSION_DENIED/u);
+    assert.equal(pageAclOnlySourceHtml.includes("Alpha renewal"), false, "Page ACL cannot expose Sales records through a registered source.");
+    console.log("P12_ATK_07_PAGE_ACL_ONLY_SALES_SOURCE_AND_RECORD_HTTP_POSTGRES_DENIED=PASS");
+
+    const fieldAuthority = await store.readState(applicationId, environmentName);
+    assert.ok(fieldAuthority);
+    await store.transaction(expected(fieldAuthority), async (transaction) => {
+      await transaction.write({ kind: "role", role: { schemaVersion: 1, id: "customer.sales-field-limited", applicationId, label: "Sales field limited", revision: 0 } });
+      for (const permissionId of ["sales.tasks.read", "sales.tasks.title.read"]) {
+        await transaction.write({ kind: "grant", grant: { schemaVersion: 1, id: `customer.sales-field-limited.${permissionId}`, applicationId, roleId: "customer.sales-field-limited", permissionId, owner: { kind: "extension", deliveryClass: "platform-plugin", extensionId: "module.sales", generation: 1 }, revision: 0 } });
+      }
+      await transaction.write({ kind: "assignment", assignment: { schemaVersion: 1, id: "customer.sales-field-limited.assignment", applicationId, roleId: "customer.sales-field-limited", principal: { kind: "user", id: limitedUserId }, state: "active", revision: 0 } });
+    });
+    const fieldDeniedSource = await fetch(`${applicationProcess.origin}/workspace/pages/${encodeURIComponent(pageId)}`, { headers: { cookie: limited.cookie.header } });
+    assert.equal(fieldDeniedSource.status, 200);
+    const fieldDeniedSourceHtml = await fieldDeniedSource.text();
+    assert.match(fieldDeniedSourceHtml, /Unavailable: SOURCE_FIELD_PERMISSION_DENIED/u);
+    assert.equal(fieldDeniedSourceHtml.includes("Prepare Alpha proposal"), false, "A source field denial cannot expose task rows.");
+    console.log("P12_ATK_07_PAGE_ACL_ONLY_SALES_FIELD_HTTP_POSTGRES_DENIED=PASS");
+
     const pageAclOnlyBefore = await salesRow("opportunity", String(alpha.rows[0].id));
     const pageAclOnly = await postPageAction(pageId, salesOpportunityStageUpdateDescriptor.id, limited.cookie.header, opportunityInput(pageAclOnlyBefore, "won"));
     assert.equal(pageAclOnly.status, 403);
@@ -608,6 +689,8 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     await managerPage.waitForURL(`${applicationProcess.origin}/`);
     await managerPage.goto(`${applicationProcess.origin}/workspace/pages/${encodeURIComponent(pageId)}`);
     await managerPage.getByRole("region", { name: "Sales opportunity Kanban" }).waitFor();
+    const managerPublishedNavigationLink = managerPage.locator('[data-navigation-node="sales.navigation.root"]').getByRole("link", { name: "Sales command center" });
+    await managerPublishedNavigationLink.waitFor();
     const managerEditorPage = await managerContext.newPage();
     const managerEditorResponse = await managerEditorPage.goto(`${applicationProcess.origin}/workspace/pages/${encodeURIComponent(pageId)}/edit`);
     assert.equal(managerEditorResponse?.status(), 200, "An assigned editor must enter the current editor route.");
@@ -630,6 +713,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     assert.equal(revoke.status, 303);
     await managerPage.getByRole("alert").getByText("Page access revoked", { exact: true }).waitFor({ timeout: 10_000 });
     await managerEditorPage.getByRole("alert").getByText("Editor access revoked", { exact: true }).waitFor({ timeout: 10_000 });
+    await managerPublishedNavigationLink.waitFor({ state: "detached", timeout: 10_000 });
     assert.equal((await fetch(`${applicationProcess.origin}/workspace/pages/${encodeURIComponent(pageId)}`, { headers: { cookie: manager.cookie.header } })).status, 404);
     const revokedNavigation = await fetch(`${applicationProcess.origin}/`, { headers: { cookie: manager.cookie.header } });
     assert.equal((await revokedNavigation.text()).includes("Sales command center"), false, "Revoked page must leave current sidebar authority.");
@@ -648,6 +732,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     workerProcess = start("node", ["dist/k-nex-worker.js"], { cwd: application, env: applicationEnvironment });
     await until(async () => workerProcess.output().includes("K_NEX_WORKER_READY"), `Generated worker did not recover the lost page invalidation.\n${workerProcess.output()}`, workerProcess.child);
     await until(async () => (await pool.query("select count(*)::int as count from k_nex_workspace_page_outbox where application_id=$1 and environment=$2 and status<>'delivered'", [applicationId, environmentName])).rows[0].count === 0, "Lost workspace invalidation did not converge from the durable outbox.", workerProcess.child);
+    assert.equal(await managerPublishedNavigationLink.count(), 0, "Recovered invalidation must keep the already-open sidebar converged.");
     console.log("P12_ATK_20_REVOKED_STALE_PUBLISH_AND_LOST_INVALIDATION_DENIED=PASS");
 
     const rollback = await fetch(`${applicationProcess.origin}/api/k-nex/workspace-pages/${encodeURIComponent(pageId)}/rollback`, {

@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Packed v1 artifacts are cross-platform canonical. Autosave now binds the current server-derived page/access revisions into the locked PostgreSQL write, so an ACL revocation that wins contention rejects the stale editor commit.
+All six Sol-xhigh findings are closed in code: canonical archives, gateway-only generated Sales reads, crash-resumable owner bootstrap, locked ACL-aware autosave, live server-owned sidebar convergence, and verified-release-only factory apply.
 
 ## Validation
 
-Exact Node 24.19.0: packaging unit/cross-OS/closure proofs PASS; payload-adapter build and 23 focused service tests PASS; real PostgreSQL storage/race proof PASS with `P12_ATK_20_REVOKED_AUTOSAVE_POSTGRES_DENIED`.
+Exact Node 24.19.0: composition build + 21 focused tests PASS; payload-adapter build + 23 focused tests PASS; generated app PostgreSQL/HTTP/Chromium journey PASS including three bootstrap crash boundaries, source/field/action denial, lost autosave response, live ACL revocation, and durable outbox recovery.
 
 ## Next
 
-Close the four remaining Sol-xhigh code findings, regenerate the clean release closure, refresh hosted evidence, resume the same reviewer until PASS, then run cumulative exact-head Linux/AppArmor Gate 0–12 and open/update the phase PR.
+Commit review remediation; regenerate clean release closure; refresh hosted evidence; resume the same Sol-xhigh reviewer until PASS; run final focused Gate 12 and exact-head Linux/AppArmor cumulative Gate 0–12; update result and phase PR.
 
 ## Blockers
 

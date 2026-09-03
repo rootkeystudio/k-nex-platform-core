@@ -119,24 +119,39 @@ export async function openWorkspaceForm(request: Request, boundary: string) {
 function workspaceSalesServerSource(): string {
   return `import "server-only";
 
-import type { DataSourceBindingResult, UiDocument } from "@k-nex/contracts";
+import type { DataSourceBindingResult, DataSourceDefinition, UiDocument, UiNode } from "@k-nex/contracts";
 import {
-  salesOpportunitiesDescriptor,
-  salesTasksDescriptor,
-  salesTotalPotentialRevenueDescriptor
-} from "@k-nex/module-sales/contracts";
-import {
-  salesOpportunitiesHandler,
-  salesTasksHandler,
-  salesTotalPotentialRevenueHandler
-} from "@k-nex/module-sales/server";
-import { CurrentAuthorityActionGatewayPolicy, RegisteredActionGateway, createCurrentAuthorityTarget } from "@k-nex/runtime";
-import type { Payload } from "payload";
+  CurrentAuthorityActionGatewayPolicy,
+  CurrentAuthorityDataSourcePolicy,
+  DataSourceGateway,
+  DataSourceGatewayError,
+  BoundedQueryBudgetEvaluator,
+  CanonicalOutputContractValidator,
+  DefinitionSourceSchemaValidator,
+  DescriptorSurfaceAudienceGuard,
+  PolicyAuthorizationEvaluator,
+  RegisteredActionGateway,
+  RegisteredHandlerDispatcher,
+  SafeProblemDetailsSerializer,
+  TableProjectionRedactor,
+  createCurrentAuthorityTarget,
+  type DataSourceHandler,
+  type DataSourcePolicyService,
+  type RegisteredDataSource
+} from "@k-nex/runtime";
+import { createPayloadPersistenceCapability, CurrentAuthorityPayloadPersistenceAuthorizer, PayloadRequestAuthenticator } from "@k-nex/payload-adapter";
+import type { Payload, PayloadRequest } from "payload";
 
 import { kNexAuthority, type KnexRequestContext } from "./k-nex-authority.js";
 import { kNexSalesRegistry } from "./k-nex-registry.js";
 
-const sources = new Map([salesOpportunitiesDescriptor, salesTasksDescriptor, salesTotalPotentialRevenueDescriptor].map((descriptor) => [descriptor.id, descriptor]));
+const sourceDefinitions = new Map(kNexSalesRegistry.scopedRegistration.contributions.sources.map((entry) => [entry.id, entry.value as DataSourceDefinition]));
+const sourceHandlers = new Map(kNexSalesRegistry.scopedRegistration.bindings.sources.map((entry) => [entry.id, entry.value as DataSourceHandler]));
+const sources = new Map<string, RegisteredDataSource>();
+for (const [id, definition] of sourceDefinitions) {
+  const handler = sourceHandlers.get(id);
+  if (handler !== undefined) sources.set(id, Object.freeze({ definition, handler }));
+}
 
 function target(permissionId: string, recordId = "collection") {
   const descriptor = kNexSalesRegistry.permissionDescriptors.find(({ id }) => id === permissionId);
@@ -316,17 +331,22 @@ export default async function EditWorkspacePage({ params }: Readonly<{ params: P
 }
 
 function workspaceSalesServerTailSource(): string {
-  return `async function allowed(payload: Payload, context: KnexRequestContext, permissionId: string, recordId?: string, signal?: AbortSignal) {
+return `async function allowed(payload: Payload, context: KnexRequestContext, permissionId: string, recordId?: string, signal?: AbortSignal) {
   if (signal?.aborted) return false;
   const result = await kNexAuthority(payload).adapter.allows(context, target(permissionId, recordId));
   return !signal?.aborted && result;
 }
 
+function authorization(user: unknown) {
+  if (typeof user !== "object" || user === null || !("id" in user) || user.id === undefined || user.id === null) throw new TypeError("Sales authentication is unavailable.");
+  const id = String(user.id);
+  return { principal: { kind: "user" as const, id }, effectiveActor: { kind: "user" as const, id } };
+}
+
 async function actor(payload: Payload, context: KnexRequestContext) {
   const authentication = await payload.auth({ headers: context.headers, canSetHeaders: false });
-  const id = authentication.user?.id;
-  if (id === undefined || id === null) throw new TypeError("Sales authentication is unavailable.");
-  return { authorization: { principal: { kind: "user" as const, id: String(id) }, effectiveActor: { kind: "user" as const, id: String(id) } }, user: authentication.user };
+  const request = { payload, user: authentication.user ?? null, headers: context.headers } as PayloadRequest;
+  return { authorization: authorization(authentication.user), request };
 }
 
 export async function workspaceSalesPermissions(payload: Payload, context: KnexRequestContext, signal?: AbortSignal) {
@@ -334,24 +354,102 @@ export async function workspaceSalesPermissions(payload: Payload, context: KnexR
   return results.filter(([, result]) => result).map(([id]) => id);
 }
 
+const workspaceSalesPolicy: DataSourcePolicyService = {
+  authorize({ descriptor }) {
+    const recordScope = descriptor.id === "sales.opportunities"
+      ? { kind: "sales.opportunities" }
+      : descriptor.id === "sales.tasks" || descriptor.id === "sales.total-potential-revenue"
+        ? { kind: "sales.tasks" }
+        : undefined;
+    return Object.freeze({
+      sourceAllowed: recordScope !== undefined,
+      recordScope,
+      allowedFields: Object.freeze(descriptor.outputFields?.map(({ id }) => id) ?? [])
+    });
+  }
+};
+
+function workspaceSalesGateway(payload: Payload, context: KnexRequestContext): DataSourceGateway {
+  return new DataSourceGateway({
+    authenticator: new PayloadRequestAuthenticator({
+      actor: (request) => authorization(request.user),
+      authorizationContext: () => context,
+      requestContext(request) {
+        return createPayloadPersistenceCapability(request, [
+          { collection: "sales-tasks", operations: ["find"] },
+          { collection: "sales-opportunities", operations: ["find"] }
+        ], new CurrentAuthorityPayloadPersistenceAuthorizer(kNexAuthority(payload).adapter, context, ({ collection, operation }) => {
+          const permissionId = collection === "sales-tasks" && operation === "find" ? "sales.tasks.read"
+            : collection === "sales-opportunities" && operation === "find" ? "sales.opportunities.read"
+            : undefined;
+          if (permissionId === undefined) throw new TypeError("Sales persistence operation is unavailable.");
+          return target(permissionId, "payload-" + collection + "-" + operation);
+        }));
+      }
+    }),
+    catalog: { lookup: (sourceId) => sources.get(sourceId) },
+    surfaceAudience: new DescriptorSurfaceAudienceGuard(),
+    authorization: new PolicyAuthorizationEvaluator(new CurrentAuthorityDataSourcePolicy(
+      kNexAuthority(payload).adapter,
+      (request) => request.authorizationContext as KnexRequestContext,
+      {
+        source: (descriptor) => target(descriptor.permission),
+        field: (descriptor, fieldId) => {
+          const field = descriptor.outputFields?.find(({ id }) => id === fieldId);
+          if (field === undefined) throw new TypeError("Registered Sales source field is unavailable.");
+          return target(field.permission);
+        }
+      },
+      workspaceSalesPolicy
+    )),
+    budget: new BoundedQueryBudgetEvaluator(),
+    dispatcher: new RegisteredHandlerDispatcher(),
+    sourceSchema: new DefinitionSourceSchemaValidator(),
+    outputContract: new CanonicalOutputContractValidator(),
+    redactor: new TableProjectionRedactor(),
+    cache: { lookup: () => undefined, store: () => undefined },
+    observability: { success() {}, failure() {} },
+    problemDetails: new SafeProblemDetailsSerializer()
+  });
+}
+
+function sourceNodes(document: UiDocument): readonly UiNode[] {
+  const result: UiNode[] = [];
+  const visit = (node: UiNode) => { result.push(node); node.children?.forEach(visit); };
+  Object.values(document.regions).forEach((region) => region.forEach(visit));
+  return result;
+}
+
 export async function loadWorkspaceSalesSources(payload: Payload, context: KnexRequestContext, document: UiDocument, signal: AbortSignal) {
+  const gateway = workspaceSalesGateway(payload, context);
   const current = await actor(payload, context);
-  const request = { payload, user: current.user };
   const output: Record<string, DataSourceBindingResult<unknown>> = {};
-  for (const nodes of Object.values(document.regions)) for (const node of nodes) {
+  for (const node of sourceNodes(document)) {
     const binding = node.bindings?.source;
     if (binding === undefined) continue;
-    const descriptor = sources.get(binding.source.id);
+    const source = sources.get(binding.source.id);
+    const descriptor = source?.definition.descriptor;
     if (descriptor === undefined || descriptor.version !== binding.source.version || descriptor.structuralCompatibilityHash !== binding.structuralCompatibilityHash) throw new TypeError("Workspace Sales source binding is unavailable.");
     const selectedFields = binding.selectedFields ?? descriptor.outputFields?.filter(({ binding }) => binding === "required").map(({ id }) => id) ?? [];
-    const permissions = [descriptor.permission, ...(descriptor.outputFields ?? []).filter(({ id }) => selectedFields.includes(id)).map(({ permission }) => permission)];
-    if (!(await Promise.all(permissions.map((permission) => allowed(payload, context, permission, undefined, signal)))).every(Boolean)) { output[node.id] = { state: "insufficient-permission", problem: { code: "SOURCE_FIELD_PERMISSION_DENIED", status: 403 } }; continue; }
-    const recordScope = { kind: descriptor.id === salesOpportunitiesDescriptor.id ? "sales.opportunities" as const : "sales.tasks" as const };
-    const common = { actor: current.authorization, request, input: binding.input, query: { page: { number: 1, size: 25 }, filters: [], sort: [] }, selectedFields, recordScope, signal };
-    const data = descriptor.id === salesOpportunitiesDescriptor.id ? await salesOpportunitiesHandler(common)
-      : descriptor.id === salesTasksDescriptor.id ? await salesTasksHandler(common)
-      : await salesTotalPotentialRevenueHandler(common);
-    output[node.id] = { state: "success", data };
+    const response = await gateway.query({
+      correlationId: context.correlationId,
+      rawRequest: current.request,
+      sourceId: descriptor.id,
+      surface: "workspace",
+      input: binding.input,
+      query: descriptor.primaryContract.id === "metric.scalar" ? { filters: [], sort: [] } : { page: { number: 1, size: 25 }, filters: [], sort: [] },
+      selectedFields,
+      signal
+    });
+    if (response.ok) { output[node.id] = { state: "success", data: response.body.data }; continue; }
+    if (response.status === 403) {
+      output[node.id] = {
+        state: response.body.code === "INSUFFICIENT_FIELD_PERMISSION" ? "insufficient-permission" : "forbidden",
+        problem: { code: response.body.code, status: 403 }
+      };
+      continue;
+    }
+    throw new DataSourceGatewayError(response.body.code, response.status, response.body.title, response.body.detail);
   }
   return output;
 }
@@ -362,7 +460,7 @@ export async function executeWorkspaceSalesAction(payload: Payload, context: Kne
   const gateway = new RegisteredActionGateway(kNexSalesRegistry.scopedRegistration, {
     async authenticate() {
       const current = await actor(payload, context);
-      return { actor: current.authorization, request: { payload, user: current.user }, authorizationContext: context };
+      return { actor: current.authorization, request: current.request, authorizationContext: context };
     }
   }, new CurrentAuthorityActionGatewayPolicy(kNexAuthority(payload).adapter, ({ authenticated }) => authenticated.authorizationContext as KnexRequestContext, (definition, value) => {
     const recordId = typeof value === "object" && value !== null && "id" in value && typeof value.id === "string" ? value.id : undefined;

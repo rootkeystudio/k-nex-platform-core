@@ -329,7 +329,7 @@ export class PostgresWorkspacePageStore {
       fail("INVALID_INPUT", "Workspace working-copy expected revisions are invalid.");
     }
     if (change.data.document.id !== identity.documentId || change.data.document.version !== change.data.expectedRevision + 1) fail("INVALID_INPUT", "Workspace working-copy document revision is invalid.");
-    return this.mutate(identity, "working-copy", change.data.idempotencyKey, { change: change.data, expected }, updatedBy, parseWorkingCopy, async (session) => {
+    return this.mutate(identity, "working-copy", change.data.idempotencyKey, change.data, updatedBy, parseWorkingCopy, async (session) => {
       const current = await this.readPageLocked(session, identity);
       if (current.state === "archived" || current.workingCopyRevision !== change.data.expectedRevision || current.revision !== expected.expectedPageRevision || current.accessRevision !== expected.expectedAccessRevision) {
         fail("REVISION_CONFLICT", "Workspace working copy, page access, or archive state changed.");

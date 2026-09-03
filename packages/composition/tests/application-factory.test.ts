@@ -30,6 +30,12 @@ function verifiedPackageSource(manifestInput: unknown, directory: string) {
   return { kind: "packed-mirror" as const, directory, authority, release };
 }
 
+function bundledPackageSource() {
+  const release = JSON.parse(readFileSync(new URL("../../../releases/1.0.0/package-release-manifest.json", import.meta.url), "utf8"));
+  const mirror = fileURLToPath(new URL("../../../fixtures/customer-gate-1/packages", import.meta.url));
+  return verifiedPackageSource(release, mirror);
+}
+
 function hostedVerification(manifestInput: unknown) {
   const manifest = PackageReleaseManifestSchema.parse(manifestInput);
   const sourceCommit = "a".repeat(40);
@@ -68,6 +74,15 @@ describe("create-knex-app", () => {
     }
   });
 
+  it("emits exact-token owner bootstrap recovery across every commit boundary", () => {
+    const source = applicationAuthFiles({ applicationId: "customer-alpha", applicationName: "Customer Alpha", theme: "minimal" })["src/k-nex-bootstrap-owner.ts"]!;
+    expect(source).toContain("assertResumableOwnerReceipt(priorReceipt, String(user.id))");
+    expect(source.indexOf("if (priorReceipt !== undefined && existing.docs[0] === undefined)")).toBeLessThan(source.indexOf("await payload.create"));
+    expect(source.indexOf('crashAfterCommit("protected-owner")')).toBeLessThan(source.indexOf('crashAfterCommit("sales-authority")'));
+    expect(source.indexOf('crashAfterCommit("sales-authority")')).toBeLessThan(source.indexOf('crashAfterCommit("token-consumption")'));
+    expect(source).not.toContain('if (priorReceipt !== undefined) throw new Error("First owner already exists.")');
+  });
+
   it("plans deterministic exact Sales applications for local or external Postgres", () => {
     const options = { applicationId: "customer-alpha", applicationName: "Customer Alpha", theme: "minimal", database: "docker-postgres" } as const;
     const first = planCreateKnexApplication(options);
@@ -91,7 +106,7 @@ describe("create-knex-app", () => {
     expect(first.files["next.config.ts"]).not.toContain('"@k-nex/module-sales"');
     expect(first.files["src/k-nex-workspace-pages.ts"]).toContain("CurrentAuthorityWorkspacePageService");
     expect(first.files["src/k-nex-workspace-pages.ts"]).toContain("registered?.descriptor ?? registered");
-    expect(first.files["src/k-nex-sales-workspace.ts"]).toContain('descriptor.id === salesOpportunitiesDescriptor.id ? "sales.opportunities" as const : "sales.tasks" as const');
+    expect(first.files["src/k-nex-sales-workspace.ts"]).toContain("new DataSourceGateway({");
     expect(first.files["src/app/components/k-nex-workspace-page-runtime.tsx"]).not.toMatch(/builder-puck|module-sales\/puck/u);
     expect(first.files["src/app/components/k-nex-workspace-page-editor.tsx"]).toMatch(/builder-puck|module-sales\/puck/u);
     expect(first.files["src/k-nex-readiness.ts"]).toContain("K_NEX_APPLICATION_READY");
@@ -106,6 +121,10 @@ describe("create-knex-app", () => {
     expect(first.files["src/k-nex-bootstrap-token.ts"]).toContain("update k_nex_owner_bootstrap_tokens set consumed_at=now() where application_id=$1 and environment=$2 and consumed_at is null");
     expect(first.files["src/k-nex-bootstrap-owner.ts"]).toContain("acquireBootstrapLock");
     expect(first.files["src/k-nex-bootstrap-owner.ts"]!.indexOf("const priorReceipt")).toBeLessThan(first.files["src/k-nex-bootstrap-owner.ts"]!.indexOf("const existing = await payload.find"));
+    expect(first.files["src/k-nex-bootstrap-owner.ts"]).toContain("assertResumableOwnerReceipt(priorReceipt, String(user.id))");
+    expect(first.files["src/k-nex-bootstrap-owner.ts"]).toContain('crashAfterCommit("protected-owner")');
+    expect(first.files["src/k-nex-bootstrap-owner.ts"]).toContain('crashAfterCommit("sales-authority")');
+    expect(first.files["src/k-nex-bootstrap-owner.ts"]).toContain('crashAfterCommit("token-consumption")');
     expect(first.files["src/migrations/20260903_000003_knex_authorization.ts"]).toContain("kNexAuthorizationSchemaMigration");
     expect(first.files["src/migrations/20260903_000004_knex_workspace_pages.ts"]).toContain("kNexWorkspacePageSchemaMigration");
     expect(first.files["src/migrations/20260903_000005_knex_event_outbox.ts"]).toContain("kNexEventOutboxSchemaMigration");
@@ -205,11 +224,14 @@ describe("create-knex-app", () => {
 
   it("applies idempotently and refuses to overwrite customer files", () => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), "create-knex-app-"))); roots.push(root);
-    const plan = planCreateKnexApplication({ applicationId: "customer-beta", applicationName: "Customer Beta", theme: "neobrutalism", database: "external" });
+    const plan = planCreateKnexApplication({ applicationId: "customer-beta", applicationName: "Customer Beta", theme: "neobrutalism", database: "external", packageSource: bundledPackageSource() });
     const first = applyCreateKnexApplication(plan, root);
     expect(first.written).toContain("k-nex.app.json");
     expect(first.written).not.toContain("compose.yaml");
-    expect(applyCreateKnexApplication(plan, root).unchanged).toEqual(Object.keys(plan.files));
+    expect(applyCreateKnexApplication(plan, root).unchanged).toEqual([
+      ...Object.keys(plan.files),
+      ...Object.keys(plan.artifactDigests).map((filename) => `.k-nex/packages/${filename}`)
+    ]);
     expect(existsSync(join(root, ".k-nex/default-pages.json"))).toBe(false);
     writeFileSync(join(root, "package.json"), "customer edit\n");
     expect(() => applyCreateKnexApplication(plan, root)).toThrow("refuses to overwrite package.json");
@@ -217,7 +239,7 @@ describe("create-knex-app", () => {
 
   it("writes byte-identical controlled source to different clean targets", () => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), "create-knex-app-determinism-"))); roots.push(root);
-    const plan = planCreateKnexApplication({ applicationId: "customer-deterministic", applicationName: "Customer Deterministic", theme: "minimal", database: "external" });
+    const plan = planCreateKnexApplication({ applicationId: "customer-deterministic", applicationName: "Customer Deterministic", theme: "minimal", database: "external", packageSource: bundledPackageSource() });
     const first = join(root, "first");
     const second = join(root, "second");
     applyCreateKnexApplication(plan, first);
@@ -262,6 +284,14 @@ describe("create-knex-app", () => {
       expect(() => execFileSync(process.execPath, [script, "--target", target, "--id", `workspace-${name}`, "--name", "Workspace Rejected", "--workspace", ...mode], { encoding: "utf8", stdio: "pipe" })).toThrow(error);
       expect(existsSync(target)).toBe(false);
     }
+  });
+
+  it("keeps release-less plans side-effect-free when application is called directly", () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "create-knex-app-workspace-plan-"))); roots.push(root);
+    const target = join(root, "application");
+    const plan = planCreateKnexApplication({ applicationId: "workspace-plan", applicationName: "Workspace Plan", theme: "minimal", database: "external" });
+    expect(() => applyCreateKnexApplication(plan, target)).toThrow("requires a verified packed release plan");
+    expect(existsSync(target)).toBe(false);
   });
 
   it("rejects a coherently forged manifest, tarball, and lock before target write", () => {
@@ -314,7 +344,7 @@ describe("create-knex-app", () => {
 
   it("preflights every destination and never partially writes or follows symlinks", () => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), "create-knex-app-"))); roots.push(root);
-    const plan = planCreateKnexApplication({ applicationId: "customer-gamma", applicationName: "Customer Gamma", theme: "minimal", database: "external" });
+    const plan = planCreateKnexApplication({ applicationId: "customer-gamma", applicationName: "Customer Gamma", theme: "minimal", database: "external", packageSource: bundledPackageSource() });
     writeFileSync(join(root, "package.json"), "customer edit\n");
     expect(() => applyCreateKnexApplication(plan, root)).toThrow("refuses to overwrite package.json");
     expect(existsSync(join(root, "src", "payload.config.ts"))).toBe(false);

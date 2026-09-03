@@ -94,7 +94,7 @@ const unitProofs = [
     "derives publication and rollback identities, authority digest, and dependencies server-side",
     "rejects plugin-owned folders, links, invalid actors, and invalid scope before SQL"
   ]),
-  vitest("generator", "@k-nex/composition", ["tests/application-factory.test.ts"], [
+  vitest("generator", "@k-nex/composition", ["tests/application-factory.test.ts", "tests/workspace-page-application-files.test.ts"], [
     "plans deterministic exact Sales applications for local or external Postgres",
     "binds a generated application to every exact artifact in a packed release mirror",
     "rejects tampered mirrors and installs immutable bytes captured by the verified plan",
@@ -103,7 +103,8 @@ const unitProofs = [
     "rejects nonofficial hosted workflow and source identities before target write",
     "applies idempotently and refuses to overwrite customer files",
     "writes byte-identical controlled source to different clean targets",
-    "preflights every destination and never partially writes or follows symlinks"
+    "preflights every destination and never partially writes or follows symlinks",
+    "routes every generated workspace Sales source through the current-authority gateway"
   ]),
   vitest("sales-builder", "@k-nex/module-sales", ["tests/puck-library.test.ts"], [
     "rejects missing blocks and unauthorized action replacement",
@@ -142,6 +143,8 @@ const processMarkers = [
   "P12_ATK_12_PUBLISH_REVISION_HTTP_POSTGRES_DENIED=PASS",
   "P12_ATK_13_ACTION_SUBSTITUTION_HTTP_POSTGRES_DENIED=PASS",
   "P12_ATK_07_PAGE_ACL_ONLY_SALES_ACTION_HTTP_POSTGRES_DENIED=PASS",
+  "P12_ATK_07_PAGE_ACL_ONLY_SALES_SOURCE_AND_RECORD_HTTP_POSTGRES_DENIED=PASS",
+  "P12_ATK_07_PAGE_ACL_ONLY_SALES_FIELD_HTTP_POSTGRES_DENIED=PASS",
   "P12_ATK_13_UNBOUND_ACTION_HTTP_POSTGRES_DENIED=PASS",
   "P12_ATK_13_CROSS_PAGE_ACTION_HTTP_POSTGRES_DENIED=PASS",
   "P12_ATK_13_REVOKED_PAGE_ACTION_HTTP_POSTGRES_DENIED=PASS",
@@ -149,7 +152,11 @@ const processMarkers = [
   "P12_ATK_18_FAILED_TRANSACTION_AUDIT_OUTBOX_LEAKAGE_POSTGRES_DENIED=PASS",
   "P12_ATK_18_AUDIT_OUTBOX_SECRET_LEAKAGE_POSTGRES_DENIED=PASS",
   "P12_ATK_18_GENERATED_HTML_AND_WORKER_SECRET_LEAKAGE_DENIED=PASS",
+  "P12_BOOTSTRAP_CRASH_PROTECTED_OWNER_RECOVERY=PASS",
+  "P12_BOOTSTRAP_CRASH_SALES_AUTHORITY_RECOVERY=PASS",
+  "P12_BOOTSTRAP_CRASH_TOKEN_CONSUMPTION_RECOVERY=PASS",
   "P12_ATK_19_BOOTSTRAP_SCOPE_AND_REPLAY_POSTGRES_DENIED=PASS",
+  "P12_ATK_20_REVOKED_AUTOSAVE_POSTGRES_DENIED=PASS",
   "P12_ATK_20_REVOKED_STALE_PUBLISH_AND_LOST_INVALIDATION_DENIED=PASS"
 ];
 for (const marker of processMarkers) {
@@ -165,7 +172,7 @@ const attackProofs = {
   "P12-ATK-04": ["unit:navigation:rejects invalid or duplicate implemented System IDs alongside invalid graphs"],
   "P12-ATK-05": ["unit:page-service:returns the same non-enumerating denial for missing and unauthorized direct pages", "process:P12_ATK_05_UNAUTHORIZED_DIRECT_URL_AND_ENUMERATION_HTTP_DENIED=PASS"],
   "P12-ATK-06": ["unit:page-service:denies non-owner ACL expansion beyond the editor's exact held capability"],
-  "P12-ATK-07": ["process:P12_ATK_07_PAGE_ACL_ONLY_SALES_ACTION_HTTP_POSTGRES_DENIED=PASS"],
+  "P12-ATK-07": ["process:P12_ATK_07_PAGE_ACL_ONLY_SALES_ACTION_HTTP_POSTGRES_DENIED=PASS", "process:P12_ATK_07_PAGE_ACL_ONLY_SALES_SOURCE_AND_RECORD_HTTP_POSTGRES_DENIED=PASS", "process:P12_ATK_07_PAGE_ACL_ONLY_SALES_FIELD_HTTP_POSTGRES_DENIED=PASS"],
   "P12-ATK-08": ["process:P12_ATK_08_STALE_AUTOSAVE_CAS_POSTGRES_DENIED=PASS"],
   "P12-ATK-09": ["process:P12_ATK_09_CHANGED_IDEMPOTENCY_PAYLOAD_POSTGRES_DENIED=PASS"],
   "P12-ATK-10": ["unit:contracts:bounds depth, arrays, strings, and canonical document bytes", "process:P12_ATK_10_CSRF_REPLAY_AND_MALFORMED_AUTOSAVE_HTTP_DENIED=PASS"],
@@ -184,8 +191,8 @@ const attackProofs = {
   "P12-ATK-16": ["unit:page-service:fails closed before page or pointer mutation and store rollback for missing or dependency-unavailable target revisions"],
   "P12-ATK-17": ["unit:generator:plans deterministic exact Sales applications for local or external Postgres"],
   "P12-ATK-18": ["unit:administration:renders server-projected native POST forms without client authority fields", "process:P12_ATK_18_FAILED_TRANSACTION_AUDIT_OUTBOX_LEAKAGE_POSTGRES_DENIED=PASS", "process:P12_ATK_18_AUDIT_OUTBOX_SECRET_LEAKAGE_POSTGRES_DENIED=PASS", "process:P12_ATK_18_GENERATED_HTML_AND_WORKER_SECRET_LEAKAGE_DENIED=PASS"],
-  "P12-ATK-19": ["process:P12_ATK_19_BOOTSTRAP_SCOPE_AND_REPLAY_POSTGRES_DENIED=PASS"],
-  "P12-ATK-20": ["unit:page-service:cancels pending editor work after page-access invalidation", "process:P12_ATK_20_REVOKED_STALE_PUBLISH_AND_LOST_INVALIDATION_DENIED=PASS"],
+  "P12-ATK-19": ["process:P12_BOOTSTRAP_CRASH_PROTECTED_OWNER_RECOVERY=PASS", "process:P12_BOOTSTRAP_CRASH_SALES_AUTHORITY_RECOVERY=PASS", "process:P12_BOOTSTRAP_CRASH_TOKEN_CONSUMPTION_RECOVERY=PASS", "process:P12_ATK_19_BOOTSTRAP_SCOPE_AND_REPLAY_POSTGRES_DENIED=PASS"],
+  "P12-ATK-20": ["unit:page-service:cancels pending editor work after page-access invalidation", "process:P12_ATK_20_REVOKED_AUTOSAVE_POSTGRES_DENIED=PASS", "process:P12_ATK_20_REVOKED_STALE_PUBLISH_AND_LOST_INVALIDATION_DENIED=PASS"],
   "P12-ATK-21": ["unit:generator:writes byte-identical controlled source to different clean targets"],
   "P12-ATK-22": ["unit:generator:uses workspace only for side-effect-free planning and defaults to the verified bundled release", "unit:generator:rejects a coherently forged manifest, tarball, and lock before target write", "unit:generator:binds a generated application to every exact artifact in a packed release mirror", "unit:generator:rejects tampered mirrors and installs immutable bytes captured by the verified plan"]
 };

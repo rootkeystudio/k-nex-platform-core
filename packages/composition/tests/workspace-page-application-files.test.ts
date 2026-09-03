@@ -53,4 +53,22 @@ describe("generated workspace page builder policy", () => {
     expect(sales).not.toContain("salesOpportunityStageUpdateHandler");
     expect(sales).not.toContain("kNexWorkspacePages");
   });
+
+  it("routes every generated workspace Sales source through the current-authority gateway", () => {
+    const sales = workspacePageApplicationFiles({ applicationId: "customer-alpha" })["src/k-nex-sales-workspace.ts"]!;
+
+    expect(sales).toContain("new DataSourceGateway({");
+    expect(sales).toContain("new CurrentAuthorityDataSourcePolicy(");
+    expect(sales).toContain("kNexSalesRegistry.scopedRegistration.contributions.sources");
+    expect(sales).toContain("kNexSalesRegistry.scopedRegistration.bindings.sources");
+    expect(sales).toContain('source: (descriptor) => target(descriptor.permission)');
+    expect(sales).toContain('field: (descriptor, fieldId) => {');
+    expect(sales).toContain('state: response.body.code === "INSUFFICIENT_FIELD_PERMISSION" ? "insufficient-permission" : "forbidden"');
+    expect(sales).toContain('recordScope = descriptor.id === "sales.opportunities"');
+    expect(sales).toContain("for (const node of sourceNodes(document))");
+    expect(sales).not.toContain("salesOpportunitiesHandler");
+    expect(sales).not.toContain("salesTasksHandler");
+    expect(sales).not.toContain("salesTotalPotentialRevenueHandler");
+    expect(sales).not.toContain("const permissions = [descriptor.permission");
+  });
 });
