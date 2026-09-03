@@ -37,17 +37,17 @@ describe("bounded Sales form spike", () => {
     const transport: BrowserDataTransport = {
       async query() { return { ok: false, problem: { code: "UNUSED", status: 500 } }; },
       async mutate() {
-        return { ok: false, problem: { code: "OPPORTUNITY_CONFLICT", status: 409, fieldErrors: [{ field: "stage", message: "Stage changed", code: "stale" }, { field: "foreign", message: "Ignored" }] } };
+        return { ok: false, problem: { code: "STALE_RECORD", status: 409, fieldErrors: [{ field: "stage", message: "Stage changed", code: "stale" }, { field: "foreign", message: "Ignored" }] } };
       }
     };
     const controller = createFormController({
-      initialValues: { id: "opp-1", stage: "lead" as "lead" | "qualified" | "won" | "lost" },
+      initialValues: { id: "opp-1", expectedStage: "lead" as const, expectedRevision: "2026-09-03T08:00:00.000Z", stage: "lead" as "lead" | "qualified" | "won" | "lost" },
       validate: () => ({}),
       submit: (values, requestSignal) => salesOpportunityStageMutation.execute(transport, values, { signal: requestSignal, idempotencyKey: "form-opp-1" })
     });
     const result = await controller.submit(controller.change(controller.initial(), "stage", "qualified"), signal);
     expect(result.fieldErrors).toEqual({ stage: "Stage changed" });
-    expect(result.formError).toBe("OPPORTUNITY_CONFLICT");
+    expect(result.formError).toBe("STALE_RECORD");
   });
 
   it("loads async opportunity options through the registered source query", async () => {
