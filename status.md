@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Retryable-session conflict fix is bound into a freshly regenerated immutable 1.0.0 composition archive, factory locks, release manifest, and customer lockfiles.
+Hosted release evidence run 33812534708 binds the immutable retryable-session fix and both customer bundles to source head 6d514728.
 
 ## Validation
 
-Exact Node 24.19.0: focused unit 6/6, isolated generated-app PostgreSQL/HTTP/Chromium, clean 17-package regeneration, factory-lock/ABI/packed-closure, Gate 1 generated-clean, and both frozen customer installs PASS.
+Exact Node 24.19.0: focused unit 6/6, isolated generated-app PostgreSQL/HTTP/Chromium, 17-package closure, frozen installs, hosted attestations, customer fixture regeneration, and generated-evidence clean check PASS.
 
 ## Next
 
-Refresh exact hosted release evidence, then rerun focused and cumulative CI.
+Require exact-head focused PR CI and Linux/AppArmor cumulative Gate 0–12, then resume the same Sol-xhigh reviewer until PASS.
 
 ## Blockers
 
