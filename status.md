@@ -11,7 +11,7 @@ P12.10 focused Gate 12 passes: exact v1 builds and packed closure, selected cont
 
 ## Validation
 
-Exact Node 24.19.0: `pnpm gate:12:focused` PASS, including 19 contract tests, two real process proofs, and 22/22 attack mappings. Cumulative checks fixed stale pre-v1 assertions, composition/lock evidence, generated-app fixtures, Sales CAS callers, UI boundary checks, and the renamed Gate 9 static-authority evidence selector. Gate 9 unit/browser proofs pass; downstream gates and Linux/AppArmor cumulative rerun remain.
+Exact Node 24.19.0: `pnpm gate:12:focused` PASS, including 19 contract tests, two real process proofs, and 22/22 attack mappings. Cumulative checks fixed stale assertions and selectors. Hosted Gate 8 attestations regenerated and verified; its macOS fixture now canonicalizes the symlinked temporary root while production symlink rejection remains covered. Gate 9 unit/browser proofs pass; downstream gates and Linux/AppArmor cumulative rerun remain.
 
 ## Next
 
