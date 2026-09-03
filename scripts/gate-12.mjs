@@ -22,8 +22,9 @@ function run(label, command, args, cwd = root) {
 }
 
 const builds = [
-  "@k-nex/contracts", "@k-nex/composition", "@k-nex/runtime", "@k-nex/ui-runtime", "@k-nex/ui-components", "@k-nex/ui-data", "@k-nex/ui-forms",
-  "@k-nex/builder-puck", "@k-nex/ui-builder-blocks", "@k-nex/payload-adapter", "@k-nex/ui-pages", "@k-nex/module-sales"
+  "@k-nex/contracts", "@k-nex/composition", "@k-nex/runtime", "@k-nex/ui-runtime", "@k-nex/ui-design-system-contracts", "@k-nex/ui-components",
+  "@k-nex/ui-data", "@k-nex/ui-forms", "@k-nex/builder-puck", "@k-nex/ui-builder-blocks", "@k-nex/extension-bundler", "@k-nex/payload-adapter",
+  "@k-nex/ui-pages", "@k-nex/module-sales"
 ];
 for (const workspace of builds) run(`${workspace} build`, "pnpm", ["--filter", workspace, "build"]);
 run("customer fixture build", "pnpm", ["--filter", "@k-nex/customer-gate-1", "build"]);
