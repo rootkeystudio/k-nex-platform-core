@@ -6,7 +6,9 @@ import { validateSystemSettingsValues } from "@k-nex/runtime";
 import { salesWorkspacePresentation } from "../dist/browser.js";
 import { salesDefaultSettings, salesWorkspaceSettingsDescriptor } from "../dist/server.js";
 
-test("Sales settings use the static descriptor's defaults and host validation", () => {
+test("Sales persisted settings enforce read/change permissions and drive workspace presentation", () => {
+  assert.equal(salesWorkspaceSettingsDescriptor.readPermission, "sales.settings.read");
+  assert.equal(salesWorkspaceSettingsDescriptor.changePermission, "sales.settings.write");
   assert.deepEqual(salesDefaultSettings, {
     defaultTaskPageSize: 25, showPotentialRevenue: true, defaultPage: "tasks",
     pipelineStages: ["lead", "qualified", "won", "lost"]
