@@ -1,6 +1,6 @@
 # K-Nex Architecture Documentation
 
-K-Nex is a Payload/PostgreSQL application factory with two extension-delivery paths:
+K-Nex is a Payload/PostgreSQL application factory with three extension-delivery classes:
 
 ```text
 Platform Plugins  static deep integration, zero-downtime Docker release when eligible
@@ -8,7 +8,7 @@ Hot Applications  isolated signed bundles, live generation activation
 Theme Skins       data-only visual bundles, live generation activation
 ```
 
-Gates 0–8 are accepted. Phase 9 builds the dynamic application runtime and no-outage delivery substrate; Phase 10 adds central RBAC and customer-operated extension lifecycle.
+Gates 0–11 established deterministic composition, authorized data/actions/tools, realtime/outbox, canonical UI documents, themes, Puck integration, a headless component system, release/fleet safety, isolated live applications, RBAC, system settings, extension administration, and privileged operations. The selected next step is to turn those foundations into a runnable customer product shell before expanding the Sales domain.
 
 ## Normative order
 
@@ -35,10 +35,13 @@ A plan or ADR at `design-only` is direction, not executable evidence.
 
 ## Execution
 
-- [Master execution plan](./implementation/codex-master-plan.md)
-- [Phase 9 — Dynamic Application Runtime](./implementation/phase-9-dynamic-application-runtime.md)
-- [Mandatory Phase 9 project-manager review hardening](./implementation/phase-9-plan-review-hardening.md)
+- [Master execution plan through Gate 11](./implementation/codex-master-plan.md)
+- [Post-Gate-11 product roadmap addendum](./implementation/post-gate-11-product-roadmap.md)
+- [Phase 12 — Runnable Customer Workspace and Dashboard Builder](./implementation/phase-12-runnable-workspace-and-dashboard-builder.md)
+- [Phase 13 — CRM-First Productization and Pilot Readiness](./implementation/phase-13-crm-first-productization.md)
+- [Phase 11 — System Settings and Extension Operations](./implementation/phase-11-system-settings-and-extension-operations.md)
 - [Phase 10 — RBAC and Extension Bootstrap](./implementation/phase-10-rbac-and-authorization-control-plane.md)
+- [Phase 9 — Dynamic Application Runtime](./implementation/phase-9-dynamic-application-runtime.md)
 - [Executable gates](./30-executable-poc-gates.md)
 - [`status.md`](../status.md)
 - [`AGENTS.md`](../AGENTS.md)
@@ -92,9 +95,10 @@ A plan or ADR at `design-only` is direction, not executable evidence.
 ## Current sequence
 
 ```text
-Gate 8   accepted platform foundation
-Gate 9   accepted hot applications, theme skins, zero-downtime delivery
-Gate 10  accepted RBAC, role templates, extension authority
-Gate 11  system settings, full catalog/deployment operations productization
-then     separately selected CRM/CMS product breadth
+Gate 9   accepted dynamic applications and zero-downtime delivery
+Gate 10  accepted RBAC, role templates, and extension authority
+Gate 11  merged system settings and extension/operations administration
+Gate 12  runnable generated workspace and custom internal dashboard builder
+Gate 13  CRM-first productization and pilot-readiness decision
+then     separately selected CMS or other product breadth
 ```

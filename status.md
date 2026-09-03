@@ -1,22 +1,22 @@
 # Project Status
 
 - **Updated:** 2026-09-03
-- **Phase:** Phase 11 — System Settings and Extension Operations
-- **Active task:** P11.10 — Gate 11 closeout
-- **State:** Ready for phase review
+- **Phase:** Phase 12 — Runnable Customer Workspace and Dashboard Builder
+- **Active task:** P12.0 — restore inherited Gate 0–11 baseline, then begin P12.1 contract freeze
+- **State:** Ready to start
 
 ## Last completed
 
-P11.10 and the sixth owner-review code fix are complete: the current-v1 package closure is ABI-coherent, migration evidence is current, and artifact reconciliation installs exact signed policy.
+Phase 11 / PR #30 merged as `main@9cb386e649aca5dfa90f04f3f1e3121b5debef93`. The post-Gate-11 product decision selects a runnable customer workspace and custom internal dashboard builder before CRM breadth; Phase 13 is CRM-first productization.
 
 ## Validation
 
-Exact Node 24.19.0: packed ABI/closure, both customer frozen installs, packed customer boot, previous-release upgrade, migration chain, catalog-policy reconciliation, and audit-high PASS. Hosted Phase 8 evidence correctly rejects the changed current-v1 manifest until re-attested.
+The Phase 11 exact-head focused workflow and current-v1 release attestation passed before merge. The post-merge cumulative run `33705106670` later failed at Gate 6 because the Sales settings conformance plan expected one named `node:test` case but observed only the file-level subtest. Earlier Gate 0–5, packed customer boot, migrations, PostgreSQL runtime/security, and Phase 11 patch evidence passed in that run.
 
 ## Next
 
-Commit/push the coherent current-v1 closure, regenerate and commit hosted Phase 8 evidence, then obtain replacement focused and cumulative exact-head CI before owner re-review.
+Repair the named Sales settings conformance proof without weakening it; run `pnpm plugin:check modules/sales` and the full `pnpm gate:11`; then execute P12.1 from `docs/implementation/phase-12-runnable-workspace-and-dashboard-builder.md`.
 
 ## Blockers
 
-Hosted current-v1 evidence refresh, replacement exact-head focused CI, cumulative Gate 0–11, and owner re-review are pending.
+Inherited cumulative Gate 0–11 is red until the exact Sales settings target test executes by name. Phase 12 implementation must not claim an accepted baseline before that repair.
