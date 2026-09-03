@@ -7,11 +7,11 @@
 
 ## Last completed
 
-The cumulative fixture's artifact-wait success proof now keeps its exact timeout propagation assertion without a scheduler-sensitive 75 ms parent/child race; the 25 ms fail-closed proof remains intact.
+The cumulative customer fixture's generated resolver snapshot now binds the exact Sales and realtime archives produced by the canonical pack fixes.
 
 ## Validation
 
-Exact Node 24.19.0: artifact-wait proof 10/10 PASS; focused Phase 12 proofs, clean 14-package build, hosted run 33786152181, generated evidence check, and local `GATE_12_PASS` PASS. Exact-head GitHub gates are required.
+Exact Node 24.19.0: artifact-wait proof 10/10 and Gate 1 generated-clean PASS; focused Phase 12 proofs, clean 14-package build, hosted run 33786152181, generated evidence check, and local `GATE_12_PASS` PASS. Exact-head GitHub gates are required.
 
 ## Next
 
