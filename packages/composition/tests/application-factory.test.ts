@@ -156,7 +156,7 @@ describe("create-knex-app", () => {
     expect(readdirSync(written)).toEqual(expect.arrayContaining([".env.example", "package.json", "src"]));
     expect(existsSync(join(written, "node_modules"))).toBe(false);
     expect(existsSync(join(written, "pnpm-lock.yaml"))).toBe(false);
-  });
+  }, 15_000);
 
   it("preflights every destination and never partially writes or follows symlinks", () => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), "create-knex-app-"))); roots.push(root);

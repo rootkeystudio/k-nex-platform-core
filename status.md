@@ -11,7 +11,7 @@ P12.10 focused Gate 12 passes: exact v1 builds and packed closure, selected cont
 
 ## Validation
 
-Exact Node 24.19.0: focused Gate 12, Gate 8, Gate 11, and all 15 Gate 10 technical proofs PASS. Linux/AppArmor cumulative reached the second Gate 9 customer run, then exposed stale npm metadata for regenerated same-version local archives. Both trusted lock paths now use disposable isolated npm caches; focused repeat proof and Linux rerun remain.
+Exact Node 24.19.0: focused Gate 12, Gate 8, Gate 11, and all 15 Gate 10 technical proofs PASS. The real static deployment repeat proof passes with disposable lock caches. Linux retry then exposed only a cold concurrent-CI timeout: the real two-process factory CLI test completed in 6.2s after its inherited 5s bound. That test alone now has a 15s bound; isolated proof and Linux rerun remain.
 
 ## Next
 
