@@ -4,6 +4,7 @@ import { dirname, join, relative, resolve } from "node:path";
 import { gunzipSync } from "node:zlib";
 
 import { ApplicationManifestSchema, PackageReleaseManifestSchema, canonicalJson, type ApplicationManifest, type PackageReleaseManifest } from "@k-nex/contracts";
+import { applicationAuthFiles } from "./application-auth-files.js";
 import { runnableApplicationFiles } from "./runnable-application-files.js";
 
 export type SalesPresetTheme = "minimal" | "neobrutalism";
@@ -83,10 +84,12 @@ function packageIdentity(archive: Uint8Array): { readonly name: string; readonly
   throw new Error("Packed release archive has no package identity.");
 }
 
-function registrySource(): string {
+function registrySource(theme: SalesPresetTheme): string {
+  const themeExport = theme === "minimal" ? "resolveMinimalThemeProfile" : "resolveNeobrutalismThemeProfile";
   return `import { salesOpportunitiesCollection, salesRegistration, salesTasksCollection } from "@k-nex/module-sales/server";
 import { salesMigrationReadiness, salesUpgradeMigrations } from "@k-nex/module-sales/migrations";
 import { salesPageTemplates } from "@k-nex/module-sales/contracts";
+import { ${themeExport} } from "@k-nex/theme-${theme}";
 
 export const kNexSalesRegistry = Object.freeze({
   registration: salesRegistration,
@@ -94,6 +97,19 @@ export const kNexSalesRegistry = Object.freeze({
   migrations: salesUpgradeMigrations,
   readiness: salesMigrationReadiness,
   defaultPages: salesPageTemplates
+});
+
+const initialThemeTime = new Date(0).toISOString();
+export const kNexThemePresentation = ${themeExport}({
+  schemaVersion: 1,
+  id: "workspace.default-theme",
+  surface: "public",
+  themeId: "theme.${theme}",
+  themeVersion: "1.0.0",
+  palette: "light",
+  mode: "system",
+  values: {},
+  revision: { id: "workspace.theme.initial", number: 1, state: "published", createdAt: initialThemeTime, publishedAt: initialThemeTime }
 });
 `;
 }
@@ -103,17 +119,18 @@ function payloadConfigSource(applicationId: string): string {
 import { buildConfig } from "payload";
 
 import { kNexSalesRegistry } from "./k-nex-registry.js";
+import { payloadSecret } from "./k-nex-identity.js";
+import { usersCollection } from "./k-nex-users.js";
 import { migrations } from "./migrations/index.js";
 
 const databaseUrl = process.env.DATABASE_URL;
-const secret = process.env.PAYLOAD_SECRET;
-if (!databaseUrl || !secret) throw new Error("DATABASE_URL and PAYLOAD_SECRET are required.");
+if (!databaseUrl) throw new Error("DATABASE_URL is required.");
 
 export default buildConfig({
   db: postgresAdapter({ pool: { connectionString: databaseUrl }, prodMigrations: migrations, push: false }),
-  collections: [...kNexSalesRegistry.collections],
+  collections: [usersCollection, ...kNexSalesRegistry.collections],
   custom: { kNexApplicationId: "${applicationId}" },
-  secret
+  secret: payloadSecret
 });
 `;
 }
@@ -124,10 +141,10 @@ function bootSource(): string {
 import config from "./payload.config.js";
 
 export async function bootKnexApplication(key = "k-nex-application") {
-  const payload = await getPayload({ config, key });
+  const payload = await getPayload({ config, key: "k-nex-application" });
   const collections = Object.keys(payload.collections).sort();
-  if (!collections.includes("sales-opportunities") || !collections.includes("sales-tasks")) {
-    throw new Error("K-Nex Sales collections did not register.");
+  if (!collections.includes("sales-opportunities") || !collections.includes("sales-tasks") || !collections.includes("users")) {
+    throw new Error("K-Nex application collections did not register.");
   }
   return payload;
 }
@@ -194,7 +211,7 @@ function applicationManifest(options: CreateKnexApplicationOptions, packageVersi
     themes: { active: options.theme, package: `@k-nex/theme-${options.theme}`, version: packageVersions.get(`@k-nex/theme-${options.theme}`) ?? "1.0.0" },
     development: { database: options.database === "docker-postgres" ? { mode: "docker-postgres", serviceName: "postgres" } : { mode: "external" } },
     build: { dockerfile: false, commitGeneratedRegistries: true, validateGeneratedFilesInCI: true },
-    environment: { required: ["DATABASE_URL", "K_NEX_ENVIRONMENT", "PAYLOAD_SECRET"] }
+    environment: { required: ["DATABASE_URL", "K_NEX_ENVIRONMENT", "K_NEX_PUBLIC_ORIGIN", "PAYLOAD_SECRET"] }
   });
 }
 
@@ -229,8 +246,9 @@ export function planCreateKnexApplication(options: CreateKnexApplicationOptions)
   }));
   const manifest = applicationManifest(options, releasedPackages);
   const files: Record<string, string> = {
-    ...runnableApplicationFiles({ applicationId: options.applicationId, applicationName: options.applicationName, database: options.database }),
-    ".env.example": "DATABASE_URL=\nK_NEX_BOOTSTRAP_TOKEN=\nK_NEX_ENVIRONMENT=\nPAYLOAD_SECRET=\n",
+    ...runnableApplicationFiles({ applicationId: options.applicationId, applicationName: options.applicationName, database: options.database, theme: options.theme }),
+    ...applicationAuthFiles({ applicationId: options.applicationId, applicationName: options.applicationName, theme: options.theme }),
+    ".env.example": "DATABASE_URL=\nK_NEX_ENVIRONMENT=\nK_NEX_OWNER_EMAIL=\nK_NEX_OWNER_PASSWORD=\nK_NEX_PUBLIC_ORIGIN=\nPAYLOAD_SECRET=\n",
     ".k-nex/application-plan.json": json({
       planVersion: 1,
       preset: "sales-reference",
@@ -259,6 +277,7 @@ export function planCreateKnexApplication(options: CreateKnexApplicationOptions)
         "knex:bootstrap-owner": "node dist/k-nex-bootstrap-owner.js",
         ...(options.database === "docker-postgres" ? { "knex:db:up": "docker compose up -d postgres" } : {}),
         "knex:doctor": "node dist/k-nex-doctor.js",
+        "knex:issue-bootstrap-token": "node dist/k-nex-issue-bootstrap-token.js",
         "knex:migrate": "payload migrate",
         "knex:readiness": "node dist/k-nex-readiness.js",
         start: "next start",
@@ -269,11 +288,11 @@ export function planCreateKnexApplication(options: CreateKnexApplicationOptions)
       devDependencies: { "@types/node": "24.13.3", "@types/react": "19.2.18", "@types/react-dom": "19.2.4", typescript: "6.0.3" }
     }),
     "src/boot.ts": bootSource(),
-    "src/k-nex-registry.ts": registrySource(),
-    "src/k-nex-readiness.ts": `import { kNexSalesRegistry } from "./k-nex-registry.js";\n\nif (kNexSalesRegistry.collections.length !== 2 || kNexSalesRegistry.registration.pluginId !== "module.sales" || kNexSalesRegistry.readiness.currentRevision < 1 || kNexSalesRegistry.defaultPages.length === 0) {\n  throw new Error("K-Nex Sales readiness is incomplete.");\n}\nconsole.log("K_NEX_SALES_READY");\n`,
+    "src/k-nex-registry.ts": registrySource(options.theme),
     "src/migrations/20260827_000001_sales_baseline.ts": payloadBaselineMigrationSource(),
     "src/migrations/20260827_000002_knex_bootstrap.ts": bootstrapMigrationSource(options.applicationId, release?.release.version ?? "1.0.0"),
-    "src/migrations/index.ts": `import * as baseline from "./20260827_000001_sales_baseline.js";\nimport * as bootstrap from "./20260827_000002_knex_bootstrap.js";\n\nexport const migrations = [\n  { name: "20260827_000001_sales_baseline", up: baseline.up, down: baseline.down },\n  { name: "20260827_000002_knex_bootstrap", up: bootstrap.up, down: bootstrap.down }\n];\n`,
+    "src/migrations/20260903_000003_knex_authorization.ts": `import { kNexAuthorizationSchemaMigration } from "@k-nex/payload-adapter";\n\nexport const up = kNexAuthorizationSchemaMigration.up;\nexport const down = kNexAuthorizationSchemaMigration.down;\n`,
+    "src/migrations/index.ts": `import * as baseline from "./20260827_000001_sales_baseline.js";\nimport * as bootstrap from "./20260827_000002_knex_bootstrap.js";\nimport * as authorization from "./20260903_000003_knex_authorization.js";\n\nexport const migrations = [\n  { name: "20260827_000001_sales_baseline", up: baseline.up, down: baseline.down },\n  { name: "20260827_000002_knex_bootstrap", up: bootstrap.up, down: bootstrap.down },\n  { name: "20260903_000003_knex_authorization", up: authorization.up, down: authorization.down }\n];\n`,
     "src/payload.config.ts": payloadConfigSource(options.applicationId),
   };
   if (release !== undefined && options.packageSource !== undefined) {

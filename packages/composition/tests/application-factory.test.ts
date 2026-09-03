@@ -21,7 +21,7 @@ describe("create-knex-app", () => {
     expect(first.files["compose.yaml"]).toContain("postgres:17.6-alpine@sha256:");
     const manifest = ApplicationManifestSchema.parse(JSON.parse(first.files["k-nex.app.json"]!));
     expect(manifest.plugins).toEqual([{ id: "module.sales", package: "@k-nex/module-sales", version: "1.0.0", enabled: true }]);
-    expect(manifest.environment.required).toEqual(["DATABASE_URL", "K_NEX_ENVIRONMENT", "PAYLOAD_SECRET"]);
+    expect(manifest.environment.required).toEqual(["DATABASE_URL", "K_NEX_ENVIRONMENT", "K_NEX_PUBLIC_ORIGIN", "PAYLOAD_SECRET"]);
     expect(JSON.parse(first.files["package.json"]!).dependencies).toMatchObject({ payload: "3.88.0", "@k-nex/module-sales": "1.0.0", "@k-nex/theme-minimal": "1.0.0" });
     expect(first.files["src/payload.config.ts"]).toContain("kNexSalesRegistry.collections");
     expect(first.files["src/payload.config.ts"]).toContain("prodMigrations: migrations");
@@ -31,11 +31,17 @@ describe("create-knex-app", () => {
     expect(first.files["tsconfig.json"]).toContain('"moduleResolution": "bundler"');
     expect(first.files["tsconfig.scripts.json"]).toContain('"module": "NodeNext"');
     expect(first.files["src/k-nex-registry.ts"]).toContain("salesRegistration");
-    expect(first.files["src/k-nex-readiness.ts"]).toContain("K_NEX_SALES_READY");
+    expect(first.files["src/k-nex-readiness.ts"]).toContain("K_NEX_APPLICATION_READY");
     expect(first.files["src/app/(payload)/api/[...slug]/route.ts"]).toContain("REST_GET(config)");
     expect(first.files["src/app/(workspace)/page.tsx"]).toContain("Customer Alpha");
     expect(first.files["src/app/api/health/route.ts"]).toContain('status: "alive"');
     expect(first.files["src/app/api/readiness/route.ts"]).toContain("bootKnexApplication");
+    expect(first.files["src/k-nex-users.ts"]).toContain("removeTokenFromResponses: true");
+    expect(first.files["src/k-nex-users.ts"]).toContain("useSessions: true");
+    expect(first.files["src/k-nex-bootstrap-token.ts"]).toContain("timingSafeEqual");
+    expect(first.files["src/k-nex-bootstrap-owner.ts"]).toContain("bootstrapFirstOwner");
+    expect(first.files["src/migrations/20260903_000003_knex_authorization.ts"]).toContain("kNexAuthorizationSchemaMigration");
+    expect(first.files["src/app/api/k-nex/inventory/route.ts"]).toContain("system.extensions.read");
     expect(Object.values(first.files).every((source) => !source.includes("fixtures/customer-gate-1"))).toBe(true);
     const packageJson = JSON.parse(first.files["package.json"]!);
     expect(packageJson.engines.node).toBe(">=24 <25");
@@ -43,6 +49,7 @@ describe("create-knex-app", () => {
       build: "pnpm build:scripts && next build --webpack",
       dev: "next dev --webpack",
       "knex:bootstrap-owner": "node dist/k-nex-bootstrap-owner.js",
+      "knex:issue-bootstrap-token": "node dist/k-nex-issue-bootstrap-token.js",
       "knex:db:up": "docker compose up -d postgres",
       "knex:doctor": "node dist/k-nex-doctor.js",
       "knex:migrate": "payload migrate",
@@ -52,6 +59,9 @@ describe("create-knex-app", () => {
     });
     expect(JSON.parse(first.files[".k-nex/application-plan.json"]!).packageSource.kind).toBe("workspace");
     expect(first.files[".env.example"]!.split("\n").filter(Boolean).every((line) => line.endsWith("="))).toBe(true);
+    expect(first.files["src/k-nex-users.ts"]).toContain('secure: kNexIdentity.publicOrigin.protocol === "https:"');
+    expect(Object.values(first.files).some((source) => source.includes("K_NEX_OWNER_PASSWORD="))).toBe(true);
+    expect(Object.values(first.files).every((source) => !source.includes("K_NEX_OWNER_PASSWORD=secret"))).toBe(true);
     expect(first.installCommands).toEqual([["pnpm", "install", "--lockfile-only"], ["pnpm", "install", "--frozen-lockfile"]]);
   });
 

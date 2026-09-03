@@ -2,6 +2,7 @@ export interface RunnableApplicationFilesOptions {
   readonly applicationId: string;
   readonly applicationName: string;
   readonly database: "docker-postgres" | "external";
+  readonly theme: "minimal" | "neobrutalism";
 }
 
 function workspaceLayoutSource(applicationName: string): string {
@@ -30,14 +31,14 @@ function workspacePageSource(applicationName: string): string {
 
 export function runnableApplicationFiles(options: RunnableApplicationFilesOptions): Readonly<Record<string, string>> {
   return {
-    ".gitignore": ".env\n.next\ndist\nnode_modules\n",
+    ".gitignore": ".env\n.k-nex-bootstrap-token\n.next\ndist\nnode_modules\n",
     "next-env.d.ts": "/// <reference types=\"next\" />\n/// <reference types=\"next/image-types/global\" />\n",
     "next.config.ts": `import { withPayload } from "@payloadcms/next/withPayload";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
-  serverExternalPackages: ["@k-nex/module-sales"],
+  serverExternalPackages: ["@k-nex/module-sales", "@k-nex/theme-${options.theme}"],
   webpack(config) {
     config.resolve.extensionAlias = { ".js": [".ts", ".tsx", ".js"] };
     return config;
@@ -56,7 +57,8 @@ Copy \`.env.example\` to \`.env\`, set every value, then run:
 pnpm install --frozen-lockfile
 pnpm knex:doctor
 ${options.database === "docker-postgres" ? "pnpm knex:db:up\n" : ""}pnpm knex:migrate
-pnpm knex:bootstrap-owner
+pnpm knex:issue-bootstrap-token -- --output .k-nex-bootstrap-token
+pnpm knex:bootstrap-owner -- --token-file .k-nex-bootstrap-token
 pnpm dev
 \`\`\`
 
@@ -88,9 +90,9 @@ import { GRAPHQL_PLAYGROUND_GET } from "@payloadcms/next/routes";
 
 export const GET = GRAPHQL_PLAYGROUND_GET(config);
 `,
-    "src/app/(workspace)/layout.tsx": workspaceLayoutSource(options.applicationName),
     "src/app/(workspace)/page.tsx": workspacePageSource(options.applicationName),
-    "src/app/(workspace)/styles.css": `:root { color-scheme: light dark; font-family: ui-sans-serif, system-ui, sans-serif; }
+    "src/app/layout.tsx": workspaceLayoutSource(options.applicationName),
+    "src/app/styles.css": `:root { color-scheme: light dark; font-family: ui-sans-serif, system-ui, sans-serif; }
 * { box-sizing: border-box; }
 body { margin: 0; min-height: 100vh; background: Canvas; color: CanvasText; }
 .workspace-home { margin: 0 auto; max-width: 64rem; padding: 5rem 2rem; }
@@ -117,10 +119,11 @@ export async function GET() {
   }
 }
 `,
-    "src/k-nex-doctor.ts": `import { kNexSalesRegistry } from "./k-nex-registry.js";
+    "src/k-nex-doctor.ts": `import { kNexIdentity } from "./k-nex-identity.js";
+import { kNexSalesRegistry } from "./k-nex-registry.js";
 
-const missing = ["DATABASE_URL", "PAYLOAD_SECRET", "K_NEX_ENVIRONMENT"].filter((name) => !process.env[name]);
-if (process.versions.node.split(".")[0] !== "24" || missing.length > 0 || kNexSalesRegistry.registration.pluginId !== "module.sales") {
+const missing = ["DATABASE_URL", "PAYLOAD_SECRET", "K_NEX_ENVIRONMENT", "K_NEX_PUBLIC_ORIGIN"].filter((name) => !process.env[name]);
+if (process.versions.node.split(".")[0] !== "24" || missing.length > 0 || kNexSalesRegistry.registration.pluginId !== "module.sales" || !kNexIdentity.applicationId) {
   throw new Error(\`K-Nex doctor failed: \${missing.length} required environment names are unset.\`);
 }
 console.log("K_NEX_DOCTOR_PASS");
