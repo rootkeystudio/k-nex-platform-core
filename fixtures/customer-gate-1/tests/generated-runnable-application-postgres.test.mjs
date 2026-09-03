@@ -538,7 +538,10 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     assert.equal(await page.locator('[data-k-nex-component="workspace-shell"]').evaluate((element) => getComputedStyle(element).transitionDuration), "0s");
 
     let lostEditorPoll = false;
+    const editorPollTraffic = [];
     const editorPollPattern = `**/api/k-nex/workspace-pages/${encodeURIComponent(pageId)}/session?mode=edit*`;
+    page.on("response", (response) => { if (response.url().includes(`/api/k-nex/workspace-pages/${encodeURIComponent(pageId)}/session?mode=edit`)) editorPollTraffic.push(`response:${response.status()}`); });
+    page.on("requestfailed", (request) => { if (request.url().includes(`/api/k-nex/workspace-pages/${encodeURIComponent(pageId)}/session?mode=edit`)) editorPollTraffic.push(`failed:${request.failure()?.errorText ?? "unknown"}`); });
     await page.route(editorPollPattern, async (route) => {
       if (lostEditorPoll) return route.continue();
       lostEditorPoll = true;
@@ -564,7 +567,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
       await addBlock.click();
     }
     try { await page.getByText("All changes saved.", { exact: true }).waitFor({ timeout: 15_000 }); }
-    catch (error) { throw new Error(`${error}\nautosave=${JSON.stringify(autosaveTraffic)}\nui=${await page.locator("body").innerText()}\nprocess=${applicationProcess.output()}`); }
+    catch (error) { throw new Error(`${error}\neditorPoll=${JSON.stringify(editorPollTraffic)}\nautosave=${JSON.stringify(autosaveTraffic)}\nui=${await page.locator("body").innerText()}\nprocess=${applicationProcess.output()}`); }
     assert.equal(lostEditorPoll, true);
     await page.unroute(editorPollPattern);
     assert.equal(lostAutosaveResponse, true);

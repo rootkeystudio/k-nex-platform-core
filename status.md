@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Hosted release evidence run 33812534708 binds the immutable retryable-session fix and both customer bundles to source head 6d514728.
+Focused CI still produced false editor access revocation after the 409 mapping; generated-app failure output now records exact editor-poll response/failure statuses before further protocol changes.
 
 ## Validation
 
-Exact Node 24.19.0: focused unit 6/6, isolated generated-app PostgreSQL/HTTP/Chromium, 17-package closure, frozen installs, hosted attestations, customer fixture regeneration, and generated-evidence clean check PASS.
+Hosted evidence run 33812534708 PASS. Local generated-app proof PASS; focused run 33813445986 failed only at the lost-autosave UI assertion with false access revocation. Cumulative run 33813443734 cancelled.
 
 ## Next
 
-Require exact-head focused PR CI and Linux/AppArmor cumulative Gate 0–12, then resume the same Sol-xhigh reviewer until PASS.
+Run focused CI once with poll-status telemetry; diagnose exact denial class, then apply the smallest verified fix.
 
 ## Blockers
 
