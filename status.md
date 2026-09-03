@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Hosted release evidence binds the editor watermark-race closure. Gate 6 generic plugin conformance now uses the same canonical level-9, zero-mtime, cross-platform gzip metadata as the Sales package proof.
+Hosted release evidence binds the editor watermark-race closure. Cumulative compatibility now keeps Gate 6 package canonicalization aligned and makes Gate 8 apply only its already verified packed v1 release.
 
 ## Validation
 
-Hosted run 33794782982 and `P8_GENERATED_EVIDENCE_CLEAN` PASS. Exact Node 24.19.0: clean 17-package closure, both frozen customer installs, editor unit 6/6, isolated generated app PostgreSQL/HTTP/Chromium journey, and focused generic/Sales canonical pack proofs PASS.
+Hosted run 33794782982, exact-head focused run 33798226009, and `P8_GENERATED_EVIDENCE_CLEAN` PASS. Cumulative run 33798251231 passed Gates 0–7 and exposed the stale Gate 8 workspace-apply fixture. Exact Node 24.19.0 focused canonical pack proofs and repaired `GATE_8_PASS` PASS.
 
 ## Next
 
