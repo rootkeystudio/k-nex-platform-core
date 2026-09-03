@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { test } from "node:test";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
+import { tmpdir } from "node:os";
 import { gunzipSync, gzipSync } from "node:zlib";
-import { canonicalArchive } from "./generate-phase-8-packed-packages.mjs";
+import { canonicalArchive, rebuildPackage } from "./generate-phase-8-packed-packages.mjs";
 
 const fixture = readFileSync(resolve(import.meta.dirname, "../fixtures/customer-gate-1/packages/k-nex-contracts-1.0.0.tgz"));
 
@@ -55,4 +56,22 @@ test("packed archives canonicalize platform metadata, order, and build caches", 
   unsafe[0].write("../escape", 0, 9, "ascii");
   tarChecksum(unsafe[0]);
   assert.throws(() => canonicalArchive(gzipSync(Buffer.concat([...unsafe, Buffer.alloc(1024)]))), /unsafe path/u);
+});
+
+test("packed TypeScript packages rebuild from a clean output directory", () => {
+  const directory = mkdtempSync(join(tmpdir(), "k-nex-phase-8-pack-build-"));
+  try {
+    writeFileSync(resolve(directory, "package.json"), JSON.stringify({ type: "module", scripts: { build: "node build.mjs" } }));
+    writeFileSync(resolve(directory, "tsconfig.json"), "{}\n");
+    writeFileSync(resolve(directory, "build.mjs"), 'import { mkdirSync, writeFileSync } from "node:fs"; mkdirSync("dist", { recursive: true }); writeFileSync("dist/current.js", "current\\n");\n');
+    mkdirSync(resolve(directory, "dist"));
+    writeFileSync(resolve(directory, "dist/stale.js"), "stale\n");
+
+    rebuildPackage(directory);
+
+    assert.equal(existsSync(resolve(directory, "dist/stale.js")), false);
+    assert.equal(readFileSync(resolve(directory, "dist/current.js"), "utf8"), "current\n");
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });

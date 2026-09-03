@@ -943,7 +943,7 @@ packages:
       react: ^18.0.0 || ^19.0.0
 
   '@k-nex/composition@file:../customer-gate-1/packages/k-nex-composition-1.0.0.tgz':
-    resolution: {integrity: sha512-/kGHFd3bXV63ghPcWUMO2lQ4ZDa4yGycVM0/5VimQFdqKhmoI/suuLHLL6oLkM4n6WbF1O5uDdakkv3OwLllrA==, tarball: file:../customer-gate-1/packages/k-nex-composition-1.0.0.tgz}
+    resolution: {integrity: sha512-fQXHp3FAhFN7ECLS7z0tTwBN0OHNgQ6GNe0HEMnF8SJ1gQHZtv/nId6v1mvGtf6dYQ9PAgJjzbq3h+WGorKD9w==, tarball: file:../customer-gate-1/packages/k-nex-composition-1.0.0.tgz}
     version: 1.0.0
 
   '@k-nex/contracts@file:../customer-gate-1/packages/k-nex-contracts-1.0.0.tgz':
@@ -986,7 +986,7 @@ packages:
         optional: true
 
   '@k-nex/payload-adapter@file:../customer-gate-1/packages/k-nex-payload-adapter-1.0.0.tgz':
-    resolution: {integrity: sha512-66NH5sYV4J1V5SbGauNA4q20+lqnsCYZHxVyvGstZqghc0z0bIMX5jS9nEAYiXTOuwsOt4XRT57OFI+zjA5N7g==, tarball: file:../customer-gate-1/packages/k-nex-payload-adapter-1.0.0.tgz}
+    resolution: {integrity: sha512-+JJRqU2rwEFHWNGciyYv/Vz5dRRUVE5lfqjVKdpJ6uCwgBlLzOLXG3oBE44giJz8vD1Rsu85Jbtd8gz0ZPbOEw==, tarball: file:../customer-gate-1/packages/k-nex-payload-adapter-1.0.0.tgz}
     version: 1.0.0
 
   '@k-nex/runtime@file:../customer-gate-1/packages/k-nex-runtime-1.0.0.tgz':

@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -128,7 +128,14 @@ export function canonicalArchive(archive) {
   return canonical;
 }
 
+export function rebuildPackage(directory) {
+  if (!existsSync(resolve(directory, "tsconfig.json"))) return;
+  rmSync(resolve(directory, "dist"), { recursive: true, force: true });
+  execFileSync("pnpm", ["run", "build", "--force"], { cwd: directory, stdio: "inherit" });
+}
+
 function pack(directory, expectedFilename) {
+  rebuildPackage(directory);
   const first = mkdtempSync(join(tmpdir(), "k-nex-phase-8-pack-first-"));
   const second = mkdtempSync(join(tmpdir(), "k-nex-phase-8-pack-second-"));
   try {
