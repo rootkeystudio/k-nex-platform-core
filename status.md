@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Hosted release evidence run 33808512371 binds the immutable transient editor-poll closure and both customer bundles to source head 9a521db6.
+Retirement-race proof now completes the required worker-activation ticket when promotion wins, preserving the product invariant before later recovery assertions.
 
 ## Validation
 
-Exact Node 24.19.0: focused unit 6/6, isolated generated-app PostgreSQL/HTTP/Chromium, 17-package closure, both frozen installs, hosted attestations, customer fixture regeneration, and generated-evidence clean check PASS.
+Hosted evidence run 33808512371 and focused CI 33809074142 PASS. Isolated PostgreSQL proof explicitly executed `P9_RETIREMENT_PROMOTION_RACE=promotion-won` and PASS after cumulative run 33809088473 exposed the stale fixture branch.
 
 ## Next
 
