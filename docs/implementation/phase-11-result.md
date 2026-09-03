@@ -4,7 +4,7 @@
 - **Gate:** Gate 11
 - **Accepted base:** Phase 10 / PR #29
 - **Decision:** **READY FOR PHASE REVIEW**
-- **Review state:** Sixth owner-review code findings fixed with one coherent current-v1 package closure, current migration evidence, and exact signed catalog policy; hosted release evidence refresh, replacement exact-head focused CI, cumulative Gate 0–11, and re-review remain pending.
+- **Review state:** Sixth owner-review findings fixed with one coherent current-v1 package closure, current migration evidence, exact signed catalog policy, and regenerated hosted release evidence; replacement exact-head focused CI, cumulative Gate 0–11, and re-review remain pending.
 
 ## Scope proved
 
@@ -51,6 +51,7 @@ A staged Hot Application that needs generation-validated settings reserves one f
 - Both customer lockfiles bind that same exact Sales archive digest; frozen customer-alpha and customer-beta installs pass without weakening integrity enforcement.
 - The complete changed current-v1 package closure, manifest, and customer locks move atomically; a pre-PostgreSQL packed ABI export check plus both packed customer boot paths prevent Sales/runtime drift.
 - Gate 1 migration evidence asserts catalog mirror revision 24 with predecessor 23 and the catalog/operations migration identities and tables. Artifact reconciliation separately proves missing catalog policy fails closed before installing the exact signed current snapshot.
+- Hosted release-evidence run 33704900583 re-attests the coherent current-v1 manifest and both customer bundles; generated-evidence verification and focused CI run 33704896910 pass at the source commit.
 
 ## Known limits and next decision
 
