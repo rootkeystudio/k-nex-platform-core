@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Hosted release evidence binds the editor watermark-race closure. Cumulative compatibility now keeps Gate 6 package canonicalization aligned and makes Gate 8 apply only its already verified packed v1 release.
+Hosted release evidence binds the editor watermark-race closure. Cumulative compatibility now aligns Gate 6 package canonicalization, makes Gate 8 apply its verified packed v1 release, and preserves Gate 9's accepted P10.1 handoff marker.
 
 ## Validation
 
-Hosted run 33794782982, exact-head focused run 33798226009, and `P8_GENERATED_EVIDENCE_CLEAN` PASS. Cumulative run 33798251231 passed Gates 0–7 and exposed the stale Gate 8 workspace-apply fixture. Exact Node 24.19.0 focused canonical pack proofs and repaired `GATE_8_PASS` PASS.
+Hosted run 33794782982 and focused run 33801063076 PASS. Exact Node 24.19.0 canonical pack proofs and repaired `GATE_8_PASS` PASS. Cumulative run 33801075809 passed Gates 0–8 and all 23 Gate 9 executable proofs, then exposed only the removed historical P10.1 result marker now restored.
 
 ## Next
 
