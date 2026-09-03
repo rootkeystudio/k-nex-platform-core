@@ -11,11 +11,11 @@ The Sol-xhigh closeout gaps are fixed: generated-name safety, serialized owner b
 
 ## Validation
 
-Exact Node 24.19.0: touched contract/composition/runtime/page-service/navigation tests PASS; affected builds, generated schemas, packed v1 closure, and both frozen-lock regeneration checks PASS. Real generated frozen-install/build/PostgreSQL/HTTP/Chromium journey and separate PostgreSQL storage/restore proof PASS with direct malicious document/action/revocation denials.
+Exact Node 24.19.0: `pnpm gate:12:focused` PASS. It built the exact Phase 12 graph, verified the packed v1 closure and frozen locks, ran 114 focused unit proofs plus Sales TAP, and passed two real PostgreSQL/HTTP/Chromium process journeys with all 22 attack IDs mapped to executed evidence.
 
 ## Next
 
-Run focused Gate 12; refresh hosted release evidence; re-review with the same Sol-xhigh session; fix until PASS; then run cumulative exact-head Linux/AppArmor Gate 0–12 and open/update the phase PR.
+Refresh hosted release evidence; re-review with the same Sol-xhigh session; fix until PASS; then run cumulative exact-head Linux/AppArmor Gate 0–12 and open/update the phase PR.
 
 ## Blockers
 

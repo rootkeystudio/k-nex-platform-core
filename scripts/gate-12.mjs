@@ -58,9 +58,10 @@ const unitProofs = [
     "bounds depth, arrays, strings, and canonical document bytes"
   ]),
   vitest("navigation", "@k-nex/ui-runtime", ["tests/workspace-navigation.test.ts"], [
-    "resolves fixed System, registered Sales, nested customer pages, and user-local shortcuts",
+    "resolves only implemented System routes and keeps Sales as a customer-page parent",
+    "keeps an empty customer-page parent without synthesizing a plugin route",
     "omits unauthorized links, routes, descendants, and shortcuts before serialization",
-    "rejects duplicate, inactive, missing-route, foreign-parent, missing-parent, and cyclic graphs"
+    "rejects invalid or duplicate implemented System IDs alongside invalid graphs"
   ]),
   vitest("shell", "@k-nex/ui-components", ["tests/workspace-shell.test.tsx"], [
     "server-renders only resolved navigation with shell, skip-link, breadcrumb, and collapse semantics"
@@ -161,7 +162,7 @@ const attackProofs = {
   "P12-ATK-01": ["unit:contracts:keeps browser autosave input free of application, environment, ACL, route, and executable authority", "unit:contracts:rejects unrestricted URL/style/SQL/package/JS fields and non-namespaced engine metadata", "process:P12_ATK_01_PROTECTED_SHELL_HTTP_POSTGRES_DENIED=PASS"],
   "P12-ATK-02": ["unit:contracts:binds mutable working copies and immutable publications to one page/document identity", "unit:page-service:derives page, placement, theme, actor, and document identity on the server", "process:P12_ATK_02_CROSS_CUSTOMER_READ_POSTGRES_DENIED=PASS"],
   "P12-ATK-03": ["unit:contracts:rejects duplicate, cyclic, missing-parent, cross-owner, and System-shadowing navigation"],
-  "P12-ATK-04": ["unit:navigation:rejects duplicate, inactive, missing-route, foreign-parent, missing-parent, and cyclic graphs"],
+  "P12-ATK-04": ["unit:navigation:rejects invalid or duplicate implemented System IDs alongside invalid graphs"],
   "P12-ATK-05": ["unit:page-service:returns the same non-enumerating denial for missing and unauthorized direct pages", "process:P12_ATK_05_UNAUTHORIZED_DIRECT_URL_AND_ENUMERATION_HTTP_DENIED=PASS"],
   "P12-ATK-06": ["unit:page-service:denies non-owner ACL expansion beyond the editor's exact held capability"],
   "P12-ATK-07": ["process:P12_ATK_07_PAGE_ACL_ONLY_SALES_ACTION_HTTP_POSTGRES_DENIED=PASS"],
