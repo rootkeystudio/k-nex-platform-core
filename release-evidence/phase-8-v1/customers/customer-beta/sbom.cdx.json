@@ -2086,7 +2086,7 @@
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "28a41de8800442b1609f4a701eb44a76327c5cec75fdbad8cae8b78763f11bba8d4282dd9454b8c3594b188e191db807fa8f93dc9c00e951016fd23938bd878a"
+          "content": "353d1ec9e3b0619be23b74fe9f0009fc1a72b4e745c39f101027f0cce9fc0fea9b24a13e43c1b97d9ecb10de62358c21792da1a89205b7ebab67ae711aa9436a"
         }
       ],
       "name": "@k-nex/composition",
@@ -11603,7 +11603,7 @@
       "type": "application"
     }
   },
-  "serialNumber": "urn:uuid:00000000-0000-4000-8000-8bcb212d8ea1",
+  "serialNumber": "urn:uuid:00000000-0000-4000-8000-e2e474376d6e",
   "specVersion": "1.6",
   "version": 1
 }
