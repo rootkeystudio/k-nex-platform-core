@@ -1,0 +1,41 @@
+{
+  "$schema": "https://schemas.k-nex.dev/workspace.v1.schema.json",
+  "contract": {
+    "kind": "working-copy",
+    "value": {
+      "document": {
+        "id": "workspace.document.sales-board",
+        "profile": "workspace",
+        "regions": {
+          "main": [
+            {
+              "id": "sales-board-title",
+              "props": {
+                "text": "Sales board"
+              },
+              "type": "content.text",
+              "version": 1
+            }
+          ]
+        },
+        "schemaVersion": 1,
+        "version": 1
+      },
+      "editorSessionId": "editor-session-1",
+      "idempotencyKey": "workspace-save-1",
+      "identity": {
+        "applicationId": "customer-alpha",
+        "documentId": "workspace.document.sales-board",
+        "environment": "production",
+        "pageId": "workspace.page.sales-board"
+      },
+      "revision": 1,
+      "schemaVersion": 1,
+      "updatedAt": "2026-09-03T08:00:00.000Z",
+      "updatedBy": {
+        "id": "user:owner",
+        "kind": "user"
+      }
+    }
+  }
+}

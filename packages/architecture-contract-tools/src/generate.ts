@@ -35,6 +35,9 @@ import {
   SystemAdministrationContractsSchema,
   TrustedApplicationBuildEvidenceSchema,
   WorkerGenerationFenceSchema,
+  WorkspaceContractsSchema,
+  workspaceContractsSchemaUrl,
+  phase12AttackRegistry,
   DeploymentReceiptSchema,
   PluginManifestSchema,
   TableRecordsSchema,
@@ -181,6 +184,16 @@ function systemAdministrationContractsJsonSchema(): unknown {
   return generated;
 }
 
+function workspaceContractsJsonSchema(): unknown {
+  const generated = identifiedJsonSchema(
+    WorkspaceContractsSchema,
+    workspaceContractsSchemaUrl,
+    "K-Nex Workspace Contracts v1"
+  ) as Record<string, unknown>;
+  generated.kNexWorkspaceInvariants = true;
+  return generated;
+}
+
 function referencedDefinition(schema: Record<string, any>, property: string): Record<string, any> {
   const reference = schema.properties?.[property]?.$ref as string | undefined;
   const definition = reference?.startsWith("#/$defs/") ? schema.$defs?.[reference.slice("#/$defs/".length)] : undefined;
@@ -259,7 +272,9 @@ const primaryArtifacts = [
   { path: "schemas/ui-document.v1.schema.json", value: uiDocumentJsonSchema() },
   { path: "schemas/cms-page-metadata.v1.schema.json", value: cmsPageMetadataJsonSchema() },
   { path: "schemas/authorization.v1.schema.json", value: authorizationContractsJsonSchema() },
-  { path: "schemas/system-administration.v1.schema.json", value: systemAdministrationContractsJsonSchema() }
+  { path: "schemas/system-administration.v1.schema.json", value: systemAdministrationContractsJsonSchema() },
+  { path: "schemas/workspace.v1.schema.json", value: workspaceContractsJsonSchema() },
+  { path: "contracts/phase-12-attack-map.v1.json", value: phase12AttackRegistry }
 ] satisfies readonly Artifact[];
 
 const outputContractSchemas = [

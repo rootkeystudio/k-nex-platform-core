@@ -1,0 +1,1577 @@
+{
+  "$defs": {
+    "__schema0": {
+      "const": 1,
+      "type": "number"
+    },
+    "__schema1": {
+      "pattern": "^[a-z][a-z0-9-]{2,127}$",
+      "type": "string"
+    },
+    "__schema10": {
+      "const": 1,
+      "type": "number"
+    },
+    "__schema11": {
+      "maximum": 1000000000,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "__schema12": {
+      "items": {
+        "$ref": "#/$defs/__schema13"
+      },
+      "maxItems": 512,
+      "minItems": 1,
+      "type": "array"
+    },
+    "__schema13": {
+      "additionalProperties": false,
+      "properties": {
+        "icon": {
+          "$ref": "#/$defs/__schema18"
+        },
+        "id": {
+          "$ref": "#/$defs/__schema5"
+        },
+        "kind": {
+          "$ref": "#/$defs/__schema15"
+        },
+        "label": {
+          "$ref": "#/$defs/__schema17"
+        },
+        "order": {
+          "$ref": "#/$defs/__schema19"
+        },
+        "owner": {
+          "$ref": "#/$defs/__schema14"
+        },
+        "parentId": {
+          "$ref": "#/$defs/__schema16"
+        },
+        "target": {
+          "$ref": "#/$defs/__schema20"
+        }
+      },
+      "required": [
+        "id",
+        "owner",
+        "kind",
+        "label",
+        "order"
+      ],
+      "type": "object"
+    },
+    "__schema14": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "platform",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "platform-plugin",
+              "type": "string"
+            },
+            "pluginId": {
+              "$ref": "#/$defs/__schema6"
+            }
+          },
+          "required": [
+            "kind",
+            "pluginId"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "customer",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "__schema15": {
+      "enum": [
+        "folder",
+        "link"
+      ],
+      "type": "string"
+    },
+    "__schema16": {
+      "$ref": "#/$defs/__schema5"
+    },
+    "__schema17": {
+      "maxLength": 120,
+      "minLength": 1,
+      "type": "string"
+    },
+    "__schema18": {
+      "enum": [
+        "apps",
+        "dashboard",
+        "folder",
+        "sales",
+        "system"
+      ],
+      "type": "string"
+    },
+    "__schema19": {
+      "maximum": 1000000,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "__schema2": {
+      "pattern": "^[a-z][a-z0-9-]{1,63}$",
+      "type": "string"
+    },
+    "__schema20": {
+      "$ref": "#/$defs/__schema4"
+    },
+    "__schema21": {
+      "additionalProperties": false,
+      "properties": {
+        "profileId": {
+          "$ref": "#/$defs/__schema5"
+        },
+        "revisionId": {
+          "$ref": "#/$defs/__schema5"
+        },
+        "surface": {
+          "const": "admin",
+          "type": "string"
+        }
+      },
+      "required": [
+        "profileId",
+        "revisionId",
+        "surface"
+      ],
+      "type": "object"
+    },
+    "__schema22": {
+      "const": 1,
+      "type": "number"
+    },
+    "__schema23": {
+      "additionalProperties": false,
+      "properties": {
+        "applicationId": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "documentId": {
+          "$ref": "#/$defs/__schema5"
+        },
+        "environment": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "pageId": {
+          "$ref": "#/$defs/__schema5"
+        }
+      },
+      "required": [
+        "applicationId",
+        "environment",
+        "pageId",
+        "documentId"
+      ],
+      "type": "object"
+    },
+    "__schema24": {
+      "maxLength": 120,
+      "minLength": 1,
+      "type": "string"
+    },
+    "__schema25": {
+      "maxLength": 320,
+      "minLength": 1,
+      "type": "string"
+    },
+    "__schema26": {
+      "enum": [
+        "draft",
+        "published",
+        "archived"
+      ],
+      "type": "string"
+    },
+    "__schema27": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "order": {
+              "maximum": 1000000,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "parentNavigationId": {
+              "$ref": "#/$defs/__schema5"
+            },
+            "state": {
+              "const": "placed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "state",
+            "parentNavigationId",
+            "order"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "reason": {
+              "enum": [
+                "manual",
+                "parent-inactive",
+                "parent-missing"
+              ],
+              "type": "string"
+            },
+            "state": {
+              "const": "unplaced",
+              "type": "string"
+            }
+          },
+          "required": [
+            "state",
+            "reason"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "__schema28": {
+      "maximum": 1000000000,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "__schema29": {
+      "$ref": "#/$defs/__schema30"
+    },
+    "__schema3": {
+      "maxLength": 120,
+      "minLength": 1,
+      "type": "string"
+    },
+    "__schema30": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{2,159}$",
+      "type": "string"
+    },
+    "__schema31": {
+      "$ref": "#/$defs/__schema21"
+    },
+    "__schema32": {
+      "$ref": "#/$defs/__schema33"
+    },
+    "__schema33": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "__schema34": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/__schema35"
+            },
+            "kind": {
+              "const": "user",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "id"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/__schema35"
+            },
+            "kind": {
+              "const": "service",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "id"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "__schema35": {
+      "maxLength": 160,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]*$",
+      "type": "string"
+    },
+    "__schema36": {
+      "allOf": [
+        {
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d\\.\\d{3}(?:Z))$"
+        },
+        {
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+        }
+      ],
+      "maxLength": 64,
+      "type": "string"
+    },
+    "__schema37": {
+      "const": 1,
+      "type": "number"
+    },
+    "__schema38": {
+      "items": {
+        "$ref": "#/$defs/__schema39"
+      },
+      "maxItems": 512,
+      "type": "array"
+    },
+    "__schema39": {
+      "additionalProperties": false,
+      "properties": {
+        "capability": {
+          "enum": [
+            "view",
+            "edit"
+          ],
+          "type": "string"
+        },
+        "subject": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "role",
+                  "type": "string"
+                },
+                "roleId": {
+                  "$ref": "#/$defs/__schema30"
+                }
+              },
+              "required": [
+                "kind",
+                "roleId"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "user",
+                  "type": "string"
+                },
+                "userId": {
+                  "$ref": "#/$defs/__schema30"
+                }
+              },
+              "required": [
+                "kind",
+                "userId"
+              ],
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "required": [
+        "subject",
+        "capability"
+      ],
+      "type": "object"
+    },
+    "__schema4": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "class": {
+              "const": "system",
+              "type": "string"
+            },
+            "routeId": {
+              "$ref": "#/$defs/__schema5"
+            }
+          },
+          "required": [
+            "class",
+            "routeId"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "appId": {
+              "maxLength": 128,
+              "pattern": "^app(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
+              "type": "string"
+            },
+            "class": {
+              "const": "hot-application",
+              "type": "string"
+            }
+          },
+          "required": [
+            "class",
+            "appId"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "class": {
+              "const": "platform-plugin",
+              "type": "string"
+            },
+            "ownerPluginId": {
+              "$ref": "#/$defs/__schema6"
+            },
+            "routeId": {
+              "$ref": "#/$defs/__schema5"
+            }
+          },
+          "required": [
+            "class",
+            "ownerPluginId",
+            "routeId"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "class": {
+              "const": "workspace-page",
+              "type": "string"
+            },
+            "mode": {
+              "enum": [
+                "view",
+                "edit"
+              ],
+              "type": "string"
+            },
+            "pageId": {
+              "$ref": "#/$defs/__schema5"
+            }
+          },
+          "required": [
+            "class",
+            "pageId",
+            "mode"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "__schema40": {
+      "const": 1,
+      "type": "number"
+    },
+    "__schema41": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/__schema42"
+        },
+        "profile": {
+          "$ref": "#/$defs/__schema45"
+        },
+        "regions": {
+          "$ref": "#/$defs/__schema46"
+        },
+        "schemaVersion": {
+          "$ref": "#/$defs/__schema44"
+        },
+        "version": {
+          "$ref": "#/$defs/__schema43"
+        }
+      },
+      "required": [
+        "id",
+        "version",
+        "schemaVersion",
+        "profile",
+        "regions"
+      ],
+      "type": "object"
+    },
+    "__schema42": {
+      "$ref": "#/$defs/__schema5",
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
+      "type": "string"
+    },
+    "__schema43": {
+      "maximum": 1000000,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "__schema44": {
+      "const": 1,
+      "type": "number"
+    },
+    "__schema45": {
+      "enum": [
+        "cms",
+        "workspace"
+      ],
+      "type": "string"
+    },
+    "__schema46": {
+      "additionalProperties": {
+        "$ref": "#/$defs/__schema48"
+      },
+      "propertyNames": {
+        "$ref": "#/$defs/__schema47"
+      },
+      "type": "object"
+    },
+    "__schema47": {
+      "maxLength": 64,
+      "minLength": 1,
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+      "type": "string"
+    },
+    "__schema48": {
+      "items": {
+        "$ref": "#/$defs/__schema49"
+      },
+      "maxItems": 128,
+      "type": "array"
+    },
+    "__schema49": {
+      "additionalProperties": false,
+      "properties": {
+        "bindings": {
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "$ref": "#/$defs/__schema55"
+            },
+            "source": {
+              "$ref": "#/$defs/__schema53"
+            }
+          },
+          "type": "object"
+        },
+        "children": {
+          "items": {
+            "$ref": "#/$defs/__schema49"
+          },
+          "maxItems": 64,
+          "type": "array"
+        },
+        "engineMetadata": {
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema51"
+          },
+          "propertyNames": {
+            "$ref": "#/$defs/__schema67"
+          },
+          "type": "object"
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_-]*$",
+          "type": "string"
+        },
+        "layout": {
+          "additionalProperties": false,
+          "properties": {
+            "constraints": {
+              "$ref": "#/$defs/__schema56"
+            },
+            "tokens": {
+              "$ref": "#/$defs/__schema65"
+            }
+          },
+          "type": "object"
+        },
+        "props": {
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema51"
+          },
+          "propertyNames": {
+            "$ref": "#/$defs/__schema50"
+          },
+          "type": "object"
+        },
+        "type": {
+          "$ref": "#/$defs/__schema42"
+        },
+        "version": {
+          "$ref": "#/$defs/__schema43"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "version",
+        "props"
+      ],
+      "type": "object"
+    },
+    "__schema5": {
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
+      "type": "string"
+    },
+    "__schema50": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "__schema51": {
+      "anyOf": [
+        {
+          "maxLength": 4096,
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/__schema51"
+          },
+          "maxItems": 256,
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema51"
+          },
+          "propertyNames": {
+            "$ref": "#/$defs/__schema52"
+          },
+          "type": "object"
+        }
+      ]
+    },
+    "__schema52": {
+      "maxLength": 128,
+      "type": "string"
+    },
+    "__schema53": {
+      "additionalProperties": false,
+      "properties": {
+        "input": {
+          "$ref": "#/$defs/__schema51"
+        },
+        "selectedFields": {
+          "items": {
+            "$ref": "#/$defs/__schema54"
+          },
+          "maxItems": 64,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "source": {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/__schema5",
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
+              "type": "string"
+            },
+            "version": {
+              "maximum": 1000000,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "id",
+            "version"
+          ],
+          "type": "object"
+        },
+        "structuralCompatibilityHash": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "input",
+        "structuralCompatibilityHash"
+      ],
+      "type": "object"
+    },
+    "__schema54": {
+      "maxLength": 64,
+      "minLength": 1,
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+      "type": "string"
+    },
+    "__schema55": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/__schema42"
+        },
+        "version": {
+          "$ref": "#/$defs/__schema43"
+        }
+      },
+      "required": [
+        "id",
+        "version"
+      ],
+      "type": "object"
+    },
+    "__schema56": {
+      "additionalProperties": false,
+      "properties": {
+        "allowedChildren": {
+          "$ref": "#/$defs/__schema62"
+        },
+        "canDelete": {
+          "$ref": "#/$defs/__schema58"
+        },
+        "canMove": {
+          "$ref": "#/$defs/__schema59"
+        },
+        "canResize": {
+          "$ref": "#/$defs/__schema60"
+        },
+        "editableFields": {
+          "$ref": "#/$defs/__schema61"
+        },
+        "locked": {
+          "$ref": "#/$defs/__schema57"
+        },
+        "maxChildren": {
+          "$ref": "#/$defs/__schema64"
+        },
+        "minChildren": {
+          "$ref": "#/$defs/__schema63"
+        }
+      },
+      "type": "object"
+    },
+    "__schema57": {
+      "type": "boolean"
+    },
+    "__schema58": {
+      "type": "boolean"
+    },
+    "__schema59": {
+      "type": "boolean"
+    },
+    "__schema6": {
+      "maxLength": 128,
+      "pattern": "^(module|provider|builder|theme|integration|preset)(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
+      "type": "string"
+    },
+    "__schema60": {
+      "type": "boolean"
+    },
+    "__schema61": {
+      "items": {
+        "$ref": "#/$defs/__schema54"
+      },
+      "maxItems": 64,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "__schema62": {
+      "items": {
+        "$ref": "#/$defs/__schema42"
+      },
+      "maxItems": 64,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "__schema63": {
+      "maximum": 64,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "__schema64": {
+      "maximum": 64,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "__schema65": {
+      "additionalProperties": false,
+      "properties": {
+        "align": {
+          "enum": [
+            "start",
+            "center",
+            "end",
+            "stretch"
+          ],
+          "type": "string"
+        },
+        "color": {
+          "$ref": "#/$defs/__schema66"
+        },
+        "density": {
+          "enum": [
+            "compact",
+            "comfortable",
+            "spacious"
+          ],
+          "type": "string"
+        },
+        "gap": {
+          "$ref": "#/$defs/__schema66"
+        },
+        "height": {
+          "$ref": "#/$defs/__schema66"
+        },
+        "justify": {
+          "enum": [
+            "start",
+            "center",
+            "end",
+            "between",
+            "around",
+            "evenly"
+          ],
+          "type": "string"
+        },
+        "radius": {
+          "$ref": "#/$defs/__schema66"
+        },
+        "shadow": {
+          "$ref": "#/$defs/__schema66"
+        },
+        "spacing": {
+          "$ref": "#/$defs/__schema66"
+        },
+        "typography": {
+          "$ref": "#/$defs/__schema66"
+        },
+        "width": {
+          "$ref": "#/$defs/__schema66"
+        }
+      },
+      "type": "object"
+    },
+    "__schema66": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
+      "type": "string"
+    },
+    "__schema67": {
+      "$ref": "#/$defs/__schema6",
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^(module|provider|builder|theme|integration|preset)(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
+      "type": "string"
+    },
+    "__schema68": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{7,159}$",
+      "type": "string"
+    },
+    "__schema69": {
+      "const": 1,
+      "type": "number"
+    },
+    "__schema7": {
+      "items": {
+        "$ref": "#/$defs/__schema8"
+      },
+      "maxItems": 16,
+      "type": "array"
+    },
+    "__schema70": {
+      "$ref": "#/$defs/__schema21"
+    },
+    "__schema71": {
+      "additionalProperties": false,
+      "properties": {
+        "digest": {
+          "$ref": "#/$defs/__schema33"
+        },
+        "entries": {
+          "items": {
+            "$ref": "#/$defs/__schema72"
+          },
+          "maxItems": 512,
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "entries",
+        "digest"
+      ],
+      "type": "object"
+    },
+    "__schema72": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/__schema5"
+        },
+        "kind": {
+          "$ref": "#/$defs/__schema73"
+        },
+        "owner": {
+          "$ref": "#/$defs/__schema74"
+        },
+        "structuralCompatibilityHash": {
+          "$ref": "#/$defs/__schema75"
+        },
+        "version": {
+          "$ref": "#/$defs/__schema28"
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "version",
+        "owner"
+      ],
+      "type": "object"
+    },
+    "__schema73": {
+      "enum": [
+        "action",
+        "block",
+        "component",
+        "source"
+      ],
+      "type": "string"
+    },
+    "__schema74": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "platform",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "platform-plugin",
+              "type": "string"
+            },
+            "pluginId": {
+              "$ref": "#/$defs/__schema6"
+            },
+            "version": {
+              "maxLength": 64,
+              "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-(?:(?:0|[1-9][0-9]*)|(?:[0-9]*[A-Za-z-][0-9A-Za-z-]*))(?:\\.(?:(?:0|[1-9][0-9]*)|(?:[0-9]*[A-Za-z-][0-9A-Za-z-]*)))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "pluginId",
+            "version"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "__schema75": {
+      "$ref": "#/$defs/__schema33"
+    },
+    "__schema8": {
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "maxLength": 120,
+          "minLength": 1,
+          "type": "string"
+        },
+        "target": {
+          "$ref": "#/$defs/__schema4"
+        }
+      },
+      "required": [
+        "label",
+        "target"
+      ],
+      "type": "object"
+    },
+    "__schema9": {
+      "additionalProperties": false,
+      "properties": {
+        "applicationId": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "environment": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "nodes": {
+          "$ref": "#/$defs/__schema12"
+        },
+        "revision": {
+          "$ref": "#/$defs/__schema11"
+        },
+        "schemaVersion": {
+          "$ref": "#/$defs/__schema10"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "applicationId",
+        "environment",
+        "revision",
+        "nodes"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://schemas.k-nex.dev/workspace.v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "kNexWorkspaceInvariants": true,
+  "properties": {
+    "$schema": {
+      "const": "https://schemas.k-nex.dev/workspace.v1.schema.json",
+      "type": "string"
+    },
+    "contract": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "shell",
+              "type": "string"
+            },
+            "value": {
+              "additionalProperties": false,
+              "properties": {
+                "applicationId": {
+                  "$ref": "#/$defs/__schema1"
+                },
+                "applicationLabel": {
+                  "$ref": "#/$defs/__schema3"
+                },
+                "authorizationRevision": {
+                  "$ref": "#/$defs/__schema11"
+                },
+                "breadcrumbs": {
+                  "$ref": "#/$defs/__schema7"
+                },
+                "environment": {
+                  "$ref": "#/$defs/__schema2"
+                },
+                "lifecycleRevision": {
+                  "$ref": "#/$defs/__schema11"
+                },
+                "location": {
+                  "$ref": "#/$defs/__schema4"
+                },
+                "navigation": {
+                  "$ref": "#/$defs/__schema9"
+                },
+                "schemaVersion": {
+                  "$ref": "#/$defs/__schema0"
+                },
+                "settingsRevision": {
+                  "$ref": "#/$defs/__schema11"
+                },
+                "themeProfile": {
+                  "$ref": "#/$defs/__schema21"
+                }
+              },
+              "required": [
+                "schemaVersion",
+                "applicationId",
+                "environment",
+                "applicationLabel",
+                "location",
+                "breadcrumbs",
+                "navigation",
+                "themeProfile",
+                "authorizationRevision",
+                "lifecycleRevision",
+                "settingsRevision"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "navigation",
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/$defs/__schema9"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "page",
+              "type": "string"
+            },
+            "value": {
+              "additionalProperties": false,
+              "properties": {
+                "accessRevision": {
+                  "$ref": "#/$defs/__schema11"
+                },
+                "createdAt": {
+                  "$ref": "#/$defs/__schema36"
+                },
+                "createdBy": {
+                  "$ref": "#/$defs/__schema34"
+                },
+                "dependencyDigest": {
+                  "$ref": "#/$defs/__schema32"
+                },
+                "description": {
+                  "$ref": "#/$defs/__schema25"
+                },
+                "identity": {
+                  "$ref": "#/$defs/__schema23"
+                },
+                "navigation": {
+                  "$ref": "#/$defs/__schema27"
+                },
+                "publishedRevisionId": {
+                  "$ref": "#/$defs/__schema29"
+                },
+                "revision": {
+                  "$ref": "#/$defs/__schema28"
+                },
+                "schemaVersion": {
+                  "$ref": "#/$defs/__schema22"
+                },
+                "state": {
+                  "$ref": "#/$defs/__schema26"
+                },
+                "themeProfile": {
+                  "$ref": "#/$defs/__schema31"
+                },
+                "title": {
+                  "$ref": "#/$defs/__schema24"
+                },
+                "updatedAt": {
+                  "$ref": "#/$defs/__schema36"
+                },
+                "updatedBy": {
+                  "$ref": "#/$defs/__schema34"
+                },
+                "workingCopyRevision": {
+                  "$ref": "#/$defs/__schema28"
+                }
+              },
+              "required": [
+                "schemaVersion",
+                "identity",
+                "title",
+                "state",
+                "navigation",
+                "workingCopyRevision",
+                "accessRevision",
+                "revision",
+                "createdBy",
+                "updatedBy",
+                "createdAt",
+                "updatedAt"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "page-access",
+              "type": "string"
+            },
+            "value": {
+              "additionalProperties": false,
+              "properties": {
+                "accessRevision": {
+                  "$ref": "#/$defs/__schema11"
+                },
+                "assignments": {
+                  "$ref": "#/$defs/__schema38"
+                },
+                "identity": {
+                  "$ref": "#/$defs/__schema23"
+                },
+                "schemaVersion": {
+                  "$ref": "#/$defs/__schema37"
+                }
+              },
+              "required": [
+                "schemaVersion",
+                "identity",
+                "accessRevision",
+                "assignments"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "working-copy",
+              "type": "string"
+            },
+            "value": {
+              "additionalProperties": false,
+              "properties": {
+                "document": {
+                  "$ref": "#/$defs/__schema41"
+                },
+                "editorSessionId": {
+                  "$ref": "#/$defs/__schema30"
+                },
+                "idempotencyKey": {
+                  "$ref": "#/$defs/__schema68"
+                },
+                "identity": {
+                  "$ref": "#/$defs/__schema23"
+                },
+                "revision": {
+                  "$ref": "#/$defs/__schema28"
+                },
+                "schemaVersion": {
+                  "$ref": "#/$defs/__schema40"
+                },
+                "updatedAt": {
+                  "$ref": "#/$defs/__schema36"
+                },
+                "updatedBy": {
+                  "$ref": "#/$defs/__schema34"
+                }
+              },
+              "required": [
+                "schemaVersion",
+                "identity",
+                "revision",
+                "editorSessionId",
+                "idempotencyKey",
+                "updatedBy",
+                "updatedAt"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "working-copy-change",
+              "type": "string"
+            },
+            "value": {
+              "additionalProperties": false,
+              "properties": {
+                "document": {
+                  "$ref": "#/$defs/__schema41"
+                },
+                "editorSessionId": {
+                  "$ref": "#/$defs/__schema30"
+                },
+                "expectedRevision": {
+                  "$ref": "#/$defs/__schema11"
+                },
+                "idempotencyKey": {
+                  "$ref": "#/$defs/__schema68"
+                }
+              },
+              "required": [
+                "expectedRevision",
+                "editorSessionId",
+                "idempotencyKey"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "published-revision",
+              "type": "string"
+            },
+            "value": {
+              "additionalProperties": false,
+              "properties": {
+                "accessRevision": {
+                  "$ref": "#/$defs/__schema11"
+                },
+                "dependencies": {
+                  "$ref": "#/$defs/__schema71"
+                },
+                "document": {
+                  "$ref": "#/$defs/__schema41"
+                },
+                "documentRevision": {
+                  "$ref": "#/$defs/__schema28"
+                },
+                "identity": {
+                  "$ref": "#/$defs/__schema23"
+                },
+                "publishedAt": {
+                  "$ref": "#/$defs/__schema36"
+                },
+                "publishedBy": {
+                  "$ref": "#/$defs/__schema34"
+                },
+                "revisionId": {
+                  "$ref": "#/$defs/__schema30"
+                },
+                "schemaVersion": {
+                  "$ref": "#/$defs/__schema69"
+                },
+                "themeProfile": {
+                  "$ref": "#/$defs/__schema70"
+                }
+              },
+              "required": [
+                "schemaVersion",
+                "revisionId",
+                "identity",
+                "documentRevision",
+                "accessRevision",
+                "dependencies",
+                "publishedBy",
+                "publishedAt"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "publication-pointer",
+              "type": "string"
+            },
+            "value": {
+              "additionalProperties": false,
+              "properties": {
+                "identity": {
+                  "$ref": "#/$defs/__schema23"
+                },
+                "pointerRevision": {
+                  "$ref": "#/$defs/__schema28"
+                },
+                "previousPublishedRevisionId": {
+                  "$ref": "#/$defs/__schema30"
+                },
+                "publishedDocumentRevision": {
+                  "$ref": "#/$defs/__schema28"
+                },
+                "publishedRevisionId": {
+                  "$ref": "#/$defs/__schema30"
+                },
+                "schemaVersion": {
+                  "const": 1,
+                  "type": "number"
+                },
+                "updatedAt": {
+                  "$ref": "#/$defs/__schema36"
+                }
+              },
+              "required": [
+                "schemaVersion",
+                "identity",
+                "pointerRevision",
+                "publishedRevisionId",
+                "publishedDocumentRevision",
+                "updatedAt"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "publication-receipt",
+              "type": "string"
+            },
+            "value": {
+              "additionalProperties": false,
+              "properties": {
+                "accessRevision": {
+                  "$ref": "#/$defs/__schema11"
+                },
+                "authorityDigest": {
+                  "$ref": "#/$defs/__schema33"
+                },
+                "dependencyDigest": {
+                  "$ref": "#/$defs/__schema33"
+                },
+                "idempotencyKey": {
+                  "$ref": "#/$defs/__schema68"
+                },
+                "identity": {
+                  "$ref": "#/$defs/__schema23"
+                },
+                "occurredAt": {
+                  "$ref": "#/$defs/__schema36"
+                },
+                "operation": {
+                  "enum": [
+                    "publish",
+                    "rollback"
+                  ],
+                  "type": "string"
+                },
+                "pointerRevision": {
+                  "$ref": "#/$defs/__schema28"
+                },
+                "previousPublishedRevisionId": {
+                  "$ref": "#/$defs/__schema30"
+                },
+                "publishedRevisionId": {
+                  "$ref": "#/$defs/__schema30"
+                },
+                "receiptId": {
+                  "$ref": "#/$defs/__schema30"
+                },
+                "requestedBy": {
+                  "$ref": "#/$defs/__schema34"
+                },
+                "schemaVersion": {
+                  "const": 1,
+                  "type": "number"
+                }
+              },
+              "required": [
+                "schemaVersion",
+                "receiptId",
+                "operation",
+                "identity",
+                "pointerRevision",
+                "publishedRevisionId",
+                "accessRevision",
+                "dependencyDigest",
+                "requestedBy",
+                "authorityDigest",
+                "idempotencyKey",
+                "occurredAt"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        }
+      ]
+    }
+  },
+  "required": [
+    "$schema",
+    "contract"
+  ],
+  "title": "K-Nex Workspace Contracts v1",
+  "type": "object"
+}

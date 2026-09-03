@@ -24,7 +24,14 @@ describe("protected role and template baseline kernel", () => {
   it("grants the owner every planned system permission", () => {
     const owner = protectedPlatformRoleBaselines.find(({ id }) => id === "system.role.owner")!;
     expect(owner.permissionIds).toEqual(platformPermissionDescriptors.map(({ id }) => id).sort());
-    expect(owner.permissionIds).toHaveLength(24);
+    expect(owner.permissionIds).toHaveLength(29);
+    expect(owner.permissionIds).toEqual(expect.arrayContaining([
+      "system.workspace-pages.read",
+      "system.workspace-pages.create",
+      "system.workspace-pages.edit",
+      "system.workspace-pages.publish",
+      "system.workspace-pages.access.manage"
+    ]));
   });
 
   it("keeps non-owner protected roles least-privilege and explicit", () => {

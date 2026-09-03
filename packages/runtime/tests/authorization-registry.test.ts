@@ -186,13 +186,14 @@ function rawPlatformContribution() {
 }
 
 describe("effective authorization registry", () => {
-  it("freezes the Phase 11 system permission descriptors without the replaced install-hot permission", () => {
+  it("freezes the current system permission descriptors without the replaced install-hot permission", () => {
     expect(platformPermissionDescriptors.map(({ id }) => id)).toEqual([
       "system.permissions.read", "system.roles.read", "system.roles.manage", "system.role-assignments.read", "system.role-assignments.manage",
       "system.authorization.audit.read", "system.extensions.read", "system.catalog.refresh", "system.extensions.plan", "system.extensions.install-live",
       "system.extensions.deploy-platform-plugin", "system.extensions.enable", "system.extensions.disable", "system.extensions.update",
       "system.extensions.rollback", "system.extensions.uninstall", "system.extensions.quarantine", "system.settings.read",
-      "system.settings.manage", "system.themes.read", "system.themes.manage", "system.operations.read", "system.operations.backup",
+      "system.settings.manage", "system.themes.read", "system.themes.manage", "system.workspace-pages.read", "system.workspace-pages.create",
+      "system.workspace-pages.edit", "system.workspace-pages.publish", "system.workspace-pages.access.manage", "system.operations.read", "system.operations.backup",
       "system.operations.restore-drill"
     ]);
     expect(platformPermissionDescriptors.map(({ id }) => id)).not.toContain("system.extensions.install-hot");

@@ -162,5 +162,6 @@
   "fixtures/contracts/invalid/system-administration.pending-identity-mismatch.json": { "schema": "system-administration", "validator": "json-schema", "code": "SCHEMA_INVALID" },
   "fixtures/contracts/invalid/system-administration.positive-revision-zero.json": { "schema": "system-administration", "validator": "json-schema", "code": "SCHEMA_INVALID" },
   "fixtures/contracts/invalid/system-administration.secret-like-visible-descriptor.json": { "schema": "system-administration", "validator": "json-schema", "code": "SCHEMA_INVALID" },
-  "fixtures/contracts/invalid/system-administration.settings-identity-cross-owner.json": { "schema": "system-administration", "validator": "json-schema", "code": "SCHEMA_INVALID" }
+  "fixtures/contracts/invalid/system-administration.settings-identity-cross-owner.json": { "schema": "system-administration", "validator": "json-schema", "code": "SCHEMA_INVALID" },
+  "fixtures/contracts/invalid/workspace.working-copy-executable.json": { "schema": "workspace", "validator": "json-schema", "code": "SCHEMA_INVALID" }
 }

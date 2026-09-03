@@ -5,13 +5,14 @@ import { fileURLToPath } from "node:url";
 import { Ajv2020, type AnySchema } from "ajv/dist/2020.js";
 import addFormatsModule from "ajv-formats";
 import { describe, expect, it } from "vitest";
-import { HotApplicationManifestSchema, TemplateAdoptionSchema, canonicalJson } from "@k-nex/contracts";
+import { HotApplicationManifestSchema, TemplateAdoptionSchema, WorkspaceContractsSchema, canonicalJson } from "@k-nex/contracts";
 
 import { type FixtureInput, type FixtureSchema, validateFixtures } from "../src/fixture-validation.js";
 import { registerAuthorizationOwnershipKeyword } from "../src/authorization-ownership.js";
 import { registerHotApplicationAuthorizationKeyword } from "../src/hot-application-authorization.js";
 import { registerPluginContributionOwnershipKeyword } from "../src/plugin-contribution-ownership.js";
 import { registerSystemAdministrationInvariantsKeyword } from "../src/system-administration-invariants.js";
+import { registerWorkspaceInvariantsKeyword } from "../src/workspace-invariants.js";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 
@@ -34,6 +35,7 @@ registerPluginContributionOwnershipKeyword(ajv);
 registerAuthorizationOwnershipKeyword(ajv);
 registerHotApplicationAuthorizationKeyword(ajv);
 registerSystemAdministrationInvariantsKeyword(ajv);
+registerWorkspaceInvariantsKeyword(ajv);
 ajv.addKeyword({
   keyword: "kNexMaxCanonicalBytes",
   type: "object",
@@ -46,7 +48,8 @@ const validators = {
   plugin: ajv.compile(await load<AnySchema>("schemas/plugin-manifest.v1.schema.json")),
   "hot-application-manifest": ajv.compile(await load<AnySchema>("schemas/hot-application-manifest.v1.schema.json")),
   authorization: ajv.compile(await load<AnySchema>("schemas/authorization.v1.schema.json")),
-  "system-administration": ajv.compile(await load<AnySchema>("schemas/system-administration.v1.schema.json"))
+  "system-administration": ajv.compile(await load<AnySchema>("schemas/system-administration.v1.schema.json")),
+  workspace: ajv.compile(await load<AnySchema>("schemas/workspace.v1.schema.json"))
 };
 
 const validPaths = [
@@ -55,11 +58,12 @@ const validPaths = [
   "fixtures/customer-gate-1/k-nex.app.json",
   "fixtures/contracts/valid/provider.realtime.socketio.json",
   "fixtures/contracts/valid/theme.minimal.json",
-  "fixtures/contracts/valid/authorization.platform-descriptor.json"
+  "fixtures/contracts/valid/authorization.platform-descriptor.json",
+  "fixtures/contracts/valid/workspace.working-copy.json"
 ];
 const validFixtures = await Promise.all(validPaths.map((path) => fixture(
   path,
-  path.includes("authorization.") ? "authorization" : path.includes("application.") || path.endsWith("/k-nex.app.json") ? "application" : "plugin"
+  path.includes("authorization.") ? "authorization" : path.includes("workspace.") ? "workspace" : path.includes("application.") || path.endsWith("/k-nex.app.json") ? "application" : "plugin"
 )));
 const pluginCapabilities = new Map<string, ReadonlySet<string>>();
 for (const item of validFixtures.filter(({ schema }) => schema === "plugin")) {
@@ -176,6 +180,43 @@ describe("P10.6 template-adoption schema parity", () => {
     for (const candidate of candidates) {
       expect(TemplateAdoptionSchema.safeParse(candidate.value).success).toBe(candidate.valid);
       expect(validate({ $schema: "https://schemas.k-nex.dev/authorization.v1.schema.json", contract: candidate.value }), ajv.errorsText(validate.errors)).toBe(candidate.valid);
+    }
+  });
+});
+
+describe("P12.1 workspace generated-schema parity", () => {
+  it("keeps Zod and AJV aligned for valid, executable, identity, and navigation graph inputs", async () => {
+    const valid = await load<Record<string, unknown>>("fixtures/contracts/valid/workspace.working-copy.json");
+    const executable = await load<Record<string, unknown>>("fixtures/contracts/invalid/workspace.working-copy-executable.json");
+    const navigation = {
+      $schema: "https://schemas.k-nex.dev/workspace.v1.schema.json",
+      contract: {
+        kind: "navigation",
+        value: {
+          schemaVersion: 1,
+          applicationId: "customer-alpha",
+          environment: "production",
+          revision: 1,
+          nodes: [
+            { id: "system.navigation.root", owner: { kind: "platform" }, kind: "folder", label: "System", order: 100 },
+            { id: "sales.navigation.root", owner: { kind: "platform-plugin", pluginId: "module.sales" }, kind: "folder", parentId: "workspace.navigation.page", label: "Sales", order: 10 },
+            { id: "workspace.navigation.page", owner: { kind: "customer" }, kind: "link", parentId: "sales.navigation.root", label: "Page", order: 20, target: { class: "workspace-page", pageId: "workspace.page.sales", mode: "view" } }
+          ]
+        }
+      }
+    };
+    const mismatchedIdentity = structuredClone(valid) as { contract: { value: { identity: { documentId: string } } } };
+    mismatchedIdentity.contract.value.identity.documentId = "workspace.document.forged";
+    const cases = [
+      { value: valid, valid: true },
+      { value: executable, valid: false },
+      { value: mismatchedIdentity, valid: false },
+      { value: navigation, valid: false }
+    ] as const;
+    const validate = validators.workspace;
+    for (const candidate of cases) {
+      expect(WorkspaceContractsSchema.safeParse(candidate.value).success).toBe(candidate.valid);
+      expect(validate(candidate.value), ajv.errorsText(validate.errors)).toBe(candidate.valid);
     }
   });
 });

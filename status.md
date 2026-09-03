@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-09-03
 - **Phase:** Phase 12 — Runnable Customer Workspace and Dashboard Builder
-- **Active task:** P12.1 — freeze workspace shell, page, navigation, ACL, working-copy, and publication contracts
+- **Active task:** P12.2 — generate a runnable customer application
 - **State:** In progress
 
 ## Last completed
 
-P12.0 repaired the Sales settings conformance target without restoring the removed legacy service: the exact named proof now binds read/change permission IDs, host validation, defaults, and workspace presentation.
+P12.1 froze the fixed route, shell, navigation, page identity, ACL, working-copy, publication, dependency, Theme Profile reference, and 22-attack contracts. Generated Zod/AJV schema parity, fixtures, five workspace permission IDs, and accepted ADR-0025 are committed without a new contribution category or compatibility shim.
 
 ## Validation
 
-Exact Node 24.19.0: named Sales settings `node:test`, all 11 `pnpm plugin:check modules/sales` proofs, audit-high, and diff check PASS. Cumulative Gate 0–11 is deferred to phase closeout by owner instruction.
+Exact Node 24.19.0: affected contracts, architecture tools, and runtime builds; 8 workspace contract tests; 11 fixture/parity tests; 21 permission/baseline tests; generated-schema and executable repository validation; diff check PASS. Cumulative Gate 0–11 remains deferred to phase closeout by owner instruction.
 
 ## Next
 
-Execute P12.1 strict contracts, generated schemas, fixtures, permission registry, ADR, and attack map; use isolated contract checks only.
+Execute P12.2 deterministic runnable customer application generation across plan-only, no-install, workspace, and packed-mirror modes.
 
 ## Blockers
 

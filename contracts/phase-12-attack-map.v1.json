@@ -1,0 +1,138 @@
+{
+  "attacks": [
+    {
+      "attack": "database/browser-authored route, import, JavaScript, React, SQL, CSS, or policy",
+      "deliveryTask": "P12.1",
+      "expectedDenial": "reject non-data workspace contracts",
+      "id": "P12-ATK-01"
+    },
+    {
+      "attack": "forged application/environment/page/document/navigation/theme identity",
+      "deliveryTask": "P12.1",
+      "expectedDenial": "reject identity mismatch",
+      "id": "P12-ATK-02"
+    },
+    {
+      "attack": "custom page shadowing a fixed system or plugin route",
+      "deliveryTask": "P12.4",
+      "expectedDenial": "reject route ownership mismatch",
+      "id": "P12-ATK-03"
+    },
+    {
+      "attack": "navigation cycle, foreign parent, missing plugin parent, or cross-customer placement",
+      "deliveryTask": "P12.4",
+      "expectedDenial": "reject invalid navigation graph",
+      "id": "P12-ATK-04"
+    },
+    {
+      "attack": "unauthorized direct URL and page enumeration",
+      "deliveryTask": "P12.6",
+      "expectedDenial": "deny without disclosure",
+      "id": "P12-ATK-05"
+    },
+    {
+      "attack": "role/user ACL self-escalation or delegated authority expansion",
+      "deliveryTask": "P12.6",
+      "expectedDenial": "deny unauthorized access mutation",
+      "id": "P12-ATK-06"
+    },
+    {
+      "attack": "page ACL used to bypass Sales source, field, record, or action permission",
+      "deliveryTask": "P12.6",
+      "expectedDenial": "deny underlying operation",
+      "id": "P12-ATK-07"
+    },
+    {
+      "attack": "stale autosave tab overwriting a newer working revision",
+      "deliveryTask": "P12.5",
+      "expectedDenial": "return revision conflict",
+      "id": "P12-ATK-08"
+    },
+    {
+      "attack": "changed payload under one idempotency key",
+      "deliveryTask": "P12.5",
+      "expectedDenial": "reject idempotency conflict",
+      "id": "P12-ATK-09"
+    },
+    {
+      "attack": "CSRF, replay, oversized/deep document, and malformed canonical JSON",
+      "deliveryTask": "P12.7",
+      "expectedDenial": "reject unsafe write",
+      "id": "P12-ATK-10"
+    },
+    {
+      "attack": "title/description/prop rich-text XSS or unsafe URL",
+      "deliveryTask": "P12.7",
+      "expectedDenial": "escape or reject unsafe content",
+      "id": "P12-ATK-11"
+    },
+    {
+      "attack": "component owner/generation/schema/structural-hash substitution",
+      "deliveryTask": "P12.7",
+      "expectedDenial": "reject dependency substitution",
+      "id": "P12-ATK-12"
+    },
+    {
+      "attack": "source/action/record/target-stage substitution",
+      "deliveryTask": "P12.9",
+      "expectedDenial": "reject action substitution",
+      "id": "P12-ATK-13"
+    },
+    {
+      "attack": "disabled, quarantined, updated, or uninstalled plugin component resurrection",
+      "deliveryTask": "P12.6",
+      "expectedDenial": "render dependency unavailable",
+      "id": "P12-ATK-14"
+    },
+    {
+      "attack": "wrong-surface, stale, or missing Theme Profile override",
+      "deliveryTask": "P12.8",
+      "expectedDenial": "reject theme override",
+      "id": "P12-ATK-15"
+    },
+    {
+      "attack": "rollback to an incompatible or missing dependency",
+      "deliveryTask": "P12.6",
+      "expectedDenial": "reject rollback",
+      "id": "P12-ATK-16"
+    },
+    {
+      "attack": "editor/Puck code entering the production page runtime",
+      "deliveryTask": "P12.7",
+      "expectedDenial": "fail production dependency check",
+      "id": "P12-ATK-17"
+    },
+    {
+      "attack": "authority, ACL, document, or secret leakage through HTML, logs, audit, outbox, or preferences",
+      "deliveryTask": "P12.8",
+      "expectedDenial": "reject leaked authority data",
+      "id": "P12-ATK-18"
+    },
+    {
+      "attack": "first-owner bootstrap replay or cross-application token",
+      "deliveryTask": "P12.3",
+      "expectedDenial": "reject bootstrap token",
+      "id": "P12-ATK-19"
+    },
+    {
+      "attack": "lost invalidation preserving stale sidebar, route, editor, or publication authority",
+      "deliveryTask": "P12.6",
+      "expectedDenial": "reconcile to current authority",
+      "id": "P12-ATK-20"
+    },
+    {
+      "attack": "generator path/time/random/environment nondeterminism",
+      "deliveryTask": "P12.2",
+      "expectedDenial": "fail deterministic generation proof",
+      "id": "P12-ATK-21"
+    },
+    {
+      "attack": "tampered packed release or mutable package resolution",
+      "deliveryTask": "P12.2",
+      "expectedDenial": "reject generation before write",
+      "id": "P12-ATK-22"
+    }
+  ],
+  "phase": 12,
+  "schemaVersion": 1
+}
