@@ -7,11 +7,11 @@
 
 ## Last completed
 
-The reusable Sol-xhigh phase review found ten closeout gaps. Executable TSX injection through generated application names is fixed with JSON-backed JSX expressions; braces, quotes, newlines, and control characters have isolated coverage.
+The reusable Sol-xhigh phase review found ten closeout gaps. Generated-name TSX injection is fixed. Owner bootstrap now supersedes stale tokens, serializes issuance/bootstrap with one PostgreSQL advisory boundary, and checks owner closure before user creation.
 
 ## Validation
 
-Exact Node 24.19.0: application-factory isolated file 8/8 PASS; prior focused Gate 12, Gates 8/11, all 15 Gate 10 proofs, and static deployment repeat PASS. Linux cumulative run `33746003254` passed Gate 9 technical corpus before a repaired historical marker; exact-head rerun remains.
+Exact Node 24.19.0: application-factory isolated file 8/8 PASS; generated journey has new two-token/no-extra-user proof pending phase-end execution. Prior focused Gate 12, Gates 8/11, all Gate 10 proofs, and static deployment repeat PASS; exact-head Linux rerun remains.
 
 ## Next
 

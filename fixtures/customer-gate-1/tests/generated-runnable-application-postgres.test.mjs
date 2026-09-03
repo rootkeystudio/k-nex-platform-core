@@ -105,9 +105,12 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
   const application = join(root, "application");
   const foreignApplication = join(root, "foreign-application");
   const tokenFile = join(root, "owner.token");
+  const staleTokenFile = join(root, "stale-owner.token");
   const replayTokenFile = join(root, "owner-replay.token");
   const ownerEmail = `owner-${randomUUID()}@example.test`;
   const ownerPassword = randomBytes(24).toString("base64url");
+  const staleOwnerEmail = `stale-owner-${randomUUID()}@example.test`;
+  const staleOwnerPassword = randomBytes(24).toString("base64url");
   const limitedEmail = `limited-${randomUUID()}@example.test`;
   const limitedPassword = randomBytes(24).toString("base64url");
   const managerEmail = `manager-${randomUUID()}@example.test`;
@@ -133,8 +136,10 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
       PAYLOAD_SECRET: randomBytes(32).toString("hex")
     };
     const ownerEnvironment = { ...applicationEnvironment, K_NEX_OWNER_EMAIL: ownerEmail, K_NEX_OWNER_PASSWORD: ownerPassword };
+    const staleOwnerEnvironment = { ...applicationEnvironment, K_NEX_OWNER_EMAIL: staleOwnerEmail, K_NEX_OWNER_PASSWORD: staleOwnerPassword };
     run("pnpm", ["knex:migrate"], { cwd: application, env: applicationEnvironment, stdio: "pipe" });
     run("pnpm", ["build"], { cwd: application, env: applicationEnvironment, stdio: "pipe" });
+    pool = new pg.Pool({ connectionString: container.getConnectionUri() });
 
     applicationProcess = await startApplication(application, applicationEnvironment);
     const beforeBootstrap = await fetch(`${applicationProcess.origin}/api/readiness`);
@@ -145,11 +150,15 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     await stop(applicationProcess.child, "pre-bootstrap application");
     applicationProcess = undefined;
 
+    const staleIssueOutput = run("pnpm", ["knex:issue-bootstrap-token", "--output", staleTokenFile], { cwd: application, env: applicationEnvironment, stdio: "pipe" });
+    assert.match(staleIssueOutput, /K_NEX_BOOTSTRAP_TOKEN_ISSUED/u);
+    const staleToken = readFileSync(staleTokenFile, "utf8").trim();
     const issueOutput = run("pnpm", ["knex:issue-bootstrap-token", "--output", tokenFile], { cwd: application, env: applicationEnvironment, stdio: "pipe" });
     assert.match(issueOutput, /K_NEX_BOOTSTRAP_TOKEN_ISSUED/u);
     assert.equal(statSync(tokenFile).mode & 0o077, 0);
     const token = readFileSync(tokenFile, "utf8").trim();
-    assert.equal(issueOutput.includes(token), false);
+    assert.equal(`${staleIssueOutput}${issueOutput}`.includes(staleToken), false);
+    assert.equal(`${staleIssueOutput}${issueOutput}`.includes(token), false);
 
     const wrongEnvironmentOutput = failedRun("pnpm", ["knex:bootstrap-owner", "--token-file", tokenFile], {
       cwd: application, env: { ...ownerEnvironment, K_NEX_ENVIRONMENT: "foreign" }, stdio: "pipe"
@@ -171,6 +180,10 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     assert.match(bootstrapOutput, /K_NEX_OWNER_BOOTSTRAP_PASS bootstrap\.receipt\./u);
     assert.equal(existsSync(tokenFile), false, "Successful bootstrap must remove its one-time token file.");
     for (const secret of [token, ownerEmail, ownerPassword]) assert.equal(`${issueOutput}${bootstrapOutput}`.includes(secret), false);
+    const staleBootstrapOutput = failedRun("pnpm", ["knex:bootstrap-owner", "--token-file", staleTokenFile], { cwd: application, env: staleOwnerEnvironment, stdio: "pipe" });
+    assert.match(staleBootstrapOutput, /Bootstrap token is unavailable, expired, or consumed/u);
+    assert.equal((await pool.query("select count(*)::int as count from users")).rows[0].count, 1, "A stale bootstrap token cannot create another user.");
+    assert.equal(existsSync(staleTokenFile), true, "A rejected stale token must not be removed.");
     const replayOutput = failedRun("pnpm", ["knex:issue-bootstrap-token", "--output", replayTokenFile], { cwd: application, env: applicationEnvironment, stdio: "pipe" });
     assert.match(replayOutput, /First owner already exists/u);
     assert.equal(existsSync(replayTokenFile), false);
@@ -254,7 +267,6 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     });
     assert.equal(assignTheme.status, 303, `${await assignTheme.clone().text()}\n${applicationProcess.output()}`);
 
-    pool = new pg.Pool({ connectionString: container.getConnectionUri() });
     const store = new PostgresAuthorizationStore(pool, {
       validate: (requestedApplicationId, subject) => requestedApplicationId === applicationId && subject.kind === "user" && [limitedUserId, managerUserId].includes(subject.id) ? "accepted" : "rejected"
     });

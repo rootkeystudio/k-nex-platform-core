@@ -166,6 +166,11 @@ import { kNexIdentity, payloadSecret } from "./k-nex-identity.js";
 
 const lifetimeMs = 15 * 60 * 1_000;
 
+type BootstrapTokenClient = {
+  query(text: string, values: unknown[]): Promise<{ rowCount: number }>;
+  release(): void;
+};
+
 function digest(token: string): string { return \`sha256:\${createHash("sha256").update(token).digest("hex")}\`; }
 function signature(payload: string): Buffer { return createHmac("sha256", payloadSecret).update(payload).digest(); }
 
@@ -199,14 +204,14 @@ export async function issueBootstrapToken(payload: Payload, argv: readonly strin
   const claims = { schemaVersion: 1, applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment, issuedAt: issuedAt.toISOString(), expiresAt: expiresAt.toISOString(), nonce: randomBytes(24).toString("hex") };
   const encoded = Buffer.from(canonicalJson(claims)).toString("base64url");
   const token = \`knt1.\${encoded}.\${signature(encoded).toString("base64url")}\`;
-  const client = await (payload.db.pool as { connect(): Promise<any> }).connect();
+  const client = await (payload.db.pool as { connect(): Promise<BootstrapTokenClient> }).connect();
   let wrote = false;
   try {
     await client.query("begin");
     await client.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [canonicalJson([kNexIdentity.applicationId, kNexIdentity.environment, "owner-bootstrap-token"])]);
     const receipt = await client.query("select 1 from k_nex_authorization_bootstrap_receipts where application_id=$1", [kNexIdentity.applicationId]);
     if (receipt.rowCount !== 0) throw new Error("First owner already exists.");
-    await client.query("delete from k_nex_owner_bootstrap_tokens where application_id=$1 and environment=$2 and consumed_at is null and expires_at<=now()", [kNexIdentity.applicationId, kNexIdentity.environment]);
+    await client.query("update k_nex_owner_bootstrap_tokens set consumed_at=now() where application_id=$1 and environment=$2 and consumed_at is null", [kNexIdentity.applicationId, kNexIdentity.environment]);
     await client.query("insert into k_nex_owner_bootstrap_tokens (application_id, environment, token_digest, expires_at) values ($1,$2,$3,$4)", [kNexIdentity.applicationId, kNexIdentity.environment, digest(token), expiresAt.toISOString()]);
     writeFileSync(output, \`\${token}\\n\`, { encoding: "utf8", flag: "wx", mode: 0o600 });
     wrote = true;
@@ -227,16 +232,32 @@ export function readBootstrapToken(argv: readonly string[]) {
   return Object.freeze({ path, token, ...tokenClaims(token) });
 }
 
-export async function assertIssuedBootstrapToken(payload: Payload, token: ReturnType<typeof readBootstrapToken>): Promise<void> {
-  const result = await (payload.db.pool as { query(text: string, values: unknown[]): Promise<{ rowCount: number }> }).query(
+export async function acquireBootstrapLock(payload: Payload) {
+  const client = await (payload.db.pool as { connect(): Promise<BootstrapTokenClient> }).connect();
+  try {
+    await client.query("select pg_advisory_lock(hashtextextended($1, 0))", [canonicalJson([kNexIdentity.applicationId, kNexIdentity.environment, "owner-bootstrap-token"])]);
+  } catch (error) {
+    client.release();
+    throw error;
+  }
+  return client;
+}
+
+export async function releaseBootstrapLock(client: BootstrapTokenClient): Promise<void> {
+  try { await client.query("select pg_advisory_unlock(hashtextextended($1, 0))", [canonicalJson([kNexIdentity.applicationId, kNexIdentity.environment, "owner-bootstrap-token"])]); }
+  finally { client.release(); }
+}
+
+export async function assertIssuedBootstrapToken(client: BootstrapTokenClient, token: ReturnType<typeof readBootstrapToken>): Promise<void> {
+  const result = await client.query(
     "select 1 from k_nex_owner_bootstrap_tokens where application_id=$1 and environment=$2 and token_digest=$3 and expires_at=$4 and consumed_at is null and expires_at>now()",
     [kNexIdentity.applicationId, kNexIdentity.environment, token.digest, token.expiresAt]
   );
   if (result.rowCount !== 1) throw new Error("Bootstrap token is unavailable, expired, or consumed.");
 }
 
-export async function consumeBootstrapToken(payload: Payload, token: ReturnType<typeof readBootstrapToken>): Promise<void> {
-  const result = await (payload.db.pool as { query(text: string, values: unknown[]): Promise<{ rowCount: number }> }).query(
+export async function consumeBootstrapToken(client: BootstrapTokenClient, token: ReturnType<typeof readBootstrapToken>): Promise<void> {
+  const result = await client.query(
     "update k_nex_owner_bootstrap_tokens set consumed_at=now() where application_id=$1 and environment=$2 and token_digest=$3 and expires_at=$4 and consumed_at is null and expires_at>now()",
     [kNexIdentity.applicationId, kNexIdentity.environment, token.digest, token.expiresAt]
   );
@@ -250,7 +271,7 @@ function bootstrapOwnerSource(): string {
   return `import { bootstrapFirstOwner } from "@k-nex/runtime";
 
 import { bootKnexApplication } from "./boot.js";
-import { assertIssuedBootstrapToken, consumeBootstrapToken, readBootstrapToken } from "./k-nex-bootstrap-token.js";
+import { acquireBootstrapLock, assertIssuedBootstrapToken, consumeBootstrapToken, readBootstrapToken, releaseBootstrapLock } from "./k-nex-bootstrap-token.js";
 import { kNexAuthority } from "./k-nex-authority.js";
 import { kNexIdentity } from "./k-nex-identity.js";
 import { kNexSalesRegistry } from "./k-nex-registry.js";
@@ -283,24 +304,29 @@ if (!email || !/^\\S+@\\S+\\.\\S+$/u.test(email) || !password || password.length
 
 const token = readBootstrapToken(process.argv.slice(2));
 const payload = await bootKnexApplication("owner-bootstrap");
+let bootstrapLock: Awaited<ReturnType<typeof acquireBootstrapLock>> | undefined;
 try {
   const runtime = kNexAuthority(payload);
-  await assertIssuedBootstrapToken(payload, token);
+  bootstrapLock = await acquireBootstrapLock(payload);
+  await assertIssuedBootstrapToken(bootstrapLock, token);
+  const priorReceipt = await runtime.store.readProtectedRoleBaselineReceipt(kNexIdentity.applicationId);
+  if (priorReceipt !== undefined) throw new Error("First owner already exists.");
   const existing = await payload.find({ collection: "users", overrideAccess: true, limit: 2, where: { email: { equals: email } } });
   if (existing.totalDocs > 1) throw new Error("Owner email identity is ambiguous.");
   const user = existing.docs[0] ?? await payload.create({ collection: "users", overrideAccess: true, data: { email, password } });
   if (existing.docs[0]) await payload.login({ collection: "users", data: { email, password } });
-  const priorReceipt = await runtime.store.readProtectedRoleBaselineReceipt(kNexIdentity.applicationId);
-  if (priorReceipt !== undefined && (priorReceipt.ownerPrincipal.kind !== "user" || priorReceipt.ownerPrincipal.id !== String(user.id))) throw new Error("First owner identity does not match the bootstrap receipt.");
-  const outcome = priorReceipt ?? (await bootstrapFirstOwner({
+  const outcome = (await bootstrapFirstOwner({
       store: runtime.store,
       expected: { applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment, authorizationRevision: 0, lifecycleRevision: 0 },
       firstOwner: { kind: "user", id: String(user.id) }
     })).value;
   await ensureInitialSalesOwner(payload, String(user.id));
-  await consumeBootstrapToken(payload, token);
+  await consumeBootstrapToken(bootstrapLock, token);
   console.log(\`K_NEX_OWNER_BOOTSTRAP_PASS \${outcome.id}\`);
-} finally { await payload.destroy(); }
+} finally {
+  try { if (bootstrapLock !== undefined) await releaseBootstrapLock(bootstrapLock); }
+  finally { await payload.destroy(); }
+}
 process.exit(0);
 `;
 }
