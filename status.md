@@ -7,11 +7,11 @@
 
 ## Last completed
 
-The cumulative customer fixture's generated resolver snapshot now binds the exact Sales and realtime archives produced by the canonical pack fixes.
+The generated-application process proof now owns the exact Node/Next process instead of a `pnpm` wrapper, so SIGTERM cannot leave an unowned server holding test pipes.
 
 ## Validation
 
-Exact Node 24.19.0: artifact-wait proof 10/10 and Gate 1 generated-clean PASS; focused Phase 12 proofs, clean 14-package build, hosted run 33786152181, generated evidence check, and local `GATE_12_PASS` PASS. Exact-head GitHub gates are required.
+Exact Node 24.19.0: generated app PostgreSQL/HTTP/Chromium proof, artifact-wait proof 10/10, and Gate 1 generated-clean PASS; clean 14-package build, hosted run 33786152181, generated evidence check, and local `GATE_12_PASS` PASS. Exact-head GitHub gates are required.
 
 ## Next
 

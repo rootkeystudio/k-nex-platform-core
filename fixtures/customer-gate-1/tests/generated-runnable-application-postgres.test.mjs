@@ -88,9 +88,9 @@ async function stop(child, label = "child") {
 
 async function startApplication(application, applicationEnvironment) {
   const port = Number(new URL(applicationEnvironment.K_NEX_PUBLIC_ORIGIN).port);
-  const process = start("pnpm", ["start"], { cwd: application, env: { ...applicationEnvironment, PORT: String(port) } });
-  await until(async () => (await fetch(`http://127.0.0.1:${port}/api/health`)).ok, `Generated application did not start.\n${process.output()}`, process.child);
-  return { ...process, origin: `http://127.0.0.1:${port}` };
+  const applicationProcess = start(process.execPath, [realpathSync(join(application, "node_modules", "next", "dist", "bin", "next")), "start"], { cwd: application, env: { ...applicationEnvironment, PORT: String(port) } });
+  await until(async () => (await fetch(`http://127.0.0.1:${port}/api/health`)).ok, `Generated application did not start.\n${applicationProcess.output()}`, applicationProcess.child);
+  return { ...applicationProcess, origin: `http://127.0.0.1:${port}` };
 }
 
 function cookie(response) {
