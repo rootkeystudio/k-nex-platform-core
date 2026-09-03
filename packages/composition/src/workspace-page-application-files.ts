@@ -64,18 +64,15 @@ function workspaceSalesServerSource(): string {
 import type { DataSourceBindingResult, UiDocument } from "@k-nex/contracts";
 import {
   salesOpportunitiesDescriptor,
-  salesOpportunityStageInputRuntimeSchema,
-  salesOpportunityStageUpdateDescriptor,
   salesTasksDescriptor,
   salesTotalPotentialRevenueDescriptor
 } from "@k-nex/module-sales/contracts";
 import {
   salesOpportunitiesHandler,
-  salesOpportunityStageUpdateHandler,
   salesTasksHandler,
   salesTotalPotentialRevenueHandler
 } from "@k-nex/module-sales/server";
-import { createCurrentAuthorityTarget } from "@k-nex/runtime";
+import { CurrentAuthorityActionGatewayPolicy, RegisteredActionGateway, createCurrentAuthorityTarget } from "@k-nex/runtime";
 import type { Payload } from "payload";
 
 import { kNexAuthority, type KnexRequestContext } from "./k-nex-authority.js";
@@ -120,7 +117,7 @@ export function WorkspacePageRuntime({ pageId, document, permissions, initialSou
   const result = useMemo(() => runtime.render({
     document, surface: "workspace", actor: { authenticated: true, permissions: new Set(permissions) }, sourceResults,
     dispatchAction: async (request) => {
-      const response = await fetch("/api/k-nex/sales/actions/" + encodeURIComponent(request.action.id), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ input: request.input, idempotencyKey: "workspace-action-" + crypto.randomUUID() }) });
+      const response = await fetch("/api/k-nex/workspace-pages/" + encodeURIComponent(pageId) + "/actions/" + encodeURIComponent(request.action.id), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ input: request.input, idempotencyKey: "workspace-action-" + crypto.randomUUID() }) });
       const body = await response.json();
       if (!response.ok) throw new Error(body.code ?? "Sales action failed.");
       setSourceResults((current) => Object.fromEntries(Object.entries(current).map(([nodeId, value]) => {
@@ -281,13 +278,19 @@ export async function loadWorkspaceSalesSources(payload: Payload, context: KnexR
   return output;
 }
 
-export async function executeWorkspaceSalesAction(payload: Payload, context: KnexRequestContext, actionId: string, input: unknown, idempotencyKey: string) {
-  if (actionId !== salesOpportunityStageUpdateDescriptor.id) throw new TypeError("Workspace Sales action is unavailable.");
-  const parsed = salesOpportunityStageInputRuntimeSchema.safeParse(input);
-  if (!parsed.success) throw new TypeError("Workspace Sales action input is invalid.");
-  if (!await allowed(payload, context, salesOpportunityStageUpdateDescriptor.permission, parsed.data.id)) throw Object.assign(new Error("Workspace Sales action is denied."), { code: "ACCESS_DENIED" });
-  const current = await actor(payload, context);
-  return salesOpportunityStageUpdateHandler({ actor: current.authorization, request: { payload, user: current.user }, authorizationContext: {}, input: parsed.data, idempotencyKey, signal: new AbortController().signal });
+export async function executeWorkspaceSalesAction(payload: Payload, context: KnexRequestContext, action: Readonly<{ id: string; version: number }>, input: unknown, idempotencyKey: string) {
+  const contribution = kNexSalesRegistry.scopedRegistration.contributions.actions.find((entry) => entry.id === action.id)?.value as { readonly descriptor?: { readonly id?: unknown; readonly version?: unknown } } | undefined;
+  if (contribution?.descriptor?.id !== action.id || contribution.descriptor.version !== action.version) throw Object.assign(new Error("Workspace Sales action is unavailable."), { code: "NOT_FOUND" });
+  const gateway = new RegisteredActionGateway(kNexSalesRegistry.scopedRegistration, {
+    async authenticate() {
+      const current = await actor(payload, context);
+      return { actor: current.authorization, request: { payload, user: current.user }, authorizationContext: context };
+    }
+  }, new CurrentAuthorityActionGatewayPolicy(kNexAuthority(payload).adapter, ({ authenticated }) => authenticated.authorizationContext as KnexRequestContext, (definition, value) => {
+    const recordId = typeof value === "object" && value !== null && "id" in value && typeof value.id === "string" ? value.id : undefined;
+    return target(definition.descriptor.permission, recordId);
+  }, { authorize: () => Object.freeze({}) }));
+  return gateway.execute({ correlationId: context.correlationId, rawRequest: { payload }, actionId: action.id, input, idempotencyKey, signal: new AbortController().signal });
 }
 `;
 }
@@ -609,18 +612,44 @@ export async function GET(_request: Request, { params }: Readonly<{ params: Prom
 }
 
 function workspaceSalesActionRouteSource(): string {
-  return `import { executeWorkspaceSalesAction } from "../../../../../../k-nex-sales-workspace.js";
-import { openWorkspaceJson, workspaceMutationError } from "../../../../../../k-nex-workspace-page-http.js";
+  return `import type { UiDocument, UiNode } from "@k-nex/contracts";
+
+import { executeWorkspaceSalesAction } from "../../../../../../../k-nex-sales-workspace.js";
+import { kNexWorkspacePages, kNexWorkspacePageScope } from "../../../../../../../k-nex-workspace-pages.js";
+import { openWorkspaceJson, workspaceMutationError } from "../../../../../../../k-nex-workspace-page-http.js";
 
 export const dynamic = "force-dynamic";
-export async function POST(request: Request, { params }: Readonly<{ params: Promise<{ actionId: string }> }>) {
+function boundAction(document: UiDocument, actionId: string): Readonly<{ id: string; version: number }> | undefined {
+  let bound: Readonly<{ id: string; version: number }> | undefined;
+  const visit = (node: UiNode): void => {
+    if (bound !== undefined) return;
+    const action = node.bindings?.action;
+    if (action?.id === actionId) { bound = { id: action.id, version: action.version }; return; }
+    node.children?.forEach(visit);
+  };
+  Object.values(document.regions).forEach((region) => region.forEach(visit));
+  return bound;
+}
+
+function notFound(): Response {
+  return Response.json({ code: "NOT_FOUND" }, { status: 404, headers: { "cache-control": "no-store" } });
+}
+
+export async function POST(request: Request, { params }: Readonly<{ params: Promise<{ pageId: string; actionId: string }> }>) {
   try {
     const { payload, context, body } = await openWorkspaceJson(request, "workspace-sales-action");
+    const { pageId, actionId } = await params;
+    let detail;
+    try { detail = await kNexWorkspacePages(payload).service.detail(context, kNexWorkspacePageScope, pageId, "view"); }
+    catch { return notFound(); }
+    if (detail.page.state !== "published" || detail.impact.state !== "ready" || detail.publication === undefined) return notFound();
+    const action = boundAction(detail.publication.revision.document, actionId);
+    if (action === undefined) return notFound();
     if (body === null || typeof body !== "object" || Array.isArray(body) || Object.keys(body).sort().join("\\0") !== "idempotencyKey\\0input") throw new TypeError("Workspace Sales action body is invalid.");
     const value = body as Record<string, unknown>;
     if (typeof value.idempotencyKey !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._:-]{7,159}$/u.test(value.idempotencyKey)) throw new TypeError("Workspace Sales idempotency key is invalid.");
-    const data = await executeWorkspaceSalesAction(payload, context, (await params).actionId, value.input, value.idempotencyKey);
-    return Response.json({ data }, { headers: { "cache-control": "no-store" } });
+    const result = await executeWorkspaceSalesAction(payload, context, action, value.input, value.idempotencyKey);
+    return Response.json(result.body, { status: result.status, headers: { "cache-control": "no-store" } });
   } catch (error) { return workspaceMutationError(error); }
 }
 `;
@@ -846,7 +875,7 @@ export function workspacePageApplicationFiles(_options: WorkspacePageApplication
     "src/app/api/k-nex/workspace-pages/route.ts": workspacePageCreateRouteSource(),
     "src/app/api/k-nex/workspace-pages/[pageId]/[operation]/route.ts": workspacePageMutationRouteSource(),
     "src/app/api/k-nex/workspace-pages/[pageId]/session/route.ts": workspacePageSessionRouteSource(),
-    "src/app/api/k-nex/sales/actions/[actionId]/route.ts": workspaceSalesActionRouteSource(),
+    "src/app/api/k-nex/workspace-pages/[pageId]/actions/[actionId]/route.ts": workspaceSalesActionRouteSource(),
     "src/app/api/k-nex/workspace-folders/route.ts": workspaceFolderCreateRouteSource(),
     "src/app/api/k-nex/workspace-folders/[folderId]/route.ts": workspaceFolderUpdateRouteSource(),
     "src/k-nex-workspace-page-http.ts": workspacePageHttpSource(),

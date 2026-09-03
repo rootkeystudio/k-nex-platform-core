@@ -15,4 +15,27 @@ describe("generated workspace page builder policy", () => {
     expect(source).toContain(".validateChange(previous, document)");
     expect(source).toContain(".validateDocument(document)");
   });
+
+  it("emits only a page-scoped Sales action route with current page and action authority", () => {
+    const files = workspacePageApplicationFiles({ applicationId: "customer-alpha" });
+    const client = files["src/app/components/k-nex-workspace-page-runtime.tsx"]!;
+    const route = files["src/app/api/k-nex/workspace-pages/[pageId]/actions/[actionId]/route.ts"]!;
+    const sales = files["src/k-nex-sales-workspace.ts"]!;
+
+    expect(files["src/app/api/k-nex/sales/actions/[actionId]/route.ts"]).toBeUndefined();
+    expect(client).toContain('"/api/k-nex/workspace-pages/" + encodeURIComponent(pageId) + "/actions/"');
+    expect(route).toContain('.service.detail(context, kNexWorkspacePageScope, pageId, "view")');
+    expect(route).toContain('detail.page.state !== "published" || detail.impact.state !== "ready" || detail.publication === undefined');
+    expect(route).toContain("function boundAction(document: UiDocument, actionId: string)");
+    expect(route).toContain("node.children?.forEach(visit)");
+    expect(route).toContain("if (action === undefined) return notFound();");
+    expect(route).toContain("return Response.json({ code: \"NOT_FOUND\" }, { status: 404");
+    expect(route.indexOf('.service.detail(context, kNexWorkspacePageScope, pageId, "view")')).toBeLessThan(route.indexOf("Workspace Sales action body is invalid."));
+    expect(route).toContain('import { executeWorkspaceSalesAction }');
+    expect(route).toContain('import { kNexWorkspacePages, kNexWorkspacePageScope }');
+    expect(sales).toContain("new RegisteredActionGateway(kNexSalesRegistry.scopedRegistration");
+    expect(sales).toContain("new CurrentAuthorityActionGatewayPolicy(kNexAuthority(payload).adapter");
+    expect(sales).not.toContain("salesOpportunityStageUpdateHandler");
+    expect(sales).not.toContain("kNexWorkspacePages");
+  });
 });
