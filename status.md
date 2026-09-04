@@ -7,16 +7,16 @@
 
 ## Last completed
 
-Split retryable fail-closed repository audit evidence into a dependent CI job, so external npm audit transport failures do not rerun completed Gate 12 evidence.
+Hosted exact-head focused `validate` job passed in run `33858309479`. Its dependent `repository-evidence` job was cancelled by the 10-minute job timeout after setup while the unchanged bounded, fail-closed audit loop was still running; raised that job timeout to 15 minutes.
 
 ## Validation
 
-Exact Node 24.19.0/pnpm 11.9.0: frozen factory-lock check PASS (2); packed ABI/export and release-closure check PASS (17); `git diff --check` PASS; one-node rate-proof isolated PostgreSQL/HTTP/Chromium journey PASS (1/1, 193.0s); prior binding-state proof PASS (1/1, 192.8s); hosted release-evidence run `33841660539` PASS on closure source `6feb03f`; generated evidence check PASS; packed customer boot PostgreSQL proof PASS (1/1, 66.2s); Gate 11 focused PASS; Sol-xhigh workflow slice review PASS.
+Hosted exact-head focused `validate` job PASS (run `33858309479`); the dependent repository-evidence job timed out at 10 minutes before completing its unchanged bounded audit proof; workflow YAML/dependency shape and `git diff --check` PASS.
 
 ## Next
 
-Push, then run exact-head focused Gate 12 plus Linux/AppArmor cumulative Gate 0–12 CI.
+Commit and push this correction, then confirm exact-head `repository-evidence` passes before running Linux/AppArmor cumulative Gate 0–12 CI.
 
 ## Blockers
 
-Exact-head CI is red pending replacement head; npm audit transport remains intermittent on GitHub runners.
+Exact-head repository evidence is pending the 15-minute timeout correction; npm audit transport remains intermittent on GitHub runners.
