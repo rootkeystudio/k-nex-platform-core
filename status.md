@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Made readiness validate current protected authority plus retained bootstrap provenance without freezing mutable owner or Sales state.
+Regenerated the exact v1 packed closure and both factory/customer locks for the reviewed runtime fixes.
 
 ## Validation
 
-Exact Node 24.19.0/pnpm 11.9.0: composition readiness tests (118) PASS; composition build PASS; diff check PASS. Real generated-app proof pending.
+Exact Node 24.19.0/pnpm 11.9.0: packed closure/factory-lock checks PASS; customer-alpha and customer-beta frozen installs PASS; diff check PASS.
 
 ## Next
 
-Regenerate the packed closure, then run the isolated generated-app proof.
+Run the isolated generated Sales application PostgreSQL/HTTP/Chromium proof.
 
 ## Blockers
 
