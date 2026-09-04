@@ -37,6 +37,12 @@ const generated = [];
 for (const theme of ["minimal", "neobrutalism"]) {
   const directory = mkdtempSync(join(tmpdir(), `k-nex-factory-lock-${theme}-`));
   try {
+    const matches = readdirSync(mirror).filter((name) => new RegExp(`^factory-lock-sales-reference-${theme}-[0-9a-f]{64}\\.yaml$`, "u").test(name));
+    if (check && matches.length !== 1) throw new Error(`Expected exactly one ${theme} factory lock template.`);
+    const existing = check ? { filename: matches[0], content: readFileSync(resolve(mirror, matches[0]), "utf8") } : undefined;
+    if (existing && `factory-lock-sales-reference-${theme}-${createHash("sha256").update(existing.content).digest("hex")}.yaml` !== existing.filename) {
+      throw new Error(`Factory lock filename digest differs for ${theme}.`);
+    }
     const plan = planCreateKnexApplication({ applicationId: "factory-lock-template", applicationName: "Factory Lock Template", theme, database: "external" });
     const manifest = JSON.parse(plan.files["package.json"]);
     manifest.dependencies = Object.fromEntries(Object.entries(manifest.dependencies).map(([name, version]) => [name, name.startsWith("@k-nex/") ? packageFiles.get(name) : version]));
@@ -46,10 +52,17 @@ for (const theme of ["minimal", "neobrutalism"]) {
     writeFileSync(resolve(directory, "package.json"), `${JSON.stringify(manifest, null, 2)}\n`);
     writeFileSync(resolve(directory, ".npmrc"), "link-workspace-packages=false\nshared-workspace-lockfile=false\n");
     writeFileSync(resolve(directory, "pnpm-workspace.yaml"), workspace);
-    execFileSync("pnpm", ["install", "--lockfile-only", "--ignore-scripts"], { cwd: directory, stdio: "pipe" });
-    const content = readFileSync(resolve(directory, "pnpm-lock.yaml"), "utf8");
-    const digest = createHash("sha256").update(content).digest("hex");
-    generated.push({ filename: `factory-lock-sales-reference-${theme}-${digest}.yaml`, content });
+    if (existing) {
+      writeFileSync(resolve(directory, "pnpm-lock.yaml"), existing.content);
+      execFileSync("pnpm", ["install", "--lockfile-only", "--frozen-lockfile", "--ignore-scripts"], { cwd: directory, stdio: "pipe" });
+      if (readFileSync(resolve(directory, "pnpm-lock.yaml"), "utf8") !== existing.content) throw new Error(`Factory lock changed while checking ${theme}.`);
+      generated.push(existing);
+    } else {
+      execFileSync("pnpm", ["install", "--lockfile-only", "--ignore-scripts"], { cwd: directory, stdio: "pipe" });
+      const content = readFileSync(resolve(directory, "pnpm-lock.yaml"), "utf8");
+      const digest = createHash("sha256").update(content).digest("hex");
+      generated.push({ filename: `factory-lock-sales-reference-${theme}-${digest}.yaml`, content });
+    }
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
