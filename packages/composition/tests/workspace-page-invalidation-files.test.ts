@@ -62,6 +62,8 @@ describe("generated workspace invalidation runtime", () => {
     expect(client).toContain("createUiDocumentRuntime(createUiRuntimeRegistry");
     expect(client).toContain('fetch("/api/k-nex/sales/actions/" + encodeURIComponent(request.action.id)');
     expect(action).toContain("executeRegisteredSalesRouteAction");
+    expect(action).toContain('from "../../../../../../k-nex-sales-routes.js"');
+    expect(action).toContain('from "../../../../../../k-nex-workspace-page-http.js"');
     expect(action).toContain("request.signal");
     expect(readiness).toContain('"src/app/(workspace)/sales/page.tsx"');
     expect(readiness).toContain('"src/app/api/k-nex/sales/actions/[actionId]/route.ts"');

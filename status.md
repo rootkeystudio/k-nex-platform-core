@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Corrected generated root and nested Sales page import depths so every static route compiles from its real Next path.
+Corrected generated Sales action endpoint import depth after real generated Next builds exposed the remaining nested-path defect.
 
 ## Validation
 
-Exact Node 24.19.0: composition tests 117/117 PASS; composition build PASS; import-depth assertions cover root and nested routes.
+Exact Node 24.19.0: focused Sales generator tests 5/5 PASS; composition build PASS.
 
 ## Next
 

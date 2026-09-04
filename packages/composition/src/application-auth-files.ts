@@ -724,8 +724,8 @@ export default async function SalesRoute() {
 }
 
 function salesActionRouteSource(): string {
-  return `import { executeRegisteredSalesRouteAction } from "../../../../../k-nex-sales-routes.js";
-import { openWorkspaceJson, workspaceMutationError } from "../../../../../k-nex-workspace-page-http.js";
+  return `import { executeRegisteredSalesRouteAction } from "../../../../../../k-nex-sales-routes.js";
+import { openWorkspaceJson, workspaceMutationError } from "../../../../../../k-nex-workspace-page-http.js";
 
 export const dynamic = "force-dynamic";
 
