@@ -11,6 +11,7 @@ import {
 
 const occurredAt = "2026-09-03T08:00:00.000Z";
 const dependencyDigest = `sha256:${"a".repeat(64)}` as const;
+const themeStateDigest = `sha256:${"d".repeat(64)}` as const;
 const identity = { applicationId: "customer-alpha", environment: "production", pageId: "workspace.page.sales-board", documentId: "workspace.document.sales-board" } as const;
 const actor = { kind: "user", id: "user:owner" } as const;
 const document = { schemaVersion: 1, id: identity.documentId, version: 1, profile: "workspace", regions: { main: [] } } as const;
@@ -89,7 +90,11 @@ function setup(initial: WorkspacePageSnapshot | null = baseSnapshot) {
     }),
     resolveTheme: vi.fn(async (_context: Context, selection: unknown) => selection === undefined ? undefined : selection === "minimal" ? { profileId: "workspace.theme-profile", revisionId: "workspace.theme-revision", surface: "admin" as const } : Promise.reject(new Error("unknown theme"))),
     dependencies: vi.fn(async () => ({ entries: [], digest: dependencyDigest })),
-    impact: vi.fn(async () => impact)
+    impact: vi.fn(async () => impact),
+    observe: vi.fn(async ({ snapshot: current }: { snapshot: WorkspacePageSnapshot }) => ({
+      extensionGenerations: [{ applicationId: identity.applicationId, deliveryClass: "platform-plugin" as const, extensionId: "module.sales", authorizationGeneration: 1 }],
+      ...(current.page.themeProfile === undefined ? {} : { themePublication: { applicationId: identity.applicationId, environment: identity.environment, profileId: current.page.themeProfile.profileId, activeRevisionId: current.page.themeProfile.revisionId, revision: 3, stateDigest: themeStateDigest } })
+    }))
   };
   const documents = {
     validateChange: vi.fn(async ({ document }: { document: UiDocument }) => document),
@@ -118,6 +123,7 @@ const scope = { applicationId: identity.applicationId, environment: identity.env
 
 function expectMutationFence(value: any, authorizationRevision = 1, lifecycleRevision = 1): void {
   expect(value).toMatchObject({ applicationId: identity.applicationId, environment: identity.environment, authorizationRevision, lifecycleRevision, catalogRevision: lifecycleRevision });
+  expect(value.extensionGenerations).toEqual([{ applicationId: identity.applicationId, deliveryClass: "platform-plugin", extensionId: "module.sales", authorizationGeneration: 1 }]);
   expect(value.catalogDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
   expect(value.authorityDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
   expect(Object.getOwnPropertySymbols(value)).toHaveLength(1);
@@ -153,7 +159,28 @@ describe("P12.6 current-authority workspace page service", () => {
     expect((value.store.create.mock.calls[0]![0] as any).access.assignments).toEqual([{ subject: { kind: "user", userId: owner.userId }, capability: "edit" }]);
     expect((value.store.create.mock.calls[0]![0] as any).workingCopy.document).toEqual(document);
     expectMutationFence((value.store.create.mock.calls[0]![0] as any).fence);
+    expect((value.store.create.mock.calls[0]![0] as any).fence.themePublication).toEqual({ applicationId: identity.applicationId, environment: identity.environment, profileId: "workspace.theme-profile", activeRevisionId: "workspace.theme-revision", revision: 3, stateDigest: themeStateDigest });
     expect(value.store.create).toHaveBeenCalledOnce();
+  });
+
+  it("denies foreign or stale server dependency observations before persistence", async () => {
+    const value = setup(null);
+    value.catalog.observe.mockResolvedValueOnce({
+      extensionGenerations: [{ applicationId: "customer-other", deliveryClass: "platform-plugin", extensionId: "module.sales", authorizationGeneration: 1 }],
+      themePublication: { applicationId: identity.applicationId, environment: identity.environment, profileId: "workspace.theme-profile", activeRevisionId: "workspace.theme-stale", revision: 3, stateDigest: themeStateDigest }
+    });
+    await expect(value.service.create(owner, scope, { title: "Pipeline", placementSelection: "sales-parent", themeSelection: "minimal", regions: document.regions, idempotencyKey: "workspace-create-observation" })).rejects.toMatchObject({ code: "DEPENDENCY_UNAVAILABLE" });
+    expect(value.store.create).not.toHaveBeenCalled();
+  });
+
+  it("carries the server-observed application default theme when a page has no override", async () => {
+    const value = setup();
+    value.catalog.observe.mockResolvedValueOnce({
+      extensionGenerations: [{ applicationId: identity.applicationId, deliveryClass: "platform-plugin", extensionId: "module.sales", authorizationGeneration: 1 }],
+      themePublication: { applicationId: identity.applicationId, environment: identity.environment, profileId: "workspace.default", activeRevisionId: "workspace.default-revision", revision: 7, stateDigest: themeStateDigest }
+    });
+    await value.service.updateMetadata(editor, scope, identity.pageId, { expectedRevision: 1, title: "Default themed", placementSelection: "sales-parent", idempotencyKey: "workspace-default-theme" });
+    expect((value.store.updateMetadata.mock.calls[0]![0] as any).fence.themePublication).toMatchObject({ profileId: "workspace.default", activeRevisionId: "workspace.default-revision", revision: 7 });
   });
 
   it("denies non-owner ACL expansion beyond the editor's exact held capability", async () => {

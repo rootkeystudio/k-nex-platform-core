@@ -76,6 +76,24 @@ const workspacePageMutationFenceBrand: unique symbol = Symbol("workspace-page-mu
 export interface WorkspacePageCatalogObservation {
   readonly catalogRevision: number;
   readonly catalogDigest: `sha256:${string}`;
+  readonly extensionGenerations: readonly WorkspacePageExtensionGenerationObservation[];
+  readonly themePublication?: WorkspacePageThemePublicationObservation;
+}
+
+export interface WorkspacePageExtensionGenerationObservation {
+  readonly applicationId: string;
+  readonly deliveryClass: "platform-plugin" | "hot-application";
+  readonly extensionId: string;
+  readonly authorizationGeneration: number;
+}
+
+export interface WorkspacePageThemePublicationObservation {
+  readonly applicationId: string;
+  readonly environment: string;
+  readonly profileId: string;
+  readonly activeRevisionId: string;
+  readonly revision: number;
+  readonly stateDigest: `sha256:${string}`;
 }
 
 /** Server-only capability minted from the final authority decision and exact catalog observation. */
@@ -87,13 +105,20 @@ export interface WorkspacePageMutationFence {
   readonly lifecycleRevision: number;
   readonly catalogRevision: number;
   readonly catalogDigest: `sha256:${string}`;
+  readonly extensionGenerations: readonly WorkspacePageExtensionGenerationObservation[];
+  readonly themePublication?: WorkspacePageThemePublicationObservation;
   readonly authorityDigest: `sha256:${string}`;
 }
 
 const issuedMutationFences = new WeakSet<object>();
 
 export function issueWorkspacePageMutationFence(input: Omit<WorkspacePageMutationFence, typeof workspacePageMutationFenceBrand>): WorkspacePageMutationFence {
-  const fence = Object.freeze({ ...input, [workspacePageMutationFenceBrand]: true as const });
+  const fence = Object.freeze({
+    ...input,
+    extensionGenerations: Object.freeze(input.extensionGenerations.map((value) => Object.freeze({ ...value }))),
+    ...(input.themePublication === undefined ? {} : { themePublication: Object.freeze({ ...input.themePublication }) }),
+    [workspacePageMutationFenceBrand]: true as const
+  });
   issuedMutationFences.add(fence);
   return fence;
 }
@@ -145,6 +170,19 @@ interface AuditRow {
 interface AuthorityStateRow {
   authorization_revision: number;
   lifecycle_revision: number;
+}
+
+interface ExtensionGenerationRow {
+  delivery_class: string;
+  extension_id: string;
+  authorization_generation: number | string;
+  state: string;
+}
+
+interface ThemePublicationRow {
+  revision: number;
+  active_revision_id: string | null;
+  state_digest: string | null;
 }
 
 interface MutationResult<T> {
@@ -235,8 +273,26 @@ function assertMutationFence(identity: WorkspacePageIdentity, value: WorkspacePa
   if (typeof value !== "object" || value === null || !issuedMutationFences.has(value) || value.applicationId !== identity.applicationId || value.environment !== identity.environment ||
     !Number.isSafeInteger(value.authorizationRevision) || value.authorizationRevision < 0 || !Number.isSafeInteger(value.lifecycleRevision) || value.lifecycleRevision < 0 ||
     !Number.isSafeInteger(value.catalogRevision) || value.catalogRevision < 0 || value.catalogRevision !== value.lifecycleRevision ||
-    !/^sha256:[0-9a-f]{64}$/u.test(value.catalogDigest) || !/^sha256:[0-9a-f]{64}$/u.test(value.authorityDigest)) {
+    !/^sha256:[0-9a-f]{64}$/u.test(value.catalogDigest) || !/^sha256:[0-9a-f]{64}$/u.test(value.authorityDigest) ||
+    !Array.isArray(value.extensionGenerations) || value.extensionGenerations.length > 128) {
     fail("INVALID_INPUT", "Workspace page mutation fence is invalid.");
+  }
+  let previous = "";
+  for (const dependency of value.extensionGenerations) {
+    const key = canonicalJson([dependency.deliveryClass, dependency.extensionId]);
+    if (dependency.applicationId !== identity.applicationId || !["platform-plugin", "hot-application"].includes(dependency.deliveryClass) ||
+      typeof dependency.extensionId !== "string" || dependency.extensionId.length < 3 || dependency.extensionId.length > 128 ||
+      !Number.isSafeInteger(dependency.authorizationGeneration) || dependency.authorizationGeneration < 1 || key <= previous) {
+      fail("INVALID_INPUT", "Workspace page extension generation observation is invalid.");
+    }
+    previous = key;
+  }
+  const theme = value.themePublication;
+  if (theme !== undefined && (theme.applicationId !== identity.applicationId || theme.environment !== identity.environment ||
+    typeof theme.profileId !== "string" || theme.profileId.length < 3 || theme.profileId.length > 128 ||
+    typeof theme.activeRevisionId !== "string" || theme.activeRevisionId.length < 3 || theme.activeRevisionId.length > 128 ||
+    !Number.isSafeInteger(theme.revision) || theme.revision < 1 || !/^sha256:[0-9a-f]{64}$/u.test(theme.stateDigest))) {
+    fail("INVALID_INPUT", "Workspace page theme publication observation is invalid.");
   }
   return value;
 }
@@ -581,6 +637,29 @@ export class PostgresWorkspacePageStore {
       );
       if (!authority.rows[0] || authority.rows[0].authorization_revision !== fence.authorizationRevision || authority.rows[0].lifecycle_revision !== fence.lifecycleRevision) {
         fail("AUTHORITY_CONFLICT", "Workspace page mutation authority is stale.");
+      }
+      for (const dependency of fence.extensionGenerations) {
+        const generation = await session.query<ExtensionGenerationRow>(
+          `select delivery_class, extension_id, authorization_generation, state
+           from k_nex_extension_authorization_generations
+           where application_id=$1 and delivery_class=$2 and extension_id=$3 and state='current' for share`,
+          [identity.applicationId, dependency.deliveryClass, dependency.extensionId]
+        );
+        const row = generation.rows[0];
+        if (!row || row.delivery_class !== dependency.deliveryClass || row.extension_id !== dependency.extensionId || row.state !== "current" || Number(row.authorization_generation) !== dependency.authorizationGeneration) {
+          fail("AUTHORITY_CONFLICT", "Workspace page extension generation is stale.");
+        }
+      }
+      if (fence.themePublication !== undefined) {
+        const theme = await session.query<ThemePublicationRow>(
+          `select revision, active_revision_id, state_digest from runtime_theme_profile_publications
+           where application_id=$1 and environment=$2 and profile_id=$3 for share`,
+          [identity.applicationId, identity.environment, fence.themePublication.profileId]
+        );
+        const row = theme.rows[0];
+        if (!row || row.revision !== fence.themePublication.revision || row.active_revision_id !== fence.themePublication.activeRevisionId || row.state_digest !== fence.themePublication.stateDigest) {
+          fail("AUTHORITY_CONFLICT", "Workspace page theme publication is stale.");
+        }
       }
       const existing = await session.query<OperationRow>(
         `select operation_kind, request_digest, result_json from k_nex_workspace_page_operations where application_id=$1 and environment=$2 and page_id=$3 and idempotency_key=$4 for update`,

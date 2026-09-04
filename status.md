@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Repaired the generated Sales route descriptor projection so the packed application type-checks with exact route/navigation authority.
+Extended page mutation fencing to lock exact current plugin authorization generations and published Theme Profile state before replay or writes.
 
 ## Validation
 
-Exact Node 24.19.0: generated workspace invalidation/navigation source tests 5/5 PASS; real packed-app proof proceeds past the corrected typed projection.
+Exact Node 24.19.0: workspace-page service 26/26 and real PostgreSQL storage 1/1 PASS; stale theme/plugin races, replay denial, and zero-write invariants covered.
 
 ## Next
 

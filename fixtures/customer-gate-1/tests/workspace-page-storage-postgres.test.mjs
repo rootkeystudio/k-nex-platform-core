@@ -14,7 +14,7 @@ const instant = "2026-09-03T08:00:00.000Z";
 const actor = { kind: "user", id: "user:owner" };
 const digest = (character) => `sha256:${character.repeat(64)}`;
 
-function mutationFence(identity, authorizationRevision = 1, lifecycleRevision = 1) {
+function mutationFence(identity, authorizationRevision = 1, lifecycleRevision = 1, extensionGeneration = 1, themeRevision = 1, themeActiveRevisionId = "private.theme-revision", themeStateDigest = digest("d")) {
   return issueWorkspacePageMutationFence({
     applicationId: identity.applicationId,
     environment: identity.environment,
@@ -22,6 +22,8 @@ function mutationFence(identity, authorizationRevision = 1, lifecycleRevision = 
     lifecycleRevision,
     catalogRevision: lifecycleRevision,
     catalogDigest: digest("e"),
+    extensionGenerations: [{ applicationId: identity.applicationId, deliveryClass: "platform-plugin", extensionId: "module.sales", authorizationGeneration: extensionGeneration }],
+    themePublication: { applicationId: identity.applicationId, environment: identity.environment, profileId: "private.theme-profile", activeRevisionId: themeActiveRevisionId, revision: themeRevision, stateDigest: themeStateDigest },
     authorityDigest: digest("f")
   });
 }
@@ -90,6 +92,16 @@ test("P12.5 stores workspace pages, ACL, CAS copies, immutable publications, rol
     const alpha = values();
     const beta = values("customer-beta");
     await pool.query("insert into k_nex_authorization_state (application_id, authorization_revision, lifecycle_revision) values ($1,1,1),($2,1,1)", [alpha.identity.applicationId, beta.identity.applicationId]);
+    for (const current of [alpha, beta]) {
+      await pool.query(
+        "insert into k_nex_extension_authorization_generations (application_id, delivery_class, extension_id, authorization_generation, runtime_generation_ids, state, authorization_revision, lifecycle_revision) values ($1,'platform-plugin','module.sales',1,'[]'::jsonb,'current',1,1)",
+        [current.identity.applicationId]
+      );
+      await pool.query(
+        "insert into runtime_theme_profile_publications (application_id, environment, profile_id, revision, active_revision_id, active_profile, state_digest) values ($1,$2,'private.theme-profile',1,'private.theme-revision','{}'::jsonb,$3)",
+        [current.identity.applicationId, current.identity.environment, digest("d")]
+      );
+    }
     let alphaFence = mutationFence(alpha.identity);
     const betaFence = mutationFence(beta.identity);
 
@@ -270,6 +282,53 @@ test("P12.5 stores workspace pages, ACL, CAS copies, immutable publications, rol
     console.log("P12_WORKSPACE_MUTATION_AUTHORITY_FENCE_POSTGRES=PASS");
 
     alphaFence = mutationFence(alpha.identity, 3, 2);
+    const beforeDependencyDenials = await mutationCounts(pool, alpha.identity.applicationId);
+    const beforeDependencySnapshot = snapshot;
+    const themeLock = await pool.connect();
+    try {
+      await themeLock.query("begin");
+      await themeLock.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [pageLockKey(alpha.identity)]);
+      const staleThemeReplay = store.rollback({ page: rollbackPage, pointer: rollbackPointer, receipt: rollbackReceipt, fence: alphaFence });
+      await waitForAdvisoryWaiters(pool, 1);
+      await pool.query("update runtime_theme_profile_publications set revision=2, active_revision_id='private.theme-revision-next', state_digest=$2 where application_id=$1 and profile_id='private.theme-profile'", [alpha.identity.applicationId, digest("c")]);
+      await themeLock.query("commit");
+      await assert.rejects(staleThemeReplay, { code: "AUTHORITY_CONFLICT" }, "Theme Profile publication changes must deny an accepted idempotency replay");
+    } finally {
+      await themeLock.query("rollback").catch(() => {});
+      themeLock.release();
+    }
+    await pool.query("update runtime_theme_profile_publications set revision=3, active_revision_id='private.theme-revision', state_digest=$2 where application_id=$1 and profile_id='private.theme-profile'", [alpha.identity.applicationId, digest("d")]);
+    alphaFence = mutationFence(alpha.identity, 3, 2, 1, 3);
+    const extensionLock = await pool.connect();
+    try {
+      await extensionLock.query("begin");
+      await extensionLock.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [pageLockKey(alpha.identity)]);
+      const deniedPage = nextPage(snapshot.page, { title: "stale-plugin-generation" });
+      const staleExtensionMutation = store.updateMetadata({ currentRevision: snapshot.page.revision, page: deniedPage, idempotencyKey: "workspace-extension-stale", fence: alphaFence });
+      await waitForAdvisoryWaiters(pool, 1);
+      await pool.query("update k_nex_extension_authorization_generations set state='retired' where application_id=$1 and delivery_class='platform-plugin' and extension_id='module.sales' and authorization_generation=1", [alpha.identity.applicationId]);
+      await pool.query("insert into k_nex_extension_authorization_generations (application_id, delivery_class, extension_id, authorization_generation, runtime_generation_ids, state, authorization_revision, lifecycle_revision) values ($1,'platform-plugin','module.sales',2,'[]'::jsonb,'current',3,2)", [alpha.identity.applicationId]);
+      await extensionLock.query("commit");
+      await assert.rejects(staleExtensionMutation, { code: "AUTHORITY_CONFLICT" });
+    } finally {
+      await extensionLock.query("rollback").catch(() => {});
+      extensionLock.release();
+    }
+    assert.deepEqual(await mutationCounts(pool, alpha.identity.applicationId), beforeDependencyDenials, "stale dependency observations must write no page, ACL, working-copy, publication, receipt, audit, outbox, or operation state");
+    assert.deepEqual(await store.read(alpha.identity), beforeDependencySnapshot);
+    for (const [idempotencyKey, fence] of [
+      ["workspace-extension-missing", mutationFence(alpha.identity, 3, 2, 99, 3)],
+      ["workspace-extension-retired", mutationFence(alpha.identity, 3, 2, 1, 3)],
+      ["workspace-theme-active-wrong", mutationFence(alpha.identity, 3, 2, 2, 3, "private.theme-revision-wrong")],
+      ["workspace-theme-digest-wrong", mutationFence(alpha.identity, 3, 2, 2, 3, "private.theme-revision", digest("c"))]
+    ]) {
+      await assert.rejects(store.updateMetadata({ currentRevision: snapshot.page.revision, page: nextPage(snapshot.page, { title: idempotencyKey }), idempotencyKey, fence }), { code: "AUTHORITY_CONFLICT" });
+    }
+    assert.deepEqual(await mutationCounts(pool, alpha.identity.applicationId), beforeDependencyDenials, "missing, retired, or mismatched dependency rows must write nothing");
+    assert.deepEqual(await store.read(alpha.identity), beforeDependencySnapshot);
+    console.log("P12_WORKSPACE_THEME_PLUGIN_DEPENDENCY_FENCE_POSTGRES=PASS");
+
+    alphaFence = mutationFence(alpha.identity, 3, 2, 2, 3);
     const beforeForgedFence = await mutationCounts(pool, alpha.identity.applicationId);
     const forgedPage = nextPage(snapshot.page, { title: "browser-forged-fence" });
     await assert.rejects(store.updateMetadata({
