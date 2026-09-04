@@ -7,11 +7,11 @@
 
 ## Last completed
 
-The generated factory now installs fixed access administration routes, exposes authorized roles/permissions/assignments in System navigation, and includes those immutable nodes in workspace-navigation mutation validation.
+The unreleased v1 administration transport now binds exact command-family authority: extension, catalog, and operations commands carry only their own required revisions or inventory digest.
 
 ## Validation
 
-Composition tests (127), composition build, and `git diff --check` PASS.
+Contracts tests (223), Payload adapter tests (275), both builds, generated-schema freshness, and `git diff --check` PASS.
 
 ## Next
 

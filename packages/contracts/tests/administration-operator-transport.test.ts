@@ -59,6 +59,26 @@ describe("P12 administration operator transport contracts", () => {
     expect(AdministrationOperatorCommandSchema.safeParse({ ...command, expiresAt: command.issuedAt }).success).toBe(false);
   });
 
+  it("requires command-family-specific authority revisions", () => {
+    const { kind: _kind, extension: _extension, version: _version, operation: _operation, ...base } = command;
+    const catalog = {
+      ...base,
+      kind: "catalog-refresh",
+      expected: { authorizationRevision: 7, lifecycleRevision: 11, catalogRevision: 19, inventoryRevision: 13 }
+    } as const;
+    const operations = {
+      ...base,
+      kind: "operations-backup",
+      expected: { authorizationRevision: 7, lifecycleRevision: 11, operationsRevision: 23, inventoryDigest: digest("b") }
+    } as const;
+    expect(AdministrationOperatorCommandSchema.safeParse(catalog).success).toBe(true);
+    expect(AdministrationOperatorCommandSchema.safeParse(operations).success).toBe(true);
+    expect(AdministrationOperatorCommandSchema.safeParse({ ...catalog, expected: { ...catalog.expected, extensionRevision: 17 } }).success).toBe(false);
+    expect(AdministrationOperatorCommandSchema.safeParse({ ...operations, expected: { ...operations.expected, inventoryRevision: 13 } }).success).toBe(false);
+    expect(AdministrationOperatorCommandSchema.safeParse({ ...catalog, expected: { ...catalog.expected, authorizationRevision: 8 } }).success).toBe(false);
+    expect(AdministrationOperatorCommandSchema.safeParse({ ...operations, expected: { ...operations.expected, lifecycleRevision: 12 } }).success).toBe(false);
+  });
+
   it("rejects cross-tenant commands and commands outside the certificate command family", () => {
     expect(AdministrationOperatorAuthenticatedCommandSchema.safeParse({ command, verifiedMtlsIdentity: { ...verifiedMtlsIdentity, applicationId: "customer-beta" } }).success).toBe(false);
     expect(AdministrationOperatorAuthenticatedCommandSchema.safeParse({ command, verifiedMtlsIdentity: { ...verifiedMtlsIdentity, allowedCommandFamilies: ["catalog"] } }).success).toBe(false);

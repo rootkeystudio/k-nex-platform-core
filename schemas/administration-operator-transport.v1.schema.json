@@ -15,7 +15,7 @@
           "$ref": "#/$defs/__schema23"
         },
         {
-          "$ref": "#/$defs/__schema24"
+          "$ref": "#/$defs/__schema25"
         }
       ]
     },
@@ -29,10 +29,10 @@
           "$ref": "#/$defs/__schema3"
         },
         "expected": {
-          "$ref": "#/$defs/__schema16"
+          "$ref": "#/$defs/__schema19"
         },
         "expiresAt": {
-          "$ref": "#/$defs/__schema20"
+          "$ref": "#/$defs/__schema18"
         },
         "extension": {
           "oneOf": [
@@ -92,10 +92,10 @@
           ]
         },
         "idempotencyKey": {
-          "$ref": "#/$defs/__schema18"
+          "$ref": "#/$defs/__schema16"
         },
         "issuedAt": {
-          "$ref": "#/$defs/__schema19"
+          "$ref": "#/$defs/__schema17"
         },
         "kind": {
           "const": "extension-plan",
@@ -124,11 +124,11 @@
         "schemaVersion",
         "audience",
         "actor",
-        "expected",
         "idempotencyKey",
         "issuedAt",
         "expiresAt",
         "kind",
+        "expected",
         "extension",
         "version",
         "operation"
@@ -221,19 +221,33 @@
       "type": "string"
     },
     "__schema16": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{7,159}$",
+      "type": "string"
+    },
+    "__schema17": {
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+      "type": "string"
+    },
+    "__schema18": {
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+      "type": "string"
+    },
+    "__schema19": {
       "additionalProperties": false,
       "properties": {
         "authorizationRevision": {
-          "$ref": "#/$defs/__schema17"
+          "$ref": "#/$defs/__schema20"
         },
         "extensionRevision": {
-          "$ref": "#/$defs/__schema17"
+          "$ref": "#/$defs/__schema20"
         },
         "inventoryRevision": {
-          "$ref": "#/$defs/__schema17"
+          "$ref": "#/$defs/__schema20"
         },
         "lifecycleRevision": {
-          "$ref": "#/$defs/__schema17"
+          "$ref": "#/$defs/__schema20"
         }
       },
       "required": [
@@ -244,28 +258,14 @@
       ],
       "type": "object"
     },
-    "__schema17": {
-      "maximum": 1000000000,
-      "minimum": 0,
-      "type": "integer"
-    },
-    "__schema18": {
-      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{7,159}$",
-      "type": "string"
-    },
-    "__schema19": {
-      "format": "date-time",
-      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
-      "type": "string"
-    },
     "__schema2": {
       "const": 1,
       "type": "number"
     },
     "__schema20": {
-      "format": "date-time",
-      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
-      "type": "string"
+      "maximum": 1000000000,
+      "minimum": 0,
+      "type": "integer"
     },
     "__schema21": {
       "additionalProperties": false,
@@ -277,16 +277,16 @@
           "$ref": "#/$defs/__schema3"
         },
         "expected": {
-          "$ref": "#/$defs/__schema16"
+          "$ref": "#/$defs/__schema19"
         },
         "expiresAt": {
-          "$ref": "#/$defs/__schema20"
-        },
-        "idempotencyKey": {
           "$ref": "#/$defs/__schema18"
         },
+        "idempotencyKey": {
+          "$ref": "#/$defs/__schema16"
+        },
         "issuedAt": {
-          "$ref": "#/$defs/__schema19"
+          "$ref": "#/$defs/__schema17"
         },
         "kind": {
           "const": "extension-execute",
@@ -304,11 +304,11 @@
         "schemaVersion",
         "audience",
         "actor",
-        "expected",
         "idempotencyKey",
         "issuedAt",
         "expiresAt",
         "kind",
+        "expected",
         "operationId"
       ],
       "type": "object"
@@ -323,16 +323,37 @@
           "$ref": "#/$defs/__schema3"
         },
         "expected": {
-          "$ref": "#/$defs/__schema16"
+          "additionalProperties": false,
+          "properties": {
+            "authorizationRevision": {
+              "$ref": "#/$defs/__schema20"
+            },
+            "catalogRevision": {
+              "$ref": "#/$defs/__schema20"
+            },
+            "inventoryRevision": {
+              "$ref": "#/$defs/__schema20"
+            },
+            "lifecycleRevision": {
+              "$ref": "#/$defs/__schema20"
+            }
+          },
+          "required": [
+            "authorizationRevision",
+            "lifecycleRevision",
+            "catalogRevision",
+            "inventoryRevision"
+          ],
+          "type": "object"
         },
         "expiresAt": {
-          "$ref": "#/$defs/__schema20"
-        },
-        "idempotencyKey": {
           "$ref": "#/$defs/__schema18"
         },
+        "idempotencyKey": {
+          "$ref": "#/$defs/__schema16"
+        },
         "issuedAt": {
-          "$ref": "#/$defs/__schema19"
+          "$ref": "#/$defs/__schema17"
         },
         "kind": {
           "const": "catalog-refresh",
@@ -346,11 +367,11 @@
         "schemaVersion",
         "audience",
         "actor",
-        "expected",
         "idempotencyKey",
         "issuedAt",
         "expiresAt",
-        "kind"
+        "kind",
+        "expected"
       ],
       "type": "object"
     },
@@ -364,16 +385,16 @@
           "$ref": "#/$defs/__schema3"
         },
         "expected": {
-          "$ref": "#/$defs/__schema16"
+          "$ref": "#/$defs/__schema24"
         },
         "expiresAt": {
-          "$ref": "#/$defs/__schema20"
-        },
-        "idempotencyKey": {
           "$ref": "#/$defs/__schema18"
         },
+        "idempotencyKey": {
+          "$ref": "#/$defs/__schema16"
+        },
         "issuedAt": {
-          "$ref": "#/$defs/__schema19"
+          "$ref": "#/$defs/__schema17"
         },
         "kind": {
           "const": "operations-backup",
@@ -387,15 +408,40 @@
         "schemaVersion",
         "audience",
         "actor",
-        "expected",
         "idempotencyKey",
         "issuedAt",
         "expiresAt",
-        "kind"
+        "kind",
+        "expected"
       ],
       "type": "object"
     },
     "__schema24": {
+      "additionalProperties": false,
+      "properties": {
+        "authorizationRevision": {
+          "$ref": "#/$defs/__schema20"
+        },
+        "inventoryDigest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "lifecycleRevision": {
+          "$ref": "#/$defs/__schema20"
+        },
+        "operationsRevision": {
+          "$ref": "#/$defs/__schema20"
+        }
+      },
+      "required": [
+        "authorizationRevision",
+        "lifecycleRevision",
+        "operationsRevision",
+        "inventoryDigest"
+      ],
+      "type": "object"
+    },
+    "__schema25": {
       "additionalProperties": false,
       "properties": {
         "actor": {
@@ -405,16 +451,16 @@
           "$ref": "#/$defs/__schema3"
         },
         "expected": {
-          "$ref": "#/$defs/__schema16"
+          "$ref": "#/$defs/__schema24"
         },
         "expiresAt": {
-          "$ref": "#/$defs/__schema20"
-        },
-        "idempotencyKey": {
           "$ref": "#/$defs/__schema18"
         },
+        "idempotencyKey": {
+          "$ref": "#/$defs/__schema16"
+        },
         "issuedAt": {
-          "$ref": "#/$defs/__schema19"
+          "$ref": "#/$defs/__schema17"
         },
         "kind": {
           "const": "operations-restore-drill",
@@ -428,20 +474,20 @@
         "schemaVersion",
         "audience",
         "actor",
-        "expected",
         "idempotencyKey",
         "issuedAt",
         "expiresAt",
-        "kind"
+        "kind",
+        "expected"
       ],
       "type": "object"
     },
-    "__schema25": {
+    "__schema26": {
       "additionalProperties": false,
       "properties": {
         "allowedCommandFamilies": {
           "items": {
-            "$ref": "#/$defs/__schema26"
+            "$ref": "#/$defs/__schema27"
           },
           "maxItems": 3,
           "minItems": 1,
@@ -475,7 +521,7 @@
       ],
       "type": "object"
     },
-    "__schema26": {
+    "__schema27": {
       "enum": [
         "extension-lifecycle",
         "catalog",
@@ -720,7 +766,7 @@
       "$ref": "#/$defs/__schema0"
     },
     "verifiedMtlsIdentity": {
-      "$ref": "#/$defs/__schema25"
+      "$ref": "#/$defs/__schema26"
     }
   },
   "required": [

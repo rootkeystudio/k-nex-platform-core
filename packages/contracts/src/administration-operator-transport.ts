@@ -26,11 +26,25 @@ const uriSanSchema = z.string().max(512).regex(/^spiffe:\/\/[A-Za-z0-9][A-Za-z0-
 const serviceIdentitySchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:@/-]{2,159}$/u);
 const commandFamilySchema = z.enum(administrationOperatorCommandFamilies);
 
-const expectedRevisionsSchema = z.strictObject({
+const extensionExpectedRevisionsSchema = z.strictObject({
   authorizationRevision: revisionSchema,
   lifecycleRevision: revisionSchema,
   inventoryRevision: revisionSchema,
   extensionRevision: revisionSchema
+});
+
+const catalogExpectedRevisionsSchema = z.strictObject({
+  authorizationRevision: revisionSchema,
+  lifecycleRevision: revisionSchema,
+  catalogRevision: revisionSchema,
+  inventoryRevision: revisionSchema
+});
+
+const operationsExpectedRevisionsSchema = z.strictObject({
+  authorizationRevision: revisionSchema,
+  lifecycleRevision: revisionSchema,
+  operationsRevision: revisionSchema,
+  inventoryDigest: digestSchema
 });
 
 /**
@@ -49,7 +63,6 @@ const commandBase = {
   schemaVersion: z.literal(ADMINISTRATION_OPERATOR_TRANSPORT_SCHEMA_VERSION),
   audience: z.literal(administrationOperatorAudience),
   actor: AdministrationActorEnvelopeSchema,
-  expected: expectedRevisionsSchema,
   idempotencyKey: idempotencyKeySchema,
   issuedAt: z.string().datetime({ offset: true }),
   expiresAt: z.string().datetime({ offset: true })
@@ -60,18 +73,15 @@ export const AdministrationOperatorCommandSchema = z.discriminatedUnion("kind", 
   z.strictObject({
     ...commandBase,
     kind: z.literal("extension-plan"),
+    expected: extensionExpectedRevisionsSchema,
     extension: ExtensionIdentitySchema,
     version: ExactSemverSchema,
     operation: z.enum(["install", "update", "disable", "rollback", "uninstall"])
   }),
-  z.strictObject({
-    ...commandBase,
-    kind: z.literal("extension-execute"),
-    operationId: recordIdSchema
-  }),
-  z.strictObject({ ...commandBase, kind: z.literal("catalog-refresh") }),
-  z.strictObject({ ...commandBase, kind: z.literal("operations-backup") }),
-  z.strictObject({ ...commandBase, kind: z.literal("operations-restore-drill") })
+  z.strictObject({ ...commandBase, kind: z.literal("extension-execute"), expected: extensionExpectedRevisionsSchema, operationId: recordIdSchema }),
+  z.strictObject({ ...commandBase, kind: z.literal("catalog-refresh"), expected: catalogExpectedRevisionsSchema }),
+  z.strictObject({ ...commandBase, kind: z.literal("operations-backup"), expected: operationsExpectedRevisionsSchema }),
+  z.strictObject({ ...commandBase, kind: z.literal("operations-restore-drill"), expected: operationsExpectedRevisionsSchema })
 ]).superRefine((command, context) => {
   if (Date.parse(command.expiresAt) <= Date.parse(command.issuedAt)) {
     context.addIssue({ code: "custom", path: ["expiresAt"], message: "Operator commands must expire after issuance." });
@@ -174,7 +184,6 @@ export function isAdministrationOperatorCommandActiveAt(command: z.output<typeof
 }
 
 export type AdministrationOperatorMtlsIdentity = z.infer<typeof AdministrationOperatorMtlsIdentitySchema>;
-export type AdministrationOperatorExpectedRevisions = z.infer<typeof expectedRevisionsSchema>;
 export type AdministrationOperatorCommand = z.infer<typeof AdministrationOperatorCommandSchema>;
 export type AdministrationOperatorAuthenticatedCommand = z.infer<typeof AdministrationOperatorAuthenticatedCommandSchema>;
 export type AdministrationOperatorResponse = z.infer<typeof AdministrationOperatorResponseSchema>;
