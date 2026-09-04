@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Generated applications now install the runtime, authorization, static-lifecycle, System administration, workspace, outbox, and preference schemas in dependency order without duplicate Theme Profile tables.
+System extension administration now targets a structural operator port. The Payload adapter supplies a bounded remote implementation that reads accepted local projections and sends lifecycle mutations only through the mTLS operator transport.
 
 ## Validation
 
-Composition tests (123), build, and `git diff --check` PASS.
+Runtime tests (588), Payload adapter tests (275), focused operator tests (5), runtime/Payload adapter builds, and `git diff --check` PASS.
 
 ## Next
 
-Implement the operator port, then compose fixed System administration and its real journey.
+Compose fixed access, Theme Profile, settings, extension, catalog, and operations routes; then prove the real operator journey.
 
 ## Blockers
 

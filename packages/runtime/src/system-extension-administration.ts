@@ -5,13 +5,15 @@ import {
   type AuthorizationDecision,
   type AuthorizationState,
   type ExtensionAdministrationActionView,
-  type ExtensionIdentity
+  type ExtensionIdentity,
+  type StaticDeploymentReceipt
 } from "@k-nex/contracts";
 
 import { type AuthorizationExpectedRevision } from "./authorization-store.js";
 import { CurrentAuthorityAdapter, createCurrentAuthorityTarget } from "./current-authority-adapter.js";
-import { ExtensionOperatorApi, type ExtensionCatalogRecord, type ExtensionSystemStatus } from "./extension-operator-api.js";
-import { admittedExtensionOperations, extensionInventoryState, isPreparedStaticPlan, type ExtensionChangeRequest, type ExtensionInventoryState, type ExtensionOperationStatus, type PluginManagerPlan } from "./plugin-manager.js";
+import { type ExtensionCatalogRecord, type ExtensionSystemStatus } from "./extension-operator-api.js";
+import { admittedExtensionOperations, extensionInventoryState, isPreparedStaticPlan, type ExtensionActivationReceipt, type ExtensionChangeRequest, type ExtensionDispositionReceipt, type ExtensionInventoryState, type ExtensionOperationStatus, type ExtensionValidationReport, type PluginManagerPlan, type VerifiedGenerationAuthority } from "./plugin-manager.js";
+import { type StaticDeploymentOutcome } from "./static-deployment-supervisor.js";
 
 export type SystemExtensionAdministrationErrorCode = "UNAUTHORIZED" | "REVISION_CONFLICT" | "REQUEST_INVALID" | "APPROVAL_REQUIRED" | "EXECUTION_UNAVAILABLE";
 
@@ -46,9 +48,26 @@ export interface SystemExtensionLifecycleEvidenceVerifier<TContext> {
   }> | undefined;
 }
 
-/** Trusted server boundary that binds the Phase 9 operator to the current opaque request context. */
+export type SystemExtensionOperatorMutationResult = ExtensionActivationReceipt | ExtensionDispositionReceipt | StaticDeploymentOutcome | StaticDeploymentReceipt;
+
+/** Exact structural port used by System administration; the implementation may live outside the web process. */
+export interface SystemExtensionOperator {
+  catalogList(filter?: Readonly<{ deliveryClass?: ExtensionIdentity["deliveryClass"]; includeUnavailable?: boolean }>): Promise<readonly ExtensionCatalogRecord[]>;
+  catalogDetail(extension: ExtensionIdentity, version: string): Promise<ExtensionCatalogRecord | undefined>;
+  plan(request: ExtensionChangeRequest): Promise<PluginManagerPlan>;
+  stage(operationId: string): Promise<VerifiedGenerationAuthority>;
+  operation(operationId: string): Promise<ExtensionOperationStatus>;
+  validate(operationId: string): Promise<ExtensionValidationReport>;
+  activate(operationId: string): Promise<SystemExtensionOperatorMutationResult>;
+  rollback(operationId: string): Promise<SystemExtensionOperatorMutationResult>;
+  disable(operationId: string): Promise<SystemExtensionOperatorMutationResult>;
+  uninstall(operationId: string): Promise<SystemExtensionOperatorMutationResult>;
+  status(applicationId: string, environment: string): Promise<ExtensionSystemStatus>;
+}
+
+/** Trusted server boundary that binds an operator to the current opaque request context. */
 export interface SystemExtensionOperatorProvider<TContext> {
-  resolve(context: TContext): Promise<ExtensionOperatorApi | undefined> | ExtensionOperatorApi | undefined;
+  resolve(context: TContext): Promise<SystemExtensionOperator | undefined> | SystemExtensionOperator | undefined;
 }
 
 export interface SystemExtensionAdministrationOptions<TContext> {
@@ -79,7 +98,7 @@ export interface SystemExtensionPlan {
 }
 
 export interface SystemExtensionExecution {
-  readonly result: Awaited<ReturnType<ExtensionOperatorApi["activate"]>>;
+  readonly result: SystemExtensionOperatorMutationResult;
   readonly status: SystemExtensionOperationStatus;
 }
 
@@ -186,7 +205,7 @@ export class SystemExtensionAdministrationService<TContext> {
    * validation. The durable PluginManager operation remains the only state
    * record across page reloads and worker recreation.
    */
-  async validate(input: Readonly<{ readonly context: TContext; readonly expected: unknown; readonly operationId: string }>): Promise<Awaited<ReturnType<ExtensionOperatorApi["validate"]>>> {
+  async validate(input: Readonly<{ readonly context: TContext; readonly expected: unknown; readonly operationId: string }>): Promise<ExtensionValidationReport> {
     exactInput(input, ["context", "expected", "operationId"]);
     const expected = parseExpected(input.expected);
     if (!validId(input.operationId)) invalid("Extension operation ID is invalid.");
@@ -245,7 +264,7 @@ export class SystemExtensionAdministrationService<TContext> {
     }
   }
 
-  private async operator(context: TContext): Promise<ExtensionOperatorApi> {
+  private async operator(context: TContext): Promise<SystemExtensionOperator> {
     try {
       const operator = await this.options.operator.resolve(context);
       if (!operator) unauthorized();
@@ -255,7 +274,7 @@ export class SystemExtensionAdministrationService<TContext> {
     }
   }
 
-  private async current(expected: SystemExtensionExpectedRevision, operator: ExtensionOperatorApi, extension?: ExtensionIdentity): Promise<void> {
+  private async current(expected: SystemExtensionExpectedRevision, operator: SystemExtensionOperator, extension?: ExtensionIdentity): Promise<void> {
     const [current, status] = await Promise.all([
       this.options.state.readState(expected.applicationId, expected.environment),
       operator.status(expected.applicationId, expected.environment)
@@ -269,7 +288,7 @@ export class SystemExtensionAdministrationService<TContext> {
     }
   }
 
-  private async boundOperation(expected: SystemExtensionExpectedRevision, operator: ExtensionOperatorApi, operationId: string): Promise<ExtensionOperationStatus> {
+  private async boundOperation(expected: SystemExtensionExpectedRevision, operator: SystemExtensionOperator, operationId: string): Promise<ExtensionOperationStatus> {
     const operation = await operator.operation(operationId);
     if (operation.request.applicationId !== expected.applicationId || operation.request.environment !== expected.environment ||
       operation.request.expectedRevision !== expected.extensionRevision || !operation.plan) conflict("Extension operation is stale or unavailable.");
@@ -277,10 +296,10 @@ export class SystemExtensionAdministrationService<TContext> {
   }
 
   private async prepare(
-    operator: ExtensionOperatorApi,
+    operator: SystemExtensionOperator,
     expected: SystemExtensionExpectedRevision,
     operation: ExtensionOperationStatus
-  ): Promise<Awaited<ReturnType<ExtensionOperatorApi["validate"]>>> {
+  ): Promise<ExtensionValidationReport> {
     if (operation.plan!.executionClass === "live-generation" && ["install", "update"].includes(operation.request.operation)) {
       await operator.stage(operation.operationId);
       const staged = await this.boundOperation(expected, operator, operation.operationId);
@@ -401,7 +420,7 @@ function inventoryEntryRevision(inventory: ExtensionSystemStatus["inventory"], e
   return entries[extension.id]?.revision ?? 0;
 }
 
-async function execute(operator: ExtensionOperatorApi, operation: ExtensionOperationStatus): Promise<Awaited<ReturnType<ExtensionOperatorApi["activate"]>>> {
+async function execute(operator: SystemExtensionOperator, operation: ExtensionOperationStatus): Promise<SystemExtensionOperatorMutationResult> {
   switch (operation.request.operation) {
     case "install":
     case "update": return operator.activate(operation.operationId);

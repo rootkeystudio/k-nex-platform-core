@@ -5,6 +5,7 @@ import type { CollectionConfig, Config } from "payload";
 
 export * from "./data-source-authenticator.js";
 export * from "./administration-operator-client.js";
+export * from "./remote-administration-extension-operator.js";
 export * from "./persistence-capability.js";
 export * from "./mcp-adapter.js";
 export * from "./outbox-processor.js";
