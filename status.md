@@ -7,16 +7,16 @@
 
 ## Last completed
 
-Generated applications now compose fixed Theme Profile and `system.general` settings administration. Mutations derive current revisions server-side; settings changes and Theme publish/rollback reauthenticate the current Payload user with a password that is never persisted.
+Generated applications now compose fixed extension/catalog and operations/receipt routes. Extension mutations use the bounded mTLS operator client with server-derived actor, action, revisions, and a package-bound host inventory digest; operations remain an authoritative read-only projection in the web process.
 
 ## Validation
 
-Composition tests (130), UI pages tests (6), both builds, and `git diff --check` PASS.
+Composition tests (136), composition build, and `git diff --check` PASS.
 
 ## Next
 
-Compose fixed extension/catalog and operations routes, then prove the real mTLS operator journey.
+Prove the real mTLS operator journey and generated access/theme/settings administration through PostgreSQL, HTTP, and Chromium.
 
 ## Blockers
 
-Generated System administration routes and real operator journey remain incomplete; see `docs/implementation/phase-12-review-blockers.md`.
+External operator implementation, runtime-inventory initialization, and the real administration journey remain incomplete; see `docs/implementation/phase-12-review-blockers.md`.

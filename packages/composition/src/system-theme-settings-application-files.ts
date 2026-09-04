@@ -3,7 +3,7 @@ export interface SystemThemeSettingsApplicationFilesOptions {
 }
 
 function runtimeSource(): string {
-  return `import { createHash, randomUUID } from "node:crypto";
+  return `import { randomUUID } from "node:crypto";
 
 import { SystemSettingsDescriptorSchema, ThemeProfileSchema } from "@k-nex/contracts";
 import { CurrentAuthorityThemeProfileAuthorizer, PostgresRuntimeExtensionStore, PostgresSystemSettingsDescriptorSource, PostgresSystemSettingsStore, PostgresThemeProfileStore, SharedStaticPlatformPluginGenerationRebinder, type RuntimeExtensionPool } from "@k-nex/payload-adapter";
@@ -13,6 +13,7 @@ import type { Payload } from "payload";
 import { kNexAuthority, reauthenticateCurrentUser, type KnexRequestContext } from "./k-nex-authority.js";
 import { kNexIdentity } from "./k-nex-identity.js";
 import { kNexInitialThemeProfile } from "./k-nex-registry.js";
+import { kNexHostInventoryDigest } from "./k-nex-system-extensions.js";
 
 export const systemGeneralSettingsDescriptor = SystemSettingsDescriptorSchema.parse({
   schemaVersion: 1,
@@ -38,7 +39,7 @@ function themeCatalog(payload: Payload) {
   const store = new PostgresRuntimeExtensionStore(
     payload.db.pool as RuntimeExtensionPool,
     clock,
-    "sha256:" + createHash("sha256").update(kNexIdentity.applicationId + ":" + kNexIdentity.environment).digest("hex"),
+    kNexHostInventoryDigest,
     { sharedStaticGenerationRebinder: new SharedStaticPlatformPluginGenerationRebinder() }
   );
   return Object.freeze({

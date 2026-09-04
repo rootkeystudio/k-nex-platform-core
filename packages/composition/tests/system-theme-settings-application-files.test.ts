@@ -18,6 +18,7 @@ describe("generated System Theme and Settings administration", () => {
     expect(runtime).toContain("new PostgresSystemSettingsStore");
     expect(runtime).toContain("new PostgresSystemSettingsDescriptorSource");
     expect(runtime).toContain("new CurrentAuthorityThemeProfileAuthorizer");
+    expect(runtime).toContain('import { kNexHostInventoryDigest } from "./k-nex-system-extensions.js"');
     expect(runtime).toContain("reauthenticateCurrentUser(payload, context, password)");
     expect(runtime).toContain('reauthentication: "satisfied" as const');
   });

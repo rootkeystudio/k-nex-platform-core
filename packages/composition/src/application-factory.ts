@@ -7,6 +7,8 @@ import { ApplicationManifestSchema, canonicalJson, type ApplicationManifest, typ
 import { applicationAuthFiles } from "./application-auth-files.js";
 import { runnableApplicationFiles } from "./runnable-application-files.js";
 import { systemAccessApplicationFiles } from "./system-access-application-files.js";
+import { systemExtensionApplicationFiles } from "./system-extension-application-files.js";
+import { systemOperationsApplicationFiles } from "./system-operations-application-files.js";
 import { systemThemeSettingsApplicationFiles } from "./system-theme-settings-application-files.js";
 import { workspacePageApplicationFiles } from "./workspace-page-application-files.js";
 
@@ -242,7 +244,7 @@ function applicationManifest(options: CreateKnexApplicationOptions, packageVersi
     themes: { active: options.theme, package: `@k-nex/theme-${options.theme}`, version: packageVersions.get(`@k-nex/theme-${options.theme}`) ?? "1.0.0" },
     development: { database: options.database === "docker-postgres" ? { mode: "docker-postgres", serviceName: "postgres" } : { mode: "external" } },
     build: { dockerfile: false, commitGeneratedRegistries: true, validateGeneratedFilesInCI: true },
-    environment: { required: ["DATABASE_URL", "K_NEX_ENVIRONMENT", "K_NEX_PUBLIC_ORIGIN", "PAYLOAD_SECRET"] }
+    environment: { required: ["DATABASE_URL", "K_NEX_ADMINISTRATION_OPERATOR_CA_CERT", "K_NEX_ADMINISTRATION_OPERATOR_CLIENT_CERT", "K_NEX_ADMINISTRATION_OPERATOR_CLIENT_KEY", "K_NEX_ADMINISTRATION_OPERATOR_HOST", "K_NEX_ADMINISTRATION_OPERATOR_IDENTITY", "K_NEX_ADMINISTRATION_OPERATOR_PORT", "K_NEX_ADMINISTRATION_OPERATOR_URI_SAN", "K_NEX_ENVIRONMENT", "K_NEX_PUBLIC_ORIGIN", "PAYLOAD_SECRET"] }
   });
 }
 
@@ -293,9 +295,11 @@ export function planCreateKnexApplication(options: CreateKnexApplicationOptions)
     ...runnableApplicationFiles({ applicationId: options.applicationId, applicationName: options.applicationName, database: options.database, theme: options.theme }),
     ...applicationAuthFiles({ applicationId: options.applicationId, applicationName: options.applicationName, theme: options.theme }),
     ...systemAccessApplicationFiles({ applicationId: options.applicationId }),
+    ...systemExtensionApplicationFiles({ applicationId: options.applicationId }),
     ...systemThemeSettingsApplicationFiles({ applicationId: options.applicationId }),
+    ...systemOperationsApplicationFiles({ applicationId: options.applicationId }),
     ...workspacePageApplicationFiles({ applicationId: options.applicationId }),
-    ".env.example": "DATABASE_URL=\nK_NEX_ENVIRONMENT=\nK_NEX_OWNER_EMAIL=\nK_NEX_OWNER_PASSWORD=\nK_NEX_PUBLIC_ORIGIN=\nPAYLOAD_SECRET=\n",
+    ".env.example": "DATABASE_URL=\nK_NEX_ADMINISTRATION_OPERATOR_CA_CERT=\nK_NEX_ADMINISTRATION_OPERATOR_CLIENT_CERT=\nK_NEX_ADMINISTRATION_OPERATOR_CLIENT_KEY=\nK_NEX_ADMINISTRATION_OPERATOR_HOST=\nK_NEX_ADMINISTRATION_OPERATOR_IDENTITY=\nK_NEX_ADMINISTRATION_OPERATOR_PORT=\nK_NEX_ADMINISTRATION_OPERATOR_URI_SAN=\nK_NEX_ENVIRONMENT=\nK_NEX_OWNER_EMAIL=\nK_NEX_OWNER_PASSWORD=\nK_NEX_PUBLIC_ORIGIN=\nPAYLOAD_SECRET=\n",
     ".k-nex/application-plan.json": json({
       planVersion: 1,
       preset: "sales-reference",

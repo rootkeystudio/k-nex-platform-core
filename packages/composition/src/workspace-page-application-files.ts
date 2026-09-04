@@ -45,9 +45,11 @@ const workspaceNavigationFixedNodes = Object.freeze([
   { id: "system.navigation.roles", owner: { kind: "platform" as const }, kind: "link" as const, parentId: "system.navigation.root", label: "Roles", order: 10, target: { class: "system" as const, routeId: "system.route.roles" } },
   { id: "system.navigation.permissions", owner: { kind: "platform" as const }, kind: "link" as const, parentId: "system.navigation.root", label: "Permissions", order: 20, target: { class: "system" as const, routeId: "system.route.permissions" } },
   { id: "system.navigation.assignments", owner: { kind: "platform" as const }, kind: "link" as const, parentId: "system.navigation.root", label: "Assignments", order: 30, target: { class: "system" as const, routeId: "system.route.assignments" } },
+  { id: "system.navigation.extensions", owner: { kind: "platform" as const }, kind: "link" as const, parentId: "system.navigation.root", label: "Extensions", icon: "apps" as const, order: 40, target: { class: "system" as const, routeId: "system.route.extensions" } },
   { id: "system.navigation.workspace-pages", owner: { kind: "platform" as const }, kind: "link" as const, parentId: "system.navigation.root", label: "Workspace pages", icon: "dashboard" as const, order: 45, target: { class: "system" as const, routeId: "system.route.workspace-pages" } },
   { id: "system.navigation.themes", owner: { kind: "platform" as const }, kind: "link" as const, parentId: "system.navigation.root", label: "Themes", order: 50, target: { class: "system" as const, routeId: "system.route.themes" } },
-  { id: "system.navigation.settings", owner: { kind: "platform" as const }, kind: "link" as const, parentId: "system.navigation.root", label: "Settings", order: 60, target: { class: "system" as const, routeId: "system.route.settings" } }
+  { id: "system.navigation.settings", owner: { kind: "platform" as const }, kind: "link" as const, parentId: "system.navigation.root", label: "Settings", order: 60, target: { class: "system" as const, routeId: "system.route.settings" } },
+  { id: "system.navigation.operations", owner: { kind: "platform" as const }, kind: "link" as const, parentId: "system.navigation.root", label: "Operations", order: 70, target: { class: "system" as const, routeId: "system.route.operations" } }
 ]);
 
 type NotificationClient = {

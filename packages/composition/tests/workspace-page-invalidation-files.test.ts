@@ -9,7 +9,7 @@ describe("generated workspace invalidation runtime", () => {
     const navigation = files["src/k-nex-workspace-navigation.ts"]!;
     const routes = files["src/k-nex-sales-routes.ts"]!;
 
-    expect(navigation).toContain('implementedSystemRouteIds: ["system.route.workspace", "system.route.roles", "system.route.permissions", "system.route.assignments", "system.route.workspace-pages", "system.route.themes", "system.route.settings"]');
+    expect(navigation).toContain('implementedSystemRouteIds: ["system.route.workspace", "system.route.roles", "system.route.permissions", "system.route.assignments", "system.route.extensions", "system.route.workspace-pages", "system.route.themes", "system.route.settings", "system.route.operations"]');
     expect(navigation).toContain('import { canonicalJson, type PluginNavigationDescriptor, type PluginRouteDescriptor } from "@k-nex/contracts";');
     expect(navigation).toContain("routes.map(({ value }) => value as RegisteredRoute)");
     expect(navigation).toContain("const salesAuthority = await currentSalesGeneration(payload).catch(() => undefined);");

@@ -6,7 +6,7 @@
 
 ADR-0027 accepts a private HTTPS+mTLS `/v1/commands` boundary to the external operator. The generated web process remains a current-authority requester and never receives deployment, build, Docker, or repository-write authority.
 
-The transport contract and production runtime/System administration migration exports now exist. Remaining work is the mTLS client/operator implementation, current inventory/service composition, fixed generated routes/navigation, and real PostgreSQL/HTTP/Chromium proof.
+The transport contract, bounded mTLS client, production runtime/System administration migrations, and fixed generated access/extension/theme/settings/operations routes now exist. Remaining work is the external operator implementation, exact runtime-inventory initialization, and real PostgreSQL/HTTP/Chromium proof.
 
 Directly projecting lifecycle rows from a generated `/system/*` handler is rejected: it would let the web process fabricate a committed transition and bypass expected source commit, build, deployment, and receipt authority.
 

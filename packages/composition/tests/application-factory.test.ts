@@ -91,7 +91,7 @@ describe("create-knex-app", () => {
     const manifest = ApplicationManifestSchema.parse(JSON.parse(first.files["k-nex.app.json"]!));
     expect(manifest.plugins).toEqual([{ id: "module.sales", package: "@k-nex/module-sales", version: "1.0.0", enabled: true }]);
     expect(manifest.builder).toEqual({ plugin: "builder.puck", package: "@k-nex/builder-puck", version: "1.0.0", profiles: { workspace: { enabled: true, drafts: true, surfaces: ["workspace"] } } });
-    expect(manifest.environment.required).toEqual(["DATABASE_URL", "K_NEX_ENVIRONMENT", "K_NEX_PUBLIC_ORIGIN", "PAYLOAD_SECRET"]);
+    expect(manifest.environment.required).toEqual(["DATABASE_URL", "K_NEX_ADMINISTRATION_OPERATOR_CA_CERT", "K_NEX_ADMINISTRATION_OPERATOR_CLIENT_CERT", "K_NEX_ADMINISTRATION_OPERATOR_CLIENT_KEY", "K_NEX_ADMINISTRATION_OPERATOR_HOST", "K_NEX_ADMINISTRATION_OPERATOR_IDENTITY", "K_NEX_ADMINISTRATION_OPERATOR_PORT", "K_NEX_ADMINISTRATION_OPERATOR_URI_SAN", "K_NEX_ENVIRONMENT", "K_NEX_PUBLIC_ORIGIN", "PAYLOAD_SECRET"]);
     expect(JSON.parse(first.files["package.json"]!).dependencies).toMatchObject({ payload: "3.88.0", "@k-nex/builder-puck": "1.0.0", "@k-nex/module-sales": "1.0.0", "@k-nex/theme-minimal": "1.0.0" });
     expect(first.files["src/payload.config.ts"]).toContain("kNexSalesRegistry.collections");
     expect(first.files["src/app/(workspace)/system/access/roles/page.tsx"]).toContain("SystemRolesPage");
@@ -100,6 +100,8 @@ describe("create-knex-app", () => {
     expect(first.files["src/app/(workspace)/system/access/audit/page.tsx"]).toContain("SystemAuthorizationAuditPage");
     expect(first.files["src/app/(workspace)/system/themes/page.tsx"]).toContain("SystemThemesPage");
     expect(first.files["src/app/(workspace)/system/settings/page.tsx"]).toContain("SystemSettingsPage");
+    expect(first.files["src/app/(workspace)/system/extensions/page.tsx"]).toContain("SystemExtensionsPage");
+    expect(first.files["src/app/(workspace)/system/operations/page.tsx"]).toContain("SystemOperationsPage");
     expect(first.files["src/payload.config.ts"]).toContain("prodMigrations: migrations");
     expect(first.files["src/payload.config.ts"]).toContain('kNexApplicationId: "customer-alpha"');
     expect(first.files["src/boot.ts"]).toContain("bootKnexApplication");
