@@ -1,11 +1,15 @@
 import {
   AuthorizationSubjectSchema,
+  canonicalJson,
   WorkspaceNavigationNodeSchema,
+  WorkspaceNavigationTreeSchema,
+  WorkspacePageSchema,
   type AuthorizationSubject,
-  type WorkspaceNavigationNode
+  type WorkspaceNavigationNode,
+  type WorkspacePage
 } from "@k-nex/contracts";
 
-import type { RuntimeExtensionPool } from "./runtime-extension-store.js";
+import type { RuntimeExtensionPool, RuntimeExtensionSession } from "./runtime-extension-store.js";
 import { WorkspacePageStoreError, type WorkspacePageScope } from "./workspace-page-store.js";
 
 interface FolderRow {
@@ -13,15 +17,38 @@ interface FolderRow {
   readonly node_json: unknown;
 }
 
+interface AuthorityRow {
+  readonly authorization_revision: number;
+  readonly lifecycle_revision: number;
+}
+
+interface PageRow {
+  readonly page_json: unknown;
+}
+
 export interface WorkspaceNavigationFolderSnapshot {
   readonly node: WorkspaceNavigationNode;
   readonly revision: number;
 }
 
+/** A server-derived authority fence for one navigation mutation. */
+export interface WorkspaceNavigationMutationFence {
+  readonly applicationId: string;
+  readonly environment: string;
+  readonly authorizationRevision: number;
+  readonly lifecycleRevision: number;
+}
+
+/** Static nodes and accepted roots from the generated application's current registry. */
+export interface WorkspaceNavigationMutationCatalog {
+  readonly staticNodes: readonly WorkspaceNavigationNode[];
+  readonly staticParentIds: readonly string[];
+}
+
 const applicationPattern = /^[a-z][a-z0-9-]{2,127}$/u;
 const environmentPattern = /^[a-z][a-z0-9-]{1,63}$/u;
 
-function fail(code: "INVALID_INPUT" | "REVISION_CONFLICT", message: string): never {
+function fail(code: "INVALID_INPUT" | "AUTHORITY_CONFLICT" | "REVISION_CONFLICT", message: string): never {
   throw new WorkspacePageStoreError(code, message);
 }
 
@@ -49,11 +76,46 @@ function revision(value: unknown): number {
   return value as number;
 }
 
+function fence(value: WorkspaceNavigationMutationFence, owner: WorkspacePageScope): WorkspaceNavigationMutationFence {
+  if (value.applicationId !== owner.applicationId || value.environment !== owner.environment ||
+    !Number.isSafeInteger(value.authorizationRevision) || value.authorizationRevision < 0 ||
+    !Number.isSafeInteger(value.lifecycleRevision) || value.lifecycleRevision < 0) {
+    fail("INVALID_INPUT", "Workspace navigation mutation fence is invalid.");
+  }
+  return value;
+}
+
+function catalog(value: WorkspaceNavigationMutationCatalog): WorkspaceNavigationMutationCatalog {
+  if (!Array.isArray(value.staticNodes) || !Array.isArray(value.staticParentIds) ||
+    value.staticParentIds.some((id) => typeof id !== "string")) {
+    fail("INVALID_INPUT", "Workspace navigation catalog is invalid.");
+  }
+  for (const node of value.staticNodes) {
+    if (!WorkspaceNavigationNodeSchema.safeParse(node).success || node.owner.kind === "customer") {
+      fail("INVALID_INPUT", "Workspace navigation static catalog is invalid.");
+    }
+  }
+  const nodes = new Map(value.staticNodes.map((node) => [node.id, node]));
+  if (nodes.size !== value.staticNodes.length || value.staticParentIds.some((id) => {
+    const node = nodes.get(id);
+    return node?.kind !== "folder" || node.owner.kind !== "platform-plugin";
+  })) fail("INVALID_INPUT", "Workspace navigation static parents are invalid.");
+  return value;
+}
+
+function page(value: unknown, owner: WorkspacePageScope): WorkspacePage {
+  const parsed = WorkspacePageSchema.safeParse(value);
+  if (!parsed.success || parsed.data.identity.applicationId !== owner.applicationId || parsed.data.identity.environment !== owner.environment) {
+    fail("INVALID_INPUT", "Workspace navigation page catalog is invalid.");
+  }
+  return parsed.data;
+}
+
 function snapshot(row: FolderRow): WorkspaceNavigationFolderSnapshot {
   return Object.freeze({ node: Object.freeze(folder(row.node_json)), revision: revision(row.revision) });
 }
 
-/** PostgreSQL storage only. Callers must derive nodes through current-authority catalog validation. */
+/** PostgreSQL storage with a server-derived authority fence and locked navigation graph validation. */
 export class PostgresWorkspaceNavigationStore {
   constructor(private readonly pool: RuntimeExtensionPool, private readonly now: () => Date = () => new Date()) {}
 
@@ -76,33 +138,87 @@ export class PostgresWorkspaceNavigationStore {
     return result.rows[0] ? snapshot(result.rows[0]) : undefined;
   }
 
-  async create(scopeValue: WorkspacePageScope, nodeValue: unknown, actorValue: unknown): Promise<WorkspaceNavigationFolderSnapshot> {
+  async create(scopeValue: WorkspacePageScope, nodeValue: unknown, actorValue: unknown, fenceValue: WorkspaceNavigationMutationFence, catalogValue: WorkspaceNavigationMutationCatalog): Promise<WorkspaceNavigationFolderSnapshot> {
     const owner = scope(scopeValue);
     const node = folder(nodeValue);
     const updatedBy = actor(actorValue);
-    const updatedAt = this.timestamp();
-    const result = await this.pool.query<FolderRow>(
-      `insert into k_nex_workspace_navigation_folders (application_id, environment, folder_id, revision, node_json, updated_by_json, updated_at)
-       values ($1,$2,$3,1,$4::jsonb,$5::jsonb,$6) returning revision, node_json`,
-      [owner.applicationId, owner.environment, node.id, JSON.stringify(node), JSON.stringify(updatedBy), updatedAt]
-    );
-    if (!result.rows[0]) fail("INVALID_INPUT", "Workspace navigation folder was not created.");
-    return snapshot(result.rows[0]);
+    const mutationFence = fence(fenceValue, owner);
+    const mutationCatalog = catalog(catalogValue);
+    return this.mutate(owner, node, updatedBy, mutationFence, mutationCatalog, async (session, updatedAt) => {
+      const result = await session.query<FolderRow>(
+        `insert into k_nex_workspace_navigation_folders (application_id, environment, folder_id, revision, node_json, updated_by_json, updated_at)
+         values ($1,$2,$3,1,$4::jsonb,$5::jsonb,$6) returning revision, node_json`,
+        [owner.applicationId, owner.environment, node.id, JSON.stringify(node), JSON.stringify(updatedBy), updatedAt]
+      );
+      if (!result.rows[0]) fail("INVALID_INPUT", "Workspace navigation folder was not created.");
+      return snapshot(result.rows[0]);
+    });
   }
 
-  async update(scopeValue: WorkspacePageScope, nodeValue: unknown, expectedRevisionValue: unknown, actorValue: unknown): Promise<WorkspaceNavigationFolderSnapshot> {
+  async update(scopeValue: WorkspacePageScope, nodeValue: unknown, expectedRevisionValue: unknown, actorValue: unknown, fenceValue: WorkspaceNavigationMutationFence, catalogValue: WorkspaceNavigationMutationCatalog): Promise<WorkspaceNavigationFolderSnapshot> {
     const owner = scope(scopeValue);
     const node = folder(nodeValue);
     const expectedRevision = revision(expectedRevisionValue);
     const updatedBy = actor(actorValue);
-    const updatedAt = this.timestamp();
-    const result = await this.pool.query<FolderRow>(
-      `update k_nex_workspace_navigation_folders set revision=revision+1, node_json=$4::jsonb, updated_by_json=$5::jsonb, updated_at=$6
-       where application_id=$1 and environment=$2 and folder_id=$3 and revision=$7 returning revision, node_json`,
-      [owner.applicationId, owner.environment, node.id, JSON.stringify(node), JSON.stringify(updatedBy), updatedAt, expectedRevision]
-    );
-    if (!result.rows[0]) fail("REVISION_CONFLICT", "Workspace navigation folder changed or is unavailable.");
-    return snapshot(result.rows[0]);
+    const mutationFence = fence(fenceValue, owner);
+    const mutationCatalog = catalog(catalogValue);
+    return this.mutate(owner, node, updatedBy, mutationFence, mutationCatalog, async (session, updatedAt) => {
+      const result = await session.query<FolderRow>(
+        `update k_nex_workspace_navigation_folders set revision=revision+1, node_json=$4::jsonb, updated_by_json=$5::jsonb, updated_at=$6
+         where application_id=$1 and environment=$2 and folder_id=$3 and revision=$7 returning revision, node_json`,
+        [owner.applicationId, owner.environment, node.id, JSON.stringify(node), JSON.stringify(updatedBy), updatedAt, expectedRevision]
+      );
+      if (!result.rows[0]) fail("REVISION_CONFLICT", "Workspace navigation folder changed or is unavailable.");
+      return snapshot(result.rows[0]);
+    });
+  }
+
+  private async mutate<T>(owner: WorkspacePageScope, node: WorkspaceNavigationNode, updatedBy: AuthorizationSubject, mutationFence: WorkspaceNavigationMutationFence, mutationCatalog: WorkspaceNavigationMutationCatalog, write: (session: RuntimeExtensionSession, updatedAt: string) => Promise<T>): Promise<T> {
+    const session = await this.pool.connect();
+    try {
+      await session.query("begin");
+      await session.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [canonicalJson([owner.applicationId, owner.environment, "workspace-navigation"])]);
+      const authority = await session.query<AuthorityRow>(
+        `select authorization_revision, lifecycle_revision from k_nex_authorization_state where application_id=$1 for share`,
+        [owner.applicationId]
+      );
+      if (!authority.rows[0] || authority.rows[0].authorization_revision !== mutationFence.authorizationRevision || authority.rows[0].lifecycle_revision !== mutationFence.lifecycleRevision) {
+        fail("AUTHORITY_CONFLICT", "Workspace navigation mutation authority is stale.");
+      }
+      const [folders, pages] = await Promise.all([
+        session.query<FolderRow>(`select revision, node_json from k_nex_workspace_navigation_folders where application_id=$1 and environment=$2 for share`, [owner.applicationId, owner.environment]),
+        session.query<PageRow>(`select page_json from k_nex_workspace_pages where application_id=$1 and environment=$2 for share`, [owner.applicationId, owner.environment])
+      ]);
+      this.validateGraph(owner, node, mutationCatalog, folders.rows, pages.rows);
+      const result = await write(session, this.timestamp());
+      await session.query("commit");
+      return result;
+    } catch (error) {
+      try { await session.query("rollback"); } catch { /* preserve original error */ }
+      throw error;
+    } finally {
+      session.release();
+    }
+  }
+
+  private validateGraph(owner: WorkspacePageScope, node: WorkspaceNavigationNode, mutationCatalog: WorkspaceNavigationMutationCatalog, folderRows: readonly FolderRow[], pageRows: readonly PageRow[]): void {
+    const folders = folderRows.map((row) => folder(row.node_json)).filter((candidate) => candidate.id !== node.id);
+    const nodes = [...mutationCatalog.staticNodes, ...folders, node];
+    const parentIds = new Set([...mutationCatalog.staticParentIds, ...folders.map(({ id }) => id)]);
+    if (node.parentId === undefined || !parentIds.has(node.parentId)) fail("INVALID_INPUT", "Workspace navigation folder parent is unavailable.");
+    const parents = new Map(nodes.map((candidate) => [candidate.id, candidate]));
+    if (parents.get(node.parentId)?.kind !== "folder") fail("INVALID_INPUT", "Workspace navigation folder parent is invalid.");
+    const pages = pageRows.map(({ page_json }) => page(page_json, owner)).flatMap((candidate) => candidate.state === "archived" || candidate.navigation.state === "unplaced" ? [] : [{
+      id: candidate.identity.pageId,
+      owner: { kind: "customer" as const },
+      kind: "link" as const,
+      parentId: candidate.navigation.parentNavigationId,
+      label: candidate.title,
+      order: candidate.navigation.order,
+      target: { class: "workspace-page" as const, pageId: candidate.identity.pageId, mode: "view" as const }
+    }]);
+    const parsed = WorkspaceNavigationTreeSchema.safeParse({ schemaVersion: 1, applicationId: owner.applicationId, environment: owner.environment, revision: 1, nodes: [...nodes, ...pages] });
+    if (!parsed.success) fail("INVALID_INPUT", "Workspace navigation candidate graph is invalid.");
   }
 
   private timestamp(): string {

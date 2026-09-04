@@ -36,6 +36,12 @@ const platformBlocks = new Map(genericUiBlockDefinitions.map(({ id, version }) =
 const scope = Object.freeze({ applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment });
 const runtimes = new WeakMap<Payload, ReturnType<typeof createRuntime>>();
 const invalidationChannel = "k_nex_runtime_invalidation";
+const workspaceNavigationFixedNodes = Object.freeze([
+  { id: "k-nex.navigation.root", owner: { kind: "platform" as const }, kind: "folder" as const, label: "K-Nex", icon: "dashboard" as const, order: 0 },
+  { id: "system.navigation.root", owner: { kind: "platform" as const }, kind: "folder" as const, label: "System", icon: "system" as const, order: 1_000_000 },
+  { id: "k-nex.navigation.workspace", owner: { kind: "platform" as const }, kind: "link" as const, parentId: "k-nex.navigation.root", label: "Workspace", icon: "dashboard" as const, order: 0, target: { class: "system" as const, routeId: "system.route.workspace" } },
+  { id: "system.navigation.workspace-pages", owner: { kind: "platform" as const }, kind: "link" as const, parentId: "system.navigation.root", label: "Workspace pages", icon: "dashboard" as const, order: 45, target: { class: "system" as const, routeId: "system.route.workspace-pages" } }
+]);
 
 type NotificationClient = {
   query(text: string): Promise<unknown>;
@@ -1219,18 +1225,42 @@ async function folderDecision(payload: Payload, context: KnexRequestContext, ope
   const runtime = kNexWorkspacePages(payload);
   const target = createCurrentAuthorityTarget({ permissionId: "system.workspace-pages.edit", scope: { kind: "application", resource: "system.workspace-pages" }, facts: { boundary: "workspace-folder-service", operation } });
   const decision = await runtime.authority.adapter.authorize(context, target);
-  if (decision === undefined || decision.outcome !== "allow" || decision.applicationId !== scope.applicationId || decision.environment !== scope.environment || decision.effectiveActor.kind !== "user") throw new TypeError("Workspace folder operation is denied.");
+  const state = await runtime.authority.store.readState(scope.applicationId, scope.environment);
+  if (decision === undefined || decision.outcome !== "allow" || decision.permissionId !== "system.workspace-pages.edit" || decision.scope.kind !== "application" || decision.scope.resource !== "system.workspace-pages" || decision.applicationId !== scope.applicationId || decision.environment !== scope.environment || decision.effectiveActor.kind !== "user" ||
+    state === undefined || state.applicationId !== scope.applicationId || state.environment !== scope.environment || state.authorizationRevision !== decision.authorizationRevision || state.lifecycleRevision !== decision.lifecycleRevision) throw new TypeError("Workspace folder operation is denied.");
   return decision;
+}
+
+async function folderCatalog(payload: Payload) {
+  if (await currentSalesGeneration(payload).catch(() => undefined) === undefined) {
+    return Object.freeze({ staticNodes: workspaceNavigationFixedNodes, staticParentIds: [] });
+  }
+  const routes = new Map(kNexSalesRegistry.scopedRegistration.contributions.routes.map(({ value }) => {
+    const route = value as Readonly<{ id?: unknown; ownerPluginId?: unknown }>;
+    if (typeof route.id !== "string" || route.ownerPluginId !== "module.sales") throw new TypeError("Current Sales navigation route is invalid.");
+    return [route.id, route] as const;
+  }));
+  const children = kNexSalesRegistry.scopedRegistration.contributions.navigation.map(({ value }) => {
+    const descriptor = value as Readonly<{ id?: unknown; ownerPluginId?: unknown; labelMessageId?: unknown; route?: Readonly<{ routeId?: unknown }>; parentId?: unknown; order?: unknown }>;
+    const routeId = descriptor.route?.routeId;
+    const route = typeof routeId === "string" ? routes.get(routeId) : undefined;
+    const label = typeof descriptor.labelMessageId === "string" ? kNexSalesRegistry.navigationSection.messages[descriptor.labelMessageId] : undefined;
+    if (typeof descriptor.id !== "string" || descriptor.ownerPluginId !== "module.sales" || route === undefined || typeof label !== "string" || label.length < 1 || label.length > 120 || descriptor.parentId !== undefined && typeof descriptor.parentId !== "string" || !Number.isSafeInteger(descriptor.order)) throw new TypeError("Current Sales navigation descriptor is invalid.");
+    return { id: descriptor.id, owner: { kind: "platform-plugin" as const, pluginId: "module.sales" }, kind: "link" as const, parentId: descriptor.parentId ?? kNexSalesRegistry.navigationSection.id, label, order: descriptor.order, target: { class: "platform-plugin" as const, ownerPluginId: "module.sales", routeId } };
+  });
+  const section = { id: kNexSalesRegistry.navigationSection.id, owner: { kind: "platform-plugin" as const, pluginId: "module.sales" }, kind: "folder" as const, label: kNexSalesRegistry.navigationSection.label, icon: "sales" as const, order: kNexSalesRegistry.navigationSection.order };
+  return Object.freeze({ staticNodes: [...workspaceNavigationFixedNodes, section, ...children], staticParentIds: [section.id] });
 }
 
 export async function createWorkspaceFolder(payload: Payload, context: KnexRequestContext, input: Readonly<{ label: string; parentNavigationId: string; order: number; idempotencyKey: string }>) {
   const runtime = kNexWorkspacePages(payload);
   const decision = await folderDecision(payload, context, "create");
-  await runtime.resolvePlacement({ parentNavigationId: input.parentNavigationId, order: input.order });
+  const catalog = await folderCatalog(payload);
   if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{7,159}$/u.test(input.idempotencyKey)) throw new TypeError("Workspace folder idempotency key is invalid.");
   const id = \`customer.folder.\${createHash("sha256").update(input.idempotencyKey).digest("hex").slice(0, 24)}\`;
   const node = { id, owner: { kind: "customer" as const }, kind: "folder" as const, parentId: input.parentNavigationId, label: input.label, icon: "folder" as const, order: input.order };
-  try { return await runtime.folders.create(scope, node, decision.effectiveActor); }
+  const fence = { applicationId: decision.applicationId, environment: decision.environment, authorizationRevision: decision.authorizationRevision, lifecycleRevision: decision.lifecycleRevision };
+  try { return await runtime.folders.create(scope, node, decision.effectiveActor, fence, catalog); }
   catch (error) {
     const existing = await runtime.folders.read(scope, id);
     if (existing !== undefined && canonicalJson(existing.node) === canonicalJson(node)) return existing;
@@ -1241,18 +1271,11 @@ export async function createWorkspaceFolder(payload: Payload, context: KnexReque
 export async function updateWorkspaceFolder(payload: Payload, context: KnexRequestContext, input: Readonly<{ folderId: string; expectedRevision: number; label: string; parentNavigationId: string; order: number }>) {
   const runtime = kNexWorkspacePages(payload);
   const decision = await folderDecision(payload, context, "update");
-  await runtime.resolvePlacement({ parentNavigationId: input.parentNavigationId, order: input.order });
+  const catalog = await folderCatalog(payload);
   const existing = await runtime.folders.read(scope, input.folderId);
   if (existing === undefined || existing.node.id === input.parentNavigationId) throw new TypeError("Workspace folder is unavailable.");
-  const graph = new Map((await runtime.folders.list(scope)).map(({ node }) => [node.id, node]));
-  let parentId: string | undefined = input.parentNavigationId;
-  const visited = new Set<string>();
-  while (parentId !== undefined && graph.has(parentId)) {
-    if (parentId === input.folderId || visited.has(parentId)) throw new TypeError("Workspace folder move creates a cycle.");
-    visited.add(parentId);
-    parentId = graph.get(parentId)?.parentId;
-  }
-  return runtime.folders.update(scope, { ...existing.node, label: input.label, parentId: input.parentNavigationId, order: input.order }, input.expectedRevision, decision.effectiveActor);
+  const fence = { applicationId: decision.applicationId, environment: decision.environment, authorizationRevision: decision.authorizationRevision, lifecycleRevision: decision.lifecycleRevision };
+  return runtime.folders.update(scope, { ...existing.node, label: input.label, parentId: input.parentNavigationId, order: input.order }, input.expectedRevision, decision.effectiveActor, fence, catalog);
 }
 `;
 }

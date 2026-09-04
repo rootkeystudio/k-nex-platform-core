@@ -76,6 +76,24 @@ describe("generated workspace page builder policy", () => {
     }
   });
 
+  it("routes folder mutations through a server-derived authority fence and static catalog", () => {
+    const runtime = workspacePageApplicationFiles({ applicationId: "customer-alpha" })["src/k-nex-workspace-pages.ts"]!;
+
+    expect(runtime).toContain('permissionId: "system.workspace-pages.edit"');
+    expect(runtime).toContain('decision.effectiveActor.kind !== "user"');
+    expect(runtime).toContain('state.authorizationRevision !== decision.authorizationRevision || state.lifecycleRevision !== decision.lifecycleRevision');
+    expect(runtime).toContain("async function folderCatalog(payload: Payload)");
+    expect(runtime).toContain("await currentSalesGeneration(payload).catch(() => undefined)");
+    expect(runtime).toContain('staticNodes: workspaceNavigationFixedNodes, staticParentIds: []');
+    expect(runtime).toContain("scopedRegistration.contributions.navigation.map");
+    expect(runtime).toContain('ownerPluginId: "module.sales", routeId');
+    expect(runtime).toContain("staticNodes: [...workspaceNavigationFixedNodes, section, ...children]");
+    expect(runtime).toContain("staticParentIds: [section.id]");
+    expect(runtime).toContain('runtime.folders.create(scope, node, decision.effectiveActor, fence, catalog)');
+    expect(runtime).toContain('runtime.folders.update(scope, { ...existing.node, label: input.label, parentId: input.parentNavigationId, order: input.order }, input.expectedRevision, decision.effectiveActor, fence, catalog)');
+    expect(runtime).not.toContain("Workspace folder move creates a cycle.");
+  });
+
   it("injects a server-owned Puck validator built from current registered authority", () => {
     const source = workspacePageApplicationFiles({ applicationId: "customer-alpha" })["src/k-nex-workspace-pages.ts"]!;
 
