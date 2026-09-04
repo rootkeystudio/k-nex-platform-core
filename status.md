@@ -7,16 +7,16 @@
 
 ## Last completed
 
-Made authorization catalogs follow the exact current Sales generation while preserving platform authority across retirement and later recovery.
+Made readiness validate current protected authority plus retained bootstrap provenance without freezing mutable owner or Sales state.
 
 ## Validation
 
-Exact Node 24.19.0/pnpm 11.9.0: focused generated-file tests (6) PASS; composition build PASS; diff check PASS. Real generated-app proof pending after all review fixes.
+Exact Node 24.19.0/pnpm 11.9.0: composition readiness tests (118) PASS; composition build PASS; diff check PASS. Real generated-app proof pending.
 
 ## Next
 
-Fix mutable-state readiness, then run isolated generated-app proof.
+Regenerate the packed closure, then run the isolated generated-app proof.
 
 ## Blockers
 
-Phase-review readiness follow-up is in progress.
+None.

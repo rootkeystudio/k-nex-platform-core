@@ -981,6 +981,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
       await transaction.write({ kind: "assignment", assignment: { schemaVersion: 1, id: "owner-handoff-manager", applicationId, roleId: "system.role.owner", principal: { kind: "user", id: managerUserId }, state: "active", revision: 0 } });
       await transaction.write({ kind: "assignment", assignment: { ...formerOwner, state: "revoked", revision: formerOwner.revision + 1 } });
     });
+    assert.equal((await fetch(`${applicationProcess.origin}/api/readiness`)).status, 200, "Readiness must accept a valid current owner after bootstrap-owner handoff.");
     assert.equal((await fetch(`${applicationProcess.origin}/workspace/pages/${encodeURIComponent(pageId)}`, { headers: { cookie: manager.cookie.header } })).status, 200, "The current owner must override page ACL without a bootstrap-receipt identity match.");
     assert.equal((await fetch(`${applicationProcess.origin}/workspace/pages/${encodeURIComponent(pageId)}`, { headers: { cookie: durableOwner.cookie.header } })).status, 404, "A former owner with page ACL but no current platform permission must be denied.");
     const formerOwnerAccessState = await durableStore.readState(applicationId, environmentName);
@@ -1030,6 +1031,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
       } });
     })).state;
     assert.deepEqual(retiredSalesState, { ...retiringSalesState, lifecycleRevision: retiringSalesState.lifecycleRevision + 1 }, "Retirement must use one expected-revision current-authority transition.");
+    assert.equal((await fetch(`${applicationProcess.origin}/api/readiness`)).status, 200, "Readiness must retain the historical Sales generation after retirement.");
     await retiredRoutePage.getByRole("alert").getByText("Sales route unavailable", { exact: true }).waitFor({ timeout: 10_000 });
     assert.equal(await retiredRoutePage.getByRole("form", { name: "Create task" }).count(), 0, "An open registered Sales route must clear its action after generation retirement.");
     await retiredRouteContext.close();
@@ -1071,6 +1073,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
       } });
     })).state;
     assert.deepEqual(restoredSalesState, { ...restoringSalesState, lifecycleRevision: restoringSalesState.lifecycleRevision + 1 }, "Sales recovery must use one expected-revision current-authority transition.");
+    assert.equal((await fetch(`${applicationProcess.origin}/api/readiness`)).status, 200, "Readiness must accept later valid Sales lifecycle recovery.");
     const restoredHost = await fetch(`${applicationProcess.origin}/`, { headers: { cookie: manager.cookie.header }, redirect: "manual" });
     assert.equal(restoredHost.status, 200, "Host workspace must remain available after Sales recovery.");
     const restoredSystem = await fetch(`${applicationProcess.origin}/system/workspace-pages`, { headers: { cookie: manager.cookie.header }, redirect: "manual" });

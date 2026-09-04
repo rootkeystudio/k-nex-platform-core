@@ -1153,26 +1153,26 @@ export async function reconcileKnexReadiness(payload: Payload) {
   await resolveApplicationTheme(payload);
   const authority = kNexAuthority(payload);
   const state = await authority.store.readState(kNexIdentity.applicationId, kNexIdentity.environment);
-  if (state === undefined || state.lifecycleRevision !== kNexSalesRegistry.authorizationGeneration.lifecycleRevision || state.authorizationRevision < kNexSalesRegistry.authorizationGeneration.authorizationRevision) fail("Authorization lifecycle state mismatch.");
+  if (state === undefined || state.authorizationRevision < 2 || state.lifecycleRevision < 1) fail("Authorization lifecycle state mismatch.");
   const expected = { applicationId: state.applicationId, environment: state.environment, authorizationRevision: state.authorizationRevision, lifecycleRevision: state.lifecycleRevision };
   await authority.store.readTransaction(expected, async (transaction) => {
     await assertExactProtectedRoleBaselineState(transaction, expected, currentProtectedPlatformRoleBaselineRelease);
     const receipt = await transaction.readBootstrapReceipt(expected.applicationId);
-    if (receipt === undefined || receipt.applicationId !== expected.applicationId || receipt.ownerRoleId !== "system.role.owner" || receipt.state !== "committed" || receipt.authorizationRevision !== 1 ||
+    if (receipt === undefined || receipt.applicationId !== expected.applicationId || receipt.ownerRoleId !== "system.role.owner" || receipt.state !== "committed" || receipt.authorizationRevision < 1 || receipt.authorizationRevision > expected.authorizationRevision ||
       receipt.protectedBaselineVersion !== currentProtectedPlatformRoleBaselineRelease.version || receipt.protectedBaselineDigest !== currentProtectedPlatformRoleBaselineRelease.digest ||
       receipt.ownerAssignmentId !== protectedRoleBootstrapId(expected.applicationId, "owner-assignment", receipt.ownerPrincipal.id) || receipt.id !== protectedRoleBootstrapId(expected.applicationId, "receipt", receipt.ownerAssignmentId)) fail("Protected role baseline receipt mismatch.");
     const assignments = await transaction.listAssignments(expected.applicationId);
-    const receiptOwners = assignments.filter((assignment) => assignment.id === receipt.ownerAssignmentId && assignment.roleId === receipt.ownerRoleId && assignment.principal.kind === "user" && assignment.principal.id === receipt.ownerPrincipal.id && assignment.state === "active" && assignment.revision === 1);
-    if (receiptOwners.length !== 1) fail("Bootstrap owner assignment mismatch.");
-    const salesRole = await transaction.readRole(expected.applicationId, "customer.initial-sales-administrator");
-    if (!same(salesRole, { schemaVersion: 1, id: "customer.initial-sales-administrator", applicationId: expected.applicationId, label: "Sales administrator", revision: 0 })) fail("Initial Sales administrator role mismatch.");
-    const expectedSalesGrants = kNexSalesRegistry.permissionDescriptors.map(({ id }) => ({ schemaVersion: 1, id: "customer.initial-sales-administrator." + id, applicationId: expected.applicationId, roleId: "customer.initial-sales-administrator", permissionId: id, owner: kNexSalesRegistry.authorizationGeneration.owner, revision: 0 })).sort((left, right) => left.id.localeCompare(right.id));
-    const salesGrants = [...await transaction.listGrants(expected.applicationId, "customer.initial-sales-administrator")].sort((left, right) => left.id.localeCompare(right.id));
-    if (!same(salesGrants, expectedSalesGrants)) fail("Initial Sales permission grants mismatch.");
-    const salesGenerations = (await transaction.listExtensionGenerations(expected.applicationId)).filter((generation) => generation.owner.deliveryClass === "platform-plugin" && generation.owner.extensionId === "module.sales");
-    if (!same(salesGenerations, [kNexSalesRegistry.authorizationGeneration])) fail("Sales authorization generation mismatch.");
-    const salesAssignment = assignments.filter((assignment) => assignment.id === "customer.initial-sales-administrator.owner");
-    if (!same(salesAssignment, [{ schemaVersion: 1, id: "customer.initial-sales-administrator.owner", applicationId: expected.applicationId, roleId: "customer.initial-sales-administrator", principal: receipt.ownerPrincipal, state: "active", revision: 0 }])) fail("Initial Sales owner assignment mismatch.");
+    const receiptOwners = assignments.filter((assignment) => assignment.id === receipt.ownerAssignmentId);
+    if (receiptOwners.length !== 1 || receiptOwners.some((assignment) => assignment.roleId !== receipt.ownerRoleId || assignment.principal.kind !== "user" || assignment.principal.id !== receipt.ownerPrincipal.id || assignment.state !== "active" && assignment.state !== "revoked" || assignment.revision < 1)) fail("Bootstrap owner assignment mismatch.");
+    const salesGenerations = (await transaction.listExtensionGenerations(expected.applicationId)).filter((generation) =>
+      generation.owner.deliveryClass === "platform-plugin" && generation.owner.extensionId === "module.sales" && generation.owner.generation === 1
+    );
+    if (salesGenerations.length !== 1 || salesGenerations.some((generation) =>
+      generation.applicationId !== expected.applicationId || !same(generation.owner, kNexSalesRegistry.authorizationGeneration.owner) || !same(generation.runtimeGenerationIds, kNexSalesRegistry.authorizationGeneration.runtimeGenerationIds) ||
+      generation.state !== "current" && generation.state !== "retired" ||
+      generation.authorizationRevision < kNexSalesRegistry.authorizationGeneration.authorizationRevision || generation.authorizationRevision > expected.authorizationRevision ||
+      generation.lifecycleRevision < kNexSalesRegistry.authorizationGeneration.lifecycleRevision || generation.lifecycleRevision > expected.lifecycleRevision
+    )) fail("Sales authorization generation mismatch.");
   });
   return Object.freeze({ applicationId: kNexIdentity.applicationId, authorizationRevision: state.authorizationRevision, lifecycleRevision: state.lifecycleRevision });
 }

@@ -34,10 +34,7 @@ describe("generated application readiness", () => {
       "Authorization lifecycle state mismatch.",
       "Protected role baseline receipt mismatch.",
       "Bootstrap owner assignment mismatch.",
-      "Initial Sales administrator role mismatch.",
-      "Initial Sales permission grants mismatch.",
-      "Sales authorization generation mismatch.",
-      "Initial Sales owner assignment mismatch."
+      "Sales authorization generation mismatch."
     ]) expect(readiness).toContain(guard);
     expect(readiness).toContain("ApplicationManifestSchema.parse");
     expect(readiness).toContain("PackageReleaseManifestSchema.parse");
@@ -45,6 +42,17 @@ describe("generated application readiness", () => {
     expect(readiness).toContain("assertExactProtectedRoleBaselineState");
     expect(readiness).toContain("currentProtectedPlatformRoleBaselineRelease");
     expect(readiness).toContain("authority.store.readTransaction(expected");
+    expect(readiness).toMatch(/receipt\.authorizationRevision < 1 \|\| receipt\.authorizationRevision > expected\.authorizationRevision/u);
+    expect(readiness).toMatch(/assignment\.state !== "active" && assignment\.state !== "revoked" \|\| assignment\.revision < 1/u);
+    expect(readiness).toContain("kNexSalesRegistry.authorizationGeneration.runtimeGenerationIds");
+    expect(readiness).toMatch(/generation\.state !== "current" && generation\.state !== "retired"/u);
+    expect(readiness).toMatch(/generation\.authorizationRevision < kNexSalesRegistry\.authorizationGeneration\.authorizationRevision \|\| generation\.authorizationRevision > expected\.authorizationRevision/u);
+    expect(readiness).toMatch(/generation\.lifecycleRevision < kNexSalesRegistry\.authorizationGeneration\.lifecycleRevision \|\| generation\.lifecycleRevision > expected\.lifecycleRevision/u);
+    expect(readiness).not.toContain("receipt.authorizationRevision !== 1");
+    expect(readiness).not.toContain("same(salesRole,");
+    expect(readiness).not.toContain("expectedSalesGrants");
+    expect(readiness).not.toContain("same(salesGenerations, [kNexSalesRegistry.authorizationGeneration])");
+    expect(readiness).not.toContain('assignment.id === "customer.initial-sales-administrator.owner"');
     expect(readiness).toContain("expectedMigrationNames");
     expect(readiness).toContain("expectedRouteSources");
     expect(readiness).not.toContain("payload.destroy()");
