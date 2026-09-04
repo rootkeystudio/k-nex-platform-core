@@ -14,7 +14,7 @@ export interface WorkspaceShellProps {
   readonly environment: string;
   readonly currentHref: string;
   readonly navigation: ResolvedWorkspaceNavigation;
-  readonly preferenceKey: string;
+  readonly saveSidebarPreference?: (value: "expanded" | "collapsed") => Promise<void>;
   readonly themePresentation: WorkspaceShellThemePresentation;
   readonly children: ReactNode;
 }
@@ -59,15 +59,12 @@ function navigationContent(navigation: ResolvedWorkspaceNavigation, currentHref:
   return <nav aria-label="Workspace navigation">{branch()}{shortcuts("Favorites", navigation.favorites)}{shortcuts("Recent", navigation.recent)}</nav>;
 }
 
-export function WorkspaceShell({ applicationLabel, environment, currentHref, navigation, preferenceKey, themePresentation, children }: WorkspaceShellProps): ReactElement {
+export function WorkspaceShell({ applicationLabel, environment, currentHref, navigation, saveSidebarPreference, themePresentation, children }: WorkspaceShellProps): ReactElement {
   const [collapsed, setCollapsed] = useState(navigation.sidebar === "collapsed");
-  useEffect(() => {
-    const stored = globalThis.localStorage?.getItem(preferenceKey);
-    if (stored === "expanded" || stored === "collapsed") setCollapsed(stored === "collapsed");
-  }, [preferenceKey]);
+  useEffect(() => { setCollapsed(navigation.sidebar === "collapsed"); }, [navigation.sidebar]);
   const setSidebar = (value: boolean) => {
     setCollapsed(value);
-    globalThis.localStorage?.setItem(preferenceKey, value ? "collapsed" : "expanded");
+    void saveSidebarPreference?.(value ? "collapsed" : "expanded").catch(() => setCollapsed(navigation.sidebar === "collapsed"));
   };
   const currentLabel = useMemo(() => {
     const route = navigation.routes.find(({ href }) => href === currentHref);

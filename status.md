@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-09-04
 - **Phase:** Phase 12 — Runnable Customer Workspace and Dashboard Builder
-- **Active task:** P12.10 — generated dashboard built-in block correction
+- **Active task:** Phase 12 review P1 — durable sidebar preference correction
 - **State:** In progress
 
 ## Last completed
 
-Generated dashboard validation, editor authority/palette, and production rendering now combine the built-in K-Nex block library with Sales blocks while production imports the runtime-only block definitions.
+Generated sidebar collapse state now has a server-derived application/environment/user scope, a bounded same-origin mutation, and a generated PostgreSQL migration rather than browser-owned `localStorage` state.
 
 ## Validation
 
-`pnpm --filter @k-nex/ui-builder-blocks test` PASS (10 tests); `pnpm --filter @k-nex/composition build` PASS; `pnpm --filter @k-nex/composition test -- workspace-page-application-files.test.ts` PASS (119 tests); deterministic packed closure/factory-lock checks PASS; `pnpm --dir fixtures/customer-gate-1 test:p12:shell` PASS (generated PostgreSQL/HTTP/Chromium mixed built-in/Sales dashboard journey); `git diff --check` PASS.
+`pnpm --filter @k-nex/composition... build` PASS; focused composition generation tests PASS (121 tests); focused payload-adapter preference/migration tests PASS (246 tests); focused ui-components shell tests PASS (14 tests); generated durable-sidebar TypeScript parse proof PASS; `git diff --check` PASS.
 
 ## Next
 
-Document the generated System administration authority blocker, then continue the independent Phase 12 review P1 corrections.
+Review the durable-preference correction and reconcile it with the Phase 12 packed-release evidence before any acceptance decision.
 
 ## Blockers
 

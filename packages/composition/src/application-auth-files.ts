@@ -567,6 +567,7 @@ function workspaceNavigationSource(): string {
   return `import { createHash } from "node:crypto";
 
 import { canonicalJson, type PluginNavigationDescriptor, type PluginRouteDescriptor } from "@k-nex/contracts";
+import { PostgresWorkspaceSidebarPreferenceStore, type RuntimeExtensionPool, type WorkspaceSidebarPreference } from "@k-nex/payload-adapter";
 import { resolveWorkspaceNavigation } from "@k-nex/ui-runtime";
 import type { Payload } from "payload";
 
@@ -580,6 +581,16 @@ import { kNexWorkspacePages, kNexWorkspacePageScope } from "./k-nex-workspace-pa
 type RegisteredRoute = PluginRouteDescriptor;
 type RegisteredTemplate = Readonly<{ id: string; ownerPluginId: string; route: Readonly<{ routeId: string }>; permission: string }>;
 type RegisteredNavigation = PluginNavigationDescriptor;
+
+function currentUserId(user: unknown): string | undefined {
+  if (typeof user !== "object" || user === null || !("id" in user) || !("collection" in user) || user.collection !== "users" || user.id === null || user.id === undefined) return undefined;
+  const id = String(user.id);
+  return /^[^\\u0000-\\u001f\\u007f]{1,160}$/u.test(id) ? id : undefined;
+}
+
+function sidebarPreferences(payload: Payload) {
+  return new PostgresWorkspaceSidebarPreferenceStore(payload.db.pool as RuntimeExtensionPool);
+}
 
 async function currentSalesNavigation(payload: Payload, context: ReturnType<typeof kNexRequestContext>, salesGenerationCurrent: boolean): Promise<readonly RegisteredNavigation[]> {
   if (!salesGenerationCurrent) return [];
@@ -597,7 +608,8 @@ async function currentSalesNavigation(payload: Payload, context: ReturnType<type
 
 export async function resolveCurrentWorkspaceNavigation(payload: Payload, headers: Headers) {
   const authentication = await payload.auth({ headers, canSetHeaders: false });
-  if (!authentication.user) return undefined;
+  const userId = currentUserId(authentication.user);
+  if (userId === undefined) return undefined;
   const salesAuthority = await currentSalesGeneration(payload).catch(() => undefined);
   const state = salesAuthority?.state ?? await kNexAuthority(payload).store.readState(kNexIdentity.applicationId, kNexIdentity.environment);
   if (state === undefined) return undefined;
@@ -607,6 +619,7 @@ export async function resolveCurrentWorkspaceNavigation(payload: Payload, header
   const salesNavigation = await currentSalesNavigation(payload, context, salesGenerationCurrent);
   const workspace = kNexWorkspacePages(payload);
   const canReadPages = await authorizeNavigationPermission(payload, context, "system.workspace-pages.read");
+  const sidebar = await sidebarPreferences(payload).read({ applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment, userId });
   const [pageItems, folderItems] = canReadPages ? await Promise.all([
     workspace.service.list(context, kNexWorkspacePageScope), workspace.folders.list(kNexWorkspacePageScope)
   ]) : [[], []];
@@ -626,7 +639,7 @@ export async function resolveCurrentWorkspaceNavigation(payload: Payload, header
       navigation: salesNavigation }],
     customerFolders: folderItems.map(({ node }) => node),
     pages,
-    preferences: { sidebar: "expanded", favoritePageIds: [], recentPageIds: [] },
+    preferences: { sidebar, favoritePageIds: [], recentPageIds: [] },
     authorize: (permissionId) => authorizeNavigationPermission(payload, context, permissionId),
     pageAccess: async (pageId) => visiblePageIds.has(pageId)
   });
@@ -637,7 +650,13 @@ export async function resolveCurrentWorkspaceNavigation(payload: Payload, header
     pages: pageItems.map(({ page, impact }) => [page.identity.pageId, page.accessRevision, impact.state, impact.code ?? null]).sort((left, right) => String(left[0]).localeCompare(String(right[0]))),
     folders: folderItems.map(({ node, revision }) => [node.id, revision]).sort((left, right) => String(left[0]).localeCompare(String(right[0])))
   })).digest("hex");
-  return Object.freeze({ navigation, watermark, themePresentation: applicationTheme.presentation, preferenceKey: kNexIdentity.applicationId + ":user:" + String(authentication.user.id) + ":workspace-sidebar" });
+  return Object.freeze({ navigation, watermark, themePresentation: applicationTheme.presentation });
+}
+
+export async function updateCurrentWorkspaceSidebarPreference(payload: Payload, context: ReturnType<typeof kNexRequestContext>, value: unknown): Promise<WorkspaceSidebarPreference> {
+  const userId = currentUserId((await payload.auth({ headers: context.headers, canSetHeaders: false })).user);
+  if (userId === undefined) throw new TypeError("Workspace sidebar preference is unauthenticated.");
+  return sidebarPreferences(payload).upsert({ applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment, userId }, value);
 }
 `;
 }
@@ -842,6 +861,22 @@ export async function GET(request: Request) {
 `;
 }
 
+function navigationSidebarPreferenceRouteSource(): string {
+  return `import { updateCurrentWorkspaceSidebarPreference } from "../../../../../k-nex-workspace-navigation.js";
+import { openWorkspaceJson, workspaceMutationError } from "../../../../../k-nex-workspace-page-http.js";
+
+export const dynamic = "force-dynamic";
+
+export async function POST(request: Request) {
+  try {
+    const { payload, context, body } = await openWorkspaceJson(request, "workspace-sidebar-preference");
+    if (body === null || typeof body !== "object" || Array.isArray(body) || Object.keys(body).join("\\0") !== "sidebar") throw new TypeError("Workspace sidebar preference body is invalid.");
+    return Response.json({ sidebar: await updateCurrentWorkspaceSidebarPreference(payload, context, (body as Record<string, unknown>).sidebar) }, { headers: { "cache-control": "no-store" } });
+  } catch (error) { return workspaceMutationError(error); }
+}
+`;
+}
+
 function shellClientSource(): string {
   return `"use client";
 
@@ -860,7 +895,7 @@ function parseThemePresentation(value: unknown): ThemePresentation | undefined {
   return candidate as ThemePresentation;
 }
 
-export function KnexWorkspaceShell(props: Readonly<{ applicationLabel: string; environment: string; navigation: ResolvedWorkspaceNavigation; navigationWatermark: string; preferenceKey: string; themePresentation: ThemePresentation; children: ReactNode }>) {
+export function KnexWorkspaceShell(props: Readonly<{ applicationLabel: string; environment: string; navigation: ResolvedWorkspaceNavigation; navigationWatermark: string; themePresentation: ThemePresentation; children: ReactNode }>) {
   const [navigation, setNavigation] = useState(props.navigation);
   const [themePresentation, setThemePresentation] = useState(props.themePresentation);
   const [watermark, setWatermark] = useState(props.navigationWatermark);
@@ -886,7 +921,12 @@ export function KnexWorkspaceShell(props: Readonly<{ applicationLabel: string; e
     return () => { active = false; clearInterval(timer); };
   }, [watermark]);
   const { navigationWatermark: _, navigation: __, themePresentation: ___, ...shell } = props;
-  return <WorkspaceShell {...shell} navigation={navigation} themePresentation={themePresentation} currentHref={usePathname()} />;
+  const saveSidebarPreference = async (sidebar: "expanded" | "collapsed") => {
+    const response = await fetch("/api/k-nex/navigation/sidebar", { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify({ sidebar }) });
+    const body = await response.json().catch(() => undefined) as { sidebar?: unknown } | undefined;
+    if (!response.ok || body?.sidebar !== sidebar) throw new Error("Workspace sidebar preference was not saved.");
+  };
+  return <WorkspaceShell {...shell} navigation={navigation} themePresentation={themePresentation} currentHref={usePathname()} saveSidebarPreference={saveSidebarPreference} />;
 }
 `;
 }
@@ -907,7 +947,7 @@ export default async function WorkspaceLayout({ children }: Readonly<{ children:
   const payload = await bootKnexApplication("workspace-web");
   const resolved = await resolveCurrentWorkspaceNavigation(payload, await getHeaders());
   if (resolved === undefined) redirect("/login");
-  return <KnexWorkspaceShell applicationLabel=${jsxStringExpression(applicationName)} environment={kNexIdentity.environment} navigation={resolved.navigation} navigationWatermark={resolved.watermark} preferenceKey={resolved.preferenceKey} themePresentation={resolved.themePresentation}>{children}</KnexWorkspaceShell>;
+  return <KnexWorkspaceShell applicationLabel=${jsxStringExpression(applicationName)} environment={kNexIdentity.environment} navigation={resolved.navigation} navigationWatermark={resolved.watermark} themePresentation={resolved.themePresentation}>{children}</KnexWorkspaceShell>;
 }
 `;
 }
@@ -981,7 +1021,8 @@ const expectedMigrationNames = Object.freeze([
   "20260903_000003_knex_authorization",
   "20260903_000004_knex_workspace_pages",
   "20260903_000005_knex_event_outbox",
-  "20260904_000006_knex_theme_profiles"
+  "20260904_000006_knex_theme_profiles",
+  "20260904_000007_knex_workspace_sidebar_preferences"
 ]);
 const expectedRouteSources = Object.freeze([
   "src/app/(auth)/forbidden/page.tsx",
@@ -1001,6 +1042,7 @@ const expectedRouteSources = Object.freeze([
   "src/app/api/health/route.ts",
   "src/app/api/k-nex/inventory/route.ts",
   "src/app/api/k-nex/navigation/revision/route.ts",
+  "src/app/api/k-nex/navigation/sidebar/route.ts",
   "src/app/api/k-nex/sales/actions/[actionId]/route.ts",
   "src/app/api/k-nex/sales/routes/[routeId]/route.ts",
   "src/app/api/k-nex/workspace-folders/[folderId]/route.ts",
@@ -1270,6 +1312,7 @@ export function applicationAuthFiles(options: ApplicationAuthFilesOptions): Read
     "src/app/(workspace)/sales/settings/page.tsx": salesRoutePageSource("sales.route.settings", "sales/settings"),
     "src/app/api/k-nex/inventory/route.ts": inventoryRouteSource(),
     "src/app/api/k-nex/navigation/revision/route.ts": navigationRevisionRouteSource(),
+    "src/app/api/k-nex/navigation/sidebar/route.ts": navigationSidebarPreferenceRouteSource(),
     "src/app/api/k-nex/sales/actions/[actionId]/route.ts": salesActionRouteSource(),
     "src/app/api/k-nex/sales/routes/[routeId]/route.ts": salesRouteProjectionRouteSource(),
     "src/app/api/readiness/route.ts": readinessRouteSource(),

@@ -124,6 +124,27 @@ describe("generated workspace invalidation runtime", () => {
     expect(shell).not.toContain("router.refresh()");
   });
 
+  it("uses a server-derived current user and same-origin mutation for durable sidebar state", () => {
+    const files = applicationAuthFiles({ applicationId: "customer-alpha", applicationName: "Customer Alpha", theme: "minimal" });
+    const navigation = files["src/k-nex-workspace-navigation.ts"]!;
+    const shell = files["src/app/components/k-nex-workspace-shell.tsx"]!;
+    const route = files["src/app/api/k-nex/navigation/sidebar/route.ts"]!;
+
+    expect(navigation).toContain("PostgresWorkspaceSidebarPreferenceStore");
+    expect(navigation).toContain("const userId = currentUserId(authentication.user);");
+    expect(navigation).toContain("sidebarPreferences(payload).read({ applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment, userId })");
+    expect(navigation).toContain("updateCurrentWorkspaceSidebarPreference");
+    expect(navigation).not.toContain("preferenceKey");
+    expect(shell).toContain('fetch("/api/k-nex/navigation/sidebar", { method: "POST", credentials: "same-origin"');
+    expect(shell).toContain("JSON.stringify({ sidebar })");
+    expect(shell).not.toContain("localStorage");
+    expect(route).toContain('openWorkspaceJson(request, "workspace-sidebar-preference")');
+    expect(route).toContain('Object.keys(body).join("\\0") !== "sidebar"');
+    expect(route).not.toContain("applicationId");
+    expect(route).not.toContain("environment");
+    expect(route).not.toContain("userId");
+  });
+
   it("consumes validated notifications into one periodically reconciled session registry", () => {
     const files = workspacePageApplicationFiles({ applicationId: "customer-alpha" });
     const runtime = files["src/k-nex-workspace-pages.ts"]!;

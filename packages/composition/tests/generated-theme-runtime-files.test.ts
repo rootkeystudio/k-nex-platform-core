@@ -45,6 +45,8 @@ describe("generated durable Theme Profile runtime", () => {
     expect(migration).toContain('CREATE TABLE "runtime_theme_profile_outbox"');
     expect(migration).toContain('CONSTRAINT "runtime_theme_profile_state_digest_check"');
     expect(files["src/migrations/index.ts"]).toContain('name: "20260904_000006_knex_theme_profiles"');
+    expect(files["src/migrations/20260904_000007_knex_workspace_sidebar_preferences.ts"]).toContain("kNexWorkspaceSidebarPreferenceSchemaMigration");
+    expect(files["src/migrations/index.ts"]).toContain('name: "20260904_000007_knex_workspace_sidebar_preferences"');
   });
 
   it("wires current durable presentation around whole shell and polling watermark", () => {

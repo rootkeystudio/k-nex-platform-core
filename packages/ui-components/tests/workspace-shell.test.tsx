@@ -37,7 +37,7 @@ const navigation: ResolvedWorkspaceNavigation = {
 
 describe("P12.4 workspace shell", () => {
   it("server-renders only resolved navigation with shell, skip-link, breadcrumb, and collapse semantics", () => {
-    const markup = renderToStaticMarkup(<WorkspaceShell applicationLabel="Customer Alpha" environment="production" currentHref="/sales" navigation={navigation} preferenceKey="customer-alpha:user-one:sidebar" themePresentation={themePresentation}><p>Sales content</p></WorkspaceShell>);
+    const markup = renderToStaticMarkup(<WorkspaceShell applicationLabel="Customer Alpha" environment="production" currentHref="/sales" navigation={navigation} themePresentation={themePresentation}><p>Sales content</p></WorkspaceShell>);
     expect(markup).toContain('data-k-nex-component="workspace-shell"');
     expect(markup).toContain('data-k-nex-theme-profile="theme-profile-revision-42"');
     expect(markup).toContain('data-k-nex-theme-mode="light"');
@@ -55,7 +55,7 @@ describe("P12.4 workspace shell", () => {
   });
 
   it("keeps resolved links usable in the collapsed desktop rail", () => {
-    const markup = renderToStaticMarkup(<WorkspaceShell applicationLabel="Customer Alpha" environment="production" currentHref="/sales" navigation={{ ...navigation, sidebar: "collapsed" }} preferenceKey="customer-alpha:user-one:sidebar" themePresentation={themePresentation}><p>Sales content</p></WorkspaceShell>);
+    const markup = renderToStaticMarkup(<WorkspaceShell applicationLabel="Customer Alpha" environment="production" currentHref="/sales" navigation={{ ...navigation, sidebar: "collapsed" }} themePresentation={themePresentation}><p>Sales content</p></WorkspaceShell>);
 
     expect(markup).toContain('data-sidebar="collapsed"');
     expect(markup).toContain('workspace-desktop-navigation-rail');
