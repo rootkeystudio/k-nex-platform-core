@@ -7,7 +7,7 @@
 
 ## Last completed
 
-Latest review corrections are integrated: full-navigation polling watermark, duplicate-only folder replay with changed-payload denial, authority-bound durable navigation outbox lease/dead-letter evidence, worker-down reconciliation, and the generated migration-count fixture.
+Latest review corrections are integrated: full-navigation polling watermark, duplicate-only folder replay with changed-payload denial, authority-bound durable navigation outbox lease/dead-letter unit evidence, worker-down reconciliation, and the generated migration-count fixture.
 
 ## Validation
 
