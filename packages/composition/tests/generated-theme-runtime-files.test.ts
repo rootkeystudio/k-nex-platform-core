@@ -99,7 +99,7 @@ describe("generated durable Theme Profile runtime", () => {
     expect(runtime).toContain("themeStateDigest: theme.observation.stateDigest");
     expect(route).toContain("left.themePublicationRevision === right.themePublicationRevision");
     expect(route).toContain("left.themeStateDigest === right.themeStateDigest");
-    expect(runtime).toContain("extensionGenerations: Object.freeze([{ applicationId: scope.applicationId");
+    expect(runtime).toContain("extensionGenerations: Object.freeze(usesSales(document) ? [{ applicationId: scope.applicationId");
     expect(runtime).toContain("themePublication: Object.freeze({ applicationId: scope.applicationId");
   });
 
@@ -108,12 +108,12 @@ describe("generated durable Theme Profile runtime", () => {
 
     expect(runtime).toContain("async function salesGenerationImpact(payload: Payload, lifecycleRevision: number | undefined)");
     expect(runtime).toContain("from k_nex_extension_authorization_generations");
-    expect(runtime).toContain("max(state) filter (where authorization_generation=$3) exact_state");
-    expect(runtime).toContain("bool_or(state='current' and authorization_generation<>$3)");
+    expect(runtime).toContain("max(state) filter (where authorization_generation=$3 and runtime_generation_ids=$4::jsonb) exact_state");
+    expect(runtime).toContain("bool_or(state='current' and (authorization_generation<>$3 or runtime_generation_ids<>$4::jsonb))");
     expect(runtime).not.toContain("order by authorization_generation desc limit 1");
     expect(runtime).toContain('return "plugin-disabled" as const');
     expect(runtime).toContain('return "plugin-updated" as const');
     expect(runtime).toContain('code: "theme-unavailable" as const');
-    expect(runtime.indexOf('code: "theme-unavailable" as const')).toBeLessThan(runtime.indexOf("const pluginCode = await salesGenerationImpact"));
+    expect(runtime.indexOf('code: "theme-unavailable" as const')).toBeLessThan(runtime.indexOf("const pluginCode = usesSales(document) ? await salesGenerationImpact"));
   });
 });

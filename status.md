@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-09-04
 - **Phase:** Phase 12 — Runnable Customer Workspace and Dashboard Builder
-- **Active task:** P12.10 — generated Platform Plugin lifecycle binding correction
+- **Active task:** P12.10 — generated workspace page dependency correction
 - **State:** In progress
 
 ## Last completed
 
-Generated Sales authority now binds the immutable compiled release/package/runtime generation to the exact durable current generation and derives disable availability through the canonical lifecycle projection.
+Generated page impact and observations now derive extension fences from the selected document. Platform-only pages retain platform authority across Sales disable/stale replacement; Sales-dependent pages require the exact compiled generation.
 
 ## Validation
 
-`pnpm --filter @k-nex/composition test` PASS (118 tests); `pnpm --filter @k-nex/composition build` PASS; `pnpm --dir fixtures/customer-gate-1 test:p12:shell` PASS, including generated PostgreSQL/HTTP/Chromium disable and later recovery proof; `git diff --check` PASS.
+`pnpm --filter @k-nex/composition test -- workspace-page-application-files.test.ts workspace-page-invalidation-files.test.ts generated-theme-runtime-files.test.ts` PASS (119 tests); `pnpm --filter @k-nex/composition build` PASS; `pnpm --dir fixtures/customer-gate-1 test:p12:shell` PASS with generated PostgreSQL/HTTP/Chromium Platform-only, exact re-enable, and stale-replacement proof; `git diff --check` PASS.
 
 ## Next
 
-Correct generated page dependency evaluation so Platform-only pages survive Sales lifecycle changes while Sales-dependent pages remain fail-closed.
+Integrate built-in K-Nex blocks with Sales in generated validation, editor, and production rendering.
 
 ## Blockers
 

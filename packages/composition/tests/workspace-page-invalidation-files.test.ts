@@ -89,6 +89,8 @@ describe("generated workspace invalidation runtime", () => {
     expect(authority).toContain("kNexSalesRegistry.staticRelease.runtimeGenerationId");
     expect(authority).toContain("inactive-extension-disabled");
     expect(authority).toContain("lifecycleOverride: Object.freeze({ enabled: !unavailable, ready: !unavailable })");
+    expect(authority).toContain("...(snapshot.value === undefined ? {} : { generation: snapshot.value.generation, lifecycleOverride: snapshot.value.lifecycleOverride })");
+    expect(authority).toContain("current.generation === undefined || current.lifecycleOverride === undefined ? undefined");
     expect(authority).toContain("extensions: salesContribution === undefined ? [] : [salesContribution]");
     expect(authority).toContain("export async function currentSalesGeneration(payload: Payload)");
     expect(authority).not.toContain("lifecycleRevision !== 0 && lifecycleRevision !== 1");

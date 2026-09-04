@@ -24,7 +24,7 @@ import { salesPuckBlockBridges } from "@k-nex/module-sales/puck";
 import { createCurrentAuthorityTarget } from "@k-nex/runtime";
 import type { Payload } from "payload";
 
-import { authorizeRequest, kNexAuthority, type KnexRequestContext } from "./k-nex-authority.js";
+import { authorizeRequest, currentSalesGeneration, kNexAuthority, type KnexRequestContext } from "./k-nex-authority.js";
 import { kNexIdentity } from "./k-nex-identity.js";
 import { kNexSalesRegistry } from "./k-nex-registry.js";
 import { resolveApplicationTheme, resolvePageThemeOverride } from "./k-nex-theme-runtime.js";
@@ -992,40 +992,47 @@ function dependenciesFor(document: UiDocument): WorkspacePublishedRevision["depe
   const add = (entry: WorkspacePublishedRevision["dependencies"]["entries"][number]): void => { entries.set(canonicalJson(entry), entry); };
   for (const node of nodes(document)) {
     if (platformBlocks.get(node.type) === node.version) add({ kind: "block", id: node.type, version: node.version, owner: { kind: "platform" } });
-    else if (contribution("blocks", node.type, node.version) !== undefined) add({ kind: "block", id: node.type, version: node.version, owner: { kind: "platform-plugin", pluginId: "module.sales", version: "1.0.0" } });
+    else if (contribution("blocks", node.type, node.version) !== undefined) add({ kind: "block", id: node.type, version: node.version, owner: { kind: "platform-plugin", pluginId: kNexSalesRegistry.authorizationGeneration.owner.extensionId, version: kNexSalesRegistry.staticRelease.package.version } });
     else throw new TypeError(\`Workspace block \${node.type}@\${node.version} is unavailable.\`);
     const source = node.bindings?.source;
     if (source !== undefined) {
       const descriptor = contribution("sources", source.source.id, source.source.version) as { readonly structuralCompatibilityHash?: unknown } | undefined;
       if (descriptor === undefined || descriptor.structuralCompatibilityHash !== source.structuralCompatibilityHash) throw new TypeError("Workspace source dependency is unavailable.");
-      add({ kind: "source", id: source.source.id, version: source.source.version, owner: { kind: "platform-plugin", pluginId: "module.sales", version: "1.0.0" }, structuralCompatibilityHash: source.structuralCompatibilityHash });
+      add({ kind: "source", id: source.source.id, version: source.source.version, owner: { kind: "platform-plugin", pluginId: kNexSalesRegistry.authorizationGeneration.owner.extensionId, version: kNexSalesRegistry.staticRelease.package.version }, structuralCompatibilityHash: source.structuralCompatibilityHash });
     }
     const action = node.bindings?.action;
     if (action !== undefined) {
       if (contribution("actions", action.id, action.version) === undefined) throw new TypeError("Workspace action dependency is unavailable.");
-      add({ kind: "action", id: action.id, version: action.version, owner: { kind: "platform-plugin", pluginId: "module.sales", version: "1.0.0" } });
+      add({ kind: "action", id: action.id, version: action.version, owner: { kind: "platform-plugin", pluginId: kNexSalesRegistry.authorizationGeneration.owner.extensionId, version: kNexSalesRegistry.staticRelease.package.version } });
     }
   }
   const ordered = [...entries.values()].sort((left, right) => canonicalJson(left).localeCompare(canonicalJson(right)));
   return { entries: ordered, digest: digest(ordered) };
 }
 
+function usesSales(document: UiDocument): boolean {
+  return dependenciesFor(document).entries.some((entry) => entry.owner.kind === "platform-plugin" &&
+    entry.owner.pluginId === kNexSalesRegistry.authorizationGeneration.owner.extensionId &&
+    entry.owner.version === kNexSalesRegistry.staticRelease.package.version);
+}
+
 async function salesGenerationImpact(payload: Payload, lifecycleRevision: number | undefined) {
   const result = await (payload.db.pool as RuntimeExtensionPool).query<{ exact_state: string | null; exact_lifecycle_revision: number | null; other_current: boolean; generation_count: string }>(
     \`select
-       max(state) filter (where authorization_generation=$3) exact_state,
-       max(lifecycle_revision) filter (where authorization_generation=$3) exact_lifecycle_revision,
-       coalesce(bool_or(state='current' and authorization_generation<>$3), false) other_current,
+       max(state) filter (where authorization_generation=$3 and runtime_generation_ids=$4::jsonb) exact_state,
+       max(lifecycle_revision) filter (where authorization_generation=$3 and runtime_generation_ids=$4::jsonb) exact_lifecycle_revision,
+       coalesce(bool_or(state='current' and (authorization_generation<>$3 or runtime_generation_ids<>$4::jsonb)), false) other_current,
        count(*)::text generation_count
      from k_nex_extension_authorization_generations
      where application_id=$1 and delivery_class='platform-plugin' and extension_id=$2\`,
-    [scope.applicationId, kNexSalesRegistry.authorizationGeneration.owner.extensionId, kNexSalesRegistry.authorizationGeneration.owner.generation]
+    [scope.applicationId, kNexSalesRegistry.authorizationGeneration.owner.extensionId, kNexSalesRegistry.authorizationGeneration.owner.generation, canonicalJson([kNexSalesRegistry.staticRelease.runtimeGenerationId])]
   );
   const generation = result.rows[0];
   if (generation === undefined || generation.generation_count === "0") return "plugin-removed" as const;
   if (generation.other_current) return "plugin-updated" as const;
   if (generation.exact_state !== "current") return "plugin-disabled" as const;
-  if (generation.exact_lifecycle_revision !== lifecycleRevision || lifecycleRevision !== kNexSalesRegistry.authorizationGeneration.lifecycleRevision) return "plugin-updated" as const;
+  if (generation.exact_lifecycle_revision !== lifecycleRevision) return "plugin-updated" as const;
+  if (await currentSalesGeneration(payload).catch(() => undefined) === undefined) return "plugin-disabled" as const;
   return undefined;
 }
 
@@ -1081,10 +1088,11 @@ function createRuntime(payload: Payload) {
       const fallback = (snapshot.page.dependencyDigest ?? digest([])) as \`sha256:\${string}\`;
       try { await (theme === undefined ? resolveApplicationTheme(payload) : resolvePageThemeOverride(payload, theme)); }
       catch { return { state: "dependency-unavailable" as const, code: "theme-unavailable" as const, catalogRevision: state?.lifecycleRevision ?? 0, dependencyDigest: fallback }; }
-      const pluginCode = await salesGenerationImpact(payload, state?.lifecycleRevision);
-      if (pluginCode !== undefined) return { state: "dependency-unavailable" as const, code: pluginCode, catalogRevision: state?.lifecycleRevision ?? 0, dependencyDigest: fallback };
       try {
-        const dependencies = dependenciesFor(selected?.document ?? snapshot.workingCopy.document);
+        const document = selected?.document ?? snapshot.workingCopy.document;
+        const pluginCode = usesSales(document) ? await salesGenerationImpact(payload, state?.lifecycleRevision) : undefined;
+        if (pluginCode !== undefined) return { state: "dependency-unavailable" as const, code: pluginCode, catalogRevision: state?.lifecycleRevision ?? 0, dependencyDigest: fallback };
+        const dependencies = dependenciesFor(document);
         return { state: "ready" as const, catalogRevision: state!.lifecycleRevision, dependencyDigest: dependencies.digest as \`sha256:\${string}\` };
       } catch { return { state: "dependency-unavailable" as const, code: "plugin-removed" as const, catalogRevision: state!.lifecycleRevision, dependencyDigest: fallback }; }
     },
@@ -1093,8 +1101,9 @@ function createRuntime(payload: Payload) {
       const reference = revision?.themeProfile ?? snapshot.page.themeProfile;
       const theme = await (reference === undefined ? resolveApplicationTheme(payload) : resolvePageThemeOverride(payload, reference));
       if (signal.aborted) throw new TypeError("Workspace dependency observation was cancelled.");
+      const document = revision?.document ?? snapshot.workingCopy.document;
       return Object.freeze({
-        extensionGenerations: Object.freeze([{ applicationId: scope.applicationId, deliveryClass: "platform-plugin" as const, extensionId: kNexSalesRegistry.authorizationGeneration.owner.extensionId, authorizationGeneration: kNexSalesRegistry.authorizationGeneration.owner.generation }]),
+        extensionGenerations: Object.freeze(usesSales(document) ? [{ applicationId: scope.applicationId, deliveryClass: "platform-plugin" as const, extensionId: kNexSalesRegistry.authorizationGeneration.owner.extensionId, authorizationGeneration: kNexSalesRegistry.authorizationGeneration.owner.generation }] : []),
         themePublication: Object.freeze({ applicationId: scope.applicationId, environment: scope.environment, profileId: theme.observation.profileId, activeRevisionId: theme.observation.activeRevisionId, revision: theme.observation.publicationRevision, stateDigest: theme.observation.stateDigest as \`sha256:\${string}\` })
       });
     }

@@ -189,7 +189,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     const lifecycleProjector = new AuthorizationLifecycleProjector(createStaticPlatformPluginAuthorizationDescriptorResolver({
       applicationId, registrations: [{ sourceCommit: lifecycleSourceCommit, registration: kNexSalesRegistry.scopedRegistration }]
     }));
-    const projectSalesLifecycle = async (operation, lifecycleState) => {
+    const projectSalesLifecycle = async (operation, lifecycleState, runtimeGenerationId = kNexSalesRegistry.staticRelease.runtimeGenerationId, updateCompatibility, priorGenerationEvidence) => {
       const state = await durableStore.readState(applicationId, environmentName);
       assert.ok(state);
       const revision = state.lifecycleRevision + 1;
@@ -202,12 +202,18 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
         receiptId: `p12-generated-sales-receipt-${revision}`, auditId: `p12-generated-sales-audit-${revision}`,
         idempotencyKey: `p12-generated-sales:${revision}`, correlationId: `p12-generated-sales-${revision}`,
         occurredAt: "2026-09-04T00:00:00.000Z", deliveryClass: "platform-plugin", id: "module.sales",
-        evidence: { sourceCommit: lifecycleSourceCommit, compositionChangePlanDigest: `sha256:${"c".repeat(64)}`, generationId: kNexSalesRegistry.staticRelease.runtimeGenerationId }
+        evidence: { sourceCommit: lifecycleSourceCommit, compositionChangePlanDigest: `sha256:${"c".repeat(64)}`, generationId: runtimeGenerationId }
       };
       const session = await pool.connect();
       try {
         await session.query("begin");
-        const projected = await lifecycleProjector.project({ session, transition, runtimeGenerationIds: [kNexSalesRegistry.staticRelease.runtimeGenerationId] });
+        const projected = await lifecycleProjector.project({
+          session,
+          transition,
+          runtimeGenerationIds: [runtimeGenerationId],
+          ...(updateCompatibility === undefined ? {} : { updateCompatibility }),
+          ...(priorGenerationEvidence === undefined ? {} : { priorGenerationEvidence })
+        });
         await session.query("commit");
         return projected.state;
       } catch (error) {
@@ -1056,6 +1062,24 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     const managerControlProjection = (await managerControlSession.json()).projection;
     assert.equal(managerControlProjection.sourceResults !== undefined, true, "The small control session must load its bound sources.");
     assertRevenueMetricBinding(managerControlProjection, { state: "success" }, "The initial clean control session must succeed for the named Sales revenue metric.");
+    const createPlatformPage = await fetch(`${applicationProcess.origin}/api/k-nex/workspace-pages`, {
+      method: "POST", redirect: "manual",
+      headers: { "content-type": "application/x-www-form-urlencoded", cookie: manager.cookie.header, origin: applicationProcess.origin },
+      body: new URLSearchParams({ title: "Platform-only workspace", description: "No Sales executable dependency", parentNavigationId: "sales.navigation.root", order: "101", themeRevision: "", idempotencyKey: `workspace-platform-only-${randomUUID()}` })
+    });
+    assert.equal(createPlatformPage.status, 303, await createPlatformPage.clone().text());
+    const platformPageId = decodeURIComponent(new URL(createPlatformPage.headers.get("location"), applicationProcess.origin).pathname.split("/").at(-1));
+    const platformPageEditor = await fetch(`${applicationProcess.origin}/api/k-nex/workspace-pages/${encodeURIComponent(platformPageId)}/session?mode=edit`, { headers: { cookie: manager.cookie.header } });
+    assert.equal(platformPageEditor.status, 200, await platformPageEditor.clone().text());
+    const platformPageWorkingCopy = (await platformPageEditor.json()).projection.workingCopy;
+    assert.deepEqual(platformPageWorkingCopy.document.regions.main, [], "The platform-only proof page must have no executable Sales dependency.");
+    const publishPlatformPage = await fetch(`${applicationProcess.origin}/api/k-nex/workspace-pages/${encodeURIComponent(platformPageId)}/publish`, {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie: manager.cookie.header, origin: applicationProcess.origin },
+      body: JSON.stringify({ workingCopyRevision: platformPageWorkingCopy.revision, idempotencyKey: `workspace-platform-only-publish-${randomUUID()}` })
+    });
+    assert.equal(publishPlatformPage.status, 200, await publishPlatformPage.clone().text());
+    assert.equal((await fetch(`${applicationProcess.origin}/workspace/pages/${encodeURIComponent(platformPageId)}`, { headers: { cookie: manager.cookie.header } })).status, 200, "The published platform-only page must render before a Sales lifecycle transition.");
     const createRatePage = await fetch(`${applicationProcess.origin}/api/k-nex/workspace-pages`, {
       method: "POST", redirect: "manual",
       headers: { "content-type": "application/x-www-form-urlencoded", cookie: manager.cookie.header, origin: applicationProcess.origin },
@@ -1186,6 +1210,15 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     assert.equal(retiredSystem.status, 200, "Disabling Sales must not redirect fixed System routes.");
     const retiredDependentPage = await fetch(`${applicationProcess.origin}/workspace/pages/${encodeURIComponent(pageId)}`, { headers: { cookie: manager.cookie.header }, redirect: "manual" });
     assert.equal(retiredDependentPage.status, 404, "A custom page depending on disabled Sales must fail closed.");
+    const retiredPlatformPage = await fetch(`${applicationProcess.origin}/workspace/pages/${encodeURIComponent(platformPageId)}`, { headers: { cookie: manager.cookie.header }, redirect: "manual" });
+    assert.equal(retiredPlatformPage.status, 200, "A platform-only page must remain renderable while Sales is disabled.");
+    assert.equal(retiredSalesHtml.includes(`/workspace/pages/${encodeURIComponent(platformPageId)}`), true, "A platform-only page remains navigable when its Sales placement parent has no executable route.");
+    const platformOnlyAction = await fetch(`${applicationProcess.origin}/api/k-nex/workspace-pages/${encodeURIComponent(platformPageId)}/actions/${encodeURIComponent("sales.task.create")}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie: manager.cookie.header, origin: applicationProcess.origin },
+      body: JSON.stringify({ input: { title: "must not execute" }, idempotencyKey: `workspace-platform-only-action-${randomUUID()}` })
+    });
+    assert.equal(platformOnlyAction.status, 404, "A platform-only page must not expose a Sales action while Sales is disabled.");
     for (const href of ["/sales", "/sales/tasks", "/sales/opportunities", "/sales/settings"]) {
       assert.equal(retiredSalesHtml.includes(`href=\"${href}\"`), false, `Disabling current Sales generation must remove ${href} navigation.`);
       assert.equal((await fetch(`${applicationProcess.origin}${href}`, { headers: { cookie: manager.cookie.header }, redirect: "manual" })).status, 404, `Disabling current Sales generation must deny ${href}.`);
@@ -1209,6 +1242,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     assert.equal(restoredSystem.status, 200, "Fixed system route must remain available after Sales lifecycle changes.");
     const restoredSales = await fetch(`${applicationProcess.origin}/sales/tasks`, { headers: { cookie: manager.cookie.header }, redirect: "manual" });
     assert.equal(restoredSales.status, 200, "A valid later current Sales generation must restore its registered route.");
+    assert.equal((await fetch(`${applicationProcess.origin}/workspace/pages/${encodeURIComponent(pageId)}`, { headers: { cookie: manager.cookie.header }, redirect: "manual" })).status, 200, "An exact compatible Sales re-enable must restore its published dependent page.");
     const restoredNavigation = await fetch(`${applicationProcess.origin}/`, { headers: { cookie: manager.cookie.header }, redirect: "manual" });
     assert.equal((await restoredNavigation.text()).includes('href="/sales/tasks"'), true, "A valid later current Sales generation must restore navigation.");
     const restoredActionTitle = "Recovered after Sales lifecycle transition";
@@ -1221,6 +1255,18 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     assert.equal(restoredAction.status, 200, "A valid later current Sales generation must restore registered actions.");
     assert.equal((await pool.query("select count(*)::int as count from sales_tasks where title=$1", [restoredActionTitle])).rows[0].count, 1);
     console.log("P12_LATER_SALES_GENERATION_RECOVERS_NAVIGATION_ROUTE_AND_ACTION_POSTGRES_HTTP=PASS");
+    const staleReplacementState = await projectSalesLifecycle(
+      "update",
+      "active",
+      "sales-stale-replacement-2",
+      "compatible",
+      { authority: "static-build", sourceCommit: lifecycleSourceCommit, generationId: kNexSalesRegistry.staticRelease.runtimeGenerationId }
+    );
+    assert.equal((await fetch(`${applicationProcess.origin}/workspace/pages/${encodeURIComponent(pageId)}`, { headers: { cookie: manager.cookie.header }, redirect: "manual" })).status, 404, "A stale Sales replacement must not revive the compiled dependent page.");
+    assert.equal((await fetch(`${applicationProcess.origin}/workspace/pages/${encodeURIComponent(platformPageId)}`, { headers: { cookie: manager.cookie.header }, redirect: "manual" })).status, 200, "A stale Sales replacement must not invalidate a platform-only page.");
+    assert.equal((await fetch(`${applicationProcess.origin}/sales/tasks`, { headers: { cookie: manager.cookie.header }, redirect: "manual" })).status, 404, "A stale Sales replacement must not revive compiled static routes.");
+    assert.equal(staleReplacementState.lifecycleRevision, restoredSalesState.lifecycleRevision + 1);
+    console.log("P12_WORKSPACE_PAGE_EXECUTABLE_DEPENDENCY_LIFECYCLE_POSTGRES_HTTP=PASS");
     console.log("P12_9_GENERATED_APP_POSTGRES_HTTP_CHROMIUM_EVIDENCE=PASS");
   } finally {
     await stop(workerProcess?.child).catch(() => {});

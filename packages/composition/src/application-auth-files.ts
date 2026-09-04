@@ -119,8 +119,10 @@ async function currentSalesAuthority(store: PostgresAuthorizationStore) {
     );
     return Object.freeze({ generation, lifecycleOverride: Object.freeze({ enabled: !unavailable, ready: !unavailable }) });
   });
-  if (snapshot.value === undefined) return undefined;
-  return Object.freeze({ state: snapshot.state, generation: snapshot.value.generation, lifecycleOverride: snapshot.value.lifecycleOverride });
+  return Object.freeze({
+    state: snapshot.state,
+    ...(snapshot.value === undefined ? {} : { generation: snapshot.value.generation, lifecycleOverride: snapshot.value.lifecycleOverride })
+  });
 }
 
 function createRuntime(payload: Payload) {
@@ -136,7 +138,7 @@ function createRuntime(payload: Payload) {
     if (applicationId !== kNexIdentity.applicationId) return undefined;
     const current = await currentSalesAuthority(store).catch(() => undefined);
     if (current === undefined || current.state.lifecycleRevision !== lifecycleRevision) return undefined;
-    const salesContribution = current.generation === undefined ? undefined : createPlatformPluginRegistrationAuthorizationContribution({ registration: kNexSalesRegistry.scopedRegistration, generation: current.generation, lifecycleOverride: current.lifecycleOverride });
+    const salesContribution = current.generation === undefined || current.lifecycleOverride === undefined ? undefined : createPlatformPluginRegistrationAuthorizationContribution({ registration: kNexSalesRegistry.scopedRegistration, generation: current.generation, lifecycleOverride: current.lifecycleOverride });
     return {
       applicationId,
       lifecycleRevision,
@@ -158,7 +160,7 @@ export function kNexAuthority(payload: Payload) {
 
 export async function currentSalesGeneration(payload: Payload) {
   const current = await currentSalesAuthority(kNexAuthority(payload).store);
-  if (current === undefined || !current.lifecycleOverride.enabled || !current.lifecycleOverride.ready) throw new TypeError("Sales authorization generation is unavailable.");
+  if (current?.generation === undefined || current.lifecycleOverride === undefined || !current.lifecycleOverride.enabled || !current.lifecycleOverride.ready) throw new TypeError("Sales authorization generation is unavailable.");
   return current;
 }
 

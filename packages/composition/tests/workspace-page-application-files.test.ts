@@ -90,6 +90,20 @@ describe("generated workspace page builder policy", () => {
     expect(source).toContain(".validateDocument(document)");
   });
 
+  it("observes compiled Sales only for the selected document's executable dependencies", () => {
+    const runtime = workspacePageApplicationFiles({ applicationId: "customer-alpha" })["src/k-nex-workspace-pages.ts"]!;
+
+    expect(runtime).toContain("function usesSales(document: UiDocument): boolean {");
+    expect(runtime).toContain("const document = selected?.document ?? snapshot.workingCopy.document;");
+    expect(runtime).toContain("const pluginCode = usesSales(document) ? await salesGenerationImpact(payload, state?.lifecycleRevision) : undefined;");
+    expect(runtime).toContain("const document = revision?.document ?? snapshot.workingCopy.document;");
+    expect(runtime).toContain("extensionGenerations: Object.freeze(usesSales(document) ? [{ applicationId: scope.applicationId");
+    expect(runtime).toContain("authorization_generation=$3 and runtime_generation_ids=$4::jsonb");
+    expect(runtime).toContain("canonicalJson([kNexSalesRegistry.staticRelease.runtimeGenerationId])");
+    expect(runtime).toContain("await currentSalesGeneration(payload).catch(() => undefined)");
+    expect(runtime).not.toContain("lifecycleRevision !== kNexSalesRegistry.authorizationGeneration.lifecycleRevision");
+  });
+
   it("derives the workspace owner override from the revision-pinned active owner assignment", () => {
     const source = workspacePageApplicationFiles({ applicationId: "customer-alpha" })["src/k-nex-workspace-pages.ts"]!;
 
