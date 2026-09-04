@@ -222,7 +222,7 @@ export async function resolveWorkspaceNavigation(input: ResolveWorkspaceNavigati
     const parsed = WorkspacePageSchema.safeParse(rawPage);
     if (!parsed.success || parsed.data.identity.applicationId !== input.applicationId || parsed.data.identity.environment !== input.environment) fail("INPUT_INVALID", "Workspace page navigation identity is invalid.");
     register(pages, parsed.data.identity.pageId, parsed.data, "DUPLICATE_ID");
-    if (parsed.data.state === "archived" || parsed.data.navigation.state === "unplaced") continue;
+    if (parsed.data.state !== "published" || parsed.data.navigation.state === "unplaced") continue;
     const target = { class: "workspace-page" as const, pageId: parsed.data.identity.pageId, mode: "view" as const };
     const href = `/workspace/pages/${encodeURIComponent(parsed.data.identity.pageId)}`;
     register(nodes, parsed.data.identity.pageId, WorkspaceNavigationNodeSchema.parse({ id: parsed.data.identity.pageId, owner: { kind: "customer" }, kind: "link", parentId: parsed.data.navigation.parentNavigationId, label: parsed.data.title, order: parsed.data.navigation.order, target }), "DUPLICATE_ID");

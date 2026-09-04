@@ -382,6 +382,9 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     const pageLocation = new URL(createPage.headers.get("location"), applicationProcess.origin);
     const pageId = decodeURIComponent(pageLocation.pathname.split("/").at(-1));
     assert.match(pageId, /^workspace\.page\./u);
+    const draftNavigation = await fetch(`${applicationProcess.origin}/`, { headers: { cookie: owner.cookie.header } });
+    assert.equal(draftNavigation.status, 200);
+    assert.equal((await draftNavigation.text()).includes(`href="/workspace/pages/${encodeURIComponent(pageId)}"`), false, "A draft page with current ACL must not be serialized as a navigation link.");
 
     const pageSession = await fetch(`${applicationProcess.origin}/api/k-nex/workspace-pages/${encodeURIComponent(pageId)}/session?mode=edit`, { headers: { cookie: owner.cookie.header } });
     assert.equal(pageSession.status, 200, `${await pageSession.clone().text()}\n${applicationProcess.output()}`);

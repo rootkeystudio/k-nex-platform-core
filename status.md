@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-09-04
 - **Phase:** Phase 12 — Runnable Customer Workspace and Dashboard Builder
-- **Active task:** Phase 12 review P1 correction consolidation
+- **Active task:** Phase 12 review correction integration proof
 - **State:** In progress
 
 ## Last completed
 
-Sidebar state is durable and server-scoped. Folder mutations now use current `system.workspace-pages.edit` authority, transaction revision fencing, and locked full-candidate graph validation against fixed/current registry IDs before PostgreSQL writes.
+Navigation now links only published admissible pages. Sidebar state is durable/server-scoped. Folder mutations use current edit authority, revision fencing, and locked full-candidate graph validation.
 
 ## Validation
 
-Preference slice: dependency build PASS; composition 121, payload-adapter 246, ui-components 14 focused tests PASS; generated source parse PASS. Folder slice: dependency builds PASS; navigation store 4 and generated-files 11 focused tests PASS; `git diff --check` PASS.
+Published-nav resolver/composition focused tests PASS; regenerated-app PostgreSQL/HTTP/Chromium shell proof PASS. Integrated preference/folder focused tests PASS: adapter 7, composition 18, shell 2; `git diff --check` PASS.
 
 ## Next
 
-Integrate published-only navigation, regenerate one final packed closure, then run focused real PostgreSQL/HTTP/Chromium proof.
+Regenerate final packed closure for all integrated fixes, run focused real proof, then same xhigh reviewer.
 
 ## Blockers
 

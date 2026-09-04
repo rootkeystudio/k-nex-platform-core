@@ -130,6 +130,18 @@ describe("P12.4 workspace navigation resolution", () => {
     expect(resolveAuthorizedWorkspacePath(resolved, "/sales")).toBeUndefined();
   });
 
+  it("omits placed drafts while retaining published pages with current access", async () => {
+    const { publishedRevisionId: _publishedRevisionId, dependencyDigest: _dependencyDigest, ...draft } = page;
+    const resolved = await resolveWorkspaceNavigation(input({
+      pages: [{ ...draft, state: "draft", identity: { ...draft.identity, pageId: "customer.page.draft", documentId: "customer.document.draft" } }, page]
+    }));
+
+    expect(resolved.tree.nodes.map(({ id }) => id)).not.toContain("customer.page.draft");
+    expect(resolved.routes.map(({ href }) => href)).not.toContain("/workspace/pages/customer.page.draft");
+    expect(resolved.tree.nodes.map(({ id }) => id)).toContain(page.identity.pageId);
+    expect(resolveAuthorizedWorkspacePath(resolved, "/workspace/pages/customer.page.pipeline")?.target).toEqual({ class: "workspace-page", pageId: page.identity.pageId, mode: "view" });
+  });
+
   it("registers no System link or route outside the explicit implemented subset", async () => {
     const resolved = await resolveWorkspaceNavigation(input({
       implementedSystemRouteIds: [],
