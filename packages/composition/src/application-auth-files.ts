@@ -611,7 +611,9 @@ export async function resolveCurrentWorkspaceNavigation(payload: Payload, header
 function salesRouteRuntimeSource(): string {
   return `import "server-only";
 
-import type { DataSourceBindingResult, UiDocument } from "@k-nex/contracts";
+import { createHash } from "node:crypto";
+
+import { canonicalJson, type DataSourceBindingResult, type UiDocument } from "@k-nex/contracts";
 import type { Payload } from "payload";
 
 import { authorizeNavigationPermission, kNexAuthority, type KnexRequestContext } from "./k-nex-authority.js";
@@ -651,7 +653,7 @@ function registeredAction(actionId: string): RegisteredAction {
 }
 
 export async function loadRegisteredSalesRoute(payload: Payload, context: KnexRequestContext, routeId: string) {
-  await currentSalesGeneration(payload);
+  const initialState = await currentSalesGeneration(payload);
   const { route, template } = routeTemplate(routeId);
   const [routeAllowed, permissions] = await Promise.all([
     authorizeNavigationPermission(payload, context, route.permission), workspaceSalesPermissions(payload, context)
@@ -660,7 +662,18 @@ export async function loadRegisteredSalesRoute(payload: Payload, context: KnexRe
     throw new TypeError("Sales route is denied.");
   }
   const sourceResults = await loadWorkspaceSalesSources(payload, context, template.document, new AbortController().signal);
-  return Object.freeze({ document: template.document, permissions, sourceResults });
+  const [finalState, finalRouteAllowed, finalPermissions] = await Promise.all([
+    currentSalesGeneration(payload), authorizeNavigationPermission(payload, context, route.permission), workspaceSalesPermissions(payload, context)
+  ]);
+  if (finalState.authorizationRevision !== initialState.authorizationRevision || finalState.lifecycleRevision !== initialState.lifecycleRevision ||
+    !finalRouteAllowed || !finalPermissions.includes(template.permission) || canonicalJson(finalPermissions) !== canonicalJson(permissions)) {
+    throw new TypeError("Sales route authority changed.");
+  }
+  const watermark = "sha256:" + createHash("sha256").update(canonicalJson({
+    authorizationRevision: finalState.authorizationRevision, lifecycleRevision: finalState.lifecycleRevision,
+    permissions: finalPermissions, sourceResults
+  })).digest("hex");
+  return Object.freeze({ document: template.document, permissions: finalPermissions, sourceResults, watermark });
 }
 
 export async function executeRegisteredSalesRouteAction(payload: Payload, context: KnexRequestContext, actionId: string, input: unknown, idempotencyKey: string, signal: AbortSignal) {
@@ -673,27 +686,56 @@ export async function executeRegisteredSalesRouteAction(payload: Payload, contex
 function salesRouteRuntimeClientSource(): string {
   return `"use client";
 
-import type { DataSourceBindingResult, UiDocument } from "@k-nex/contracts";
+import { DataSourceBindingResultSchema, UiDocumentSchema, type DataSourceBindingResult, type UiDocument } from "@k-nex/contracts";
 import { salesOpportunitiesDescriptor, salesTasksDescriptor, salesTotalPotentialRevenueDescriptor } from "@k-nex/module-sales/contracts";
 import { salesUiBlockDefinitions } from "@k-nex/module-sales/ui";
 import { presentUiRuntimeReact } from "@k-nex/ui-components";
 import { createUiDocumentRuntime, createUiRuntimeRegistry, presentUiRuntimeResult } from "@k-nex/ui-runtime";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 const runtime = createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: salesUiBlockDefinitions, sources: [salesOpportunitiesDescriptor, salesTasksDescriptor, salesTotalPotentialRevenueDescriptor] }));
-type Projection = Readonly<{ document: UiDocument; permissions: readonly string[]; sourceResults: Readonly<Record<string, DataSourceBindingResult<unknown>>> }>;
+type Projection = Readonly<{ document: UiDocument; permissions: readonly string[]; sourceResults: Readonly<Record<string, DataSourceBindingResult<unknown>>>; watermark: string }>;
 
-export function RegisteredSalesRouteRuntime({ initialProjection }: Readonly<{ initialProjection: Projection }>) {
-  const result = useMemo(() => runtime.render({
-    document: initialProjection.document, surface: "workspace", actor: { authenticated: true, permissions: new Set(initialProjection.permissions) }, sourceResults: initialProjection.sourceResults,
+function projection(value: unknown): Projection | undefined {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const candidate = value as Record<string, unknown>;
+  if (Object.keys(candidate).sort().join("\\0") !== "document\\0permissions\\0sourceResults\\0watermark" || typeof candidate.document !== "object" || candidate.document === null || Array.isArray(candidate.document) ||
+    !Array.isArray(candidate.permissions) || candidate.permissions.some((permission) => typeof permission !== "string") || typeof candidate.sourceResults !== "object" || candidate.sourceResults === null || Array.isArray(candidate.sourceResults) ||
+    typeof candidate.watermark !== "string" || !/^sha256:[0-9a-f]{64}$/u.test(candidate.watermark)) return undefined;
+  try {
+    return Object.freeze({ document: UiDocumentSchema.parse(candidate.document), permissions: Object.freeze([...candidate.permissions]), sourceResults: Object.freeze(Object.fromEntries(Object.entries(candidate.sourceResults).map(([id, result]) => [id, DataSourceBindingResultSchema.parse(result)]))), watermark: candidate.watermark });
+  } catch { return undefined; }
+}
+
+export function RegisteredSalesRouteRuntime({ initialProjection, routeId }: Readonly<{ initialProjection: Projection; routeId: string }>) {
+  const [current, setCurrent] = useState<Projection | undefined>(initialProjection);
+  useEffect(() => {
+    let active = true;
+    let pending = false;
+    setCurrent(initialProjection);
+    const refresh = async () => {
+      if (pending) return;
+      pending = true;
+      const response = await fetch("/api/k-nex/sales/routes/" + encodeURIComponent(routeId), { cache: "no-store" }).catch(() => undefined);
+      const next = response?.ok ? projection(await response.json().catch(() => undefined)) : undefined;
+      if (active) setCurrent(next);
+      pending = false;
+    };
+    void refresh();
+    const timer = setInterval(() => { void refresh(); }, 1_000);
+    return () => { active = false; clearInterval(timer); };
+  }, [initialProjection, routeId]);
+  const result = useMemo(() => current === undefined ? undefined : runtime.render({
+    document: current.document, surface: "workspace", actor: { authenticated: true, permissions: new Set(current.permissions) }, sourceResults: current.sourceResults,
     dispatchAction: async (request) => {
       const response = await fetch("/api/k-nex/sales/actions/" + encodeURIComponent(request.action.id), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ input: request.input, idempotencyKey: "sales-route-action-" + crypto.randomUUID() }) });
       const body = await response.json();
-      if (!response.ok) throw new Error(body.code ?? "Sales action failed.");
+      if (!response.ok) { setCurrent(undefined); throw new Error(body.code ?? "Sales action failed."); }
       window.location.reload();
       return body.data;
     }
-  }), [initialProjection]);
+  }), [current]);
+  if (result === undefined) return <section role="alert" data-k-nex-sales-route="unavailable">Sales route unavailable</section>;
   return <section>{presentUiRuntimeReact(presentUiRuntimeResult(result))}</section>;
 }
 `;
@@ -717,7 +759,26 @@ export default async function SalesRoute() {
   const payload = await bootKnexApplication("workspace-web");
   const headers = await getHeaders();
   const context = kNexRequestContext(headers, "sales-route");
-  try { return <RegisteredSalesRouteRuntime initialProjection={await loadRegisteredSalesRoute(payload, context, ${JSON.stringify(routeId)})} />; } catch { return notFound(); }
+  try { return <RegisteredSalesRouteRuntime routeId={${JSON.stringify(routeId)}} initialProjection={await loadRegisteredSalesRoute(payload, context, ${JSON.stringify(routeId)})} />; } catch { return notFound(); }
+}
+`;
+}
+
+function salesRouteProjectionRouteSource(): string {
+  return `import { headers as getHeaders } from "next/headers";
+
+import { bootKnexApplication } from "../../../../../../boot.js";
+import { kNexRequestContext } from "../../../../../../k-nex-authority.js";
+import { loadRegisteredSalesRoute } from "../../../../../../k-nex-sales-routes.js";
+
+export const dynamic = "force-dynamic";
+
+export async function GET(_: Request, { params }: Readonly<{ params: Promise<{ routeId: string }> }>) {
+  try {
+    const payload = await bootKnexApplication("workspace-web");
+    const headers = await getHeaders();
+    return Response.json(await loadRegisteredSalesRoute(payload, kNexRequestContext(headers, "sales-route-projection"), (await params).routeId), { headers: { "cache-control": "no-store" } });
+  } catch { return Response.json({ code: "NOT_FOUND" }, { status: 404, headers: { "cache-control": "no-store" } }); }
 }
 `;
 }
@@ -915,6 +976,7 @@ const expectedRouteSources = Object.freeze([
   "src/app/api/k-nex/inventory/route.ts",
   "src/app/api/k-nex/navigation/revision/route.ts",
   "src/app/api/k-nex/sales/actions/[actionId]/route.ts",
+  "src/app/api/k-nex/sales/routes/[routeId]/route.ts",
   "src/app/api/k-nex/workspace-folders/[folderId]/route.ts",
   "src/app/api/k-nex/workspace-folders/route.ts",
   "src/app/api/k-nex/workspace-pages/[pageId]/[operation]/route.ts",
@@ -1176,6 +1238,7 @@ export function applicationAuthFiles(options: ApplicationAuthFilesOptions): Read
     "src/app/api/k-nex/inventory/route.ts": inventoryRouteSource(),
     "src/app/api/k-nex/navigation/revision/route.ts": navigationRevisionRouteSource(),
     "src/app/api/k-nex/sales/actions/[actionId]/route.ts": salesActionRouteSource(),
+    "src/app/api/k-nex/sales/routes/[routeId]/route.ts": salesRouteProjectionRouteSource(),
     "src/app/api/readiness/route.ts": readinessRouteSource(),
     "src/app/components/login-form.tsx": loginFormSource(),
     "src/app/components/logout-button.tsx": logoutButtonSource(),

@@ -846,6 +846,31 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
         await transaction.write({ kind: "grant", grant: { schemaVersion: 1, id: `customer.sales-manager.${permissionId}`, applicationId, roleId: "customer.sales-manager", permissionId, owner: { kind: "extension", deliveryClass: "platform-plugin", extensionId: "module.sales", generation: 1 }, revision: 0 } });
       }
     });
+    const managerSalesRoutePage = await managerContext.newPage();
+    await managerSalesRoutePage.goto(`${applicationProcess.origin}/sales/tasks`);
+    await managerSalesRoutePage.getByRole("form", { name: "Create task" }).waitFor();
+    const revokedRouteAuthority = await store.readState(applicationId, environmentName);
+    assert.ok(revokedRouteAuthority);
+    await store.transaction(expected(revokedRouteAuthority), async (transaction) => {
+      for (const permissionId of ["sales.tasks.read", "sales.tasks.write"]) await transaction.removeGrant(applicationId, `customer.sales-manager.${permissionId}`);
+    });
+    await managerSalesRoutePage.getByRole("alert").getByText("Sales route unavailable", { exact: true }).waitFor({ timeout: 10_000 });
+    assert.equal(await managerSalesRoutePage.getByRole("form", { name: "Create task" }).count(), 0, "An open registered Sales route must clear its action after permission revocation.");
+    const revokedRouteActionTitle = "Denied from open registered Sales route";
+    const revokedRouteAction = await fetch(`${applicationProcess.origin}/api/k-nex/sales/actions/${encodeURIComponent("sales.task.create")}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie: manager.cookie.header, origin: applicationProcess.origin },
+      body: JSON.stringify({ input: { title: revokedRouteActionTitle }, idempotencyKey: `revoked-open-sales-route-${randomUUID()}` })
+    });
+    assert.equal(revokedRouteAction.status, 403);
+    assert.equal((await pool.query("select count(*)::int as count from sales_tasks where title=$1", [revokedRouteActionTitle])).rows[0].count, 0, "A revoked open Sales route action must write nothing.");
+    const restoredRouteAuthority = await store.readState(applicationId, environmentName);
+    assert.ok(restoredRouteAuthority);
+    await store.transaction(expected(restoredRouteAuthority), async (transaction) => {
+      for (const permissionId of ["sales.tasks.read", "sales.tasks.write"]) await transaction.write({ kind: "grant", grant: { schemaVersion: 1, id: `customer.sales-manager.${permissionId}`, applicationId, roleId: "customer.sales-manager", permissionId, owner: { kind: "extension", deliveryClass: "platform-plugin", extensionId: "module.sales", generation: 1 }, revision: 0 } });
+    });
+    await managerSalesRoutePage.close();
+    console.log("P12_OPEN_REGISTERED_SALES_ROUTE_PERMISSION_REVOCATION_POSTGRES_HTTP_CHROMIUM_DENIED=PASS");
     await managerEditorPage.reload();
     await managerEditorPage.getByRole("region", { name: "Canvas block keyboard controls" }).waitFor();
 
@@ -965,6 +990,16 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     });
     assert.equal((await fetch(`${applicationProcess.origin}/workspace/pages/${encodeURIComponent(pageId)}`, { headers: { cookie: durableOwner.cookie.header } })).status, 200, "A former owner needs both current platform permission and exact page ACL.");
     console.log("P12_CURRENT_OWNER_OVERRIDE_AND_FORMER_OWNER_ACL_POSTGRES=PASS");
+    browser = await chromium.launch({ headless: true });
+    const retiredRouteContext = await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: "reduce" });
+    const retiredRoutePage = await retiredRouteContext.newPage();
+    await retiredRoutePage.goto(`${applicationProcess.origin}/login`);
+    await retiredRoutePage.getByLabel("Email").fill(managerEmail);
+    await retiredRoutePage.getByLabel("Password").fill(managerPassword);
+    await retiredRoutePage.getByRole("button", { name: "Sign in" }).click();
+    await retiredRoutePage.waitForURL(`${applicationProcess.origin}/`);
+    await retiredRoutePage.goto(`${applicationProcess.origin}/sales/tasks`);
+    await retiredRoutePage.getByRole("form", { name: "Create task" }).waitFor();
     const managerSalesNavigationBeforeRetirement = await fetch(`${applicationProcess.origin}/`, { headers: { cookie: manager.cookie.header } });
     assert.equal(managerSalesNavigationBeforeRetirement.status, 200);
     const managerSalesHtmlBeforeRetirement = await managerSalesNavigationBeforeRetirement.text();
@@ -995,6 +1030,9 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
       } });
     })).state;
     assert.deepEqual(retiredSalesState, { ...retiringSalesState, lifecycleRevision: retiringSalesState.lifecycleRevision + 1 }, "Retirement must use one expected-revision current-authority transition.");
+    await retiredRoutePage.getByRole("alert").getByText("Sales route unavailable", { exact: true }).waitFor({ timeout: 10_000 });
+    assert.equal(await retiredRoutePage.getByRole("form", { name: "Create task" }).count(), 0, "An open registered Sales route must clear its action after generation retirement.");
+    await retiredRouteContext.close();
     const retiredSalesNavigation = await fetch(`${applicationProcess.origin}/`, { headers: { cookie: manager.cookie.header } });
     assert.equal(retiredSalesNavigation.status, 200);
     const retiredSalesHtml = await retiredSalesNavigation.text();

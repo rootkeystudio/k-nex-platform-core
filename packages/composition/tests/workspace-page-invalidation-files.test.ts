@@ -40,6 +40,7 @@ describe("generated workspace invalidation runtime", () => {
     const runtime = files["src/k-nex-sales-routes.ts"]!;
     const client = files["src/app/components/k-nex-sales-route-runtime.tsx"]!;
     const action = files["src/app/api/k-nex/sales/actions/[actionId]/route.ts"]!;
+    const projection = files["src/app/api/k-nex/sales/routes/[routeId]/route.ts"]!;
     const readiness = files["src/k-nex-readiness.ts"]!;
 
     expect(routes.map(([path]) => files[path]).filter(Boolean)).toHaveLength(4);
@@ -57,16 +58,26 @@ describe("generated workspace invalidation runtime", () => {
     expect(runtime).toContain("authorizeNavigationPermission(payload, context, route.permission)");
     expect(runtime).toContain("permissions.includes(template.permission)");
     expect(runtime).toContain("loadWorkspaceSalesSources(payload, context, template.document");
+    expect(runtime).toContain("finalState.authorizationRevision !== initialState.authorizationRevision");
+    expect(runtime).toContain("permissions: finalPermissions, sourceResults, watermark");
     expect(runtime).toContain("executeWorkspaceSalesAction(payload, context, registeredAction(actionId)");
     expect(runtime).not.toContain("openWorkspacePageSession");
     expect(client).toContain("createUiDocumentRuntime(createUiRuntimeRegistry");
+    expect(client).toContain('fetch("/api/k-nex/sales/routes/" + encodeURIComponent(routeId), { cache: "no-store" })');
+    expect(client).toContain('data-k-nex-sales-route="unavailable"');
+    expect(client).toContain("UiDocumentSchema.parse(candidate.document)");
+    expect(client).toContain("DataSourceBindingResultSchema.parse(result)");
+    expect(client).toContain("if (!response.ok) { setCurrent(undefined);");
     expect(client).toContain('fetch("/api/k-nex/sales/actions/" + encodeURIComponent(request.action.id)');
+    expect(projection).toContain("loadRegisteredSalesRoute(payload, kNexRequestContext(headers, \"sales-route-projection\")");
+    expect(projection).toContain('status: 404');
     expect(action).toContain("executeRegisteredSalesRouteAction");
     expect(action).toContain('from "../../../../../../k-nex-sales-routes.js"');
     expect(action).toContain('from "../../../../../../k-nex-workspace-page-http.js"');
     expect(action).toContain("request.signal");
     expect(readiness).toContain('"src/app/(workspace)/sales/page.tsx"');
     expect(readiness).toContain('"src/app/api/k-nex/sales/actions/[actionId]/route.ts"');
+    expect(readiness).toContain('"src/app/api/k-nex/sales/routes/[routeId]/route.ts"');
   });
 
   it("dispatches both durable outboxes through one PostgreSQL channel", () => {

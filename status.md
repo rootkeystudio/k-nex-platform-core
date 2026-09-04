@@ -7,16 +7,16 @@
 
 ## Last completed
 
-Regenerated and locally verified signed hosted v1 evidence for the final Phase 12 package/customer closure.
+Added live registered-Sales route refresh and fail-closed clearing for permission revocation or generation retirement.
 
 ## Validation
 
-Exact Node 24.19.0/pnpm 11.9.0: `pnpm gate:12:focused` PASS; hosted release-evidence run `33833875773` PASS on source `29bc2d4`; generated evidence check PASS.
+Exact Node 24.19.0/pnpm 11.9.0: composition tests (117) PASS; composition build PASS; diff check PASS. Real generated-app proof pending after all review fixes.
 
 ## Next
 
-Commit/push hosted evidence, run exact-head focused/cumulative CI, then close the persistent xhigh phase review.
+Fix lifecycle-current catalog recovery and mutable-state readiness, then run isolated generated-app proof.
 
 ## Blockers
 
-None.
+Phase-review lifecycle catalog and readiness follow-ups are in progress.
