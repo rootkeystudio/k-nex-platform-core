@@ -289,7 +289,9 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     assert.equal(inventory.status, 200);
     const inventoryBody = await inventory.json();
     assert.deepEqual(inventoryBody.plugins, ["module.sales"]);
-    assert.equal((await fetch(`${applicationProcess.origin}/sales`, { headers: { cookie: owner.cookie.header } })).status, 404, "Phase 12 must not invent a Sales product page before Phase 13.");
+    const ownerSalesOverview = await fetch(`${applicationProcess.origin}/sales`, { headers: { cookie: owner.cookie.header } });
+    const ownerSalesOverviewHtml = await ownerSalesOverview.text();
+    assert.equal(ownerSalesOverview.status, 200, `The generated static Sales overview route must be available to the authorized owner.\nbody=${ownerSalesOverviewHtml}\nprocess=${applicationProcess.output()}`);
     assert.equal((await fetch(`${applicationProcess.origin}/system/workspace-pages`, { headers: { cookie: owner.cookie.header } })).status, 200);
     assert.equal((await fetch(`${applicationProcess.origin}/system/access/roles`, { headers: { cookie: owner.cookie.header } })).status, 404, "Generated navigation must not claim unimplemented System administration routes.");
 
@@ -334,7 +336,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
       headers: { "content-type": "application/x-www-form-urlencoded", cookie: owner.cookie.header, origin: applicationProcess.origin },
       body: new URLSearchParams({
         expectedRevision: String(pageState.projection.watermark.pageRevision), title: "Sales command center", description: "Bounded Sales workspace",
-        parentNavigationId: "sales.navigation.root", order: "100", themeRevision: inventoryBody.theme.profileRevisionId,
+        parentNavigationId: "sales.navigation.root", order: "100", themeRevision: `${inventoryBody.theme.profileId}|${inventoryBody.theme.activeRevisionId}`,
         idempotencyKey: `workspace-theme-${randomUUID()}`
       })
     });
@@ -373,6 +375,22 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
 
     const manager = await login(applicationProcess.origin, managerEmail, managerPassword);
     assert.equal((await fetch(`${applicationProcess.origin}/workspace/pages/${encodeURIComponent(pageId)}`, { headers: { cookie: manager.cookie.header } })).status, 404, "Draft pages cannot be viewed through the normal route.");
+    const templateDeniedNavigation = await fetch(`${applicationProcess.origin}/`, { headers: { cookie: manager.cookie.header } });
+    assert.equal(templateDeniedNavigation.status, 200);
+    const templateDeniedHtml = await templateDeniedNavigation.text();
+    assert.equal(templateDeniedHtml.includes('href="/sales/settings"'), false, "A missing Sales template permission must hide its route navigation.");
+    assert.equal(templateDeniedHtml.includes('href="/sales/tasks"'), true, "Other currently authorized Sales template navigation must remain visible.");
+    assert.equal((await fetch(`${applicationProcess.origin}/sales/settings`, { headers: { cookie: manager.cookie.header } })).status, 404, "A missing Sales template permission must deny the direct static route.");
+    const deniedRouteActionTitle = "Denied without Sales task write";
+    const deniedRouteActionBefore = (await pool.query("select count(*)::int as count from sales_tasks where title=$1", [deniedRouteActionTitle])).rows[0].count;
+    const deniedRouteAction = await fetch(`${applicationProcess.origin}/api/k-nex/sales/actions/${encodeURIComponent("sales.task.create")}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie: manager.cookie.header, origin: applicationProcess.origin },
+      body: JSON.stringify({ input: { title: deniedRouteActionTitle }, idempotencyKey: `denied-sales-route-action-${randomUUID()}` })
+    });
+    assert.equal(deniedRouteAction.status, 403, "A current Sales route action must require its exact action permission.");
+    assert.equal((await pool.query("select count(*)::int as count from sales_tasks where title=$1", [deniedRouteActionTitle])).rows[0].count, deniedRouteActionBefore, "Denied route action authority must write nothing.");
+    console.log("P12_SALES_TEMPLATE_PERMISSION_NAVIGATION_AND_DIRECT_ROUTE_DENIED=PASS");
 
     await store.transaction(expected(granted.state), async (transaction) => {
       await transaction.write({ kind: "assignment", assignment: { schemaVersion: 1, id: "customer.workspace-viewer.assignment", applicationId, roleId: "customer.workspace-viewer", principal: { kind: "user", id: limitedUserId }, state: "revoked", revision: 1 } });
@@ -402,7 +420,10 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
       const result = await pool.query("select count(*)::int as count from k_nex_authorization_outbox where application_id=$1 and environment=$2 and status<>'delivered'", [applicationId, environmentName]);
       return result.rows[0].count === 0;
     }, "Authorization outbox did not converge.", workerProcess.child);
-    await until(async () => notificationTypes.has("authorization") && notificationTypes.has("workspace-page"), "Generated worker did not publish both invalidation classes.", workerProcess.child);
+    await until(async () => notificationTypes.has("authorization") && notificationTypes.has("workspace-page"), "Generated worker did not publish both invalidation classes.", workerProcess.child).catch(async (error) => {
+      const outbox = await pool.query("select operation_kind, status, attempt_count, last_error_code from k_nex_workspace_page_outbox where application_id=$1 and environment=$2 order by created_at", [applicationId, environmentName]);
+      throw new Error(`${error}\nnotifications=${JSON.stringify([...notificationTypes])}\noutbox=${JSON.stringify(outbox.rows)}\nworker=${workerProcess.output()}`);
+    });
     notificationClient.release();
     notificationClient = undefined;
     assert.equal(workerProcess.output().includes(ownerEmail) || workerProcess.output().includes(ownerPassword) || workerProcess.output().includes(limitedPassword) || workerProcess.output().includes(managerPassword), false);
@@ -537,6 +558,27 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     await page.getByRole("navigation", { name: "Workspace navigation" }).getByText("System", { exact: true }).waitFor();
     assert.equal(await page.locator('[data-k-nex-component="workspace-shell"]').evaluate((element) => getComputedStyle(element).transitionDuration), "0s");
 
+    const salesNavigation = page.getByRole("navigation", { name: "Workspace navigation" });
+    for (const [navigationId, label, href, templateRole, templateLabel] of [
+      ["sales.navigation.overview", "Overview", "/sales", "status", "Total potential revenue"],
+      ["sales.navigation.tasks", "Tasks", "/sales/tasks", "table", "Sales tasks"],
+      ["sales.navigation.opportunities", "Opportunities", "/sales/opportunities", "region", "Opportunities"],
+      ["sales.navigation.settings", "Settings", "/sales/settings", "region", "Sales settings"]
+    ]) {
+      const link = salesNavigation.locator(`[data-navigation-node="${navigationId}"]`).getByRole("link", { name: label });
+      await link.waitFor();
+      assert.equal(await link.getAttribute("href"), href, `${navigationId} must originate from the module.sales static registration.`);
+      await page.goto(`${applicationProcess.origin}${href}`);
+      await page.getByRole(templateRole, { name: templateLabel }).waitFor();
+    }
+    await page.goto(`${applicationProcess.origin}/sales/tasks`);
+    await page.getByRole("textbox", { name: "Title" }).fill("Registered route action task");
+    await page.getByRole("button", { name: "Create task" }).click();
+    await page.getByText("Registered route action task", { exact: true }).waitFor();
+    assert.equal((await pool.query("select count(*)::int as count from sales_tasks where title=$1", ["Registered route action task"])).rows[0].count, 1, "A registered Sales route action must commit with current action authority.");
+    assert.equal((await fetch(`${applicationProcess.origin}/sales/unregistered`, { headers: { cookie: restartedOwner.cookie.header } })).status, 404, "Only the four static Sales routes may resolve.");
+    console.log("P12_REGISTERED_SALES_ROUTES_AND_ACTION_POSTGRES_HTTP_CHROMIUM=PASS");
+
     let lostEditorPoll = false;
     let falseEditorDenial = false;
     const editorPollTraffic = [];
@@ -617,7 +659,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     await page.getByText("Beta expansion moved to won.", { exact: true }).waitFor();
     const moved = await pool.query("select name, stage from sales_opportunities order by id");
     assert.deepEqual(moved.rows, [{ name: "Alpha renewal", stage: "qualified" }, { name: "Beta expansion", stage: "won" }]);
-    assert.equal(await page.locator("[data-k-nex-theme-profile]").getAttribute("data-k-nex-theme-profile"), inventoryBody.theme.profileRevisionId);
+    assert.equal(await page.locator('[data-k-nex-component="workspace-shell"]').getAttribute("data-k-nex-theme-profile"), inventoryBody.theme.activeRevisionId);
 
     const workspacePageUrl = `${applicationProcess.origin}/workspace/pages/${encodeURIComponent(pageId)}`;
     const budgetHeaders = { cookie: restartedOwner.cookie.header };
@@ -800,7 +842,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     const revokedManagerSalesAuthority = await store.readState(applicationId, environmentName);
     assert.ok(revokedManagerSalesAuthority);
     await store.transaction(expected(revokedManagerSalesAuthority), async (transaction) => {
-      for (const permissionId of ["sales.opportunities.read", "sales.tasks.title.read", "sales.opportunities.write"]) {
+      for (const permissionId of ["sales.opportunities.read", "sales.tasks.title.read", "sales.opportunities.write", "sales.settings.read", "sales.tasks.write"]) {
         await transaction.write({ kind: "grant", grant: { schemaVersion: 1, id: `customer.sales-manager.${permissionId}`, applicationId, roleId: "customer.sales-manager", permissionId, owner: { kind: "extension", deliveryClass: "platform-plugin", extensionId: "module.sales", generation: 1 }, revision: 0 } });
       }
     });
@@ -922,6 +964,55 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
       await transaction.write({ kind: "assignment", assignment: { schemaVersion: 1, id: "customer.workspace-viewer.former-owner", applicationId, roleId: "customer.workspace-viewer", principal: { kind: "user", id: ownerUserId }, state: "active", revision: 0 } });
     });
     assert.equal((await fetch(`${applicationProcess.origin}/workspace/pages/${encodeURIComponent(pageId)}`, { headers: { cookie: durableOwner.cookie.header } })).status, 200, "A former owner needs both current platform permission and exact page ACL.");
+    console.log("P12_CURRENT_OWNER_OVERRIDE_AND_FORMER_OWNER_ACL_POSTGRES=PASS");
+    const managerSalesNavigationBeforeRetirement = await fetch(`${applicationProcess.origin}/`, { headers: { cookie: manager.cookie.header } });
+    assert.equal(managerSalesNavigationBeforeRetirement.status, 200);
+    const managerSalesHtmlBeforeRetirement = await managerSalesNavigationBeforeRetirement.text();
+    for (const href of ["/sales", "/sales/tasks", "/sales/opportunities", "/sales/settings"]) {
+      assert.equal(managerSalesHtmlBeforeRetirement.includes(`href=\"${href}\"`), true, `Current Sales authority must expose ${href} before retirement.`);
+      assert.equal((await fetch(`${applicationProcess.origin}${href}`, { headers: { cookie: manager.cookie.header } })).status, 200, `Current Sales authority must open ${href} before retirement.`);
+    }
+    const preRetirementActionTitle = "Current Sales route action task";
+    const preRetirementAction = await fetch(`${applicationProcess.origin}/api/k-nex/sales/actions/${encodeURIComponent("sales.task.create")}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie: manager.cookie.header, origin: applicationProcess.origin },
+      body: JSON.stringify({ input: { title: preRetirementActionTitle }, idempotencyKey: `current-sales-action-${randomUUID()}` })
+    });
+    assert.equal(preRetirementAction.status, 200, "The same actor must execute the registered Sales action before retirement.");
+    assert.equal((await pool.query("select count(*)::int as count from sales_tasks where title=$1", [preRetirementActionTitle])).rows[0].count, 1);
+    const retiringSalesState = await durableStore.readState(applicationId, environmentName);
+    assert.ok(retiringSalesState);
+    const retiredSalesState = (await durableStore.transaction(expected(retiringSalesState), async (transaction) => {
+      const generation = (await transaction.listExtensionGenerations(applicationId)).find((candidate) =>
+        candidate.owner.deliveryClass === "platform-plugin" && candidate.owner.extensionId === "module.sales" && candidate.owner.generation === 1
+      );
+      assert.ok(generation);
+      await transaction.write({ kind: "extension-generation", generation: {
+        ...generation,
+        state: "retired",
+        authorizationRevision: retiringSalesState.authorizationRevision,
+        lifecycleRevision: retiringSalesState.lifecycleRevision + 1
+      } });
+    })).state;
+    assert.deepEqual(retiredSalesState, { ...retiringSalesState, lifecycleRevision: retiringSalesState.lifecycleRevision + 1 }, "Retirement must use one expected-revision current-authority transition.");
+    const retiredSalesNavigation = await fetch(`${applicationProcess.origin}/`, { headers: { cookie: manager.cookie.header } });
+    assert.equal(retiredSalesNavigation.status, 200);
+    const retiredSalesHtml = await retiredSalesNavigation.text();
+    for (const href of ["/sales", "/sales/tasks", "/sales/opportunities", "/sales/settings"]) {
+      assert.equal(retiredSalesHtml.includes(`href=\"${href}\"`), false, `Retiring current Sales generation must remove ${href} navigation.`);
+      assert.equal((await fetch(`${applicationProcess.origin}${href}`, { headers: { cookie: manager.cookie.header } })).status, 404, `Retiring current Sales generation must deny ${href}.`);
+    }
+    const retiredActionTitle = "Denied after Sales retirement";
+    const retiredActionBefore = (await pool.query("select count(*)::int as count from sales_tasks where title=$1", [retiredActionTitle])).rows[0].count;
+    const retiredAction = await fetch(`${applicationProcess.origin}/api/k-nex/sales/actions/${encodeURIComponent("sales.task.create")}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie: manager.cookie.header, origin: applicationProcess.origin },
+      body: JSON.stringify({ input: { title: retiredActionTitle }, idempotencyKey: `retired-sales-action-${randomUUID()}` })
+    });
+    assert.equal(retiredAction.status, 400, "A retired current Sales generation must deny registered route actions.");
+    assert.deepEqual(await retiredAction.json(), { code: "INVALID_INPUT" });
+    assert.equal((await pool.query("select count(*)::int as count from sales_tasks where title=$1", [retiredActionTitle])).rows[0].count, retiredActionBefore, "Denied registered route action must write nothing.");
+    console.log("P12_RETIRED_SALES_GENERATION_NAVIGATION_ROUTE_AND_ACTION_POSTGRES_DENIED=PASS");
     console.log("P12_9_GENERATED_APP_POSTGRES_HTTP_CHROMIUM_EVIDENCE=PASS");
   } finally {
     await stop(workerProcess?.child).catch(() => {});
