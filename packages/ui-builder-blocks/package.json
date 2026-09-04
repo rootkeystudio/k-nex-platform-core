@@ -5,7 +5,10 @@
   "files": ["dist"],
   "type": "module",
   "sideEffects": false,
-  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+    "./runtime": { "types": "./dist/runtime.d.ts", "default": "./dist/runtime.js" }
+  },
   "scripts": { "build": "tsc -b", "test": "vitest run && node scripts/check-boundaries.mjs" },
   "dependencies": {
     "@k-nex/builder-puck": "workspace:*",

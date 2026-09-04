@@ -10,6 +10,7 @@ import { createPuckBuilderAdapter, type PuckBlockBridge } from "@k-nex/builder-p
 import { presentUiRuntimeReact } from "@k-nex/ui-components";
 import { createUiDocumentRuntime, createUiRuntimeRegistry, presentUiRuntimeNode, presentUiRuntimeNodeWithIdentity, presentUiRuntimeResult } from "@k-nex/ui-runtime";
 import { createGenericPuckBlockBridges, genericPuckBlockBridges } from "../src/index.js";
+import { genericUiBlockDefinitions } from "../src/runtime.js";
 
 const genericSource: DataSourceDescriptor = {
   id: "content.records",
@@ -128,6 +129,7 @@ describe("generic Puck block library", () => {
 
   it("covers the canonical generic block set and round-trips through shared definitions", () => {
     expect(genericPuckBlockBridges.map(({ label }) => label)).toEqual(["Stack", "Grid", "Section", "Heading", "Text", "Card", "Alert", "Tabs", "Accordion", "Metric", "DataTable", "Form", "EmptyState"]);
+    expect(genericUiBlockDefinitions.map(({ id, version }) => ({ id, version }))).toEqual(genericPuckBlockBridges.map(({ definition }) => ({ id: definition.id, version: definition.version })));
     const nodes = genericPuckBlockBridges.map((bridge, index) => ({
       id: `generic-${index}`,
       type: bridge.definition.id,

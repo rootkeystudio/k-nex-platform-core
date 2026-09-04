@@ -666,7 +666,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     const controls = page.getByRole("region", { name: "Canvas block keyboard controls" });
     const blockSelect = controls.getByRole("combobox", { name: "Block to add" });
     const addBlock = controls.getByRole("button", { name: "Add block to canvas" });
-    for (const label of ["Sales opportunity Kanban", "Sales revenue metric", "Sales task table"]) {
+    for (const label of ["Heading", "Sales opportunity Kanban", "Sales revenue metric", "Sales task table"]) {
       await blockSelect.selectOption({ label });
       await addBlock.click();
     }
@@ -679,8 +679,8 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     await page.unroute(`**/api/k-nex/workspace-pages/${encodeURIComponent(pageId)}/autosave`);
     const savedWorkingCopy = await pool.query("select working_copy_json from k_nex_workspace_working_copies where application_id=$1 and environment=$2 and page_id=$3", [applicationId, environmentName, pageId]);
     const savedNodes = savedWorkingCopy.rows[0].working_copy_json.document.regions.main;
-    assert.deepEqual(savedNodes.map(({ type }) => type), ["sales.opportunity-kanban", "sales.revenue-metric", "sales.task-table"]);
-    assert.equal(savedNodes.every(({ bindings }) => bindings?.source !== undefined || bindings?.action !== undefined), true, "Inserted Sales blocks must retain trusted runtime bindings.");
+    assert.deepEqual(savedNodes.map(({ type }) => type), ["content.heading", "sales.opportunity-kanban", "sales.revenue-metric", "sales.task-table"]);
+    assert.equal(savedNodes.slice(1).every(({ bindings }) => bindings?.source !== undefined || bindings?.action !== undefined), true, "Inserted Sales blocks must retain trusted runtime bindings.");
 
     const publication = page.getByRole("region", { name: "Page publication controls" });
     await publication.getByRole("button", { name: "Publish page" }).click();
@@ -690,7 +690,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     assert.match(firstPublishedRevisionId, /^workspace\.publication\./u);
 
     const selectedBlock = controls.getByRole("combobox", { name: "Selected canvas block" });
-    await selectedBlock.selectOption("2");
+    await selectedBlock.selectOption("3");
     await page.getByRole("textbox", { name: "Title" }).last().fill("Sales task table revised");
     await page.getByText("All changes saved.", { exact: true }).waitFor({ timeout: 10_000 });
     await publication.getByRole("button", { name: "Publish page" }).click();
@@ -702,6 +702,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     const publishedNavigationLink = page.locator('[data-navigation-node="sales.navigation.root"]').getByRole("link", { name: "Sales command center" });
     assert.equal(await publishedNavigationLink.getAttribute("href"), `/workspace/pages/${pageId}`);
     await page.goto(`${applicationProcess.origin}/workspace/pages/${encodeURIComponent(pageId)}`);
+    await page.getByRole("heading", { name: "Heading" }).waitFor();
     const alphaMove = page.locator(`[data-opportunity-id="${String(alpha.rows[0].id)}"]`).getByRole("button", { name: "Move to qualified" });
     assert.equal(await alphaMove.count(), 1, `Published Kanban action is missing.\n${await page.locator("body").innerText()}\n${JSON.stringify(savedNodes[0])}\n${applicationProcess.output()}`);
     await alphaMove.click();

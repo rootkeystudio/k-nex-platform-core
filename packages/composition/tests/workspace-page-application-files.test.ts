@@ -42,8 +42,8 @@ function strictModeGeneratedEditorSession(source: string): Readonly<{ session: G
     .replace(/  if \(unavailable === "access"\) return <section[^\n]*\n/u, "")
     .replace(/  if \(unavailable === "authority"\) return <section[^\n]*\n/u, "")
     .replace(/  return <WorkspacePuckEditorHost[^\n]*\/>;\n/u, "  return session;\n");
-  const WorkspacePageEditor = new Function("useState", "useRef", "useEffect", "useMemo", "WorkspaceEditorSession", "createAuthorizedPuckBuilderProfile", "WorkspacePuckEditorHost", "presentUiRuntimeReact", "salesPuckBlockBridges", "salesOpportunitiesDescriptor", "salesTasksDescriptor", "salesTotalPotentialRevenueDescriptor", "fetch", "crypto", `${executable}\nreturn WorkspacePageEditor;`)(
-    useState, useRef, useEffect, useMemo, WorkspaceEditorSession, () => ({}), () => undefined, () => undefined, [], {}, {}, {},
+  const WorkspacePageEditor = new Function("useState", "useRef", "useEffect", "useMemo", "WorkspaceEditorSession", "createAuthorizedPuckBuilderProfile", "WorkspacePuckEditorHost", "presentUiRuntimeReact", "genericPuckBlockBridges", "salesPuckBlockBridges", "salesOpportunitiesDescriptor", "salesTasksDescriptor", "salesTotalPotentialRevenueDescriptor", "fetch", "crypto", `${executable}\nreturn WorkspacePageEditor;`)(
+    useState, useRef, useEffect, useMemo, WorkspaceEditorSession, () => ({}), () => undefined, () => undefined, [], [], {}, {}, {},
     async (_input: string, init?: Readonly<{ method?: string; signal?: AbortSignal }>) => {
       if (init?.method === "POST" && init.signal !== undefined) mutationSignals.push(init.signal);
       return { ok: true, status: 200, json: async () => ({ watermark }) };
@@ -81,6 +81,10 @@ describe("generated workspace page builder policy", () => {
 
     expect(source).toContain('import { createAuthorizedPuckBuilderProfile } from "@k-nex/builder-puck";');
     expect(source).toContain('import { salesPuckBlockBridges } from "@k-nex/module-sales/puck";');
+    expect(source).toContain('import { genericPuckBlockBridges } from "@k-nex/ui-builder-blocks";');
+    expect(source).toContain('import { genericUiBlockDefinitions } from "@k-nex/ui-builder-blocks/runtime";');
+    expect(source).toContain('blocks: [...genericPuckBlockBridges, ...salesPuckBlockBridges.filter');
+    expect(source).toContain('const platformBlocks = new Map(genericUiBlockDefinitions.map');
     expect(source).toContain("kNexSalesRegistry.scopedRegistration.contributions[kind]");
     expect(source).toContain("workspaceSalesPermissions(payload, context, signal)");
     expect(source).toContain("function workspaceDocumentValidator(payload: Payload): WorkspacePageDocumentValidator<KnexRequestContext>");
@@ -102,6 +106,18 @@ describe("generated workspace page builder policy", () => {
     expect(runtime).toContain("canonicalJson([kNexSalesRegistry.staticRelease.runtimeGenerationId])");
     expect(runtime).toContain("await currentSalesGeneration(payload).catch(() => undefined)");
     expect(runtime).not.toContain("lifecycleRevision !== kNexSalesRegistry.authorizationGeneration.lifecycleRevision");
+  });
+
+  it("uses the runtime-only built-in definitions for generated production pages", () => {
+    const files = workspacePageApplicationFiles({ applicationId: "customer-alpha" });
+    const runtime = files["src/app/components/k-nex-workspace-page-runtime.tsx"]!;
+    const editor = files["src/app/components/k-nex-workspace-page-editor.tsx"]!;
+
+    expect(runtime).toContain('import { genericUiBlockDefinitions } from "@k-nex/ui-builder-blocks/runtime";');
+    expect(runtime).toContain('blocks: [...genericUiBlockDefinitions, ...salesUiBlockDefinitions]');
+    expect(runtime).not.toContain("builder-puck");
+    expect(runtime).not.toContain("PuckBlock");
+    expect(editor).toContain('blocks: [...genericPuckBlockBridges, ...salesPuckBlockBridges]');
   });
 
   it("derives the workspace owner override from the revision-pinned active owner assignment", () => {

@@ -21,6 +21,8 @@ import {
 import { createAuthorizedPuckBuilderProfile } from "@k-nex/builder-puck";
 import { salesOpportunitiesDescriptor, salesOpportunityStageUpdateDescriptor, salesTaskCreateDescriptor, salesTaskUpdateDescriptor, salesTasksDescriptor, salesTotalPotentialRevenueDescriptor } from "@k-nex/module-sales/contracts";
 import { salesPuckBlockBridges } from "@k-nex/module-sales/puck";
+import { genericPuckBlockBridges } from "@k-nex/ui-builder-blocks";
+import { genericUiBlockDefinitions } from "@k-nex/ui-builder-blocks/runtime";
 import { createCurrentAuthorityTarget } from "@k-nex/runtime";
 import type { Payload } from "payload";
 
@@ -30,10 +32,7 @@ import { kNexSalesRegistry } from "./k-nex-registry.js";
 import { resolveApplicationTheme, resolvePageThemeOverride } from "./k-nex-theme-runtime.js";
 import { loadWorkspaceSalesSources, workspaceSalesPermissions } from "./k-nex-sales-workspace.js";
 
-const platformBlocks = new Map([
-  "content.stack", "content.grid", "content.section", "content.heading", "content.text", "content.card", "content.alert",
-  "content.tabs", "content.accordion", "content.metric", "content.data-table", "content.form", "content.empty-state"
-].map((id) => [id, 1] as const));
+const platformBlocks = new Map(genericUiBlockDefinitions.map(({ id, version }) => [id, version] as const));
 const scope = Object.freeze({ applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment });
 const runtimes = new WeakMap<Payload, ReturnType<typeof createRuntime>>();
 const invalidationChannel = "k_nex_runtime_invalidation";
@@ -174,10 +173,11 @@ import type { DataSourceBindingResult, UiDocument } from "@k-nex/contracts";
 import { salesOpportunitiesDescriptor, salesTasksDescriptor, salesTotalPotentialRevenueDescriptor } from "@k-nex/module-sales/contracts";
 import { salesUiBlockDefinitions } from "@k-nex/module-sales/ui";
 import { presentUiRuntimeReact } from "@k-nex/ui-components";
+import { genericUiBlockDefinitions } from "@k-nex/ui-builder-blocks/runtime";
 import { createUiDocumentRuntime, createUiRuntimeRegistry, presentUiRuntimeResult } from "@k-nex/ui-runtime";
 import { useEffect, useMemo, useState } from "react";
 
-const runtime = createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: salesUiBlockDefinitions, sources: [salesOpportunitiesDescriptor, salesTasksDescriptor, salesTotalPotentialRevenueDescriptor] }));
+const runtime = createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: [...genericUiBlockDefinitions, ...salesUiBlockDefinitions], sources: [salesOpportunitiesDescriptor, salesTasksDescriptor, salesTotalPotentialRevenueDescriptor] }));
 type Watermark = Readonly<{ authorizationRevision: number; lifecycleRevision: number; pageRevision: number; accessRevision: number; publicationPointerRevision: number; publicationRevisionId: string; themePublicationRevision: number; themeActiveRevisionId: string; themeStateDigest: string }>;
 type Projection = Readonly<{ document: UiDocument; permissions: readonly string[]; sourceResults: Readonly<Record<string, DataSourceBindingResult<unknown>>>; themeRevision: string; themeMode: "light" | "dark" | "system"; themeCss: string; watermark: Watermark }>;
 
@@ -275,6 +275,7 @@ import type { UiDocument } from "@k-nex/contracts";
 import { salesOpportunitiesDescriptor, salesTasksDescriptor, salesTotalPotentialRevenueDescriptor } from "@k-nex/module-sales/contracts";
 import { salesPuckBlockBridges } from "@k-nex/module-sales/puck";
 import { presentUiRuntimeReact } from "@k-nex/ui-components";
+import { genericPuckBlockBridges } from "@k-nex/ui-builder-blocks";
 import { WorkspaceEditorSession, createAuthorizedPuckBuilderProfile } from "@k-nex/builder-puck";
 import { WorkspacePuckEditorHost } from "@k-nex/builder-puck/editor";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -325,7 +326,7 @@ export function WorkspacePageEditor({ pageId, initialProjection }: Readonly<{ pa
     return () => { active = false; clearInterval(timer); controller.abort(); };
   }, [pageId, initialProjection.watermark]);
   const profile = useMemo(() => createAuthorizedPuckBuilderProfile({
-    profile: "workspace", publication: "save-layout", blocks: salesPuckBlockBridges,
+    profile: "workspace", publication: "save-layout", blocks: [...genericPuckBlockBridges, ...salesPuckBlockBridges],
     sources: [salesOpportunitiesDescriptor, salesTasksDescriptor, salesTotalPotentialRevenueDescriptor], authority: initialProjection.authority,
     preview: { surface: "workspace", actor: { authenticated: true, permissions: new Set(initialProjection.permissions) }, present: presentUiRuntimeReact }
   }), [initialProjection.authority, initialProjection.permissions]);
@@ -965,11 +966,11 @@ async function workspaceBuilderProfile(payload: Payload, context: KnexRequestCon
     const registered = contribution("actions", candidate.id, candidate.version) as typeof candidate | undefined;
     return registered === undefined || registered.id !== candidate.id || registered.version !== candidate.version || !permissions.has(registered.permission) ? [] : [{ id: registered.id, version: registered.version }];
   });
-  const blocks = salesPuckBlockBridges.filter((bridge) => {
+  const blocks = [...genericPuckBlockBridges, ...salesPuckBlockBridges.filter((bridge) => {
     const registered = contribution("blocks", bridge.definition.id, bridge.definition.version) as { readonly id?: unknown; readonly version?: unknown; readonly permission?: unknown } | undefined;
     return registered?.id === bridge.definition.id && registered.version === bridge.definition.version &&
       (registered.permission === undefined || typeof registered.permission === "string" && permissions.has(registered.permission));
-  });
+  })];
   return createAuthorizedPuckBuilderProfile({
     profile: "workspace", publication: "save-layout", blocks, sources,
     authority: { blocks: blocks.map(({ definition }) => ({ id: definition.id, version: definition.version })), sources: sources.map(({ id, version }) => ({ id, version })), actions }
@@ -1204,7 +1205,7 @@ export async function loadWorkspacePageEditorProjection(payload: Payload, contex
     const sources = [salesOpportunitiesDescriptor, salesTasksDescriptor, salesTotalPotentialRevenueDescriptor];
     const actions = [salesTaskCreateDescriptor, salesTaskUpdateDescriptor, salesOpportunityStageUpdateDescriptor];
     const authority = Object.freeze({
-      blocks: salesPuckBlockBridges.filter(({ definition }) => definition.permission === undefined || permissions.includes(definition.permission)).map(({ definition }) => ({ id: definition.id, version: definition.version })),
+      blocks: [...genericPuckBlockBridges, ...salesPuckBlockBridges.filter(({ definition }) => definition.permission === undefined || permissions.includes(definition.permission))].map(({ definition }) => ({ id: definition.id, version: definition.version })),
       sources: sources.filter(({ permission }) => permissions.includes(permission)).map(({ id, version }) => ({ id, version })),
       actions: actions.filter(({ permission }) => permissions.includes(permission)).map(({ id, version }) => ({ id, version }))
     });
