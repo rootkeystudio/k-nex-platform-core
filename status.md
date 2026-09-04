@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Hardened the Phase 9 PostgreSQL Hot Application fixture’s rollback-retirement race: test-only lifecycle polling is quiesced during unrelated backup/restore and rejected-stage proof, then G2 retirement is observed and rollback begins immediately before the real 10-second deadline. Cancellation and later irreversible G3 retirement retain their existing real-browser assertions.
+Hardened the Phase 12 generated-app source-rate proof: the settled same-actor source request records rate exhaustion directly, without assuming a follow-up HTTP request cannot cross the real one-second refill boundary.
 
 ## Validation
 
-Node 24.19.0 / pnpm 11.9 fixture build, Node syntax check, and `git diff --check` PASS. The isolated real-PostgreSQL target was attempted with both Docker Desktop local-test and AppArmor policies; the former is deliberately rejected before the production-runtime journey and the latter reaches Docker’s expected macOS `POLICY_UNAVAILABLE` AppArmor/proc-map boundary. Linux/AppArmor evidence remains required.
+Node 24.19.0 / pnpm 11.9 fixture build, Node syntax check, and `git diff --check` PASS. `pnpm --filter @k-nex/customer-gate-1 test:p12:shell` PASS (one real PostgreSQL/Next/Chromium generated-app journey). Linux/AppArmor cumulative evidence remains required.
 
 ## Next
 
-Run `fixtures/customer-gate-1/tests/runtime-extension-state-postgres.test.mjs` on Linux with the loaded AppArmor profile, then confirm the exact-head cumulative Gate 0–12 and dependent repository-evidence jobs.
+Confirm the exact-head focused and cumulative Gate 0–12 evidence jobs plus dependent repository-evidence jobs on Linux with the loaded AppArmor profile.
 
 ## Blockers
 
