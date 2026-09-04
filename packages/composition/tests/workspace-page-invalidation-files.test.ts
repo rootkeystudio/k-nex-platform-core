@@ -12,7 +12,8 @@ describe("generated workspace invalidation runtime", () => {
     expect(navigation).toContain('implementedSystemRouteIds: ["system.route.workspace", "system.route.workspace-pages"]');
     expect(navigation).toContain('import { canonicalJson, type PluginNavigationDescriptor, type PluginRouteDescriptor } from "@k-nex/contracts";');
     expect(navigation).toContain("routes.map(({ value }) => value as RegisteredRoute)");
-    expect(navigation).toContain("const salesGenerationCurrent = state.lifecycleRevision === kNexSalesRegistry.authorizationGeneration.lifecycleRevision");
+    expect(navigation).toContain("const salesAuthority = await currentSalesGeneration(payload).catch(() => undefined);");
+    expect(navigation).toContain("const salesGenerationCurrent = salesAuthority !== undefined;");
     expect(navigation).toContain("kNexSalesRegistry.scopedRegistration.contributions.routes.map(({ value }) => value as RegisteredRoute)");
     expect(navigation).toContain("kNexSalesRegistry.scopedRegistration.contributions.navigation.map(async ({ value }) => {");
     expect(navigation).toContain("const template = templates.find((candidate) => candidate.id === route?.viewId);");
@@ -54,7 +55,7 @@ describe("generated workspace invalidation runtime", () => {
     expect(files["src/app/(workspace)/sales/tasks/page.tsx"]).toContain('from "../../../components/k-nex-sales-route-runtime.js"');
     expect(files["src/app/(workspace)/sales/[...path]/page.tsx"]).toBeUndefined();
     expect(runtime).toContain("kNexSalesRegistry.scopedRegistration.contributions.pageTemplates");
-    expect(runtime).toContain("state.lifecycleRevision !== kNexSalesRegistry.authorizationGeneration.lifecycleRevision");
+    expect(runtime).toContain("currentSalesAuthorityGeneration(payload)");
     expect(runtime).toContain("authorizeNavigationPermission(payload, context, route.permission)");
     expect(runtime).toContain("permissions.includes(template.permission)");
     expect(runtime).toContain("loadWorkspaceSalesSources(payload, context, template.document");
@@ -78,6 +79,18 @@ describe("generated workspace invalidation runtime", () => {
     expect(readiness).toContain('"src/app/(workspace)/sales/page.tsx"');
     expect(readiness).toContain('"src/app/api/k-nex/sales/actions/[actionId]/route.ts"');
     expect(readiness).toContain('"src/app/api/k-nex/sales/routes/[routeId]/route.ts"');
+  });
+
+  it("derives Sales availability from one revision-checked current generation while keeping platform authority available", () => {
+    const authority = applicationAuthFiles({ applicationId: "customer-alpha", applicationName: "Customer Alpha", theme: "minimal" })["src/k-nex-authority.ts"]!;
+
+    expect(authority).toContain("async function currentSalesAuthority(store: PostgresAuthorizationStore)");
+    expect(authority).toContain('generation.owner.deliveryClass === "platform-plugin" && generation.owner.extensionId === "module.sales"');
+    expect(authority).toContain('const current = generations.filter((generation) => generation.state === "current");');
+    expect(authority).toContain("generation.lifecycleRevision === expected.lifecycleRevision && generation.authorizationRevision <= expected.authorizationRevision");
+    expect(authority).toContain("extensions: salesContribution === undefined ? [] : [salesContribution]");
+    expect(authority).toContain("export async function currentSalesGeneration(payload: Payload)");
+    expect(authority).not.toContain("lifecycleRevision !== 0 && lifecycleRevision !== 1");
   });
 
   it("dispatches both durable outboxes through one PostgreSQL channel", () => {

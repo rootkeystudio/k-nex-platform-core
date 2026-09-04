@@ -7,16 +7,16 @@
 
 ## Last completed
 
-Made the deployment artifact probe preserve JSON records split across arbitrary stream chunks.
+Made authorization catalogs follow the exact current Sales generation while preserving platform authority across retirement and later recovery.
 
 ## Validation
 
-Exact Node 24.19.0/pnpm 11.9.0: artifact-wait fixture build PASS; isolated artifact-wait tests (2) PASS; diff check PASS. Real generated-app proof pending after all review fixes.
+Exact Node 24.19.0/pnpm 11.9.0: focused generated-file tests (6) PASS; composition build PASS; diff check PASS. Real generated-app proof pending after all review fixes.
 
 ## Next
 
-Fix lifecycle-current catalog recovery and mutable-state readiness, then run isolated generated-app proof.
+Fix mutable-state readiness, then run isolated generated-app proof.
 
 ## Blockers
 
-Phase-review lifecycle catalog and readiness follow-ups are in progress.
+Phase-review readiness follow-up is in progress.

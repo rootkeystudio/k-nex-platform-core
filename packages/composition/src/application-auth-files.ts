@@ -97,23 +97,40 @@ function session(user: unknown, correlationId: string) {
   });
 }
 
+async function currentSalesAuthority(store: PostgresAuthorizationStore) {
+  const state = await store.readState(kNexIdentity.applicationId, kNexIdentity.environment);
+  if (state === undefined) return undefined;
+  const expected = { applicationId: state.applicationId, environment: state.environment, authorizationRevision: state.authorizationRevision, lifecycleRevision: state.lifecycleRevision };
+  const snapshot = await store.readTransaction(expected, async (transaction) => {
+    const generations = (await transaction.listExtensionGenerations(expected.applicationId)).filter((generation) =>
+      generation.owner.deliveryClass === "platform-plugin" && generation.owner.extensionId === "module.sales"
+    );
+    const current = generations.filter((generation) => generation.state === "current");
+    if (current.length !== 1) return undefined;
+    const generation = current[0]!;
+    return generation.lifecycleRevision === expected.lifecycleRevision && generation.authorizationRevision <= expected.authorizationRevision ? generation : undefined;
+  });
+  return Object.freeze({ state: snapshot.state, generation: snapshot.value });
+}
+
 function createRuntime(payload: Payload) {
   const store = new PostgresAuthorizationStore(payload.db.pool as RuntimeExtensionPool, {
     validate: (applicationId, subject) => applicationId === kNexIdentity.applicationId && subject.kind === "user" ? "accepted" : "rejected"
   });
-  const salesContribution = createPlatformPluginRegistrationAuthorizationContribution({ registration: kNexSalesRegistry.scopedRegistration, generation: kNexSalesRegistry.authorizationGeneration });
   const salesExecutables = kNexSalesRegistry.policyBindings.map((binding) => {
     const executor = kNexSalesRegistry.policyExecutors[binding.policyReference as keyof typeof kNexSalesRegistry.policyExecutors];
     if (executor === undefined || binding.publisher.kind !== "extension" || binding.publisher.deliveryClass !== "platform-plugin") throw new Error("Sales policy executable is unavailable.");
     return createPlatformPluginPolicyExecutable({ kind: "platform-plugin", publisher: binding.publisher, bindingId: binding.id, policyReference: binding.policyReference, executor });
   });
-  const catalogProvider = createAuthorizationCatalogProvider(({ applicationId, lifecycleRevision }) => {
+  const catalogProvider = createAuthorizationCatalogProvider(async ({ applicationId, lifecycleRevision }) => {
     if (applicationId !== kNexIdentity.applicationId) return undefined;
-    if (lifecycleRevision !== 0 && lifecycleRevision !== 1) return undefined;
+    const current = await currentSalesAuthority(store).catch(() => undefined);
+    if (current === undefined || current.state.lifecycleRevision !== lifecycleRevision) return undefined;
+    const salesContribution = current.generation === undefined ? undefined : createPlatformPluginRegistrationAuthorizationContribution({ registration: kNexSalesRegistry.scopedRegistration, generation: current.generation });
     return {
       applicationId,
       lifecycleRevision,
-      catalog: createEffectiveAuthorizationCatalog({ applicationId, lifecycleRevision, extensions: lifecycleRevision === 0 ? [] : [salesContribution], executables: lifecycleRevision === 0 ? [] : salesExecutables })
+      catalog: createEffectiveAuthorizationCatalog({ applicationId, lifecycleRevision, extensions: salesContribution === undefined ? [] : [salesContribution], executables: salesContribution === undefined ? [] : salesExecutables })
     };
   });
   const resolver = new EffectiveAuthorityResolver({ store, catalogProvider });
@@ -127,6 +144,12 @@ export function kNexAuthority(payload: Payload) {
   let runtime = runtimes.get(payload);
   if (runtime === undefined) { runtime = createRuntime(payload); runtimes.set(payload, runtime); }
   return runtime;
+}
+
+export async function currentSalesGeneration(payload: Payload) {
+  const current = await currentSalesAuthority(kNexAuthority(payload).store);
+  if (current?.generation === undefined) throw new TypeError("Sales authorization generation is unavailable.");
+  return current;
 }
 
 export function kNexRequestContext(headers: Headers, boundary: string): KnexRequestContext {
@@ -302,10 +325,9 @@ async function ensureInitialSalesOwner(payload: Awaited<ReturnType<typeof bootKn
     });
     return;
   }
-  if (state.lifecycleRevision !== 1) throw new Error("Sales authorization lifecycle is incompatible.");
   const result = await (payload.db.pool as { query(text: string, values: unknown[]): Promise<{ rows: Array<{ assignment_count: number; generation_count: number; grant_count: number }> }> }).query(
-    "select (select count(*)::int from k_nex_role_assignments where application_id=$1 and assignment_id='customer.initial-sales-administrator.owner' and subject_kind='user' and subject_id=$2 and state='active') assignment_count, (select count(*)::int from k_nex_extension_authorization_generations where application_id=$1 and delivery_class='platform-plugin' and extension_id='module.sales' and authorization_generation=1 and state='current') generation_count, (select count(*)::int from k_nex_role_permission_grants where application_id=$1 and role_id='customer.initial-sales-administrator') grant_count",
-    [kNexIdentity.applicationId, userId]
+    "select (select count(*)::int from k_nex_role_assignments where application_id=$1 and assignment_id='customer.initial-sales-administrator.owner' and subject_kind='user' and subject_id=$2 and state='active') assignment_count, (select count(*)::int from k_nex_extension_authorization_generations where application_id=$1 and delivery_class='platform-plugin' and extension_id='module.sales' and authorization_generation=1 and state in ('current','retired') and lifecycle_revision<=$3) generation_count, (select count(*)::int from k_nex_role_permission_grants where application_id=$1 and role_id='customer.initial-sales-administrator') grant_count",
+    [kNexIdentity.applicationId, userId, state.lifecycleRevision]
   );
   const proof = result.rows[0];
   if (proof?.assignment_count !== 1 || proof.generation_count !== 1 || proof.grant_count !== kNexSalesRegistry.permissionDescriptors.length) throw new Error("Initial Sales authority is incomplete.");
@@ -536,7 +558,7 @@ import { canonicalJson, type PluginNavigationDescriptor, type PluginRouteDescrip
 import { resolveWorkspaceNavigation } from "@k-nex/ui-runtime";
 import type { Payload } from "payload";
 
-import { authorizeNavigationPermission, kNexAuthority, kNexRequestContext } from "./k-nex-authority.js";
+import { authorizeNavigationPermission, currentSalesGeneration, kNexAuthority, kNexRequestContext } from "./k-nex-authority.js";
 import { kNexIdentity } from "./k-nex-identity.js";
 import { kNexSalesRegistry } from "./k-nex-registry.js";
 import { workspaceSalesPermissions } from "./k-nex-sales-workspace.js";
@@ -564,12 +586,12 @@ async function currentSalesNavigation(payload: Payload, context: ReturnType<type
 export async function resolveCurrentWorkspaceNavigation(payload: Payload, headers: Headers) {
   const authentication = await payload.auth({ headers, canSetHeaders: false });
   if (!authentication.user) return undefined;
-  const state = await kNexAuthority(payload).store.readState(kNexIdentity.applicationId, kNexIdentity.environment);
+  const salesAuthority = await currentSalesGeneration(payload).catch(() => undefined);
+  const state = salesAuthority?.state ?? await kNexAuthority(payload).store.readState(kNexIdentity.applicationId, kNexIdentity.environment);
   if (state === undefined) return undefined;
   const applicationTheme = await resolveApplicationTheme(payload);
   const context = kNexRequestContext(headers, "workspace-navigation");
-  const salesGenerationCurrent = state.lifecycleRevision === kNexSalesRegistry.authorizationGeneration.lifecycleRevision &&
-    state.authorizationRevision >= kNexSalesRegistry.authorizationGeneration.authorizationRevision;
+  const salesGenerationCurrent = salesAuthority !== undefined;
   const salesNavigation = await currentSalesNavigation(payload, context, salesGenerationCurrent);
   const workspace = kNexWorkspacePages(payload);
   const canReadPages = await authorizeNavigationPermission(payload, context, "system.workspace-pages.read");
@@ -616,7 +638,7 @@ import { createHash } from "node:crypto";
 import { canonicalJson, type DataSourceBindingResult, type UiDocument } from "@k-nex/contracts";
 import type { Payload } from "payload";
 
-import { authorizeNavigationPermission, kNexAuthority, type KnexRequestContext } from "./k-nex-authority.js";
+import { authorizeNavigationPermission, currentSalesGeneration as currentSalesAuthorityGeneration, type KnexRequestContext } from "./k-nex-authority.js";
 import { kNexIdentity } from "./k-nex-identity.js";
 import { kNexSalesRegistry } from "./k-nex-registry.js";
 import { executeWorkspaceSalesAction, loadWorkspaceSalesSources, workspaceSalesPermissions } from "./k-nex-sales-workspace.js";
@@ -624,14 +646,6 @@ import { executeWorkspaceSalesAction, loadWorkspaceSalesSources, workspaceSalesP
 type RegisteredRoute = Readonly<{ id: string; ownerPluginId: string; permission: string; viewId: string }>;
 type RegisteredTemplate = Readonly<{ id: string; ownerPluginId: string; route: Readonly<{ routeId: string }>; permission: string; document: UiDocument }>;
 type RegisteredAction = Readonly<{ id: string; version: number }>;
-
-function currentSalesGeneration(payload: Payload) {
-  return kNexAuthority(payload).store.readState(kNexIdentity.applicationId, kNexIdentity.environment).then((state) => {
-    if (state === undefined || state.lifecycleRevision !== kNexSalesRegistry.authorizationGeneration.lifecycleRevision ||
-      state.authorizationRevision < kNexSalesRegistry.authorizationGeneration.authorizationRevision) throw new TypeError("Sales route generation is unavailable.");
-    return state;
-  });
-}
 
 function routeTemplate(routeId: string): Readonly<{ route: RegisteredRoute; template: RegisteredTemplate }> {
   const route = kNexSalesRegistry.scopedRegistration.contributions.routes.find((entry) => entry.id === routeId)?.value as RegisteredRoute | undefined;
@@ -653,7 +667,7 @@ function registeredAction(actionId: string): RegisteredAction {
 }
 
 export async function loadRegisteredSalesRoute(payload: Payload, context: KnexRequestContext, routeId: string) {
-  const initialState = await currentSalesGeneration(payload);
+  const initialState = (await currentSalesAuthorityGeneration(payload)).state;
   const { route, template } = routeTemplate(routeId);
   const [routeAllowed, permissions] = await Promise.all([
     authorizeNavigationPermission(payload, context, route.permission), workspaceSalesPermissions(payload, context)
@@ -663,7 +677,7 @@ export async function loadRegisteredSalesRoute(payload: Payload, context: KnexRe
   }
   const sourceResults = await loadWorkspaceSalesSources(payload, context, template.document, new AbortController().signal);
   const [finalState, finalRouteAllowed, finalPermissions] = await Promise.all([
-    currentSalesGeneration(payload), authorizeNavigationPermission(payload, context, route.permission), workspaceSalesPermissions(payload, context)
+    currentSalesAuthorityGeneration(payload).then((current) => current.state), authorizeNavigationPermission(payload, context, route.permission), workspaceSalesPermissions(payload, context)
   ]);
   if (finalState.authorizationRevision !== initialState.authorizationRevision || finalState.lifecycleRevision !== initialState.lifecycleRevision ||
     !finalRouteAllowed || !finalPermissions.includes(template.permission) || canonicalJson(finalPermissions) !== canonicalJson(permissions)) {
@@ -677,7 +691,7 @@ export async function loadRegisteredSalesRoute(payload: Payload, context: KnexRe
 }
 
 export async function executeRegisteredSalesRouteAction(payload: Payload, context: KnexRequestContext, actionId: string, input: unknown, idempotencyKey: string, signal: AbortSignal) {
-  await currentSalesGeneration(payload);
+  await currentSalesAuthorityGeneration(payload);
   return executeWorkspaceSalesAction(payload, context, registeredAction(actionId), input, idempotencyKey, signal);
 }
 `;

@@ -1005,7 +1005,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     const managerSalesHtmlBeforeRetirement = await managerSalesNavigationBeforeRetirement.text();
     for (const href of ["/sales", "/sales/tasks", "/sales/opportunities", "/sales/settings"]) {
       assert.equal(managerSalesHtmlBeforeRetirement.includes(`href=\"${href}\"`), true, `Current Sales authority must expose ${href} before retirement.`);
-      assert.equal((await fetch(`${applicationProcess.origin}${href}`, { headers: { cookie: manager.cookie.header } })).status, 200, `Current Sales authority must open ${href} before retirement.`);
+      assert.equal((await fetch(`${applicationProcess.origin}${href}`, { headers: { cookie: manager.cookie.header }, redirect: "manual" })).status, 200, `Current Sales authority must open ${href} before retirement.`);
     }
     const preRetirementActionTitle = "Current Sales route action task";
     const preRetirementAction = await fetch(`${applicationProcess.origin}/api/k-nex/sales/actions/${encodeURIComponent("sales.task.create")}`, {
@@ -1033,12 +1033,17 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     await retiredRoutePage.getByRole("alert").getByText("Sales route unavailable", { exact: true }).waitFor({ timeout: 10_000 });
     assert.equal(await retiredRoutePage.getByRole("form", { name: "Create task" }).count(), 0, "An open registered Sales route must clear its action after generation retirement.");
     await retiredRouteContext.close();
-    const retiredSalesNavigation = await fetch(`${applicationProcess.origin}/`, { headers: { cookie: manager.cookie.header } });
+    const retiredSalesNavigation = await fetch(`${applicationProcess.origin}/`, { headers: { cookie: manager.cookie.header }, redirect: "manual" });
     assert.equal(retiredSalesNavigation.status, 200);
     const retiredSalesHtml = await retiredSalesNavigation.text();
+    assert.match(retiredSalesHtml, /K-Nex workspace/u, "Retiring Sales must not deny the host workspace.");
+    const retiredSystem = await fetch(`${applicationProcess.origin}/system/workspace-pages`, { headers: { cookie: manager.cookie.header }, redirect: "manual" });
+    assert.equal(retiredSystem.status, 200, "Retiring Sales must not redirect fixed System routes.");
+    const retiredDependentPage = await fetch(`${applicationProcess.origin}/workspace/pages/${encodeURIComponent(pageId)}`, { headers: { cookie: manager.cookie.header }, redirect: "manual" });
+    assert.equal(retiredDependentPage.status, 404, "A custom page depending on retired Sales must fail closed.");
     for (const href of ["/sales", "/sales/tasks", "/sales/opportunities", "/sales/settings"]) {
       assert.equal(retiredSalesHtml.includes(`href=\"${href}\"`), false, `Retiring current Sales generation must remove ${href} navigation.`);
-      assert.equal((await fetch(`${applicationProcess.origin}${href}`, { headers: { cookie: manager.cookie.header } })).status, 404, `Retiring current Sales generation must deny ${href}.`);
+      assert.equal((await fetch(`${applicationProcess.origin}${href}`, { headers: { cookie: manager.cookie.header }, redirect: "manual" })).status, 404, `Retiring current Sales generation must deny ${href}.`);
     }
     const retiredActionTitle = "Denied after Sales retirement";
     const retiredActionBefore = (await pool.query("select count(*)::int as count from sales_tasks where title=$1", [retiredActionTitle])).rows[0].count;
@@ -1051,6 +1056,39 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     assert.deepEqual(await retiredAction.json(), { code: "INVALID_INPUT" });
     assert.equal((await pool.query("select count(*)::int as count from sales_tasks where title=$1", [retiredActionTitle])).rows[0].count, retiredActionBefore, "Denied registered route action must write nothing.");
     console.log("P12_RETIRED_SALES_GENERATION_NAVIGATION_ROUTE_AND_ACTION_POSTGRES_DENIED=PASS");
+    const restoringSalesState = await durableStore.readState(applicationId, environmentName);
+    assert.ok(restoringSalesState);
+    const restoredSalesState = (await durableStore.transaction(expected(restoringSalesState), async (transaction) => {
+      const generation = (await transaction.listExtensionGenerations(applicationId)).find((candidate) =>
+        candidate.owner.deliveryClass === "platform-plugin" && candidate.owner.extensionId === "module.sales" && candidate.owner.generation === 1
+      );
+      assert.ok(generation);
+      await transaction.write({ kind: "extension-generation", generation: {
+        ...generation,
+        state: "current",
+        authorizationRevision: restoringSalesState.authorizationRevision,
+        lifecycleRevision: restoringSalesState.lifecycleRevision + 1
+      } });
+    })).state;
+    assert.deepEqual(restoredSalesState, { ...restoringSalesState, lifecycleRevision: restoringSalesState.lifecycleRevision + 1 }, "Sales recovery must use one expected-revision current-authority transition.");
+    const restoredHost = await fetch(`${applicationProcess.origin}/`, { headers: { cookie: manager.cookie.header }, redirect: "manual" });
+    assert.equal(restoredHost.status, 200, "Host workspace must remain available after Sales recovery.");
+    const restoredSystem = await fetch(`${applicationProcess.origin}/system/workspace-pages`, { headers: { cookie: manager.cookie.header }, redirect: "manual" });
+    assert.equal(restoredSystem.status, 200, "Fixed system route must remain available after Sales lifecycle changes.");
+    const restoredSales = await fetch(`${applicationProcess.origin}/sales/tasks`, { headers: { cookie: manager.cookie.header }, redirect: "manual" });
+    assert.equal(restoredSales.status, 200, "A valid later current Sales generation must restore its registered route.");
+    const restoredNavigation = await fetch(`${applicationProcess.origin}/`, { headers: { cookie: manager.cookie.header }, redirect: "manual" });
+    assert.equal((await restoredNavigation.text()).includes('href="/sales/tasks"'), true, "A valid later current Sales generation must restore navigation.");
+    const restoredActionTitle = "Recovered after Sales lifecycle transition";
+    const restoredAction = await fetch(`${applicationProcess.origin}/api/k-nex/sales/actions/${encodeURIComponent("sales.task.create")}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie: manager.cookie.header, origin: applicationProcess.origin },
+      body: JSON.stringify({ input: { title: restoredActionTitle }, idempotencyKey: `restored-sales-action-${randomUUID()}` }),
+      redirect: "manual"
+    });
+    assert.equal(restoredAction.status, 200, "A valid later current Sales generation must restore registered actions.");
+    assert.equal((await pool.query("select count(*)::int as count from sales_tasks where title=$1", [restoredActionTitle])).rows[0].count, 1);
+    console.log("P12_LATER_SALES_GENERATION_RECOVERS_NAVIGATION_ROUTE_AND_ACTION_POSTGRES_HTTP=PASS");
     console.log("P12_9_GENERATED_APP_POSTGRES_HTTP_CHROMIUM_EVIDENCE=PASS");
   } finally {
     await stop(workerProcess?.child).catch(() => {});
