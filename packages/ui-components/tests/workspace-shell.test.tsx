@@ -40,4 +40,15 @@ describe("P12.4 workspace shell", () => {
     expect(markup).toContain("Sales content");
     expect(markup).toContain("Pipeline");
   });
+
+  it("keeps resolved links usable in the collapsed desktop rail", () => {
+    const markup = renderToStaticMarkup(<WorkspaceShell applicationLabel="Customer Alpha" environment="production" currentHref="/sales" navigation={{ ...navigation, sidebar: "collapsed" }} preferenceKey="customer-alpha:user-one:sidebar"><p>Sales content</p></WorkspaceShell>);
+
+    expect(markup).toContain('data-sidebar="collapsed"');
+    expect(markup).toContain('workspace-desktop-navigation-rail');
+    expect(markup).toContain('title="Overview"');
+    expect(markup).toContain('data-active="true"');
+    expect(markup).toContain('aria-current="page"');
+    expect(markup).toContain('data-k-nex-component="visually-hidden"');
+  });
 });
