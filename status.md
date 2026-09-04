@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Latest review corrections are integrated: full-navigation polling watermark, duplicate-only folder replay, authority-bound durable navigation outbox, worker-down reconciliation, and the generated migration-count fixture.
+Latest review corrections are integrated: full-navigation polling watermark, duplicate-only folder replay with changed-payload denial, authority-bound durable navigation outbox lease/dead-letter evidence, worker-down reconciliation, and the generated migration-count fixture.
 
 ## Validation
 
-Integrated focused tests PASS: adapter navigation/outbox 7, composition generation/invalidation 18, package builds, syntax, packed ABI/closure, and factory locks. Generated PostgreSQL/HTTP/Chromium journey PASS in 198s, including live publish navigation, worker-down folder reconciliation, durable outbox recovery, and lifecycle recovery; `git diff --check` PASS.
+Integrated focused tests PASS: adapter navigation/outbox 9, composition generation/invalidation 18, package builds, syntax, packed ABI/closure, and factory locks. Latest generated PostgreSQL/HTTP/Chromium journey PASS in 205s, including duplicate replay/changed-payload denial, live publish navigation, worker-down folder reconciliation, durable outbox recovery, and lifecycle recovery; `git diff --check` PASS.
 
 ## Next
 

@@ -352,12 +352,30 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
 
     const folderKey = `workspace-folder-${randomUUID()}`;
     const folderId = `customer.folder.f${createHash("sha256").update(folderKey).digest("hex").slice(0, 23)}`;
-    const createFolder = await fetch(`${applicationProcess.origin}/api/k-nex/workspace-folders`, {
+    const createFolderRequest = (label) => fetch(`${applicationProcess.origin}/api/k-nex/workspace-folders`, {
       method: "POST", redirect: "manual",
       headers: { "content-type": "application/x-www-form-urlencoded", cookie: owner.cookie.header, origin: applicationProcess.origin },
-      body: new URLSearchParams({ idempotencyKey: folderKey, label: "Reports", parentNavigationId: "sales.navigation.root", order: "20" })
+      body: new URLSearchParams({ idempotencyKey: folderKey, label, parentNavigationId: "sales.navigation.root", order: "20" })
     });
+    const createFolder = await createFolderRequest("Reports");
     assert.equal(createFolder.status, 303, `${await createFolder.clone().text()}\n${applicationProcess.output()}`);
+    const folderDurabilityCounts = async () => Promise.all([
+      pool.query("select count(*)::int as count from k_nex_workspace_navigation_folders where application_id=$1 and environment=$2 and folder_id=$3", [applicationId, environmentName, folderId]),
+      pool.query("select count(*)::int as count from k_nex_workspace_navigation_outbox where application_id=$1 and environment=$2 and folder_id=$3", [applicationId, environmentName, folderId])
+    ]);
+    const [createdFolderRows, createdFolderEvents] = await folderDurabilityCounts();
+    assert.equal(createdFolderRows.rows[0].count, 1);
+    assert.equal(createdFolderEvents.rows[0].count, 1);
+    const replayFolder = await createFolderRequest("Reports");
+    assert.equal(replayFolder.status, 303, "An identical folder create must replay successfully.");
+    const [replayedFolderRows, replayedFolderEvents] = await folderDurabilityCounts();
+    assert.equal(replayedFolderRows.rows[0].count, 1, "A folder replay must not create another folder.");
+    assert.equal(replayedFolderEvents.rows[0].count, 1, "A folder replay must not enqueue another navigation invalidation.");
+    const changedFolderReplay = await createFolderRequest("Changed reports");
+    assert.equal(changedFolderReplay.status, 400, "A changed folder payload under one idempotency key must be denied.");
+    const [deniedFolderRows, deniedFolderEvents] = await folderDurabilityCounts();
+    assert.equal(deniedFolderRows.rows[0].count, 1, "A denied folder replay must not create another folder.");
+    assert.equal(deniedFolderEvents.rows[0].count, 1, "A denied folder replay must not enqueue another navigation invalidation.");
     const invalidFolderMove = await fetch(`${applicationProcess.origin}/api/k-nex/workspace-folders/${encodeURIComponent(folderId)}`, {
       method: "POST", redirect: "manual",
       headers: { "content-type": "application/x-www-form-urlencoded", cookie: owner.cookie.header, origin: applicationProcess.origin },

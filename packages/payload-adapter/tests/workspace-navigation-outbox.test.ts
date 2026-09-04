@@ -50,4 +50,34 @@ describe("workspace navigation outbox", () => {
     await expect(dispatcher.dispatchNext({ publish: async () => undefined })).resolves.toMatchObject({ status: "delivered", invalidation });
     expect(query.mock.calls.filter(([text]) => String(text).includes("for update skip locked"))).toHaveLength(4);
   });
+
+  it("reclaims an expired lease before publishing current navigation", async () => {
+    const query = vi.fn(async (text: string) => text.includes("returning event.event_id")
+      ? { rows: [row({ attempt_count: 2 })] }
+      : { rows: [], rowCount: text.includes("status='delivered'") ? 1 : 0 });
+    const dispatcher = new PostgresWorkspaceNavigationOutboxDispatcher({ query } as never, { applicationId: "customer-alpha", environment: "production", leaseMs: 20, publishTimeoutMs: 10 });
+
+    await expect(dispatcher.dispatchNext({ publish: async () => undefined })).resolves.toMatchObject({ status: "delivered", invalidation });
+
+    const claim = query.mock.calls.find(([text]) => String(text).includes("returning event.event_id"));
+    expect(claim?.[0]).toContain("status='processing' and lease_expires_at <= now()");
+    expect(claim?.[1]).toEqual([3, "customer-alpha", "production", 20, expect.any(String)]);
+  });
+
+  it("dead-letters a final failed attempt and never reclaims it", async () => {
+    let claims = 0;
+    const query = vi.fn(async (text: string) => text.includes("returning event.event_id")
+      ? { rows: claims++ === 0 ? [row({ attempt_count: 2 })] : [] }
+      : { rows: [], rowCount: 0 });
+    const dispatcher = new PostgresWorkspaceNavigationOutboxDispatcher({ query } as never, { applicationId: "customer-alpha", environment: "production", leaseMs: 20, publishTimeoutMs: 10, maxAttempts: 2 });
+
+    await expect(dispatcher.dispatchNext({ publish: async () => { throw new Error("terminal notification failure"); } })).rejects.toThrow("terminal notification failure");
+    const publish = vi.fn(async () => undefined);
+    await expect(dispatcher.dispatchNext({ publish })).resolves.toEqual({ status: "idle" });
+
+    const finalization = query.mock.calls.find(([text, parameters]) => String(text).includes("dead_lettered_at=case") && Array.isArray(parameters) && parameters[2] === "dead-letter");
+    expect(finalization?.[1]).toEqual([invalidation.eventId, "ee2f520a-886a-4ee9-ae0a-3d0988472c90", "dead-letter"]);
+    expect(query.mock.calls.some(([text]) => String(text).includes("attempt_count < $1") && String(text).includes("for update skip locked"))).toBe(true);
+    expect(publish).not.toHaveBeenCalled();
+  });
 });

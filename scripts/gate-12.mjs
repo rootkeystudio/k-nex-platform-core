@@ -84,7 +84,7 @@ const unitProofs = [
     "rejects protected insertion values and region or ancestor movement of immovable nodes",
     "preserves every region outside the configured Puck canvas exactly"
   ]),
-  vitest("page-service", "@k-nex/payload-adapter", ["tests/workspace-page-service.test.ts", "tests/workspace-navigation-store.test.ts"], [
+  vitest("page-service", "@k-nex/payload-adapter", ["tests/workspace-page-service.test.ts", "tests/workspace-navigation-store.test.ts", "tests/workspace-navigation-outbox.test.ts"], [
     "returns the same non-enumerating denial for missing and unauthorized direct pages",
     "derives page, placement, theme, actor, and document identity on the server",
     "denies non-owner ACL expansion beyond the editor's exact held capability",
@@ -93,7 +93,9 @@ const unitProofs = [
     "requires current publish authority and fresh ready dependencies before storage",
     "fails closed before page or pointer mutation and store rollback for missing or dependency-unavailable target revisions",
     "derives publication and rollback identities, authority digest, and dependencies server-side",
-    "rejects plugin-owned folders, links, invalid actors, and invalid scope before SQL"
+    "rejects plugin-owned folders, links, invalid actors, and invalid scope before SQL",
+    "reclaims an expired lease before publishing current navigation",
+    "dead-letters a final failed attempt and never reclaims it"
   ]),
   vitest("generator", "@k-nex/composition", ["tests/application-factory.test.ts", "tests/workspace-page-application-files.test.ts"], [
     "plans deterministic exact Sales applications for local or external Postgres",
