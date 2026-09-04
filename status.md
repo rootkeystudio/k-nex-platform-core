@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Added a usable collapsed desktop navigation rail with fixed host icons, native labels, active state, and the same authorized links.
+Froze the accepted Phase 11 protected-role baseline as v3 and added exact direct v3-to-v4 reconciliation for Phase 12 workspace permissions.
 
 ## Validation
 
-Exact Node 24.19.0: workspace-shell 2/2 and composition application/runnable source 14/14 PASS. Prior focused Gate 12 product proof and hosted evidence 33820564496 remain PASS.
+Exact Node 24.19.0: protected baseline unit 6/6 and real PostgreSQL v3-to-v4 upgrade 1/1 PASS, including one revision/audit/outbox, restart idempotence, v2-skip denial, and tamper denial.
 
 ## Next
 

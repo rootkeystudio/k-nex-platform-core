@@ -37,7 +37,7 @@ export async function bootGate1Application(options: BootGate1ApplicationOptions)
 
 function releaseAudit(state: AuthorizationExpectedRevision) {
   const suffix = createHash("sha256")
-    .update(`${state.applicationId}:${state.authorizationRevision}:protected-baseline-v3`)
+    .update(`${state.applicationId}:${state.authorizationRevision}:protected-baseline-v4`)
     .digest("hex").slice(0, 24);
   return {
     schemaVersion: 1 as const,

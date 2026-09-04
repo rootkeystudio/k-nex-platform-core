@@ -42,7 +42,7 @@ export interface EnsureProtectedRoleBaselineReleaseInput {
   readonly audit: (state: AuthorizationExpectedRevision) => unknown;
 }
 
-/** Release/startup gate: upgrades the sole compiled predecessor or fails closed. */
+/** Release/startup gate: upgrades the sole immediate compiled predecessor or fails closed. */
 export async function ensureProtectedRoleBaselineRelease(
   input: EnsureProtectedRoleBaselineReleaseInput
 ): Promise<"uninitialized" | "current" | "upgraded"> {
@@ -53,7 +53,7 @@ export async function ensureProtectedRoleBaselineRelease(
   if (receipt.protectedBaselineVersion === currentProtectedPlatformRoleBaselineRelease.version
     && receipt.protectedBaselineDigest === currentProtectedPlatformRoleBaselineRelease.digest) return "current";
   const prior = recognizedProtectedPlatformRoleBaselineRelease(receipt.protectedBaselineVersion, receipt.protectedBaselineDigest);
-  if (prior === undefined || prior.version >= currentProtectedPlatformRoleBaselineRelease.version) {
+  if (prior === undefined || prior.version !== currentProtectedPlatformRoleBaselineRelease.version - 1) {
     fail("REVISION_CONFLICT", "Stored protected role baseline is not the compiled release predecessor.");
   }
   const expected = parseAuthorizationExpectedRevision({
@@ -72,7 +72,7 @@ export async function ensureProtectedRoleBaselineRelease(
 }
 
 /**
- * Reconciles only a recognized compiled predecessor to the compiled current
+ * Reconciles only the immediate recognized compiled predecessor to the compiled current
  * protected baseline. Customer administration never receives this capability.
  */
 export async function reconcileProtectedRoleBaseline(
@@ -80,7 +80,7 @@ export async function reconcileProtectedRoleBaseline(
 ): Promise<AuthorizationTransactionOutcome<BootstrapReceipt>> {
   const expected = parseAuthorizationExpectedRevision(input.expected);
   const prior = recognizedProtectedPlatformRoleBaselineRelease(input.expectedPrior.version, input.expectedPrior.digest);
-  if (prior === undefined || prior.version >= currentProtectedPlatformRoleBaselineRelease.version) {
+  if (prior === undefined || prior.version !== currentProtectedPlatformRoleBaselineRelease.version - 1) {
     fail("MUTATION_INVALID", "Protected role baseline predecessor is not recognized for reconciliation.");
   }
   const audit = reconciliationAudit(input.audit, expected);
