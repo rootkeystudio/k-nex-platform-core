@@ -7,6 +7,7 @@ function accessServiceSource(): string {
 
 import { canonicalJson } from "@k-nex/contracts";
 import { SystemAccessAdministrationError, SystemAccessAdministrationService, type ActivePermissionGroup } from "@k-nex/runtime";
+import type { SystemPermissionAction, SystemPermissionOwnerGroup } from "@k-nex/ui-pages";
 import type { Payload } from "payload";
 
 import { kNexAuthority, type KnexRequestContext } from "./k-nex-authority.js";
@@ -52,14 +53,14 @@ export function accessMutationError(error: unknown): Response {
   return Response.json({ code }, { status: code === "UNAUTHORIZED" ? 403 : code === "REVISION_CONFLICT" ? 409 : 400, headers: { "cache-control": "no-store" } });
 }
 
-export function accessPermissionGroups(groups: readonly ActivePermissionGroup[], roleId: string, grants: readonly Readonly<{ readonly grant: Readonly<{ readonly id: string; readonly permissionId: string }>; readonly state: "active" | "inactive" }>[], mutable: boolean) {
+export function accessPermissionGroups(groups: readonly ActivePermissionGroup[], roleId: string, grants: readonly Readonly<{ readonly grant: Readonly<{ readonly id: string; readonly permissionId: string }>; readonly state: "active" | "inactive" }>[], mutable: boolean): readonly SystemPermissionOwnerGroup[] {
   const granted = new Map(grants.map((grant) => [grant.grant.permissionId, grant]));
-  const owners = new Map<string, { owner: string; resources: Map<string, Map<string, { label: string; description?: string; add?: unknown; remove?: unknown }[]>> }>();
+  const owners = new Map<string, { owner: string; resources: Map<string, Map<string, SystemPermissionAction[]>> }>();
   for (const group of groups) {
     const owner = group.owner.kind === "platform" ? "Platform system" : group.owner.extensionId;
     const entry = owners.get(owner) ?? { owner, resources: new Map() };
     owners.set(owner, entry);
-    const resource = entry.resources.get(group.resource) ?? new Map<string, { label: string; description?: string; add?: unknown; remove?: unknown }[]>();
+    const resource = entry.resources.get(group.resource) ?? new Map<string, SystemPermissionAction[]>();
     entry.resources.set(group.resource, resource);
     resource.set(group.operation, group.permissions.map(({ descriptor }) => {
       const grant = granted.get(descriptor.id);

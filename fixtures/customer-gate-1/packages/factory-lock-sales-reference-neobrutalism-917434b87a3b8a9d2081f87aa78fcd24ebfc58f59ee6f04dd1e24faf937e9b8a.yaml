@@ -954,11 +954,11 @@ packages:
       react: ^18.0.0 || ^19.0.0
 
   '@k-nex/composition@file:.k-nex/packages/k-nex-composition-1.0.0.tgz':
-    resolution: {integrity: sha512-rXeV+eAR84sIQsJPXq062o1s2a/qb+1zHwLNsi1H/6ilQ1ppAU6fxjwEcVPAAQsVuHo/ceuFCOaZzEoQElEYlQ==, tarball: file:.k-nex/packages/k-nex-composition-1.0.0.tgz}
+    resolution: {integrity: sha512-qtWNV/OOCfikLrh+BQ/UEIG6ZP1eCjFMfCosH1d8jmONCBt7SfNaZ1SkWvQWeKVOaRHrQKjOg4A+Cx+ozDPh/Q==, tarball: file:.k-nex/packages/k-nex-composition-1.0.0.tgz}
     version: 1.0.0
 
   '@k-nex/contracts@file:.k-nex/packages/k-nex-contracts-1.0.0.tgz':
-    resolution: {integrity: sha512-V6/3vviYIYbhaavBZ3VLT3mcBMSOe44m9tZZ04KA1qjtjbKm8y28ODhy8MUMNzOGn4ZG6CPhSiq9Yn9VJyNnXA==, tarball: file:.k-nex/packages/k-nex-contracts-1.0.0.tgz}
+    resolution: {integrity: sha512-jWAxTwoprpXwXH1b6RTYo1Bo5BlKNaxUkDbb0JI3MSqa54DAyIr6jZ3F736UA0H+oZ7qmrMkhHM2YVTTsLETRA==, tarball: file:.k-nex/packages/k-nex-contracts-1.0.0.tgz}
     version: 1.0.0
 
   '@k-nex/extension-bundler@file:.k-nex/packages/k-nex-extension-bundler-1.0.0.tgz':
@@ -997,11 +997,11 @@ packages:
         optional: true
 
   '@k-nex/payload-adapter@file:.k-nex/packages/k-nex-payload-adapter-1.0.0.tgz':
-    resolution: {integrity: sha512-QDgq8UJvsJCQHC2erro/UwA9cJRRZ6lB6rqICMDlmN/ehXTSRNpNprmwkyHkHkmQh82k670mMmVfk/Wpe0XNoA==, tarball: file:.k-nex/packages/k-nex-payload-adapter-1.0.0.tgz}
+    resolution: {integrity: sha512-YZ8xiHSUqGjLYFTad2mSZtZW7OOJFnIoqOZPBL4BlTYOT68dqNlvZ+EzfgcsHlwUSjothnzENYHAF/X0VXhSJA==, tarball: file:.k-nex/packages/k-nex-payload-adapter-1.0.0.tgz}
     version: 1.0.0
 
   '@k-nex/runtime@file:.k-nex/packages/k-nex-runtime-1.0.0.tgz':
-    resolution: {integrity: sha512-Pm99r152Tvw2qoW6JD4W+c1JTooIzrRemPPbNhL9y+UdN0IeaBloNvHA01c12LoaQe4lCFzE7yk9Gqwgy0YKUg==, tarball: file:.k-nex/packages/k-nex-runtime-1.0.0.tgz}
+    resolution: {integrity: sha512-wIWuywq513iUW5iHiIvLIWJxw2PWoqNI5Goqvl5eAtSb1xaLqnYoFHVtgX3oObIrScmYUboVxDbDkM3L/MrWNA==, tarball: file:.k-nex/packages/k-nex-runtime-1.0.0.tgz}
     version: 1.0.0
 
   '@k-nex/theme-neobrutalism@file:.k-nex/packages/k-nex-theme-neobrutalism-1.0.0.tgz':
@@ -1044,7 +1044,7 @@ packages:
       react: ^18.0.0 || ^19.0.0
 
   '@k-nex/ui-pages@file:.k-nex/packages/k-nex-ui-pages-1.0.0.tgz':
-    resolution: {integrity: sha512-z6oCTi1+lOAzc82xG/DuHs6ugEIkuzEb+Fmwhv5D0kaMhhRexj+IsnkWu6s7m+OuL19ag7XG78pTfztHv8/6dQ==, tarball: file:.k-nex/packages/k-nex-ui-pages-1.0.0.tgz}
+    resolution: {integrity: sha512-wpdxeJylPQHFtK+vU9cW3p0CG7uVZEY2G6Syf6uOy7l3JINElTznSUqQUbu9/W/Y6GzS3vDgXRGVMtP812CZJg==, tarball: file:.k-nex/packages/k-nex-ui-pages-1.0.0.tgz}
     version: 1.0.0
     peerDependencies:
       react: ^18.0.0 || ^19.0.0
@@ -2360,8 +2360,8 @@ packages:
     resolution: {integrity: sha512-Chq1s4CY7jmh8gO2qvLIJyfCDIN+EHLFW/9iShnp1z8FjBQMoodWP1kDC36VAMXXIvAjj4ARa7ntfAV2BrjsbA==}
     engines: {node: ^12.22.0 || ^14.16.0 || ^16.0.0 || >=17.0.0}
 
-  happy-dom@20.13.2:
-    resolution: {integrity: sha512-VC9HoEaT3Jf3K/1g/GjMYGAZCCg+ULgGVcXJlAeSzdTj8mIoPJRp14KVclP5gpUcF/kauuaVB2ri2/WxXbl4vg==}
+  happy-dom@20.14.0:
+    resolution: {integrity: sha512-4bRh1KzRvKDnFNTlLhzT1RZTpkKhQbQDl9j+7GXszWsvuspYdo29k6OHRf4PwiM6oLb8r/pMWeYiJjkfod5AvQ==}
     engines: {node: '>=20.0.0'}
 
   has-symbols@1.1.0:
@@ -4655,13 +4655,13 @@ snapshots:
       '@tiptap/extension-text': 3.31.2(@tiptap/core@3.31.2(@tiptap/pm@3.31.2))
       '@tiptap/extension-text-align': 3.31.2(@tiptap/core@3.31.2(@tiptap/pm@3.31.2))
       '@tiptap/extension-underline': 3.31.2(@tiptap/core@3.31.2(@tiptap/pm@3.31.2))
-      '@tiptap/html': 3.31.2(@tiptap/core@3.31.2(@tiptap/pm@3.31.2))(@tiptap/pm@3.31.2)(happy-dom@20.13.2)
+      '@tiptap/html': 3.31.2(@tiptap/core@3.31.2(@tiptap/pm@3.31.2))(@tiptap/pm@3.31.2)(happy-dom@20.14.0)
       '@tiptap/pm': 3.31.2
       '@tiptap/react': 3.31.2(@floating-ui/dom@1.8.0)(@tiptap/core@3.31.2(@tiptap/pm@3.31.2))(@tiptap/pm@3.31.2)(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       deep-diff: 1.0.2
       fast-equals: 5.2.2
       flat: 5.0.2
-      happy-dom: 20.13.2
+      happy-dom: 20.14.0
       object-hash: 3.0.0
       react: 19.2.8
       react-hotkeys-hook: 4.6.2(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -5010,11 +5010,11 @@ snapshots:
     dependencies:
       '@tiptap/core': 3.31.2(@tiptap/pm@3.31.2)
 
-  '@tiptap/html@3.31.2(@tiptap/core@3.31.2(@tiptap/pm@3.31.2))(@tiptap/pm@3.31.2)(happy-dom@20.13.2)':
+  '@tiptap/html@3.31.2(@tiptap/core@3.31.2(@tiptap/pm@3.31.2))(@tiptap/pm@3.31.2)(happy-dom@20.14.0)':
     dependencies:
       '@tiptap/core': 3.31.2(@tiptap/pm@3.31.2)
       '@tiptap/pm': 3.31.2
-      happy-dom: 20.13.2
+      happy-dom: 20.14.0
 
   '@tiptap/pm@3.31.2':
     dependencies:
@@ -5597,7 +5597,7 @@ snapshots:
 
   graphql@16.14.2: {}
 
-  happy-dom@20.13.2:
+  happy-dom@20.14.0:
     dependencies:
       '@types/node': 24.13.3
       '@types/whatwg-mimetype': 3.0.2

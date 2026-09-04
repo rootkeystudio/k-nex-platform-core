@@ -11,6 +11,8 @@ describe("generated System operations administration", () => {
     expect(runtime).toContain("new SystemOperationsAdministrationService");
     expect(runtime).toContain("authority: authority.adapter");
     expect(runtime).toContain("new PostgresSystemOperationsStore");
+    expect(runtime).toContain("kNexHostInventoryDigest");
+    expect(runtime).toContain("await operations.initialize({ applicationId, environment, inventoryDigest: kNexHostInventoryDigest })");
     expect(runtime).toContain("k_nex_system_operation_requests");
     expect(runtime).toContain("k_nex_system_operation_receipts");
     expect(runtime).toContain("runtime_extension_operations");

@@ -55,6 +55,8 @@ describe("generated application readiness", () => {
     expect(readiness).not.toContain('assignment.id === "customer.initial-sales-administrator.owner"');
     expect(readiness).toContain("expectedMigrationNames");
     expect(readiness).toContain("expectedRouteSources");
+    expect(readiness).toContain('"src/app/(workspace)/system/extensions/[extensionId]/page.tsx"');
+    expect(readiness).toContain('"src/app/api/system/themes/profiles/[profileId]/publish/route.ts"');
     expect(readiness).not.toContain("payload.destroy()");
 
     expect(route).toContain('status: "ready", applicationId: readiness.applicationId, authorizationRevision: readiness.authorizationRevision, lifecycleRevision: readiness.lifecycleRevision');

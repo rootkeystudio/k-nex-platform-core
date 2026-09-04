@@ -36,6 +36,7 @@ describe("generated System Theme and Settings administration", () => {
       "src/app/api/system/themes/profiles/[profileId]/publish/route.ts",
       "src/app/api/system/themes/profiles/[profileId]/rollback/route.ts"
     ]));
+    expect(files["src/app/(workspace)/system/themes/profiles/[profileId]/page.tsx"]).toContain('from "../../../../../../boot.js"');
   });
 
   it("keeps revisions server-derived and high-risk mutations password-reauthenticated", () => {

@@ -44,7 +44,7 @@ function themeCatalog(payload: Payload) {
   );
   return Object.freeze({
     read: async () => Object.freeze({
-      packages: Object.freeze([{ id: kNexInitialThemeProfile.themeId, version: kNexInitialThemeProfile.themeVersion, displayName: kNexInitialThemeProfile.themeId, surfaces: Object.freeze(["admin"]), availability: "installed" as const }]),
+      packages: Object.freeze([{ id: kNexInitialThemeProfile.themeId, version: kNexInitialThemeProfile.themeVersion, displayName: kNexInitialThemeProfile.themeId, surfaces: Object.freeze(["admin"] as const), availability: "installed" as const }]),
       inventory: await store.inventory(kNexIdentity.applicationId, kNexIdentity.environment),
       catalog: Object.freeze([])
     })
@@ -117,7 +117,8 @@ export function themeProfileForRoute(profileId: string, value: unknown): unknown
 }
 
 export function systemMutationError(error: unknown): Response {
-  const code = error instanceof Error && typeof (error as { code?: unknown }).code === "string" ? (error as { code: string }).code : "MUTATION_INVALID";
+  const candidate = error instanceof Error ? error as Error & { code?: unknown } : undefined;
+  const code = typeof candidate?.code === "string" ? candidate.code : "MUTATION_INVALID";
   return Response.json({ code }, { status: code === "UNAUTHORIZED" ? 403 : code === "REVISION_CONFLICT" ? 409 : 400, headers: { "cache-control": "no-store" } });
 }
 
@@ -234,9 +235,9 @@ import { notFound } from "next/navigation";
 
 import { SystemThemeProfileDetailPage } from "@k-nex/ui-pages";
 
-import { bootKnexApplication } from "../../../../../boot.js";
-import { authorizeRequest, kNexRequestContext } from "../../../../../k-nex-authority.js";
-import { systemRouteId, systemThemeAdministration } from "../../../../../k-nex-system-theme-settings.js";
+import { bootKnexApplication } from "../../../../../../boot.js";
+import { authorizeRequest, kNexRequestContext } from "../../../../../../k-nex-authority.js";
+import { systemRouteId, systemThemeAdministration } from "../../../../../../k-nex-system-theme-settings.js";
 
 export const dynamic = "force-dynamic";
 
@@ -265,6 +266,8 @@ ${navigationSource()}`;
 function settingsChangeRouteSource(): string {
   return `import { randomUUID } from "node:crypto";
 
+import { SettingsChangeInputSchema } from "@k-nex/contracts";
+
 import { exactFields, openWorkspaceForm, workspaceRedirect } from "../../../../../k-nex-workspace-page-http.js";
 import { systemJson, systemMutationError, systemPassword, systemRouteId, systemSettingsAdministration } from "../../../../../k-nex-system-theme-settings.js";
 
@@ -279,7 +282,8 @@ export async function POST(request: Request, { params }: Readonly<{ params: Prom
     const service = systemSettingsAdministration(payload, password);
     const current = await service.detail({ context, settingsId });
     if (!current) throw new TypeError("Settings are unavailable.");
-    await service.change({ context, settingsId, change: { expectedDocumentRevision: current.documentRevision, expectedSettingsRevision: current.settingsRevision, idempotencyKey: "settings-change-" + randomUUID(), values: systemJson(form, "values", 16_384) as Record<string, unknown> } });
+    const change = SettingsChangeInputSchema.parse({ expectedDocumentRevision: current.documentRevision, expectedSettingsRevision: current.settingsRevision, idempotencyKey: "settings-change-" + randomUUID(), values: systemJson(form, "values", 16_384) });
+    await service.change({ context, settingsId, change });
     return workspaceRedirect("/system/settings/" + encodeURIComponent(settingsId));
   } catch (error) { return systemMutationError(error); }
 }

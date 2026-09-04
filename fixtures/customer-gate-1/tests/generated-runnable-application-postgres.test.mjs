@@ -57,6 +57,23 @@ function run(command, arguments_, options) {
   return execFileSync(command, arguments_, { ...options, encoding: "utf8", timeout: 120_000 });
 }
 
+function issueOperatorCertificates(directory, uriSan) {
+  const caKey = join(directory, "operator-ca.key");
+  const caCert = join(directory, "operator-ca.crt");
+  const serverKey = join(directory, "operator-server.key");
+  const serverCert = join(directory, "operator-server.crt");
+  const serverRequest = join(directory, "operator-server.csr");
+  const clientKey = join(directory, "operator-client.key");
+  const clientCert = join(directory, "operator-client.crt");
+  const clientRequest = join(directory, "operator-client.csr");
+  run("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1", "-subj", "/CN=K-Nex Phase 12 Fixture CA", "-keyout", caKey, "-out", caCert], { stdio: "pipe" });
+  run("openssl", ["req", "-new", "-newkey", "rsa:2048", "-nodes", "-subj", "/CN=127.0.0.1", "-addext", "subjectAltName=IP:127.0.0.1", "-keyout", serverKey, "-out", serverRequest], { stdio: "pipe" });
+  run("openssl", ["x509", "-req", "-days", "1", "-in", serverRequest, "-CA", caCert, "-CAkey", caKey, "-CAcreateserial", "-copy_extensions", "copy", "-out", serverCert], { stdio: "pipe" });
+  run("openssl", ["req", "-new", "-newkey", "rsa:2048", "-nodes", "-subj", "/CN=K-Nex Phase 12 Generated App", "-addext", `subjectAltName=URI:${uriSan}`, "-keyout", clientKey, "-out", clientRequest], { stdio: "pipe" });
+  run("openssl", ["x509", "-req", "-days", "1", "-in", clientRequest, "-CA", caCert, "-CAkey", caKey, "-CAcreateserial", "-copy_extensions", "copy", "-out", clientCert], { stdio: "pipe" });
+  return Object.freeze({ caCert, serverKey, serverCert, clientKey, clientCert });
+}
+
 function failedRun(command, arguments_, options) {
   try {
     run(command, arguments_, options);
@@ -78,12 +95,12 @@ function crashedRun(command, arguments_, options) {
 
 async function until(check, failure, child) {
   for (let attempt = 0; attempt < 120; attempt += 1) {
-    if (child?.exitCode !== null && child?.exitCode !== undefined) throw new Error(`${failure}: process exited ${child.exitCode}.`);
+    if (child?.exitCode !== null && child?.exitCode !== undefined) throw new Error(`${typeof failure === "function" ? failure() : failure}: process exited ${child.exitCode}.`);
     const result = await check().catch(() => undefined);
     if (result !== undefined && result !== false) return result;
     await new Promise((resolveWait) => setTimeout(resolveWait, 250));
   }
-  throw new Error(failure);
+  throw new Error(typeof failure === "function" ? failure() : failure);
 }
 
 function start(command, arguments_, options) {
@@ -106,7 +123,7 @@ async function stop(child, label = "child") {
 async function startApplication(application, applicationEnvironment) {
   const port = Number(new URL(applicationEnvironment.K_NEX_PUBLIC_ORIGIN).port);
   const applicationProcess = start(process.execPath, [realpathSync(join(application, "node_modules", "next", "dist", "bin", "next")), "start"], { cwd: application, env: { ...applicationEnvironment, PORT: String(port) } });
-  await until(async () => (await fetch(`http://127.0.0.1:${port}/api/health`)).ok, `Generated application did not start.\n${applicationProcess.output()}`, applicationProcess.child);
+  await until(async () => (await fetch(`http://127.0.0.1:${port}/api/health`)).ok, () => `Generated application did not start.\n${applicationProcess.output()}`, applicationProcess.child);
   return { ...applicationProcess, origin: `http://127.0.0.1:${port}` };
 }
 
@@ -126,6 +143,39 @@ async function login(origin, email, password) {
   const body = await response.json();
   assert.equal(Object.hasOwn(body, "token"), false, "Session login must not return a bearer token.");
   return { body, cookie: cookie(response) };
+}
+
+async function postSystemForm(origin, sessionCookie, path, fields) {
+  const response = await fetch(`${origin}${path}`, {
+    method: "POST",
+    redirect: "manual",
+    headers: { "content-type": "application/x-www-form-urlencoded", cookie: sessionCookie, origin },
+    body: new URLSearchParams(fields)
+  });
+  assert.equal(response.status, 303, `${path}: ${await response.clone().text()}`);
+  return response;
+}
+
+async function planAndExecuteExtensionInBrowser(context, origin, password, actionLabel, operation, diagnostics) {
+  const administrationPage = await context.newPage();
+  try {
+    await administrationPage.goto(`${origin}/system/extensions/module.sales`);
+    const [planResponse] = await Promise.all([
+      administrationPage.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/system/extensions/module.sales/plan"),
+      administrationPage.getByRole("button", { name: `Plan ${actionLabel}` }).click()
+    ]);
+    if (planResponse.status() !== 303) {
+      const body = await planResponse.text().catch(() => "unavailable");
+      assert.fail(`Extension plan failed at ${administrationPage.url()}: status=${planResponse.status()} location=${planResponse.headers().location ?? "none"} body=${body}\n${diagnostics()}`);
+    }
+    await administrationPage.waitForURL(/\/system\/extensions\/module\.sales\?operation=operation-[0-9a-f]{32}$/u);
+    const operationId = new URL(administrationPage.url()).searchParams.get("operation");
+    assert.match(operationId, /^operation-[0-9a-f]{32}$/u);
+    await administrationPage.getByLabel("Password").fill(password);
+    await administrationPage.getByRole("button", { name: `Execute ${operation}` }).click();
+    await administrationPage.waitForURL(new RegExp(`/system/extensions/module\\.sales\\?operation=${operationId}$`, "u"));
+    return operationId;
+  } finally { await administrationPage.close(); }
 }
 
 function verifiedPackageSource(manifestInput, directory) {
@@ -158,6 +208,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
   const managerEmail = `manager-${randomUUID()}@example.test`;
   const managerPassword = randomBytes(24).toString("base64url");
   let applicationProcess;
+  let operatorProcess;
   let workerProcess;
   let pool;
   let notificationClient;
@@ -171,12 +222,23 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     for (const command of plan.installCommands) run(command[0], command.slice(1), { cwd: application, stdio: "pipe" });
 
     const port = await unusedPort();
+    const operatorPort = await unusedPort();
+    const operatorUriSan = `spiffe://k-nex.test/applications/${applicationId}/environments/${environmentName}/administration`;
+    const operatorIdentity = "fixture.phase-12-administration-operator";
+    const operatorCertificates = issueOperatorCertificates(root, operatorUriSan);
     const applicationEnvironment = {
       ...process.env,
       DATABASE_URL: container.getConnectionUri(),
       K_NEX_ENVIRONMENT: environmentName,
       K_NEX_PUBLIC_ORIGIN: `http://127.0.0.1:${port}`,
-      PAYLOAD_SECRET: randomBytes(32).toString("hex")
+      PAYLOAD_SECRET: randomBytes(32).toString("hex"),
+      K_NEX_ADMINISTRATION_OPERATOR_HOST: "127.0.0.1",
+      K_NEX_ADMINISTRATION_OPERATOR_PORT: String(operatorPort),
+      K_NEX_ADMINISTRATION_OPERATOR_CLIENT_CERT: operatorCertificates.clientCert,
+      K_NEX_ADMINISTRATION_OPERATOR_CLIENT_KEY: operatorCertificates.clientKey,
+      K_NEX_ADMINISTRATION_OPERATOR_CA_CERT: operatorCertificates.caCert,
+      K_NEX_ADMINISTRATION_OPERATOR_URI_SAN: operatorUriSan,
+      K_NEX_ADMINISTRATION_OPERATOR_IDENTITY: operatorIdentity
     };
     const ownerEnvironment = { ...applicationEnvironment, K_NEX_OWNER_EMAIL: ownerEmail, K_NEX_OWNER_PASSWORD: ownerPassword };
     const staleOwnerEnvironment = { ...applicationEnvironment, K_NEX_OWNER_EMAIL: staleOwnerEmail, K_NEX_OWNER_PASSWORD: staleOwnerPassword };
@@ -317,6 +379,26 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     assert.equal(existsSync(replayTokenFile), false);
     console.log("P12_ATK_19_BOOTSTRAP_SCOPE_AND_REPLAY_POSTGRES_DENIED=PASS");
 
+    operatorProcess = start(process.execPath, [resolve(import.meta.dirname, "phase-12-administration-operator.mjs")], {
+      cwd: repositoryRoot,
+      env: {
+        ...applicationEnvironment,
+        P12_OPERATOR_APPLICATION_PATH: application,
+        P12_OPERATOR_APPLICATION_ID: applicationId,
+        P12_OPERATOR_ENVIRONMENT: environmentName,
+        P12_OPERATOR_CLIENT_URI_SAN: operatorUriSan,
+        P12_OPERATOR_IDENTITY: operatorIdentity,
+        P12_OPERATOR_SOURCE_COMMIT: "a".repeat(40),
+        P12_OPERATOR_HOST_INVENTORY_DIGEST: `sha256:${createHash("sha256").update(canonicalJson({ applicationId, environment: environmentName, platformPlugins: [{ id: "module.sales", package: kNexSalesRegistry.staticRelease.package, runtimeGenerationId: kNexSalesRegistry.staticRelease.runtimeGenerationId }] })).digest("hex")}`,
+        P12_OPERATOR_PORT: String(operatorPort),
+        P12_OPERATOR_REGISTRY_PATH: join(application, "dist/k-nex-registry.js"),
+        P12_OPERATOR_SERVER_CERT: operatorCertificates.serverCert,
+        P12_OPERATOR_SERVER_KEY: operatorCertificates.serverKey,
+        P12_OPERATOR_CA_CERT: operatorCertificates.caCert
+      }
+    });
+    await until(async () => operatorProcess.output().includes(`P12_ADMINISTRATION_OPERATOR_READY=${operatorPort}`), () => `Administration operator did not start.\n${operatorProcess.output()}`, operatorProcess.child);
+
     const readinessOutput = run("pnpm", ["knex:doctor"], { cwd: application, env: applicationEnvironment, stdio: "pipe" });
     assert.match(readinessOutput, /K_NEX_APPLICATION_READY/u);
     applicationProcess = await startApplication(application, applicationEnvironment);
@@ -342,6 +424,36 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     assert.match(ownerHtml, /Sales/u);
     assert.match(ownerHtml, /System/u);
     for (const secret of [ownerEmail, ownerPassword, limitedPassword, managerPassword]) assert.equal(ownerHtml.includes(secret), false);
+    assert.equal((await fetch(`${applicationProcess.origin}/system/operations`, { headers: { cookie: owner.cookie.header } })).status, 200);
+    const extensionAdministration = await fetch(`${applicationProcess.origin}/system/extensions/module.sales`, { headers: { cookie: owner.cookie.header } });
+    assert.equal(extensionAdministration.status, 200);
+    const extensionAdministrationHtml = await extensionAdministration.text();
+    for (const secret of [operatorUriSan, operatorIdentity, `127.0.0.1:${operatorPort}`, operatorCertificates.clientCert, operatorCertificates.clientKey, operatorCertificates.caCert, "BEGIN PRIVATE KEY"]) {
+      assert.equal(extensionAdministrationHtml.includes(secret), false, "Generated System administration HTML must not expose operator configuration or credentials.");
+    }
+    console.log("P12_SYSTEM_EXTENSION_AND_OPERATIONS_ADMINISTRATION_POSTGRES_HTTP=PASS");
+    await postSystemForm(applicationProcess.origin, owner.cookie.header, "/api/system/settings/system.general", { password: ownerPassword, values: JSON.stringify({ siteName: "Phase 12 Customer" }) });
+    const settingsDetail = await fetch(`${applicationProcess.origin}/system/settings/system.general`, { headers: { cookie: owner.cookie.header } });
+    assert.equal(settingsDetail.status, 200);
+    assert.match(await settingsDetail.text(), /Phase 12 Customer/u);
+    const initialTheme = (await pool.query("select active_profile from runtime_theme_profile_publications where application_id=$1 and environment=$2", [applicationId, environmentName])).rows[0]?.active_profile;
+    assert.ok(initialTheme);
+    const themeDraft = {
+      ...initialTheme,
+      revision: {
+        id: `theme.revision.r${randomUUID()}`,
+        number: initialTheme.revision.number + 1,
+        state: "draft",
+        createdAt: new Date().toISOString(),
+        previousRevisionId: initialTheme.revision.id
+      }
+    };
+    await postSystemForm(applicationProcess.origin, owner.cookie.header, `/api/system/themes/profiles/${encodeURIComponent(initialTheme.id)}/stage`, { profile: JSON.stringify(themeDraft) });
+    await postSystemForm(applicationProcess.origin, owner.cookie.header, `/api/system/themes/profiles/${encodeURIComponent(initialTheme.id)}/publish`, { password: ownerPassword });
+    const publishedThemeDetail = await fetch(`${applicationProcess.origin}/system/themes/profiles/${encodeURIComponent(initialTheme.id)}`, { headers: { cookie: owner.cookie.header } });
+    assert.equal(publishedThemeDetail.status, 200);
+    assert.equal((await pool.query("select active_revision_id from runtime_theme_profile_publications where application_id=$1 and environment=$2 and profile_id=$3", [applicationId, environmentName, initialTheme.id])).rows[0]?.active_revision_id, themeDraft.revision.id);
+    console.log("P12_SYSTEM_SETTINGS_AND_THEME_PROFILE_REAUTH_POSTGRES_HTTP=PASS");
     const inventory = await fetch(`${applicationProcess.origin}/api/k-nex/inventory`, { headers: { cookie: owner.cookie.header } });
     assert.equal(inventory.status, 200);
     const inventoryBody = await inventory.json();
@@ -350,7 +462,9 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     const ownerSalesOverviewHtml = await ownerSalesOverview.text();
     assert.equal(ownerSalesOverview.status, 200, `The generated static Sales overview route must be available to the authorized owner.\nbody=${ownerSalesOverviewHtml}\nprocess=${applicationProcess.output()}`);
     assert.equal((await fetch(`${applicationProcess.origin}/system/workspace-pages`, { headers: { cookie: owner.cookie.header } })).status, 200);
-    assert.equal((await fetch(`${applicationProcess.origin}/system/access/roles`, { headers: { cookie: owner.cookie.header } })).status, 404, "Generated navigation must not claim unimplemented System administration routes.");
+    for (const systemPath of ["/system/access/roles", "/system/access/permissions", "/system/access/assignments", "/system/access/audit", "/system/extensions", "/system/themes", "/system/settings", "/system/operations"]) {
+      assert.equal((await fetch(`${applicationProcess.origin}${systemPath}`, { headers: { cookie: owner.cookie.header } })).status, 200, `Owner must open fixed System route ${systemPath}.`);
+    }
 
     const folderKey = `workspace-folder-${randomUUID()}`;
     const folderId = `customer.folder.f${createHash("sha256").update(folderKey).digest("hex").slice(0, 23)}`;
@@ -449,12 +563,16 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     const store = new PostgresAuthorizationStore(pool, {
       validate: (requestedApplicationId, subject) => requestedApplicationId === applicationId && subject.kind === "user" && [ownerUserId, limitedUserId, managerUserId].includes(subject.id) ? "accepted" : "rejected"
     });
+    await postSystemForm(applicationProcess.origin, owner.cookie.header, "/api/system/access/roles", { id: "customer.workspace-viewer", label: "Workspace viewer" });
+    await postSystemForm(applicationProcess.origin, owner.cookie.header, "/api/system/access/roles/customer.workspace-viewer/permissions", { permissionId: "system.workspace-pages.read" });
+    await postSystemForm(applicationProcess.origin, owner.cookie.header, "/api/system/access/assignments", { roleId: "customer.workspace-viewer", userId: limitedUserId });
+    const workspaceViewerAssignmentId = `access.assignment.${createHash("sha256").update(canonicalJson([applicationId, "customer.workspace-viewer", limitedUserId])).digest("hex")}`;
+    assert.equal((await fetch(`${applicationProcess.origin}/system/access/roles/customer.workspace-viewer`, { headers: { cookie: owner.cookie.header } })).status, 200);
+    assert.equal((await fetch(`${applicationProcess.origin}/system/access/assignments`, { headers: { cookie: owner.cookie.header } })).status, 200);
+    console.log("P12_SYSTEM_ACCESS_ROLE_GRANT_ASSIGNMENT_POSTGRES_HTTP=PASS");
     const state = await store.readState(applicationId, environmentName);
     assert.ok(state);
     const granted = await store.transaction(expected(state), async (transaction) => {
-      await transaction.write({ kind: "role", role: { schemaVersion: 1, id: "customer.workspace-viewer", applicationId, label: "Workspace viewer", revision: 0 } });
-      await transaction.write({ kind: "grant", grant: { schemaVersion: 1, id: "customer.workspace-viewer.read", applicationId, roleId: "customer.workspace-viewer", permissionId: "system.workspace-pages.read", owner: { kind: "platform", namespace: "system" }, revision: 0 } });
-      await transaction.write({ kind: "assignment", assignment: { schemaVersion: 1, id: "customer.workspace-viewer.assignment", applicationId, roleId: "customer.workspace-viewer", principal: { kind: "user", id: limitedUserId }, state: "active", revision: 0 } });
       await transaction.write({ kind: "role", role: { schemaVersion: 1, id: "customer.sales-manager", applicationId, label: "Sales manager", revision: 0 } });
       await transaction.write({ kind: "grant", grant: { schemaVersion: 1, id: "customer.sales-manager.workspace", applicationId, roleId: "customer.sales-manager", permissionId: "system.workspace-pages.read", owner: { kind: "platform", namespace: "system" }, revision: 0 } });
       await transaction.write({ kind: "grant", grant: { schemaVersion: 1, id: "customer.sales-manager.workspace-edit", applicationId, roleId: "customer.sales-manager", permissionId: "system.workspace-pages.edit", owner: { kind: "platform", namespace: "system" }, revision: 0 } });
@@ -497,7 +615,9 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     console.log("P12_SALES_TEMPLATE_PERMISSION_NAVIGATION_AND_DIRECT_ROUTE_DENIED=PASS");
 
     await store.transaction(expected(granted.state), async (transaction) => {
-      await transaction.write({ kind: "assignment", assignment: { schemaVersion: 1, id: "customer.workspace-viewer.assignment", applicationId, roleId: "customer.workspace-viewer", principal: { kind: "user", id: limitedUserId }, state: "revoked", revision: 1 } });
+      const assignment = (await transaction.listAssignments(applicationId)).find(({ id }) => id === workspaceViewerAssignmentId);
+      assert.ok(assignment);
+      await transaction.write({ kind: "assignment", assignment: { ...assignment, state: "revoked", revision: assignment.revision + 1 } });
     });
     const revokedWorkspace = await fetch(`${applicationProcess.origin}/`, { headers: { cookie: limited.cookie.header }, redirect: "manual" });
     assert.equal(revokedWorkspace.status, 307);
@@ -519,7 +639,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     });
     await notificationClient.query("LISTEN k_nex_runtime_invalidation");
     workerProcess = start("node", ["dist/k-nex-worker.js"], { cwd: application, env: applicationEnvironment });
-    await until(async () => workerProcess.output().includes("K_NEX_WORKER_READY"), `Generated worker did not start.\n${workerProcess.output()}`, workerProcess.child);
+    await until(async () => workerProcess.output().includes("K_NEX_WORKER_READY"), () => `Generated worker did not start.\n${workerProcess.output()}`, workerProcess.child);
     await until(async () => {
       const result = await pool.query("select count(*)::int as count from k_nex_authorization_outbox where application_id=$1 and environment=$2 and status<>'delivered'", [applicationId, environmentName]);
       return result.rows[0].count === 0;
@@ -866,7 +986,9 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     const limitedAuthority = await store.readState(applicationId, environmentName);
     assert.ok(limitedAuthority);
     await store.transaction(expected(limitedAuthority), async (transaction) => {
-      await transaction.write({ kind: "assignment", assignment: { schemaVersion: 1, id: "customer.workspace-viewer.assignment", applicationId, roleId: "customer.workspace-viewer", principal: { kind: "user", id: limitedUserId }, state: "active", revision: 2 } });
+      const assignment = (await transaction.listAssignments(applicationId)).find(({ id }) => id === workspaceViewerAssignmentId);
+      assert.ok(assignment);
+      await transaction.write({ kind: "assignment", assignment: { ...assignment, state: "active", revision: assignment.revision + 1 } });
     });
     const pageAclOnlySource = await fetch(`${applicationProcess.origin}/workspace/pages/${encodeURIComponent(pageId)}`, { headers: { cookie: limited.cookie.header } });
     assert.equal(pageAclOnlySource.status, 200, "Exact page view access must not grant Sales source or record authority.");
@@ -1001,7 +1123,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     await managerEditorPage.getByRole("region", { name: "Canvas block keyboard controls" }).waitFor();
 
     workerProcess = start("node", ["dist/k-nex-worker.js"], { cwd: application, env: applicationEnvironment });
-    await until(async () => workerProcess.output().includes("K_NEX_WORKER_READY"), `Generated worker did not restart.\n${workerProcess.output()}`, workerProcess.child);
+    await until(async () => workerProcess.output().includes("K_NEX_WORKER_READY"), () => `Generated worker did not restart.\n${workerProcess.output()}`, workerProcess.child);
     await until(async () => (await pool.query("select count(*)::int as count from k_nex_workspace_page_outbox where application_id=$1 and environment=$2 and status<>'delivered'", [applicationId, environmentName])).rows[0].count === 0, "Workspace page outbox did not converge after worker restart.", workerProcess.child);
     await stop(workerProcess.child, "lost-notification boundary");
     workerProcess = undefined;
@@ -1049,7 +1171,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     });
     assert.equal(stalePublication.status, 404, "Revoked editor publication authority cannot commit.");
     workerProcess = start("node", ["dist/k-nex-worker.js"], { cwd: application, env: applicationEnvironment });
-    await until(async () => workerProcess.output().includes("K_NEX_WORKER_READY"), `Generated worker did not recover the lost page invalidation.\n${workerProcess.output()}`, workerProcess.child);
+    await until(async () => workerProcess.output().includes("K_NEX_WORKER_READY"), () => `Generated worker did not recover the lost page invalidation.\n${workerProcess.output()}`, workerProcess.child);
     await until(async () => (await pool.query("select count(*)::int as count from k_nex_workspace_page_outbox where application_id=$1 and environment=$2 and status<>'delivered'", [applicationId, environmentName])).rows[0].count === 0, "Lost workspace invalidation did not converge from the durable outbox.", workerProcess.child);
     await until(async () => (await pool.query("select count(*)::int as count from k_nex_workspace_navigation_outbox where application_id=$1 and environment=$2 and status<>'delivered'", [applicationId, environmentName])).rows[0].count === 0, "Lost workspace navigation invalidation did not converge from the durable outbox.", workerProcess.child);
     assert.equal(await managerPublishedNavigationLink.count(), 0, "Recovered invalidation must keep the already-open sidebar converged.");
@@ -1269,11 +1391,13 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     });
     assert.equal(preRetirementAction.status, 200, "The same actor must execute the registered Sales action before retirement.");
     assert.equal((await pool.query("select count(*)::int as count from sales_tasks where title=$1", [preRetirementActionTitle])).rows[0].count, 1);
-    const disabledSalesState = await projectSalesLifecycle("disable", "disabled");
+    const operatorDiagnostics = () => `application=${applicationProcess.output()}\noperator=${operatorProcess.output()}`;
+    const disabledSalesOperationId = await planAndExecuteExtensionInBrowser(retiredRouteContext, applicationProcess.origin, managerPassword, "disable", "disable", operatorDiagnostics);
+    const disabledSalesState = await durableStore.readState(applicationId, environmentName);
+    assert.ok(disabledSalesState);
     assert.equal((await fetch(`${applicationProcess.origin}/api/readiness`)).status, 200, "A supported disable keeps the exact compiled generation ready while removing Sales availability.");
     await retiredRoutePage.getByRole("alert").getByText("Sales route unavailable", { exact: true }).waitFor({ timeout: 10_000 });
     assert.equal(await retiredRoutePage.getByRole("form", { name: "Create task" }).count(), 0, "An open registered Sales route must clear its action after a supported disable.");
-    await retiredRouteContext.close();
     const retiredSalesNavigation = await fetch(`${applicationProcess.origin}/`, { headers: { cookie: manager.cookie.header }, redirect: "manual" });
     assert.equal(retiredSalesNavigation.status, 200);
     const retiredSalesHtml = await retiredSalesNavigation.text();
@@ -1306,7 +1430,9 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     assert.deepEqual(await retiredAction.json(), { code: "INVALID_INPUT" });
     assert.equal((await pool.query("select count(*)::int as count from sales_tasks where title=$1", [retiredActionTitle])).rows[0].count, retiredActionBefore, "Denied registered route action must write nothing.");
     console.log("P12_DISABLED_SALES_GENERATION_NAVIGATION_ROUTE_AND_ACTION_POSTGRES_DENIED=PASS");
-    const restoredSalesState = await projectSalesLifecycle("install", "active");
+    const restoredSalesOperationId = await planAndExecuteExtensionInBrowser(retiredRouteContext, applicationProcess.origin, managerPassword, "re-enable", "install", operatorDiagnostics);
+    const restoredSalesState = await durableStore.readState(applicationId, environmentName);
+    assert.ok(restoredSalesState);
     assert.equal((await fetch(`${applicationProcess.origin}/api/readiness`)).status, 200, "Readiness must accept later valid Sales lifecycle recovery.");
     const restoredHost = await fetch(`${applicationProcess.origin}/`, { headers: { cookie: manager.cookie.header }, redirect: "manual" });
     assert.equal(restoredHost.status, 200, "Host workspace must remain available after Sales recovery.");
@@ -1326,6 +1452,11 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     });
     assert.equal(restoredAction.status, 200, "A valid later current Sales generation must restore registered actions.");
     assert.equal((await pool.query("select count(*)::int as count from sales_tasks where title=$1", [restoredActionTitle])).rows[0].count, 1);
+    assert.equal((await fetch(`${applicationProcess.origin}/system/operations/${encodeURIComponent(disabledSalesOperationId)}`, { headers: { cookie: manager.cookie.header } })).status, 200);
+    assert.equal((await fetch(`${applicationProcess.origin}/system/operations/${encodeURIComponent(restoredSalesOperationId)}`, { headers: { cookie: manager.cookie.header } })).status, 200);
+    assert.match(operatorProcess.output(), new RegExp(`P12_ADMINISTRATION_OPERATOR_READY=${operatorPort}`, "u"));
+    await retiredRoutePage.getByRole("form", { name: "Create task" }).waitFor({ timeout: 10_000 });
+    await retiredRouteContext.close();
     console.log("P12_LATER_SALES_GENERATION_RECOVERS_NAVIGATION_ROUTE_AND_ACTION_POSTGRES_HTTP=PASS");
     const salesGenerationBeforeUnrelatedLifecycle = (await pool.query(
       "select authorization_generation, runtime_generation_ids from k_nex_extension_authorization_generations where application_id=$1 and delivery_class='platform-plugin' and extension_id='module.sales' and state='current'",
@@ -1398,12 +1529,13 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     console.log("P12_WORKSPACE_PAGE_EXECUTABLE_DEPENDENCY_LIFECYCLE_POSTGRES_HTTP=PASS");
     console.log("P12_9_GENERATED_APP_POSTGRES_HTTP_CHROMIUM_EVIDENCE=PASS");
   } finally {
+    await stop(operatorProcess?.child, "administration operator").catch(() => {});
     await stop(workerProcess?.child).catch(() => {});
     await stop(applicationProcess?.child).catch(() => {});
     notificationClient?.release();
     await pool?.end().catch(() => {});
     await browser?.close().catch(() => {});
     await container.stop();
-    rmSync(root, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
