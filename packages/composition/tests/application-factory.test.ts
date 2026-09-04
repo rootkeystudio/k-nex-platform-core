@@ -101,6 +101,11 @@ describe("create-knex-app", () => {
     expect(first.files["tsconfig.json"]).toContain('"moduleResolution": "bundler"');
     expect(first.files["tsconfig.scripts.json"]).toContain('"module": "NodeNext"');
     expect(first.files["src/k-nex-registry.ts"]).toContain("salesRegistration");
+    expect(first.files["src/k-nex-registry.ts"]).toContain("staticRelease: Object.freeze");
+    expect(first.files["src/k-nex-registry.ts"]).toContain('runtimeGenerationId: "sales-generation-1"');
+    expect(first.files["src/k-nex-authority.ts"]).toContain("lifecycleOverride: Object.freeze({ enabled: !unavailable, ready: !unavailable })");
+    expect(first.files["src/k-nex-authority.ts"]).toContain("inactive-extension-disabled");
+    expect(first.files["src/k-nex-authority.ts"]).toContain("kNexSalesRegistry.staticRelease.runtimeGenerationId");
     expect(first.files["src/k-nex-registry.ts"]).toContain('surface: "admin"');
     expect(first.files["src/k-nex-registry.ts"]).toContain('palette: "light"');
     expect(first.files["src/k-nex-registry.ts"]).toContain("resolveMinimalThemeProfile(kNexInitialThemeProfile)");

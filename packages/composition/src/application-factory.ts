@@ -91,7 +91,7 @@ function packageIdentity(archive: Uint8Array): { readonly name: string; readonly
   throw new Error("Packed release archive has no package identity.");
 }
 
-function registrySource(theme: SalesPresetTheme, applicationId: string, salesIntegrity: string): string {
+function registrySource(theme: SalesPresetTheme, applicationId: string, salesIntegrity: string, release: string): string {
   const themeExport = theme === "minimal" ? "resolveMinimalThemeProfile" : "resolveNeobrutalismThemeProfile";
   return `import { PluginManifestSchema } from "@k-nex/contracts";
 import manifestJson from "@k-nex/module-sales/manifest" with { type: "json" };
@@ -115,6 +115,7 @@ const scopedRegistration = scopePlatformPluginRegistration(registration, [reconc
 export const kNexSalesRegistry = Object.freeze({
   registration: salesRegistration,
   scopedRegistration,
+  staticRelease: Object.freeze({ package: Object.freeze({ name: salesManifest.package, version: salesManifest.version, integrity: ${JSON.stringify(salesIntegrity)} }), release: ${JSON.stringify(release)}, runtimeGenerationId: "sales-generation-1", authorizationGeneration: 1 }),
   authorizationGeneration: Object.freeze({ schemaVersion: 1 as const, applicationId: ${JSON.stringify(applicationId)}, owner: { kind: "extension" as const, deliveryClass: "platform-plugin" as const, extensionId: "module.sales", generation: 1 }, runtimeGenerationIds: ["sales-generation-1"], state: "current" as const, authorizationRevision: 2, lifecycleRevision: 1 }),
   permissionDescriptors: salesPermissionDescriptors,
   policyBindings: salesPermissionPolicyBindings,
@@ -378,7 +379,7 @@ export function planCreateKnexApplication(options: CreateKnexApplicationOptions)
       devDependencies: { "@types/node": "24.13.3", "@types/react": "19.2.18", "@types/react-dom": "19.2.4", typescript: "6.0.3" }
     }),
     "src/boot.ts": bootSource(),
-    "src/k-nex-registry.ts": registrySource(options.theme, options.applicationId, release?.packages.find(({ package: packageName }) => packageName === "@k-nex/module-sales")?.integrity ?? "sha512-d29ya3NwYWNl"),
+    "src/k-nex-registry.ts": registrySource(options.theme, options.applicationId, release?.packages.find(({ package: packageName }) => packageName === "@k-nex/module-sales")?.integrity ?? "sha512-d29ya3NwYWNl", release?.release.version ?? "1.0.0"),
     "src/migrations/20260827_000001_sales_baseline.ts": payloadBaselineMigrationSource(),
     "src/migrations/20260827_000002_knex_bootstrap.ts": bootstrapMigrationSource(options.applicationId, release?.release.version ?? "1.0.0"),
     "src/migrations/20260903_000003_knex_authorization.ts": `import { kNexAuthorizationSchemaMigration } from "@k-nex/payload-adapter";\n\nexport const up = kNexAuthorizationSchemaMigration.up;\nexport const down = kNexAuthorizationSchemaMigration.down;\n`,

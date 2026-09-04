@@ -164,7 +164,7 @@ const processMarkers = [
   "P12_SALES_TEMPLATE_PERMISSION_NAVIGATION_AND_DIRECT_ROUTE_DENIED=PASS",
   "P12_REGISTERED_SALES_ROUTES_AND_ACTION_POSTGRES_HTTP_CHROMIUM=PASS",
   "P12_CURRENT_OWNER_OVERRIDE_AND_FORMER_OWNER_ACL_POSTGRES=PASS",
-  "P12_RETIRED_SALES_GENERATION_NAVIGATION_ROUTE_AND_ACTION_POSTGRES_DENIED=PASS",
+  "P12_DISABLED_SALES_GENERATION_NAVIGATION_ROUTE_AND_ACTION_POSTGRES_DENIED=PASS",
   "P12_MINIMAL_SHELL_THEME_POSTGRES_HTTP_CHROMIUM=PASS",
   "P12_NEOBRUTALISM_SHELL_THEME_POSTGRES_HTTP_CHROMIUM=PASS",
   "P12_DURABLE_PAGE_THEME_OVERRIDE_POSTGRES_HTTP_CHROMIUM_BOUNDARY=PASS"
@@ -196,7 +196,7 @@ const attackProofs = {
   ],
   "P12-ATK-12": ["process:P12_ATK_12_SOURCE_SUBSTITUTION_HTTP_POSTGRES_DENIED=PASS", "process:P12_ATK_12_PUBLISH_DOCUMENT_HTTP_POSTGRES_DENIED=PASS", "process:P12_ATK_12_PUBLISH_REVISION_HTTP_POSTGRES_DENIED=PASS"],
   "P12-ATK-13": ["sales:Sales rejects a stale opportunity card without a blind update", "unit:sales-builder:rejects missing blocks and unauthorized action replacement", "unit:sales-builder:inserts the Kanban with its trusted existing source and action bindings", "process:P12_ATK_12_SOURCE_SUBSTITUTION_HTTP_POSTGRES_DENIED=PASS", "process:P12_ATK_13_ACTION_SUBSTITUTION_HTTP_POSTGRES_DENIED=PASS", "process:P12_ATK_13_UNBOUND_ACTION_HTTP_POSTGRES_DENIED=PASS", "process:P12_ATK_13_CROSS_PAGE_ACTION_HTTP_POSTGRES_DENIED=PASS", "process:P12_ATK_13_REVOKED_PAGE_ACTION_HTTP_POSTGRES_DENIED=PASS"],
-  "P12-ATK-14": ["unit:page-service:re-reads impact after a lost invalidation and rejects stale generation resurrection", "process:P12_RETIRED_SALES_GENERATION_NAVIGATION_ROUTE_AND_ACTION_POSTGRES_DENIED=PASS"],
+  "P12-ATK-14": ["unit:page-service:re-reads impact after a lost invalidation and rejects stale generation resurrection", "process:P12_DISABLED_SALES_GENERATION_NAVIGATION_ROUTE_AND_ACTION_POSTGRES_DENIED=PASS"],
   "P12-ATK-15": ["unit:page-service:requires current publish authority and fresh ready dependencies before storage"],
   "P12-ATK-16": ["unit:page-service:fails closed before page or pointer mutation and store rollback for missing or dependency-unavailable target revisions"],
   "P12-ATK-17": ["unit:generator:plans deterministic exact Sales applications for local or external Postgres"],

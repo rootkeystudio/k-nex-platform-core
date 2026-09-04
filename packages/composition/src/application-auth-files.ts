@@ -58,6 +58,7 @@ export const usersCollection: CollectionConfig = {
 function authoritySource(): string {
   return `import { randomUUID } from "node:crypto";
 
+import { canonicalJson } from "@k-nex/contracts";
 import { PostgresAuthorizationStore, type RuntimeExtensionPool } from "@k-nex/payload-adapter";
 import {
   CurrentAuthorityAdapter,
@@ -102,15 +103,24 @@ async function currentSalesAuthority(store: PostgresAuthorizationStore) {
   if (state === undefined) return undefined;
   const expected = { applicationId: state.applicationId, environment: state.environment, authorizationRevision: state.authorizationRevision, lifecycleRevision: state.lifecycleRevision };
   const snapshot = await store.readTransaction(expected, async (transaction) => {
-    const generations = (await transaction.listExtensionGenerations(expected.applicationId)).filter((generation) =>
-      generation.owner.deliveryClass === "platform-plugin" && generation.owner.extensionId === "module.sales"
+    const current = (await transaction.listExtensionGenerations(expected.applicationId)).filter((generation) =>
+      generation.state === "current" && generation.applicationId === expected.applicationId &&
+      canonicalJson(generation.owner) === canonicalJson(kNexSalesRegistry.authorizationGeneration.owner) &&
+      generation.owner.generation === kNexSalesRegistry.staticRelease.authorizationGeneration &&
+      canonicalJson(generation.runtimeGenerationIds) === canonicalJson([kNexSalesRegistry.staticRelease.runtimeGenerationId]) &&
+      generation.authorizationRevision >= kNexSalesRegistry.authorizationGeneration.authorizationRevision && generation.authorizationRevision <= expected.authorizationRevision &&
+      generation.lifecycleRevision === expected.lifecycleRevision
     );
-    const current = generations.filter((generation) => generation.state === "current");
     if (current.length !== 1) return undefined;
     const generation = current[0]!;
-    return generation.lifecycleRevision === expected.lifecycleRevision && generation.authorizationRevision <= expected.authorizationRevision ? generation : undefined;
+    const unavailable = (await transaction.listCatalogSnapshots(expected.applicationId)).some((entry) =>
+      entry.owner?.kind === "extension" && entry.owner.deliveryClass === "platform-plugin" && entry.owner.extensionId === "module.sales" &&
+      entry.owner.generation === generation.owner.generation && (entry.state === "inactive-extension-disabled" || entry.state === "inactive-extension-not-ready")
+    );
+    return Object.freeze({ generation, lifecycleOverride: Object.freeze({ enabled: !unavailable, ready: !unavailable }) });
   });
-  return Object.freeze({ state: snapshot.state, generation: snapshot.value });
+  if (snapshot.value === undefined) return undefined;
+  return Object.freeze({ state: snapshot.state, generation: snapshot.value.generation, lifecycleOverride: snapshot.value.lifecycleOverride });
 }
 
 function createRuntime(payload: Payload) {
@@ -126,7 +136,7 @@ function createRuntime(payload: Payload) {
     if (applicationId !== kNexIdentity.applicationId) return undefined;
     const current = await currentSalesAuthority(store).catch(() => undefined);
     if (current === undefined || current.state.lifecycleRevision !== lifecycleRevision) return undefined;
-    const salesContribution = current.generation === undefined ? undefined : createPlatformPluginRegistrationAuthorizationContribution({ registration: kNexSalesRegistry.scopedRegistration, generation: current.generation });
+    const salesContribution = current.generation === undefined ? undefined : createPlatformPluginRegistrationAuthorizationContribution({ registration: kNexSalesRegistry.scopedRegistration, generation: current.generation, lifecycleOverride: current.lifecycleOverride });
     return {
       applicationId,
       lifecycleRevision,
@@ -148,7 +158,7 @@ export function kNexAuthority(payload: Payload) {
 
 export async function currentSalesGeneration(payload: Payload) {
   const current = await currentSalesAuthority(kNexAuthority(payload).store);
-  if (current?.generation === undefined) throw new TypeError("Sales authorization generation is unavailable.");
+  if (current === undefined || !current.lifecycleOverride.enabled || !current.lifecycleOverride.ready) throw new TypeError("Sales authorization generation is unavailable.");
   return current;
 }
 
@@ -1112,6 +1122,10 @@ function reconcileSource(root: string) {
     return ids.length === 0 ? [] : [[kind, ids]];
   }));
   if (salesManifest.id !== salesPlugin.id || salesManifest.package !== salesPlugin.package || salesManifest.version !== salesPlugin.version ||
+    kNexSalesRegistry.staticRelease.package.name !== salesRelease.package || kNexSalesRegistry.staticRelease.package.version !== salesRelease.version ||
+    kNexSalesRegistry.staticRelease.package.integrity !== salesRelease.integrity || kNexSalesRegistry.staticRelease.release !== release.release.version ||
+    kNexSalesRegistry.staticRelease.authorizationGeneration !== kNexSalesRegistry.authorizationGeneration.owner.generation ||
+    !same(kNexSalesRegistry.authorizationGeneration.runtimeGenerationIds, [kNexSalesRegistry.staticRelease.runtimeGenerationId]) ||
     kNexSalesRegistry.registration.pluginId !== salesManifest.id || salesInventory.length !== 1 || salesInventory[0]?.id !== salesManifest.id ||
     !same(salesInventory[0].contributions, expectedContributions) ||
     Object.values(kNexSalesRegistry.scopedRegistration.contributions as Readonly<Record<string, readonly { pluginId: string }[]>>).flat().some((entry) => entry.pluginId !== salesManifest.id) ||
@@ -1165,11 +1179,14 @@ export async function reconcileKnexReadiness(payload: Payload) {
     const receiptOwners = assignments.filter((assignment) => assignment.id === receipt.ownerAssignmentId);
     if (receiptOwners.length !== 1 || receiptOwners.some((assignment) => assignment.roleId !== receipt.ownerRoleId || assignment.principal.kind !== "user" || assignment.principal.id !== receipt.ownerPrincipal.id || assignment.state !== "active" && assignment.state !== "revoked" || assignment.revision < 1)) fail("Bootstrap owner assignment mismatch.");
     const salesGenerations = (await transaction.listExtensionGenerations(expected.applicationId)).filter((generation) =>
-      generation.owner.deliveryClass === "platform-plugin" && generation.owner.extensionId === "module.sales" && generation.owner.generation === 1
+      generation.state === "current" && generation.applicationId === expected.applicationId &&
+      same(generation.owner, kNexSalesRegistry.authorizationGeneration.owner) &&
+      generation.owner.generation === kNexSalesRegistry.staticRelease.authorizationGeneration &&
+      same(generation.runtimeGenerationIds, [kNexSalesRegistry.staticRelease.runtimeGenerationId])
     );
     if (salesGenerations.length !== 1 || salesGenerations.some((generation) =>
-      generation.applicationId !== expected.applicationId || !same(generation.owner, kNexSalesRegistry.authorizationGeneration.owner) || !same(generation.runtimeGenerationIds, kNexSalesRegistry.authorizationGeneration.runtimeGenerationIds) ||
-      generation.state !== "current" && generation.state !== "retired" ||
+      generation.applicationId !== expected.applicationId || !same(generation.owner, kNexSalesRegistry.authorizationGeneration.owner) || !same(generation.runtimeGenerationIds, [kNexSalesRegistry.staticRelease.runtimeGenerationId]) ||
+      generation.state !== "current" ||
       generation.authorizationRevision < kNexSalesRegistry.authorizationGeneration.authorizationRevision || generation.authorizationRevision > expected.authorizationRevision ||
       generation.lifecycleRevision < kNexSalesRegistry.authorizationGeneration.lifecycleRevision || generation.lifecycleRevision > expected.lifecycleRevision
     )) fail("Sales authorization generation mismatch.");

@@ -44,8 +44,8 @@ describe("generated application readiness", () => {
     expect(readiness).toContain("authority.store.readTransaction(expected");
     expect(readiness).toMatch(/receipt\.authorizationRevision < 1 \|\| receipt\.authorizationRevision > expected\.authorizationRevision/u);
     expect(readiness).toMatch(/assignment\.state !== "active" && assignment\.state !== "revoked" \|\| assignment\.revision < 1/u);
-    expect(readiness).toContain("kNexSalesRegistry.authorizationGeneration.runtimeGenerationIds");
-    expect(readiness).toMatch(/generation\.state !== "current" && generation\.state !== "retired"/u);
+    expect(readiness).toContain("kNexSalesRegistry.staticRelease.runtimeGenerationId");
+    expect(readiness).toMatch(/generation\.state !== "current"/u);
     expect(readiness).toMatch(/generation\.authorizationRevision < kNexSalesRegistry\.authorizationGeneration\.authorizationRevision \|\| generation\.authorizationRevision > expected\.authorizationRevision/u);
     expect(readiness).toMatch(/generation\.lifecycleRevision < kNexSalesRegistry\.authorizationGeneration\.lifecycleRevision \|\| generation\.lifecycleRevision > expected\.lifecycleRevision/u);
     expect(readiness).not.toContain("receipt.authorizationRevision !== 1");

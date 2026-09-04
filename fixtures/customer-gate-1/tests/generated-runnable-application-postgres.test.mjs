@@ -5,6 +5,7 @@ import { createServer } from "node:net";
 import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import test from "node:test";
 
 import { applyCreateKnexApplication, planCreateKnexApplication } from "@k-nex/composition";
@@ -182,6 +183,38 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     run("pnpm", ["knex:migrate"], { cwd: application, env: applicationEnvironment, stdio: "pipe" });
     run("pnpm", ["build"], { cwd: application, env: applicationEnvironment, stdio: "pipe" });
     pool = new pg.Pool({ connectionString: container.getConnectionUri() });
+    const { kNexSalesRegistry } = await import(pathToFileURL(join(application, "dist/k-nex-registry.js")).href);
+    const { AuthorizationLifecycleProjector, createStaticPlatformPluginAuthorizationDescriptorResolver } = await import(pathToFileURL(realpathSync(join(application, "node_modules/@k-nex/payload-adapter/dist/index.js"))).href);
+    const lifecycleSourceCommit = "a".repeat(40);
+    const lifecycleProjector = new AuthorizationLifecycleProjector(createStaticPlatformPluginAuthorizationDescriptorResolver({
+      applicationId, registrations: [{ sourceCommit: lifecycleSourceCommit, registration: kNexSalesRegistry.scopedRegistration }]
+    }));
+    const projectSalesLifecycle = async (operation, lifecycleState) => {
+      const state = await durableStore.readState(applicationId, environmentName);
+      assert.ok(state);
+      const revision = state.lifecycleRevision + 1;
+      const transition = {
+        schemaVersion: 1, applicationId, environment: environmentName,
+        eventId: `p12-generated-sales-${revision}`, eventType: "extension.lifecycle-transition",
+        operationId: `p12-generated-sales-operation-${revision}`, operation, operationPhase: "completed", lifecycleState,
+        expectedRevision: state.lifecycleRevision, revision, inventoryRevision: revision,
+        actor: { kind: "trusted-automation", identity: "fixture.generated-sales-lifecycle" },
+        receiptId: `p12-generated-sales-receipt-${revision}`, auditId: `p12-generated-sales-audit-${revision}`,
+        idempotencyKey: `p12-generated-sales:${revision}`, correlationId: `p12-generated-sales-${revision}`,
+        occurredAt: "2026-09-04T00:00:00.000Z", deliveryClass: "platform-plugin", id: "module.sales",
+        evidence: { sourceCommit: lifecycleSourceCommit, compositionChangePlanDigest: `sha256:${"c".repeat(64)}`, generationId: kNexSalesRegistry.staticRelease.runtimeGenerationId }
+      };
+      const session = await pool.connect();
+      try {
+        await session.query("begin");
+        const projected = await lifecycleProjector.project({ session, transition, runtimeGenerationIds: [kNexSalesRegistry.staticRelease.runtimeGenerationId] });
+        await session.query("commit");
+        return projected.state;
+      } catch (error) {
+        await session.query("rollback");
+        throw error;
+      } finally { session.release(); }
+    };
 
     const resetBootstrapState = async () => {
       await pool.query("drop schema public cascade; create schema public;");
@@ -1140,36 +1173,22 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     });
     assert.equal(preRetirementAction.status, 200, "The same actor must execute the registered Sales action before retirement.");
     assert.equal((await pool.query("select count(*)::int as count from sales_tasks where title=$1", [preRetirementActionTitle])).rows[0].count, 1);
-    const retiringSalesState = await durableStore.readState(applicationId, environmentName);
-    assert.ok(retiringSalesState);
-    const retiredSalesState = (await durableStore.transaction(expected(retiringSalesState), async (transaction) => {
-      const generation = (await transaction.listExtensionGenerations(applicationId)).find((candidate) =>
-        candidate.owner.deliveryClass === "platform-plugin" && candidate.owner.extensionId === "module.sales" && candidate.owner.generation === 1
-      );
-      assert.ok(generation);
-      await transaction.write({ kind: "extension-generation", generation: {
-        ...generation,
-        state: "retired",
-        authorizationRevision: retiringSalesState.authorizationRevision,
-        lifecycleRevision: retiringSalesState.lifecycleRevision + 1
-      } });
-    })).state;
-    assert.deepEqual(retiredSalesState, { ...retiringSalesState, lifecycleRevision: retiringSalesState.lifecycleRevision + 1 }, "Retirement must use one expected-revision current-authority transition.");
-    assert.equal((await fetch(`${applicationProcess.origin}/api/readiness`)).status, 200, "Readiness must retain the historical Sales generation after retirement.");
+    const disabledSalesState = await projectSalesLifecycle("disable", "disabled");
+    assert.equal((await fetch(`${applicationProcess.origin}/api/readiness`)).status, 200, "A supported disable keeps the exact compiled generation ready while removing Sales availability.");
     await retiredRoutePage.getByRole("alert").getByText("Sales route unavailable", { exact: true }).waitFor({ timeout: 10_000 });
-    assert.equal(await retiredRoutePage.getByRole("form", { name: "Create task" }).count(), 0, "An open registered Sales route must clear its action after generation retirement.");
+    assert.equal(await retiredRoutePage.getByRole("form", { name: "Create task" }).count(), 0, "An open registered Sales route must clear its action after a supported disable.");
     await retiredRouteContext.close();
     const retiredSalesNavigation = await fetch(`${applicationProcess.origin}/`, { headers: { cookie: manager.cookie.header }, redirect: "manual" });
     assert.equal(retiredSalesNavigation.status, 200);
     const retiredSalesHtml = await retiredSalesNavigation.text();
-    assert.match(retiredSalesHtml, /K-Nex workspace/u, "Retiring Sales must not deny the host workspace.");
+    assert.match(retiredSalesHtml, /K-Nex workspace/u, "Disabling Sales must not deny the host workspace.");
     const retiredSystem = await fetch(`${applicationProcess.origin}/system/workspace-pages`, { headers: { cookie: manager.cookie.header }, redirect: "manual" });
-    assert.equal(retiredSystem.status, 200, "Retiring Sales must not redirect fixed System routes.");
+    assert.equal(retiredSystem.status, 200, "Disabling Sales must not redirect fixed System routes.");
     const retiredDependentPage = await fetch(`${applicationProcess.origin}/workspace/pages/${encodeURIComponent(pageId)}`, { headers: { cookie: manager.cookie.header }, redirect: "manual" });
-    assert.equal(retiredDependentPage.status, 404, "A custom page depending on retired Sales must fail closed.");
+    assert.equal(retiredDependentPage.status, 404, "A custom page depending on disabled Sales must fail closed.");
     for (const href of ["/sales", "/sales/tasks", "/sales/opportunities", "/sales/settings"]) {
-      assert.equal(retiredSalesHtml.includes(`href=\"${href}\"`), false, `Retiring current Sales generation must remove ${href} navigation.`);
-      assert.equal((await fetch(`${applicationProcess.origin}${href}`, { headers: { cookie: manager.cookie.header }, redirect: "manual" })).status, 404, `Retiring current Sales generation must deny ${href}.`);
+      assert.equal(retiredSalesHtml.includes(`href=\"${href}\"`), false, `Disabling current Sales generation must remove ${href} navigation.`);
+      assert.equal((await fetch(`${applicationProcess.origin}${href}`, { headers: { cookie: manager.cookie.header }, redirect: "manual" })).status, 404, `Disabling current Sales generation must deny ${href}.`);
     }
     const retiredActionTitle = "Denied after Sales retirement";
     const retiredActionBefore = (await pool.query("select count(*)::int as count from sales_tasks where title=$1", [retiredActionTitle])).rows[0].count;
@@ -1178,25 +1197,11 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
       headers: { "content-type": "application/json", cookie: manager.cookie.header, origin: applicationProcess.origin },
       body: JSON.stringify({ input: { title: retiredActionTitle }, idempotencyKey: `retired-sales-action-${randomUUID()}` })
     });
-    assert.equal(retiredAction.status, 400, "A retired current Sales generation must deny registered route actions.");
+    assert.equal(retiredAction.status, 400, "A disabled current Sales generation must deny registered route actions.");
     assert.deepEqual(await retiredAction.json(), { code: "INVALID_INPUT" });
     assert.equal((await pool.query("select count(*)::int as count from sales_tasks where title=$1", [retiredActionTitle])).rows[0].count, retiredActionBefore, "Denied registered route action must write nothing.");
-    console.log("P12_RETIRED_SALES_GENERATION_NAVIGATION_ROUTE_AND_ACTION_POSTGRES_DENIED=PASS");
-    const restoringSalesState = await durableStore.readState(applicationId, environmentName);
-    assert.ok(restoringSalesState);
-    const restoredSalesState = (await durableStore.transaction(expected(restoringSalesState), async (transaction) => {
-      const generation = (await transaction.listExtensionGenerations(applicationId)).find((candidate) =>
-        candidate.owner.deliveryClass === "platform-plugin" && candidate.owner.extensionId === "module.sales" && candidate.owner.generation === 1
-      );
-      assert.ok(generation);
-      await transaction.write({ kind: "extension-generation", generation: {
-        ...generation,
-        state: "current",
-        authorizationRevision: restoringSalesState.authorizationRevision,
-        lifecycleRevision: restoringSalesState.lifecycleRevision + 1
-      } });
-    })).state;
-    assert.deepEqual(restoredSalesState, { ...restoringSalesState, lifecycleRevision: restoringSalesState.lifecycleRevision + 1 }, "Sales recovery must use one expected-revision current-authority transition.");
+    console.log("P12_DISABLED_SALES_GENERATION_NAVIGATION_ROUTE_AND_ACTION_POSTGRES_DENIED=PASS");
+    const restoredSalesState = await projectSalesLifecycle("install", "active");
     assert.equal((await fetch(`${applicationProcess.origin}/api/readiness`)).status, 200, "Readiness must accept later valid Sales lifecycle recovery.");
     const restoredHost = await fetch(`${applicationProcess.origin}/`, { headers: { cookie: manager.cookie.header }, redirect: "manual" });
     assert.equal(restoredHost.status, 200, "Host workspace must remain available after Sales recovery.");

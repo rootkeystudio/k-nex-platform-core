@@ -85,9 +85,10 @@ describe("generated workspace invalidation runtime", () => {
     const authority = applicationAuthFiles({ applicationId: "customer-alpha", applicationName: "Customer Alpha", theme: "minimal" })["src/k-nex-authority.ts"]!;
 
     expect(authority).toContain("async function currentSalesAuthority(store: PostgresAuthorizationStore)");
-    expect(authority).toContain('generation.owner.deliveryClass === "platform-plugin" && generation.owner.extensionId === "module.sales"');
-    expect(authority).toContain('const current = generations.filter((generation) => generation.state === "current");');
-    expect(authority).toContain("generation.lifecycleRevision === expected.lifecycleRevision && generation.authorizationRevision <= expected.authorizationRevision");
+    expect(authority).toContain('generation.state === "current" && generation.applicationId === expected.applicationId');
+    expect(authority).toContain("kNexSalesRegistry.staticRelease.runtimeGenerationId");
+    expect(authority).toContain("inactive-extension-disabled");
+    expect(authority).toContain("lifecycleOverride: Object.freeze({ enabled: !unavailable, ready: !unavailable })");
     expect(authority).toContain("extensions: salesContribution === undefined ? [] : [salesContribution]");
     expect(authority).toContain("export async function currentSalesGeneration(payload: Payload)");
     expect(authority).not.toContain("lifecycleRevision !== 0 && lifecycleRevision !== 1");
