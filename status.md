@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Passed the complete local focused Gate 12 after persistent xhigh repair review returned PASS.
+Generated, downloaded, and locally verified signed hosted v1 evidence for the repaired exact package/customer closure.
 
 ## Validation
 
-Exact Node 24.19.0/pnpm 11.9.0: `pnpm gate:12:focused` PASS; 130 unit checks, three real PostgreSQL/HTTP/Chromium process proofs, all 22 attacks mapped; persistent Sol xhigh repair review PASS.
+Exact Node 24.19.0/pnpm 11.9.0: focused Gate 12 PASS; persistent Sol xhigh repair review PASS; hosted release-evidence run `33836876005` PASS on source `100dbe6`; generated evidence check PASS.
 
 ## Next
 
-Push the repaired closure and regenerate signed hosted release evidence.
+Commit/push hosted evidence, then run exact-head PR-focused and Linux/AppArmor cumulative Gate 0–12 CI.
 
 ## Blockers
 
