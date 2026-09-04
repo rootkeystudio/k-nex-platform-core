@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Hosted release evidence run 33817749316 passed for source SHA 7b28f623 and is bound into the customer receipts, inventories, restore proofs, and Phase 8 release-evidence tree.
+Replaced the fixed-delay query-concurrency proof with synchronization on four PostgreSQL-blocked Sales metric queries before the fifth request tests shared budget exhaustion.
 
 ## Validation
 
-Exact Node 24.19.0: focused unit 6/6, isolated generated-app PostgreSQL/HTTP/Chromium, clean 17-package regeneration, factory-lock/ABI/packed-closure, Gate 1 generated-clean, both frozen customer installs, hosted release evidence 33817749316, customer evidence, missing-hosted-evidence rejection, and generated-evidence-clean PASS.
+Exact Node 24.19.0: focused unit 6/6, isolated generated-app PostgreSQL/HTTP/Chromium including deterministic process-lifetime rate/concurrency exhaustion, clean 17-package regeneration, factory-lock/ABI/packed-closure, Gate 1 generated-clean, both frozen customer installs, hosted release evidence 33817749316, customer evidence, missing-hosted-evidence rejection, and generated-evidence-clean PASS.
 
 ## Next
 
-Commit and push the bound evidence, then require exact-head focused CI, cumulative architecture contracts, and the same Sol-xhigh phase reviewer.
+Commit and push the deterministic proof, refresh hosted release evidence for the new exact head, then require focused CI, cumulative architecture contracts, and the same Sol-xhigh phase reviewer.
 
 ## Blockers
 

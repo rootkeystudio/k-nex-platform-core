@@ -632,14 +632,11 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
         lock.release();
         throw error;
       }
-      const statuses = [];
       const requests = Array.from({ length: count }, () => fetch(workspacePageUrl, { headers: budgetHeaders }).then(async (response) => {
-        statuses.push(response.status);
         await response.text();
         return response.status;
       }));
       return {
-        statuses,
         requests,
         async release() {
           if (released) return;
@@ -649,10 +646,27 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
         }
       };
     };
-    const concurrent = await holdSalesMetricRequests(5);
+    const concurrent = await holdSalesMetricRequests(4);
     try {
-      await new Promise((resolveWait) => setTimeout(resolveWait, 1_000));
-      assert.equal(concurrent.statuses.includes(404), true, "The fifth in-flight high-cost metric request must exhaust the shared concurrency budget before the Sales query lock releases.");
+      const deadline = Date.now() + 15_000;
+      let blockedSalesQueries = 0;
+      while (Date.now() < deadline) {
+        const blocked = await pool.query(`
+          select count(*)::integer as count
+          from pg_stat_activity
+          where datname=current_database()
+            and pid<>pg_backend_pid()
+            and state='active'
+            and wait_event_type='Lock'
+            and query ilike '%sales_tasks%'
+        `);
+        blockedSalesQueries = blocked.rows[0]?.count ?? 0;
+        if (blockedSalesQueries >= 4) break;
+        await new Promise((resolveWait) => setTimeout(resolveWait, 50));
+      }
+      assert.equal(blockedSalesQueries >= 4, true, "Four high-cost metric requests must reach the held Sales query lock before concurrency exhaustion is tested.");
+      const exhausted = await fetch(workspacePageUrl, { headers: budgetHeaders });
+      assert.equal(exhausted.status, 404, `The fifth in-flight high-cost metric request must exhaust the shared concurrency budget before the Sales query lock releases.\n${await exhausted.text()}\n${applicationProcess.output()}`);
     } finally {
       await concurrent.release();
     }
