@@ -436,7 +436,7 @@ export default async function LoginPage() {
 function workspaceNavigationSource(): string {
   return `import { createHash } from "node:crypto";
 
-import { canonicalJson } from "@k-nex/contracts";
+import { canonicalJson, type PluginNavigationDescriptor } from "@k-nex/contracts";
 import { resolveWorkspaceNavigation } from "@k-nex/ui-runtime";
 import type { Payload } from "payload";
 
@@ -444,6 +444,27 @@ import { authorizeNavigationPermission, kNexAuthority, kNexRequestContext } from
 import { kNexIdentity } from "./k-nex-identity.js";
 import { kNexSalesRegistry } from "./k-nex-registry.js";
 import { kNexWorkspacePages, kNexWorkspacePageScope } from "./k-nex-workspace-pages.js";
+
+type RegisteredRoute = Readonly<{ id: string; ownerPluginId: string; permission: string; viewId: string }>;
+type RegisteredTemplate = Readonly<{ id: string; ownerPluginId: string; route: Readonly<{ routeId: string }>; permission: string }>;
+type RegisteredNavigation = PluginNavigationDescriptor;
+
+async function currentSalesNavigation(payload: Payload, context: ReturnType<typeof kNexRequestContext>, salesGenerationCurrent: boolean): Promise<readonly RegisteredNavigation[]> {
+  if (!salesGenerationCurrent) return [];
+  const routes = kNexSalesRegistry.scopedRegistration.contributions.routes.map(({ value }) => value as RegisteredRoute);
+  const templates = kNexSalesRegistry.scopedRegistration.contributions.pageTemplates.map(({ value }) => value as RegisteredTemplate);
+  return (await Promise.all(kNexSalesRegistry.scopedRegistration.contributions.navigation.map(async ({ value }) => {
+    const descriptor = value as RegisteredNavigation;
+    const route = routes.find((candidate) => candidate.id === descriptor.route.routeId);
+    const template = templates.find((candidate) => candidate.id === route?.viewId);
+    if (route?.ownerPluginId !== "module.sales" || template?.ownerPluginId !== "module.sales" || template.route.routeId !== route.id) return undefined;
+    const [routeAllowed, templateAllowed] = await Promise.all([
+      authorizeNavigationPermission(payload, context, route.permission),
+      authorizeNavigationPermission(payload, context, template.permission)
+    ]);
+    return routeAllowed && templateAllowed ? descriptor : undefined;
+  }))).filter((descriptor): descriptor is RegisteredNavigation => descriptor !== undefined);
+}
 
 export async function resolveCurrentWorkspaceNavigation(payload: Payload, headers: Headers) {
   const authentication = await payload.auth({ headers, canSetHeaders: false });
@@ -453,6 +474,7 @@ export async function resolveCurrentWorkspaceNavigation(payload: Payload, header
   const context = kNexRequestContext(headers, "workspace-navigation");
   const salesGenerationCurrent = state.lifecycleRevision === kNexSalesRegistry.authorizationGeneration.lifecycleRevision &&
     state.authorizationRevision >= kNexSalesRegistry.authorizationGeneration.authorizationRevision;
+  const salesNavigation = await currentSalesNavigation(payload, context, salesGenerationCurrent);
   const workspace = kNexWorkspacePages(payload);
   const canReadPages = await authorizeNavigationPermission(payload, context, "system.workspace-pages.read");
   const [pageItems, folderItems] = canReadPages ? await Promise.all([
@@ -471,7 +493,7 @@ export async function resolveCurrentWorkspaceNavigation(payload: Payload, header
     // registration contributions may contribute executable plugin links.
     plugins: [{ ...kNexSalesRegistry.navigationSection,
       routes: salesGenerationCurrent ? kNexSalesRegistry.scopedRegistration.contributions.routes.map(({ value }) => value) : [],
-      navigation: salesGenerationCurrent ? kNexSalesRegistry.scopedRegistration.contributions.navigation.map(({ value }) => value) : [] }],
+      navigation: salesNavigation }],
     customerFolders: folderItems.map(({ node }) => node),
     pages,
     preferences: { sidebar: "expanded", favoritePageIds: [], recentPageIds: [] },

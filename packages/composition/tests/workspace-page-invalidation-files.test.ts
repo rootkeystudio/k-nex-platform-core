@@ -4,16 +4,25 @@ import { applicationAuthFiles } from "../src/application-auth-files.js";
 import { workspacePageApplicationFiles } from "../src/workspace-page-application-files.js";
 
 describe("generated workspace invalidation runtime", () => {
-  it("generates scoped static Sales navigation and no catch-all workspace routes", () => {
+  it("keeps a navigation-only user from Sales Settings by matching direct route admission predicates", () => {
     const files = applicationAuthFiles({ applicationId: "customer-alpha", applicationName: "Customer Alpha", theme: "minimal" });
     const navigation = files["src/k-nex-workspace-navigation.ts"]!;
+    const routes = files["src/k-nex-sales-routes.ts"]!;
 
     expect(navigation).toContain('implementedSystemRouteIds: ["system.route.workspace", "system.route.workspace-pages"]');
+    expect(navigation).toContain('import { canonicalJson, type PluginNavigationDescriptor } from "@k-nex/contracts";');
     expect(navigation).toContain("const salesGenerationCurrent = state.lifecycleRevision === kNexSalesRegistry.authorizationGeneration.lifecycleRevision");
     expect(navigation).toContain("kNexSalesRegistry.scopedRegistration.contributions.routes.map(({ value }) => value)");
-    expect(navigation).toContain("kNexSalesRegistry.scopedRegistration.contributions.navigation.map(({ value }) => value)");
+    expect(navigation).toContain("kNexSalesRegistry.scopedRegistration.contributions.navigation.map(async ({ value }) => {");
+    expect(navigation).toContain("const template = templates.find((candidate) => candidate.id === route?.viewId);");
+    expect(navigation).toContain('route?.ownerPluginId !== "module.sales" || template?.ownerPluginId !== "module.sales" || template.route.routeId !== route.id');
+    expect(navigation).toContain("authorizeNavigationPermission(payload, context, route.permission)");
+    expect(navigation).toContain("authorizeNavigationPermission(payload, context, template.permission)");
+    expect(navigation).toContain("return routeAllowed && templateAllowed ? descriptor : undefined;");
+    expect(navigation).toContain("navigation: salesNavigation");
+    expect(routes).toContain("if (!await authorizeNavigationPermission(payload, context, route.permission) || !await authorizeNavigationPermission(payload, context, template.permission)) {");
     expect(navigation).toContain("...kNexSalesRegistry.navigationSection");
-    expect(navigation).toContain("salesGenerationCurrent ?");
+    expect(navigation).toContain("if (!salesGenerationCurrent) return [];");
     expect(files["src/app/(workspace)/sales/[[...path]]/page.tsx"]).toBeUndefined();
     expect(files["src/app/(workspace)/system/[[...path]]/page.tsx"]).toBeUndefined();
     expect(JSON.stringify(files)).not.toContain("Registered workspace route.");

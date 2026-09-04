@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Applied an explicit resolved Theme Presentation to the fixed workspace shell and moved shell controls to shared admin semantic tokens.
+Aligned Sales navigation with direct-route admission by requiring both registered route and page-template permissions per link.
 
 ## Validation
 
-Exact Node 24.19.0: workspace shell SSR tests 2/2 PASS; exact profile scope/CSS, semantic shell tokens, focus treatment, and collapsed rail covered.
+Exact Node 24.19.0: generated workspace invalidation/navigation source tests 5/5 PASS; nav-only users no longer receive template-denied links.
 
 ## Next
 
