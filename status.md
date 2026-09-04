@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Removed generated shell parser/state name shadowing exposed by exact generated Next type-checking.
+Regenerated the exact v1.0.0 packed mirror, factory locks, and release manifest from current Phase 12 sources.
 
 ## Validation
 
-Exact Node 24.19.0: focused composition build PASS; generated Next proof advanced to packed-mirror compatibility.
+Exact Node 24.19.0/pnpm 11.9.0: 17 package archives, two factory locks, release manifest, packed ABI, and closure checks PASS.
 
 ## Next
 
