@@ -90,6 +90,14 @@ describe("generated workspace page builder policy", () => {
     expect(source).toContain(".validateDocument(document)");
   });
 
+  it("derives the workspace owner override from the revision-pinned active owner assignment", () => {
+    const source = workspacePageApplicationFiles({ applicationId: "customer-alpha" })["src/k-nex-workspace-pages.ts"]!;
+
+    expect(source).toContain('const assignments = (await authority.store.readTransaction(expected, (transaction) => transaction.listAssignments(scope.applicationId, decision.effectiveActor))).value;');
+    expect(source).toContain('assignments.some((assignment) => assignment.roleId === "system.role.owner" && assignment.state === "active")');
+    expect(source).not.toContain("readProtectedRoleBaselineReceipt");
+  });
+
   it("emits only a page-scoped Sales action route with current page and action authority", () => {
     const files = workspacePageApplicationFiles({ applicationId: "customer-alpha" });
     const client = files["src/app/components/k-nex-workspace-page-runtime.tsx"]!;

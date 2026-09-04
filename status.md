@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Froze the accepted Phase 11 protected-role baseline as v3 and added exact direct v3-to-v4 reconciliation for Phase 12 workspace permissions.
+Replaced bootstrap-provenance page override with the revision-pinned current active Owner assignment and proved an A-to-B owner handoff.
 
 ## Validation
 
-Exact Node 24.19.0: protected baseline unit 6/6 and real PostgreSQL v3-to-v4 upgrade 1/1 PASS, including one revision/audit/outbox, restart idempotence, v2-skip denial, and tamper denial.
+Exact Node 24.19.0: generated owner-override source 7/7 and real generated PostgreSQL/HTTP/Chromium shell journey 1/1 PASS; current B bypasses page ACL, former A needs both current platform permission and explicit ACL.
 
 ## Next
 

@@ -1031,10 +1031,9 @@ function createRuntime(payload: Payload) {
       return { roleIds: [], ownerOverride: false };
     }
     const expected = { applicationId: state.applicationId, environment: state.environment, authorizationRevision: state.authorizationRevision, lifecycleRevision: state.lifecycleRevision };
-    const assignments = await authority.store.readTransaction(expected, (transaction) => transaction.listAssignments(scope.applicationId, decision.effectiveActor));
-    const receipt = await authority.store.readProtectedRoleBaselineReceipt(scope.applicationId);
-    const roleIds = assignments.value.filter((assignment) => assignment.state === "active").map((assignment) => assignment.roleId);
-    const ownerOverride = receipt?.ownerPrincipal.kind === decision.effectiveActor.kind && receipt.ownerPrincipal.id === decision.effectiveActor.id;
+    const assignments = (await authority.store.readTransaction(expected, (transaction) => transaction.listAssignments(scope.applicationId, decision.effectiveActor))).value;
+    const roleIds = assignments.filter((assignment) => assignment.state === "active").map((assignment) => assignment.roleId);
+    const ownerOverride = assignments.some((assignment) => assignment.roleId === "system.role.owner" && assignment.state === "active");
     return { roleIds, ownerOverride };
   });
   const resolvePlacement = async (selectionValue: unknown) => {

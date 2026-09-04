@@ -341,7 +341,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     assert.equal(assignTheme.status, 303, `${await assignTheme.clone().text()}\n${applicationProcess.output()}`);
 
     const store = new PostgresAuthorizationStore(pool, {
-      validate: (requestedApplicationId, subject) => requestedApplicationId === applicationId && subject.kind === "user" && [limitedUserId, managerUserId].includes(subject.id) ? "accepted" : "rejected"
+      validate: (requestedApplicationId, subject) => requestedApplicationId === applicationId && subject.kind === "user" && [ownerUserId, limitedUserId, managerUserId].includes(subject.id) ? "accepted" : "rejected"
     });
     const state = await store.readState(applicationId, environmentName);
     assert.ok(state);
@@ -901,6 +901,27 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     assert.equal(durablePointer.rows[0].pointer_json.publishedRevisionId, firstPublishedRevisionId);
     const durableSales = await pool.query("select name, stage from sales_opportunities order by id");
     assert.deepEqual(durableSales.rows, [{ name: "Alpha renewal", stage: "qualified" }, { name: "Beta expansion", stage: "won" }]);
+
+    assert.equal((await fetch(`${applicationProcess.origin}/workspace/pages/${encodeURIComponent(pageId)}`, { headers: { cookie: manager.cookie.header } })).status, 404, "A non-owner with current workspace permission still needs exact page ACL.");
+    const durableStore = new PostgresAuthorizationStore(pool, {
+      validate: (requestedApplicationId, subject) => requestedApplicationId === applicationId && subject.kind === "user" && [ownerUserId, limitedUserId, managerUserId].includes(subject.id) ? "accepted" : "rejected"
+    });
+    const ownerHandoffState = await durableStore.readState(applicationId, environmentName);
+    assert.ok(ownerHandoffState);
+    await durableStore.transaction(expected(ownerHandoffState), async (transaction) => {
+      const formerOwner = (await transaction.listAssignments(applicationId, { kind: "user", id: ownerUserId })).find((assignment) => assignment.roleId === "system.role.owner" && assignment.state === "active");
+      assert.ok(formerOwner);
+      await transaction.write({ kind: "assignment", assignment: { schemaVersion: 1, id: "owner-handoff-manager", applicationId, roleId: "system.role.owner", principal: { kind: "user", id: managerUserId }, state: "active", revision: 0 } });
+      await transaction.write({ kind: "assignment", assignment: { ...formerOwner, state: "revoked", revision: formerOwner.revision + 1 } });
+    });
+    assert.equal((await fetch(`${applicationProcess.origin}/workspace/pages/${encodeURIComponent(pageId)}`, { headers: { cookie: manager.cookie.header } })).status, 200, "The current owner must override page ACL without a bootstrap-receipt identity match.");
+    assert.equal((await fetch(`${applicationProcess.origin}/workspace/pages/${encodeURIComponent(pageId)}`, { headers: { cookie: durableOwner.cookie.header } })).status, 404, "A former owner with page ACL but no current platform permission must be denied.");
+    const formerOwnerAccessState = await durableStore.readState(applicationId, environmentName);
+    assert.ok(formerOwnerAccessState);
+    await durableStore.transaction(expected(formerOwnerAccessState), async (transaction) => {
+      await transaction.write({ kind: "assignment", assignment: { schemaVersion: 1, id: "customer.workspace-viewer.former-owner", applicationId, roleId: "customer.workspace-viewer", principal: { kind: "user", id: ownerUserId }, state: "active", revision: 0 } });
+    });
+    assert.equal((await fetch(`${applicationProcess.origin}/workspace/pages/${encodeURIComponent(pageId)}`, { headers: { cookie: durableOwner.cookie.header } })).status, 200, "A former owner needs both current platform permission and exact page ACL.");
     console.log("P12_9_GENERATED_APP_POSTGRES_HTTP_CHROMIUM_EVIDENCE=PASS");
   } finally {
     await stop(workerProcess?.child).catch(() => {});
