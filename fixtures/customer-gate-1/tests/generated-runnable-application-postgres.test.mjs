@@ -715,12 +715,16 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     await Promise.all(concurrent.requests);
 
     let rateExhausted = false;
-    for (let request = 0; request < 48 && !rateExhausted; request += 1) {
-      const response = await fetch(workspacePageUrl, { headers: budgetHeaders });
-      rateExhausted = response.status === 404;
-      await response.text();
+    for (let batch = 0; batch < 16 && !rateExhausted; batch += 1) {
+      const statuses = await Promise.all(Array.from({ length: 4 }, async () => {
+        const response = await fetch(workspacePageUrl, { headers: budgetHeaders });
+        await response.text();
+        return response.status;
+      }));
+      assert.equal(statuses.every((status) => status === 200 || status === 404), true, "Rate-budget batches must only complete or fail closed.");
+      rateExhausted = statuses.includes(404);
     }
-    assert.equal(rateExhausted, true, "Sequential direct HTTP source requests must exhaust the shared process-lifetime rate budget after the Sales query lock releases.");
+    assert.equal(rateExhausted, true, "Four-request batches must exhaust the shared process-lifetime rate budget after the Sales query lock releases without issuing a fifth concurrent high-cost query.");
     console.log("P12_QUERY_BUDGET_PROCESS_LIFETIME_HTTP_RATE_AND_CONCURRENCY=PASS");
 
     const salesRow = async (kind, id) => {
