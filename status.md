@@ -19,4 +19,4 @@ Document the generated System administration authority blocker, then continue th
 
 ## Blockers
 
-Generated lifecycle administration requires an accepted external operator/supervisor transport, trust identity, production migrations, and inventory binding; a web-owned substitute would violate ADR-0024.
+Generated lifecycle administration requires an accepted external operator/supervisor transport, trust identity, production migrations, and inventory binding; see `docs/implementation/phase-12-review-blockers.md`.
