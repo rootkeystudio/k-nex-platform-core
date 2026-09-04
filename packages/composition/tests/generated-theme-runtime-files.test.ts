@@ -105,14 +105,18 @@ describe("generated durable Theme Profile runtime", () => {
     expect(runtime).toContain("themePublication: Object.freeze({ applicationId: scope.applicationId");
   });
 
-  it("separates theme failure from exact current Sales generation impact", () => {
+  it("classifies exact Sales replacement and durable unavailability without using aggregate lifecycle equality", () => {
     const runtime = workspacePageApplicationFiles({ applicationId: "customer-alpha" })["src/k-nex-workspace-pages.ts"]!;
 
-    expect(runtime).toContain("async function salesGenerationImpact(payload: Payload, lifecycleRevision: number | undefined)");
+    expect(runtime).toContain("async function salesGenerationImpact(payload: Payload)");
     expect(runtime).toContain("from k_nex_extension_authorization_generations");
     expect(runtime).toContain("max(state) filter (where authorization_generation=$3 and runtime_generation_ids=$4::jsonb) exact_state");
     expect(runtime).toContain("bool_or(state='current' and (authorization_generation<>$3 or runtime_generation_ids<>$4::jsonb))");
+    expect(runtime).not.toContain("exact_lifecycle_revision");
     expect(runtime).not.toContain("order by authorization_generation desc limit 1");
+    expect(runtime).toContain('if (generation.other_current) return "plugin-updated" as const');
+    expect(runtime).toContain('if (generation.exact_state !== "current") return "plugin-disabled" as const');
+    expect(runtime).toContain('if (await currentSalesGeneration(payload).catch(() => undefined) === undefined) return "plugin-disabled" as const');
     expect(runtime).toContain('return "plugin-disabled" as const');
     expect(runtime).toContain('return "plugin-updated" as const');
     expect(runtime).toContain('code: "theme-unavailable" as const');

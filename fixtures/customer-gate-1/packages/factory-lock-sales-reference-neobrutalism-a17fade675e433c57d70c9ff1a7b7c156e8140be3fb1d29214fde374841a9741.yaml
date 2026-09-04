@@ -45,9 +45,9 @@ importers:
       '@k-nex/runtime':
         specifier: file:.k-nex/packages/k-nex-runtime-1.0.0.tgz
         version: file:.k-nex/packages/k-nex-runtime-1.0.0.tgz
-      '@k-nex/theme-minimal':
-        specifier: file:.k-nex/packages/k-nex-theme-minimal-1.0.0.tgz
-        version: file:.k-nex/packages/k-nex-theme-minimal-1.0.0.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@k-nex/theme-neobrutalism':
+        specifier: file:.k-nex/packages/k-nex-theme-neobrutalism-1.0.0.tgz
+        version: file:.k-nex/packages/k-nex-theme-neobrutalism-1.0.0.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@k-nex/ui-builder-blocks':
         specifier: file:.k-nex/packages/k-nex-ui-builder-blocks-1.0.0.tgz
         version: file:.k-nex/packages/k-nex-ui-builder-blocks-1.0.0.tgz(@floating-ui/dom@1.8.0)(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(typescript@6.0.3)(use-sync-external-store@1.6.0(react@19.2.8))(yjs@13.6.32)
@@ -954,7 +954,7 @@ packages:
       react: ^18.0.0 || ^19.0.0
 
   '@k-nex/composition@file:.k-nex/packages/k-nex-composition-1.0.0.tgz':
-    resolution: {integrity: sha512-OEQUZ3RyMsX4JWREIqafSEXagok1JyE+1yoi+bkZvwcDC89WPcj9UkfuBWA9f5A0/n7wFMd8EtP3CW8jX1ts/A==, tarball: file:.k-nex/packages/k-nex-composition-1.0.0.tgz}
+    resolution: {integrity: sha512-rXeV+eAR84sIQsJPXq062o1s2a/qb+1zHwLNsi1H/6ilQ1ppAU6fxjwEcVPAAQsVuHo/ceuFCOaZzEoQElEYlQ==, tarball: file:.k-nex/packages/k-nex-composition-1.0.0.tgz}
     version: 1.0.0
 
   '@k-nex/contracts@file:.k-nex/packages/k-nex-contracts-1.0.0.tgz':
@@ -1004,8 +1004,8 @@ packages:
     resolution: {integrity: sha512-Pm99r152Tvw2qoW6JD4W+c1JTooIzrRemPPbNhL9y+UdN0IeaBloNvHA01c12LoaQe4lCFzE7yk9Gqwgy0YKUg==, tarball: file:.k-nex/packages/k-nex-runtime-1.0.0.tgz}
     version: 1.0.0
 
-  '@k-nex/theme-minimal@file:.k-nex/packages/k-nex-theme-minimal-1.0.0.tgz':
-    resolution: {integrity: sha512-qMr8P9dxHalCVjy5CyOWQOiJ7gj2yniyLvIhGoyiMLZuPns7OQB6RmfCiHkOJuZ1EwsI6kCECGmzDIpSq2xGMw==, tarball: file:.k-nex/packages/k-nex-theme-minimal-1.0.0.tgz}
+  '@k-nex/theme-neobrutalism@file:.k-nex/packages/k-nex-theme-neobrutalism-1.0.0.tgz':
+    resolution: {integrity: sha512-5wm2gQ60bwuRU2GRlNu+s6E0t+d6xI33BM/YCT0CxvQFFW5iMEbGsHmb6OmHQzvTUZuAVkdGOVF0QFe9W/HdwA==, tarball: file:.k-nex/packages/k-nex-theme-neobrutalism-1.0.0.tgz}
     version: 1.0.0
     peerDependencies:
       react: ^18.0.0 || ^19.0.0
@@ -4078,7 +4078,7 @@ snapshots:
       '@k-nex/contracts': file:.k-nex/packages/k-nex-contracts-1.0.0.tgz
       semver: 7.8.5
 
-  '@k-nex/theme-minimal@file:.k-nex/packages/k-nex-theme-minimal-1.0.0.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+  '@k-nex/theme-neobrutalism@file:.k-nex/packages/k-nex-theme-neobrutalism-1.0.0.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
     dependencies:
       '@k-nex/contracts': file:.k-nex/packages/k-nex-contracts-1.0.0.tgz
       '@k-nex/ui-design-system-contracts': file:.k-nex/packages/k-nex-ui-design-system-contracts-1.0.0.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)

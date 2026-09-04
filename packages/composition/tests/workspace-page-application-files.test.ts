@@ -76,12 +76,17 @@ describe("generated workspace page builder policy", () => {
     }
   });
 
-  it("routes folder mutations through a server-derived authority fence and static catalog", () => {
+  it("requires workspace-page access administration for folder mutations", () => {
     const runtime = workspacePageApplicationFiles({ applicationId: "customer-alpha" })["src/k-nex-workspace-pages.ts"]!;
+    const folderDecision = runtime.slice(runtime.indexOf("async function folderDecision"), runtime.indexOf("async function folderCatalog"));
 
-    expect(runtime).toContain('permissionId: "system.workspace-pages.edit"');
-    expect(runtime).toContain('decision.effectiveActor.kind !== "user"');
-    expect(runtime).toContain('state.authorizationRevision !== decision.authorizationRevision || state.lifecycleRevision !== decision.lifecycleRevision');
+    expect(folderDecision).toContain('permissionId: "system.workspace-pages.access.manage"');
+    expect(folderDecision).toContain('decision.permissionId !== "system.workspace-pages.access.manage"');
+    expect(folderDecision).not.toContain('system.workspace-pages.edit');
+    expect(folderDecision).toContain('decision.effectiveActor.kind !== "user"');
+    expect(folderDecision).toContain('state.authorizationRevision !== decision.authorizationRevision || state.lifecycleRevision !== decision.lifecycleRevision');
+    expect(runtime).toContain('const decision = await folderDecision(payload, context, "create");');
+    expect(runtime).toContain('const decision = await folderDecision(payload, context, "update");');
     expect(runtime).toContain("async function folderCatalog(payload: Payload)");
     expect(runtime).toContain("await currentSalesGeneration(payload).catch(() => undefined)");
     expect(runtime).toContain('staticNodes: workspaceNavigationFixedNodes, staticParentIds: []');
@@ -117,17 +122,20 @@ describe("generated workspace page builder policy", () => {
     expect(source).toContain(".validateDocument(document)");
   });
 
-  it("observes compiled Sales only for the selected document's executable dependencies", () => {
+  it("keeps compiled Sales dependencies available across unrelated lifecycle advances", () => {
     const runtime = workspacePageApplicationFiles({ applicationId: "customer-alpha" })["src/k-nex-workspace-pages.ts"]!;
 
     expect(runtime).toContain("function usesSales(document: UiDocument): boolean {");
     expect(runtime).toContain("const document = selected?.document ?? snapshot.workingCopy.document;");
-    expect(runtime).toContain("const pluginCode = usesSales(document) ? await salesGenerationImpact(payload, state?.lifecycleRevision) : undefined;");
+    expect(runtime).toContain("const pluginCode = usesSales(document) ? await salesGenerationImpact(payload) : undefined;");
+    expect(runtime).toContain("async function salesGenerationImpact(payload: Payload)");
     expect(runtime).toContain("const document = revision?.document ?? snapshot.workingCopy.document;");
     expect(runtime).toContain("extensionGenerations: Object.freeze(usesSales(document) ? [{ applicationId: scope.applicationId");
     expect(runtime).toContain("authorization_generation=$3 and runtime_generation_ids=$4::jsonb");
     expect(runtime).toContain("canonicalJson([kNexSalesRegistry.staticRelease.runtimeGenerationId])");
     expect(runtime).toContain("await currentSalesGeneration(payload).catch(() => undefined)");
+    expect(runtime).not.toContain("exact_lifecycle_revision");
+    expect(runtime).not.toContain("salesGenerationImpact(payload, state?.lifecycleRevision)");
     expect(runtime).not.toContain("lifecycleRevision !== kNexSalesRegistry.authorizationGeneration.lifecycleRevision");
   });
 

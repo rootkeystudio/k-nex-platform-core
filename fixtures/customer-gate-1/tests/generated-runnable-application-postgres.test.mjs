@@ -189,6 +189,8 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     const lifecycleProjector = new AuthorizationLifecycleProjector(createStaticPlatformPluginAuthorizationDescriptorResolver({
       applicationId, registrations: [{ sourceCommit: lifecycleSourceCommit, registration: kNexSalesRegistry.scopedRegistration }]
     }));
+    const trustedEmptyHotApplicationDescriptorResolver = async () => Object.freeze([]);
+    const unrelatedHotApplicationLifecycleProjector = new AuthorizationLifecycleProjector(trustedEmptyHotApplicationDescriptorResolver);
     const projectSalesLifecycle = async (operation, lifecycleState, runtimeGenerationId = kNexSalesRegistry.staticRelease.runtimeGenerationId, updateCompatibility, priorGenerationEvidence) => {
       const state = await durableStore.readState(applicationId, environmentName);
       assert.ok(state);
@@ -1325,6 +1327,63 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     assert.equal(restoredAction.status, 200, "A valid later current Sales generation must restore registered actions.");
     assert.equal((await pool.query("select count(*)::int as count from sales_tasks where title=$1", [restoredActionTitle])).rows[0].count, 1);
     console.log("P12_LATER_SALES_GENERATION_RECOVERS_NAVIGATION_ROUTE_AND_ACTION_POSTGRES_HTTP=PASS");
+    const salesGenerationBeforeUnrelatedLifecycle = (await pool.query(
+      "select authorization_generation, runtime_generation_ids from k_nex_extension_authorization_generations where application_id=$1 and delivery_class='platform-plugin' and extension_id='module.sales' and state='current'",
+      [applicationId]
+    )).rows;
+    assert.equal(salesGenerationBeforeUnrelatedLifecycle.length, 1, "The recovered Sales authorization generation must be current before an unrelated lifecycle advance.");
+    const unrelatedLifecycleBefore = await durableStore.readState(applicationId, environmentName);
+    assert.ok(unrelatedLifecycleBefore);
+    assert.equal(unrelatedLifecycleBefore.lifecycleRevision, restoredSalesState.lifecycleRevision, "The unrelated lifecycle transition must begin immediately after exact Sales recovery.");
+    const unrelatedLifecycleRevision = unrelatedLifecycleBefore.lifecycleRevision + 1;
+    const unrelatedGenerationId = `p12-unrelated-hot-application-${unrelatedLifecycleRevision}`;
+    const unrelatedLifecycleSession = await pool.connect();
+    let unrelatedLifecycleState;
+    try {
+      await unrelatedLifecycleSession.query("begin");
+      unrelatedLifecycleState = (await unrelatedHotApplicationLifecycleProjector.project({
+        session: unrelatedLifecycleSession,
+        transition: {
+          schemaVersion: 1, applicationId, environment: environmentName,
+          eventId: `p12-unrelated-hot-application-${unrelatedLifecycleRevision}`, eventType: "extension.lifecycle-transition",
+          operationId: `p12-unrelated-hot-application-operation-${unrelatedLifecycleRevision}`, operation: "install", operationPhase: "completed", lifecycleState: "active",
+          expectedRevision: unrelatedLifecycleBefore.lifecycleRevision, revision: unrelatedLifecycleRevision, inventoryRevision: unrelatedLifecycleRevision,
+          actor: { kind: "trusted-automation", identity: "fixture.generated-unrelated-hot-application-lifecycle" },
+          receiptId: `p12-unrelated-hot-application-receipt-${unrelatedLifecycleRevision}`, auditId: `p12-unrelated-hot-application-audit-${unrelatedLifecycleRevision}`,
+          idempotencyKey: `p12:unrelated-hot-application:${unrelatedLifecycleRevision}`, correlationId: `p12-unrelated-hot-application-${unrelatedLifecycleRevision}`,
+          occurredAt: "2026-09-04T00:00:00.000Z", deliveryClass: "hot-application", id: "app.lifecycle-proof",
+          evidence: { sourceCommit: "d".repeat(40), artifactDigest: `sha256:${"e".repeat(64)}`, generationId: unrelatedGenerationId }
+        },
+        runtimeGenerationIds: [unrelatedGenerationId]
+      })).state;
+      await unrelatedLifecycleSession.query("commit");
+    } catch (error) {
+      await unrelatedLifecycleSession.query("rollback");
+      throw error;
+    } finally { unrelatedLifecycleSession.release(); }
+    assert.equal(unrelatedLifecycleState.lifecycleRevision, unrelatedLifecycleRevision, "An unrelated committed Hot Application lifecycle transition must advance the global lifecycle revision.");
+    const unrelatedLifecycleHost = await fetch(`${applicationProcess.origin}/`, { headers: { cookie: manager.cookie.header }, redirect: "manual" });
+    assert.equal(unrelatedLifecycleHost.status, 200, "An authenticated manual root request must remain available after an unrelated lifecycle transition.");
+    const unrelatedLifecycleHostHtml = await unrelatedLifecycleHost.text();
+    assert.equal(unrelatedLifecycleHostHtml.includes('href="/sales/tasks"'), true, "An unrelated lifecycle transition must preserve Sales navigation.");
+    assert.equal((await fetch(`${applicationProcess.origin}/sales/tasks`, { headers: { cookie: manager.cookie.header }, redirect: "manual" })).status, 200, "An unrelated lifecycle transition must preserve the Sales tasks route.");
+    const unrelatedLifecycleActionTitle = "Unrelated lifecycle preserved Sales action";
+    const unrelatedLifecycleAction = await fetch(`${applicationProcess.origin}/api/k-nex/sales/actions/${encodeURIComponent("sales.task.create")}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie: manager.cookie.header, origin: applicationProcess.origin },
+      body: JSON.stringify({ input: { title: unrelatedLifecycleActionTitle }, idempotencyKey: `unrelated-lifecycle-sales-action-${randomUUID()}` }),
+      redirect: "manual"
+    });
+    assert.equal(unrelatedLifecycleAction.status, 200, "An unrelated lifecycle transition must preserve the Sales action.");
+    assert.equal((await pool.query("select count(*)::int as count from sales_tasks where title=$1", [unrelatedLifecycleActionTitle])).rows[0].count, 1);
+    assert.equal((await fetch(`${applicationProcess.origin}/workspace/pages/${encodeURIComponent(pageId)}`, { headers: { cookie: manager.cookie.header }, redirect: "manual" })).status, 200, "An unrelated lifecycle transition must preserve the Sales-dependent page.");
+    assert.equal((await fetch(`${applicationProcess.origin}/workspace/pages/${encodeURIComponent(platformPageId)}`, { headers: { cookie: manager.cookie.header }, redirect: "manual" })).status, 200, "An unrelated lifecycle transition must preserve the platform-only page.");
+    assert.deepEqual(
+      (await pool.query("select authorization_generation, runtime_generation_ids from k_nex_extension_authorization_generations where application_id=$1 and delivery_class='platform-plugin' and extension_id='module.sales' and state='current'", [applicationId])).rows,
+      salesGenerationBeforeUnrelatedLifecycle,
+      "An unrelated lifecycle transition must not change the current Sales generation identity."
+    );
+    console.log("P12_UNRELATED_HOT_APPLICATION_LIFECYCLE_ADVANCE_PRESERVES_SALES_POSTGRES_HTTP=PASS");
     const staleReplacementState = await projectSalesLifecycle(
       "update",
       "active",
@@ -1335,7 +1394,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     assert.equal((await fetch(`${applicationProcess.origin}/workspace/pages/${encodeURIComponent(pageId)}`, { headers: { cookie: manager.cookie.header }, redirect: "manual" })).status, 404, "A stale Sales replacement must not revive the compiled dependent page.");
     assert.equal((await fetch(`${applicationProcess.origin}/workspace/pages/${encodeURIComponent(platformPageId)}`, { headers: { cookie: manager.cookie.header }, redirect: "manual" })).status, 200, "A stale Sales replacement must not invalidate a platform-only page.");
     assert.equal((await fetch(`${applicationProcess.origin}/sales/tasks`, { headers: { cookie: manager.cookie.header }, redirect: "manual" })).status, 404, "A stale Sales replacement must not revive compiled static routes.");
-    assert.equal(staleReplacementState.lifecycleRevision, restoredSalesState.lifecycleRevision + 1);
+    assert.equal(staleReplacementState.lifecycleRevision, unrelatedLifecycleState.lifecycleRevision + 1);
     console.log("P12_WORKSPACE_PAGE_EXECUTABLE_DEPENDENCY_LIFECYCLE_POSTGRES_HTTP=PASS");
     console.log("P12_9_GENERATED_APP_POSTGRES_HTTP_CHROMIUM_EVIDENCE=PASS");
   } finally {

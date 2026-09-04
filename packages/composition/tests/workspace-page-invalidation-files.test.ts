@@ -81,13 +81,24 @@ describe("generated workspace invalidation runtime", () => {
     expect(readiness).toContain('"src/app/api/k-nex/sales/routes/[routeId]/route.ts"');
   });
 
-  it("derives Sales availability from one revision-checked current generation while keeping platform authority available", () => {
+  it("keeps the exact current Sales generation available across unrelated lifecycle advances", () => {
     const authority = applicationAuthFiles({ applicationId: "customer-alpha", applicationName: "Customer Alpha", theme: "minimal" })["src/k-nex-authority.ts"]!;
 
     expect(authority).toContain("async function currentSalesAuthority(store: PostgresAuthorizationStore)");
     expect(authority).toContain('generation.state === "current" && generation.applicationId === expected.applicationId');
+    expect(authority).toContain("canonicalJson(generation.owner) === canonicalJson(kNexSalesRegistry.authorizationGeneration.owner)");
     expect(authority).toContain("kNexSalesRegistry.staticRelease.runtimeGenerationId");
+    expect(authority).toContain("generation.lifecycleRevision >= kNexSalesRegistry.authorizationGeneration.lifecycleRevision && generation.lifecycleRevision <= expected.lifecycleRevision");
+    expect(authority).not.toContain("generation.lifecycleRevision === expected.lifecycleRevision");
+    expect(authority).toContain("if (current === undefined || current.state.lifecycleRevision !== lifecycleRevision) return undefined;");
+  });
+
+  it("invalidates Sales dependents when Sales durable availability changes", () => {
+    const authority = applicationAuthFiles({ applicationId: "customer-alpha", applicationName: "Customer Alpha", theme: "minimal" })["src/k-nex-authority.ts"]!;
+
     expect(authority).toContain("inactive-extension-disabled");
+    expect(authority).toContain("inactive-extension-not-ready");
+    expect(authority).toContain("entry.owner.generation === generation.owner.generation");
     expect(authority).toContain("lifecycleOverride: Object.freeze({ enabled: !unavailable, ready: !unavailable })");
     expect(authority).toContain("...(snapshot.value === undefined ? {} : { generation: snapshot.value.generation, lifecycleOverride: snapshot.value.lifecycleOverride })");
     expect(authority).toContain("current.generation === undefined || current.lifecycleOverride === undefined ? undefined");

@@ -109,7 +109,7 @@ async function currentSalesAuthority(store: PostgresAuthorizationStore) {
       generation.owner.generation === kNexSalesRegistry.staticRelease.authorizationGeneration &&
       canonicalJson(generation.runtimeGenerationIds) === canonicalJson([kNexSalesRegistry.staticRelease.runtimeGenerationId]) &&
       generation.authorizationRevision >= kNexSalesRegistry.authorizationGeneration.authorizationRevision && generation.authorizationRevision <= expected.authorizationRevision &&
-      generation.lifecycleRevision === expected.lifecycleRevision
+      generation.lifecycleRevision >= kNexSalesRegistry.authorizationGeneration.lifecycleRevision && generation.lifecycleRevision <= expected.lifecycleRevision
     );
     if (current.length !== 1) return undefined;
     const generation = current[0]!;

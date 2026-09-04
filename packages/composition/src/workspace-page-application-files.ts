@@ -1030,11 +1030,10 @@ function usesSales(document: UiDocument): boolean {
     entry.owner.version === kNexSalesRegistry.staticRelease.package.version);
 }
 
-async function salesGenerationImpact(payload: Payload, lifecycleRevision: number | undefined) {
-  const result = await (payload.db.pool as RuntimeExtensionPool).query<{ exact_state: string | null; exact_lifecycle_revision: number | null; other_current: boolean; generation_count: string }>(
+async function salesGenerationImpact(payload: Payload) {
+  const result = await (payload.db.pool as RuntimeExtensionPool).query<{ exact_state: string | null; other_current: boolean; generation_count: string }>(
     \`select
        max(state) filter (where authorization_generation=$3 and runtime_generation_ids=$4::jsonb) exact_state,
-       max(lifecycle_revision) filter (where authorization_generation=$3 and runtime_generation_ids=$4::jsonb) exact_lifecycle_revision,
        coalesce(bool_or(state='current' and (authorization_generation<>$3 or runtime_generation_ids<>$4::jsonb)), false) other_current,
        count(*)::text generation_count
      from k_nex_extension_authorization_generations
@@ -1045,7 +1044,6 @@ async function salesGenerationImpact(payload: Payload, lifecycleRevision: number
   if (generation === undefined || generation.generation_count === "0") return "plugin-removed" as const;
   if (generation.other_current) return "plugin-updated" as const;
   if (generation.exact_state !== "current") return "plugin-disabled" as const;
-  if (generation.exact_lifecycle_revision !== lifecycleRevision) return "plugin-updated" as const;
   if (await currentSalesGeneration(payload).catch(() => undefined) === undefined) return "plugin-disabled" as const;
   return undefined;
 }
@@ -1104,7 +1102,7 @@ function createRuntime(payload: Payload) {
       catch { return { state: "dependency-unavailable" as const, code: "theme-unavailable" as const, catalogRevision: state?.lifecycleRevision ?? 0, dependencyDigest: fallback }; }
       try {
         const document = selected?.document ?? snapshot.workingCopy.document;
-        const pluginCode = usesSales(document) ? await salesGenerationImpact(payload, state?.lifecycleRevision) : undefined;
+        const pluginCode = usesSales(document) ? await salesGenerationImpact(payload) : undefined;
         if (pluginCode !== undefined) return { state: "dependency-unavailable" as const, code: pluginCode, catalogRevision: state?.lifecycleRevision ?? 0, dependencyDigest: fallback };
         const dependencies = dependenciesFor(document);
         return { state: "ready" as const, catalogRevision: state!.lifecycleRevision, dependencyDigest: dependencies.digest as \`sha256:\${string}\` };
@@ -1230,10 +1228,10 @@ export async function loadWorkspacePageEditorProjection(payload: Payload, contex
 
 async function folderDecision(payload: Payload, context: KnexRequestContext, operation: string) {
   const runtime = kNexWorkspacePages(payload);
-  const target = createCurrentAuthorityTarget({ permissionId: "system.workspace-pages.edit", scope: { kind: "application", resource: "system.workspace-pages" }, facts: { boundary: "workspace-folder-service", operation } });
+  const target = createCurrentAuthorityTarget({ permissionId: "system.workspace-pages.access.manage", scope: { kind: "application", resource: "system.workspace-pages" }, facts: { boundary: "workspace-folder-service", operation } });
   const decision = await runtime.authority.adapter.authorize(context, target);
   const state = await runtime.authority.store.readState(scope.applicationId, scope.environment);
-  if (decision === undefined || decision.outcome !== "allow" || decision.permissionId !== "system.workspace-pages.edit" || decision.scope.kind !== "application" || decision.scope.resource !== "system.workspace-pages" || decision.applicationId !== scope.applicationId || decision.environment !== scope.environment || decision.effectiveActor.kind !== "user" ||
+  if (decision === undefined || decision.outcome !== "allow" || decision.permissionId !== "system.workspace-pages.access.manage" || decision.scope.kind !== "application" || decision.scope.resource !== "system.workspace-pages" || decision.applicationId !== scope.applicationId || decision.environment !== scope.environment || decision.effectiveActor.kind !== "user" ||
     state === undefined || state.applicationId !== scope.applicationId || state.environment !== scope.environment || state.authorizationRevision !== decision.authorizationRevision || state.lifecycleRevision !== decision.lifecycleRevision) throw new TypeError("Workspace folder operation is denied.");
   return decision;
 }

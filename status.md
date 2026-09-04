@@ -7,15 +7,15 @@
 
 ## Last completed
 
-The P12.5 real PostgreSQL storage fixture now supplies the required server-derived navigation mutation fence and static catalog; the fail-closed production API remains required.
+Sales authority and workspace dependency checks now retain the exact current Sales generation across unrelated aggregate lifecycle advances. Folder mutations require workspace-page access administration.
 
 ## Validation
 
-`pnpm --dir fixtures/customer-gate-1 test:p12:storage` PASS with real PostgreSQL; syntax and `git diff --check` PASS.
+Composition tests (123) and build PASS. Real generated PostgreSQL/HTTP/Chromium journey PASS, including unrelated Hot Application lifecycle advance preserving Sales navigation, routes, actions, and pages. Packed ABI/closure and factory locks PASS; `git diff --check` PASS.
 
 ## Next
 
-Finish cross-extension lifecycle proof, then implement the accepted external operator/supervisor boundary and generated fixed System administration.
+Export production administration/runtime schemas, implement the accepted operator transport, then compose generated fixed System administration.
 
 ## Blockers
 
