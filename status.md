@@ -2,12 +2,12 @@
 
 - **Updated:** 2026-09-04
 - **Phase:** Phase 12 — Runnable Customer Workspace and Dashboard Builder
-- **Active task:** Phase 12 review correction final review
-- **State:** In progress
+- **Active task:** Generated System administration authority decision
+- **State:** Blocked
 
 ## Last completed
 
-Latest review corrections are integrated: full-navigation polling watermark, duplicate-only folder replay with changed-payload denial, authority-bound durable navigation outbox lease/dead-letter unit evidence, worker-down reconciliation, and the generated migration-count fixture.
+Same persistent Sol-xhigh review PASS after integrating full-navigation polling, duplicate-only folder replay with changed-payload denial, authority-bound navigation outbox lease/dead-letter unit evidence, worker-down reconciliation, and the generated migration-count fixture.
 
 ## Validation
 
@@ -15,7 +15,7 @@ Integrated focused tests PASS: adapter navigation/outbox 9, composition generati
 
 ## Next
 
-Run the same persistent Sol-xhigh review, fix any confirmed gap, then refresh the Phase 12 PR without claiming phase readiness.
+Refresh the Phase 12 PR. Resolve the documented external operator/supervisor design before phase closure or Gate 12 exact-head execution.
 
 ## Blockers
 
