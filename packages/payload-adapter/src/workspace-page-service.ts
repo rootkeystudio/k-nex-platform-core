@@ -14,7 +14,7 @@ import {
 } from "@k-nex/contracts";
 import { createCurrentAuthorityTarget, type CurrentAuthorityAdapter } from "@k-nex/runtime";
 
-import { PostgresWorkspacePageStore, type WorkspacePageAuditEntry, type WorkspacePageScope, type WorkspacePageSnapshot } from "./workspace-page-store.js";
+import { issueWorkspacePageMutationFence, PostgresWorkspacePageStore, type WorkspacePageAuditEntry, type WorkspacePageCatalogObservation, type WorkspacePageMutationFence, type WorkspacePageScope, type WorkspacePageSnapshot } from "./workspace-page-store.js";
 
 type WorkspaceNavigationPlacement = WorkspacePage["navigation"];
 type WorkspacePageAccessAssignment = WorkspacePageAccessSnapshot["assignments"][number];
@@ -257,8 +257,12 @@ export class CurrentAuthorityWorkspacePageService<TContext> {
     const workingCopy = { schemaVersion: 1, identity, revision: 1, document, editorSessionId: "workspace-create-session", idempotencyKey: input.idempotencyKey, updatedBy: decision.effectiveActor, updatedAt: occurredAt };
     const access = { schemaVersion: 1, identity, accessRevision: 0, assignments: [{ subject: { kind: "user", userId: decision.effectiveActor.id }, capability: "edit" }] };
     const page = { schemaVersion: 1, identity, title: input.title, ...(input.description === undefined ? {} : { description: input.description }), state: "draft", navigation, workingCopyRevision: 1, accessRevision: 0, ...(themeProfile === undefined ? {} : { themeProfile }), revision: 1, createdBy: decision.effectiveActor, updatedBy: decision.effectiveActor, createdAt: occurredAt, updatedAt: occurredAt };
-    await this.authorize(context, scope, "system.workspace-pages.create", undefined, "create-commit", active);
-    await this.options.store.create({ page, access, workingCopy, idempotencyKey: input.idempotencyKey });
+    const candidate = { page, access, workingCopy } as WorkspacePageSnapshot;
+    const dependencies = await safeCall(() => this.options.catalog.dependencies({ context, snapshot: candidate, signal: active })) ?? failure("DEPENDENCY_UNAVAILABLE", "Workspace page dependencies are unavailable.");
+    const impact = await this.impact(context, candidate, active);
+    const commitDecision = await this.authorize(context, scope, "system.workspace-pages.create", undefined, "create-commit", active);
+    const fence = this.mutationFence(commitDecision, this.observation(impact, { navigation, themeProfile: themeProfile ?? null, document, dependencies }));
+    await this.options.store.create({ page, access, workingCopy, idempotencyKey: input.idempotencyKey, fence });
     const snapshot = (await this.options.store.read(identity)) ?? failure("NOT_FOUND", "Created workspace page is unavailable.");
     return this.project(snapshot, await this.impact(context, snapshot, active), "edit");
   }
@@ -271,8 +275,9 @@ export class CurrentAuthorityWorkspacePageService<TContext> {
       this.options.catalog.resolveTheme(context, input.themeSelection, active)
     ]);
     const page = { ...snapshot.page, title: input.title, description: input.description, navigation, themeProfile, revision: snapshot.page.revision + 1, updatedBy: decision.effectiveActor, updatedAt: iso(this.options.now) };
-    await this.authorize(context, scope, "system.workspace-pages.edit", pageId, "edit-commit", active);
-    return this.options.store.updateMetadata({ currentRevision: input.expectedRevision, page, idempotencyKey: input.idempotencyKey });
+    const impact = await this.impact(context, { ...snapshot, page }, active);
+    const commitDecision = await this.authorize(context, scope, "system.workspace-pages.edit", pageId, "edit-commit", active);
+    return this.options.store.updateMetadata({ currentRevision: input.expectedRevision, page, idempotencyKey: input.idempotencyKey, fence: this.mutationFence(commitDecision, this.observation(impact, { navigation, themeProfile: themeProfile ?? null })) });
   }
 
   async autosave(context: TContext, scope: WorkspacePageScope, pageId: string, changeValue: unknown, sessionSignal?: AbortSignal, signal?: AbortSignal) {
@@ -283,12 +288,13 @@ export class CurrentAuthorityWorkspacePageService<TContext> {
     const document = await safeCall(() => this.options.documents.validateChange({ context, snapshot, previous: snapshot.workingCopy.document, document: change.data.document, signal: active }));
     if (!document || active.aborted) failure("INVALID_INPUT", "Workspace autosave document is invalid.");
     const candidate = { ...snapshot, workingCopy: { ...snapshot.workingCopy, revision: document.version, document } };
-    await safeCall(() => this.options.catalog.dependencies({ context, snapshot: candidate, signal: active })) ?? failure("DEPENDENCY_UNAVAILABLE", "Workspace autosave dependencies are unavailable.");
-    await this.authorize(context, scope, "system.workspace-pages.edit", pageId, "autosave-commit", active);
+    const dependencies = await safeCall(() => this.options.catalog.dependencies({ context, snapshot: candidate, signal: active })) ?? failure("DEPENDENCY_UNAVAILABLE", "Workspace autosave dependencies are unavailable.");
+    const impact = await this.impact(context, candidate, active);
+    const commitDecision = await this.authorize(context, scope, "system.workspace-pages.edit", pageId, "autosave-commit", active);
     return this.options.store.saveWorkingCopy(snapshot.page.identity, { ...change.data, document }, decision.effectiveActor, {
       expectedPageRevision: snapshot.page.revision,
       expectedAccessRevision: snapshot.access.accessRevision
-    });
+    }, this.mutationFence(commitDecision, this.observation(impact, dependencies)));
   }
 
   async replaceAccess(context: TContext, scope: WorkspacePageScope, pageId: string, input: Readonly<{ expectedPageRevision: number; expectedAccessRevision: number; assignments: readonly WorkspacePageAccessAssignment[]; idempotencyKey: string }>, signal?: AbortSignal) {
@@ -296,8 +302,9 @@ export class CurrentAuthorityWorkspacePageService<TContext> {
     const { snapshot, decision } = await this.authorizedSnapshot(context, scope, pageId, "system.workspace-pages.access.manage", "access", active, "edit");
     const access = WorkspacePageAccessSnapshotSchema.safeParse({ schemaVersion: 1, identity: snapshot.page.identity, accessRevision: input.expectedAccessRevision + 1, assignments: input.assignments });
     if (!access.success || await safeCall(() => this.options.acl.allowsReplacement({ context, decision, snapshot, assignments: access.data.assignments, signal: active })) !== true) failure("ACCESS_DENIED", "Workspace page access replacement is denied.");
-    await this.authorize(context, scope, "system.workspace-pages.access.manage", pageId, "access-commit", active);
-    return this.options.store.replaceAccess({ access: access.data, expectedPageRevision: input.expectedPageRevision, expectedAccessRevision: input.expectedAccessRevision, idempotencyKey: input.idempotencyKey, updatedBy: decision.effectiveActor });
+    const impact = await this.impact(context, snapshot, active);
+    const commitDecision = await this.authorize(context, scope, "system.workspace-pages.access.manage", pageId, "access-commit", active);
+    return this.options.store.replaceAccess({ access: access.data, expectedPageRevision: input.expectedPageRevision, expectedAccessRevision: input.expectedAccessRevision, idempotencyKey: input.idempotencyKey, updatedBy: decision.effectiveActor, fence: this.mutationFence(commitDecision, this.observation(impact, access.data)) });
   }
 
   async readAccess(context: TContext, scope: WorkspacePageScope, pageId: string, signal?: AbortSignal): Promise<WorkspacePageAccessSnapshot> {
@@ -331,8 +338,8 @@ export class CurrentAuthorityWorkspacePageService<TContext> {
     const page = { ...snapshot.page, state: "published", publishedRevisionId: ids.revisionId, dependencyDigest: dependencies.digest, revision: snapshot.page.revision + 1, updatedBy: decision.effectiveActor, updatedAt: occurredAt };
     const revision = { schemaVersion: 1, revisionId: ids.revisionId, identity: snapshot.page.identity, documentRevision: snapshot.workingCopy.revision, document, page, access: snapshot.access, ...(snapshot.page.themeProfile === undefined ? {} : { themeProfile: snapshot.page.themeProfile }), dependencies, publishedBy: decision.effectiveActor, publishedAt: occurredAt };
     const receipt = { schemaVersion: 1, receiptId: ids.receiptId, operation: "publish", identity: snapshot.page.identity, pointerRevision, publishedRevisionId: ids.revisionId, ...(snapshot.publication ? { previousPublishedRevisionId: snapshot.publication.pointer.publishedRevisionId } : {}), accessRevision: snapshot.access.accessRevision, dependencyDigest: dependencies.digest, requestedBy: decision.effectiveActor, authorityDigest: sha256(decision), idempotencyKey: input.idempotencyKey, occurredAt };
-    await this.authorize(context, scope, "system.workspace-pages.publish", pageId, "publish-commit", active);
-    return this.options.store.publish({ page, revision, pointer, receipt });
+    const commitDecision = await this.authorize(context, scope, "system.workspace-pages.publish", pageId, "publish-commit", active);
+    return this.options.store.publish({ page, revision, pointer, receipt, fence: this.mutationFence(commitDecision, this.observation(impact, dependencies)) });
   }
 
   async rollback(context: TContext, scope: WorkspacePageScope, pageId: string, targetRevisionId: string, idempotencyKey: string, signal?: AbortSignal): Promise<WorkspacePublicationReceipt> {
@@ -349,16 +356,17 @@ export class CurrentAuthorityWorkspacePageService<TContext> {
     const pointer = { schemaVersion: 1, identity: snapshot.page.identity, pointerRevision, publishedRevisionId: target.revisionId, publishedDocumentRevision: target.documentRevision, previousPublishedRevisionId: snapshot.publication.pointer.publishedRevisionId, updatedAt: occurredAt };
     const page = { ...snapshot.page, state: "published", publishedRevisionId: target.revisionId, dependencyDigest: target.dependencies.digest, themeProfile: target.themeProfile, revision: snapshot.page.revision + 1, updatedBy: decision.effectiveActor, updatedAt: occurredAt };
     const receipt = { schemaVersion: 1, receiptId: ids.receiptId, operation: "rollback", identity: snapshot.page.identity, pointerRevision, publishedRevisionId: target.revisionId, previousPublishedRevisionId: snapshot.publication.pointer.publishedRevisionId, accessRevision: snapshot.access.accessRevision, dependencyDigest: target.dependencies.digest, requestedBy: decision.effectiveActor, authorityDigest: sha256(decision), idempotencyKey, occurredAt };
-    await this.authorize(context, scope, "system.workspace-pages.publish", pageId, "rollback-commit", active);
-    return this.options.store.rollback({ page, pointer, receipt });
+    const commitDecision = await this.authorize(context, scope, "system.workspace-pages.publish", pageId, "rollback-commit", active);
+    return this.options.store.rollback({ page, pointer, receipt, fence: this.mutationFence(commitDecision, this.observation(impact, target.dependencies)) });
   }
 
   async archive(context: TContext, scope: WorkspacePageScope, pageId: string, expectedRevision: number, idempotencyKey: string, signal?: AbortSignal): Promise<WorkspacePage> {
     const active = combineSignals(signal);
     const { snapshot, decision } = await this.authorizedSnapshot(context, scope, pageId, "system.workspace-pages.edit", "archive", active, "edit");
     const page = { ...snapshot.page, state: "archived", navigation: { state: "unplaced", reason: "manual" }, revision: snapshot.page.revision + 1, updatedBy: decision.effectiveActor, updatedAt: iso(this.options.now) };
-    await this.authorize(context, scope, "system.workspace-pages.edit", pageId, "archive-commit", active);
-    return this.options.store.updateMetadata({ currentRevision: expectedRevision, page, idempotencyKey });
+    const impact = await this.impact(context, snapshot, active);
+    const commitDecision = await this.authorize(context, scope, "system.workspace-pages.edit", pageId, "archive-commit", active);
+    return this.options.store.updateMetadata({ currentRevision: expectedRevision, page, idempotencyKey, fence: this.mutationFence(commitDecision, this.observation(impact, { state: "archived" })) });
   }
 
   async reconcile(context: TContext, scope: WorkspacePageScope, signal?: AbortSignal): Promise<readonly WorkspacePageListItem[]> {
@@ -375,11 +383,12 @@ export class CurrentAuthorityWorkspacePageService<TContext> {
       const decision = await this.authorize(context, scope, "system.workspace-pages.edit", page.identity.pageId, "reconcile-page", active, false);
       if (!decision || await safeCall(() => this.options.acl.allows({ context, decision, snapshot, capability: "edit", signal: active })) !== true) continue;
       const reconciled = { ...snapshot.page, navigation: { state: "unplaced" as const, reason }, revision: snapshot.page.revision + 1, updatedBy: decision.effectiveActor, updatedAt: iso(this.options.now) };
-      await this.authorize(context, scope, "system.workspace-pages.edit", page.identity.pageId, "reconcile-commit", active);
+      const commitDecision = await this.authorize(context, scope, "system.workspace-pages.edit", page.identity.pageId, "reconcile-commit", active);
       await this.options.store.updateMetadata({
         currentRevision: snapshot.page.revision,
         page: reconciled,
-        idempotencyKey: `workspace-reconcile-${snapshot.page.revision}-${impact.catalogRevision}`
+        idempotencyKey: `workspace-reconcile-${snapshot.page.revision}-${impact.catalogRevision}`,
+        fence: this.mutationFence(commitDecision, this.observation(impact, { navigation: reconciled.navigation }))
       });
     }
     return this.list(context, scope, active);
@@ -423,6 +432,23 @@ export class CurrentAuthorityWorkspacePageService<TContext> {
       impact,
       ...(snapshot.publication ? { publication: snapshot.publication } : {}),
       ...(capability === "edit" ? { workingCopy: snapshot.workingCopy } : {})
+    });
+  }
+
+  private observation(impact: WorkspacePageImpact, exact: unknown): WorkspacePageCatalogObservation {
+    return Object.freeze({ catalogRevision: impact.catalogRevision, catalogDigest: sha256({ impact, exact }) });
+  }
+
+  private mutationFence(decision: AuthorizationDecision, observation: WorkspacePageCatalogObservation): WorkspacePageMutationFence {
+    if (observation.catalogRevision !== decision.lifecycleRevision) failure("REVISION_CONFLICT", "Workspace page catalog observation is stale.");
+    return issueWorkspacePageMutationFence({
+      applicationId: decision.applicationId,
+      environment: decision.environment,
+      authorizationRevision: decision.authorizationRevision,
+      lifecycleRevision: decision.lifecycleRevision,
+      catalogRevision: observation.catalogRevision,
+      catalogDigest: observation.catalogDigest,
+      authorityDigest: sha256(decision)
     });
   }
 

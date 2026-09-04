@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Replaced bootstrap-provenance page override with the revision-pinned current active Owner assignment and proved an A-to-B owner handoff.
+Added transaction-time authorization/lifecycle fencing for every workspace-page mutation, including stale replay denial and zero-write race proofs.
 
 ## Validation
 
-Exact Node 24.19.0: generated owner-override source 7/7 and real generated PostgreSQL/HTTP/Chromium shell journey 1/1 PASS; current B bypasses page ACL, former A needs both current platform permission and explicit ACL.
+Exact Node 24.19.0: workspace-page service 24/24 and real PostgreSQL storage 1/1 PASS; revocation/lifecycle races, stale replay, serialization, browser forgery, and zero-write denial covered.
 
 ## Next
 
-Close valid phase-review findings: baseline v4 upgrade, current Owner ACL fact, mutation fences, real shell/page theming, plugin routes, and bounded ACL subject projection.
+Finish Theme Profile/dependency transaction fencing, real shell/page theming, plugin routes, and bounded ACL subject projection; then regenerate exact-head evidence.
 
 ## Blockers
 

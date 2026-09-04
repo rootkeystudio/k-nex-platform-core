@@ -26,6 +26,7 @@ import type { RuntimeExtensionPool, RuntimeExtensionSession } from "./runtime-ex
 
 export type WorkspacePageStoreErrorCode =
   | "INVALID_INPUT"
+  | "AUTHORITY_CONFLICT"
   | "NOT_FOUND"
   | "REVISION_CONFLICT"
   | "IDEMPOTENCY_CONFLICT"
@@ -61,8 +62,40 @@ export interface WorkspacePageAuditEntry {
   readonly workingCopyRevision: number;
   readonly accessRevision: number;
   readonly pointerRevision?: number;
+  readonly authorizationRevision: number;
+  readonly lifecycleRevision: number;
+  readonly catalogRevision: number;
+  readonly catalogDigest: `sha256:${string}`;
+  readonly authorityDigest: `sha256:${string}`;
   readonly actor: AuthorizationSubject;
   readonly occurredAt: string;
+}
+
+const workspacePageMutationFenceBrand: unique symbol = Symbol("workspace-page-mutation-fence");
+
+export interface WorkspacePageCatalogObservation {
+  readonly catalogRevision: number;
+  readonly catalogDigest: `sha256:${string}`;
+}
+
+/** Server-only capability minted from the final authority decision and exact catalog observation. */
+export interface WorkspacePageMutationFence {
+  readonly [workspacePageMutationFenceBrand]: true;
+  readonly applicationId: string;
+  readonly environment: string;
+  readonly authorizationRevision: number;
+  readonly lifecycleRevision: number;
+  readonly catalogRevision: number;
+  readonly catalogDigest: `sha256:${string}`;
+  readonly authorityDigest: `sha256:${string}`;
+}
+
+const issuedMutationFences = new WeakSet<object>();
+
+export function issueWorkspacePageMutationFence(input: Omit<WorkspacePageMutationFence, typeof workspacePageMutationFenceBrand>): WorkspacePageMutationFence {
+  const fence = Object.freeze({ ...input, [workspacePageMutationFenceBrand]: true as const });
+  issuedMutationFences.add(fence);
+  return fence;
 }
 
 /** Revisions observed by the current-authority service before an autosave may enter storage. */
@@ -107,6 +140,11 @@ interface AuditRow {
   operation_kind: string;
   event_json: unknown;
   created_at: Date | string;
+}
+
+interface AuthorityStateRow {
+  authorization_revision: number;
+  lifecycle_revision: number;
 }
 
 interface MutationResult<T> {
@@ -193,6 +231,16 @@ function assertAligned(identity: WorkspacePageIdentity, ...values: readonly { re
   if (values.some((value) => !sameIdentity(identity, value.identity))) fail("INVALID_INPUT", "Workspace page values use different identities.");
 }
 
+function assertMutationFence(identity: WorkspacePageIdentity, value: WorkspacePageMutationFence): WorkspacePageMutationFence {
+  if (typeof value !== "object" || value === null || !issuedMutationFences.has(value) || value.applicationId !== identity.applicationId || value.environment !== identity.environment ||
+    !Number.isSafeInteger(value.authorizationRevision) || value.authorizationRevision < 0 || !Number.isSafeInteger(value.lifecycleRevision) || value.lifecycleRevision < 0 ||
+    !Number.isSafeInteger(value.catalogRevision) || value.catalogRevision < 0 || value.catalogRevision !== value.lifecycleRevision ||
+    !/^sha256:[0-9a-f]{64}$/u.test(value.catalogDigest) || !/^sha256:[0-9a-f]{64}$/u.test(value.authorityDigest)) {
+    fail("INVALID_INPUT", "Workspace page mutation fence is invalid.");
+  }
+  return value;
+}
+
 function timestamp(clock: () => Date): string {
   const value = clock();
   if (!(value instanceof Date) || Number.isNaN(value.valueOf())) fail("INVALID_INPUT", "Workspace page clock is invalid.");
@@ -211,7 +259,7 @@ function accessFromRows(identity: WorkspacePageIdentity, revision: number, rows:
   });
 }
 
-/** PostgreSQL adapter only; current-authority admission belongs to the P12.6 service boundary. */
+/** PostgreSQL adapter; service admission is transaction-fenced against authoritative revisions. */
 export class PostgresWorkspacePageStore {
   constructor(private readonly pool: RuntimeExtensionPool, private readonly now: () => Date = () => new Date()) {}
 
@@ -291,6 +339,7 @@ export class PostgresWorkspacePageStore {
     access: unknown;
     workingCopy: unknown;
     idempotencyKey: string;
+    fence: WorkspacePageMutationFence;
   }>): Promise<WorkspacePage> {
     const page = parsePage(input.page);
     const access = parseAccess(input.access);
@@ -300,7 +349,7 @@ export class PostgresWorkspacePageStore {
     if (page.revision !== 1 || page.workingCopyRevision !== 1 || workingCopy.revision !== 1 || page.accessRevision !== access.accessRevision || page.publishedRevisionId !== undefined || page.dependencyDigest !== undefined || page.state !== "draft") {
       fail("INVALID_INPUT", "A new workspace page must begin as one unpublished draft revision.");
     }
-    return this.mutate(page.identity, "create", input.idempotencyKey, { page, access, workingCopy }, page.createdBy, parsePage, async (session) => {
+    return this.mutate(page.identity, "create", input.idempotencyKey, { page, access, workingCopy }, input.fence, page.createdBy, parsePage, async (session) => {
       await session.query(
         `insert into k_nex_workspace_pages (application_id, environment, page_id, document_id, state, page_revision, working_copy_revision, access_revision, published_revision_id, dependency_digest, page_json, created_at, updated_at)
          values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13)`,
@@ -319,7 +368,8 @@ export class PostgresWorkspacePageStore {
     identityValue: unknown,
     changeValue: unknown,
     updatedByValue: unknown,
-    expected: WorkspaceWorkingCopyExpectedRevisions
+    expected: WorkspaceWorkingCopyExpectedRevisions,
+    fence: WorkspacePageMutationFence
   ): Promise<WorkspaceWorkingCopy> {
     const identity = parseIdentity(identityValue);
     const change = WorkspaceWorkingCopyChangeInputSchema.safeParse(changeValue);
@@ -329,7 +379,7 @@ export class PostgresWorkspacePageStore {
       fail("INVALID_INPUT", "Workspace working-copy expected revisions are invalid.");
     }
     if (change.data.document.id !== identity.documentId || change.data.document.version !== change.data.expectedRevision + 1) fail("INVALID_INPUT", "Workspace working-copy document revision is invalid.");
-    return this.mutate(identity, "working-copy", change.data.idempotencyKey, change.data, updatedBy, parseWorkingCopy, async (session) => {
+    return this.mutate(identity, "working-copy", change.data.idempotencyKey, change.data, fence, updatedBy, parseWorkingCopy, async (session) => {
       const current = await this.readPageLocked(session, identity);
       if (current.state === "archived" || current.workingCopyRevision !== change.data.expectedRevision || current.revision !== expected.expectedPageRevision || current.accessRevision !== expected.expectedAccessRevision) {
         fail("REVISION_CONFLICT", "Workspace working copy, page access, or archive state changed.");
@@ -351,10 +401,10 @@ export class PostgresWorkspacePageStore {
     });
   }
 
-  async updateMetadata(input: Readonly<{ currentRevision: number; page: unknown; idempotencyKey: string }>): Promise<WorkspacePage> {
+  async updateMetadata(input: Readonly<{ currentRevision: number; page: unknown; idempotencyKey: string; fence: WorkspacePageMutationFence }>): Promise<WorkspacePage> {
     const next = parsePage(input.page);
     assertIdempotencyKey(input.idempotencyKey);
-    return this.mutate(next.identity, "metadata", input.idempotencyKey, input, next.updatedBy, parsePage, async (session) => {
+    return this.mutate(next.identity, "metadata", input.idempotencyKey, { currentRevision: input.currentRevision, page: input.page, idempotencyKey: input.idempotencyKey }, input.fence, next.updatedBy, parsePage, async (session) => {
       const current = await this.readPageLocked(session, next.identity);
       if (current.revision !== input.currentRevision || next.revision !== current.revision + 1) fail("REVISION_CONFLICT", "Workspace page metadata revision changed.");
       const immutable = (value: WorkspacePage) => ({
@@ -382,12 +432,13 @@ export class PostgresWorkspacePageStore {
     expectedAccessRevision: number;
     idempotencyKey: string;
     updatedBy: unknown;
+    fence: WorkspacePageMutationFence;
   }>): Promise<WorkspacePageAccessSnapshot> {
     const access = parseAccess(input.access);
     const updatedBy = assertActor(input.updatedBy);
     assertIdempotencyKey(input.idempotencyKey);
     if (access.accessRevision !== input.expectedAccessRevision + 1) fail("REVISION_CONFLICT", "Workspace page access revision is not the next revision.");
-    return this.mutate(access.identity, "access", input.idempotencyKey, input, updatedBy, parseAccess, async (session) => {
+    return this.mutate(access.identity, "access", input.idempotencyKey, { access: input.access, expectedPageRevision: input.expectedPageRevision, expectedAccessRevision: input.expectedAccessRevision, idempotencyKey: input.idempotencyKey, updatedBy: input.updatedBy }, input.fence, updatedBy, parseAccess, async (session) => {
       const current = await this.readPageLocked(session, access.identity);
       if (current.state === "archived" || current.revision !== input.expectedPageRevision || current.accessRevision !== input.expectedAccessRevision) fail("REVISION_CONFLICT", "Workspace page access changed or is archived.");
       const occurredAt = timestamp(this.now);
@@ -403,7 +454,7 @@ export class PostgresWorkspacePageStore {
     });
   }
 
-  async publish(input: Readonly<{ page: unknown; revision: unknown; pointer: unknown; receipt: unknown }>): Promise<WorkspacePublicationReceipt> {
+  async publish(input: Readonly<{ page: unknown; revision: unknown; pointer: unknown; receipt: unknown; fence: WorkspacePageMutationFence }>): Promise<WorkspacePublicationReceipt> {
     const page = parsePage(input.page);
     const revision = parsePublishedRevision(input.revision);
     const pointer = parsePointer(input.pointer);
@@ -412,7 +463,7 @@ export class PostgresWorkspacePageStore {
     if (receipt.operation !== "publish" || receipt.publishedRevisionId !== revision.revisionId || pointer.publishedRevisionId !== revision.revisionId ||
       receipt.pointerRevision !== pointer.pointerRevision || receipt.accessRevision !== revision.access.accessRevision || receipt.dependencyDigest !== revision.dependencies.digest ||
       page.state !== "published" || page.publishedRevisionId !== revision.revisionId || page.dependencyDigest !== revision.dependencies.digest) fail("INVALID_INPUT", "Workspace publication values diverged.");
-    return this.mutate(page.identity, "publish", receipt.idempotencyKey, input, receipt.requestedBy, parseReceipt, async (session) => {
+    return this.mutate(page.identity, "publish", receipt.idempotencyKey, { page: input.page, revision: input.revision, pointer: input.pointer, receipt: input.receipt }, input.fence, receipt.requestedBy, parseReceipt, async (session) => {
       const current = await this.readPageLocked(session, page.identity);
       const currentPointer = await this.readPointerLocked(session, page.identity);
       const workingCopy = await this.readWorkingCopyLocked(session, page.identity);
@@ -434,14 +485,14 @@ export class PostgresWorkspacePageStore {
     });
   }
 
-  async rollback(input: Readonly<{ page: unknown; pointer: unknown; receipt: unknown }>): Promise<WorkspacePublicationReceipt> {
+  async rollback(input: Readonly<{ page: unknown; pointer: unknown; receipt: unknown; fence: WorkspacePageMutationFence }>): Promise<WorkspacePublicationReceipt> {
     const page = parsePage(input.page);
     const pointer = parsePointer(input.pointer);
     const receipt = parseReceipt(input.receipt);
     assertAligned(page.identity, pointer, receipt);
     if (receipt.operation !== "rollback" || receipt.publishedRevisionId !== pointer.publishedRevisionId || receipt.pointerRevision !== pointer.pointerRevision ||
       receipt.dependencyDigest !== page.dependencyDigest || page.publishedRevisionId !== pointer.publishedRevisionId || page.state !== "published") fail("INVALID_INPUT", "Workspace rollback values diverged.");
-    return this.mutate(page.identity, "rollback", receipt.idempotencyKey, input, receipt.requestedBy, parseReceipt, async (session) => {
+    return this.mutate(page.identity, "rollback", receipt.idempotencyKey, { page: input.page, pointer: input.pointer, receipt: input.receipt }, input.fence, receipt.requestedBy, parseReceipt, async (session) => {
       const current = await this.readPageLocked(session, page.identity);
       const currentPointer = await this.readPointerLocked(session, page.identity);
       const target = await this.readRevisionLocked(session, page.identity, pointer.publishedRevisionId);
@@ -482,7 +533,9 @@ export class PostgresWorkspacePageStore {
       const operation = row.operation_kind;
       const validOperation = ["create", "metadata", "working-copy", "access", "publish", "rollback"].includes(operation);
       if (!actor.success || !validOperation || value.applicationId !== identity.applicationId || value.environment !== identity.environment || value.pageId !== identity.pageId ||
-        ![value.pageRevision, value.workingCopyRevision, value.accessRevision].every((revision) => Number.isSafeInteger(revision) && Number(revision) >= 0) ||
+        ![value.pageRevision, value.workingCopyRevision, value.accessRevision, value.authorizationRevision, value.lifecycleRevision, value.catalogRevision].every((revision) => Number.isSafeInteger(revision) && Number(revision) >= 0) ||
+        value.catalogRevision !== value.lifecycleRevision || typeof value.catalogDigest !== "string" || !/^sha256:[0-9a-f]{64}$/u.test(value.catalogDigest) ||
+        typeof value.authorityDigest !== "string" || !/^sha256:[0-9a-f]{64}$/u.test(value.authorityDigest) ||
         value.pointerRevision !== undefined && (!Number.isSafeInteger(value.pointerRevision) || Number(value.pointerRevision) < 1) || Number.isNaN(occurredAt.valueOf())) {
         fail("RESTORE_INVALID", "Workspace page audit projection is invalid.");
       }
@@ -493,6 +546,11 @@ export class PostgresWorkspacePageStore {
         workingCopyRevision: value.workingCopyRevision as number,
         accessRevision: value.accessRevision as number,
         ...(value.pointerRevision === undefined ? {} : { pointerRevision: value.pointerRevision as number }),
+        authorizationRevision: value.authorizationRevision as number,
+        lifecycleRevision: value.lifecycleRevision as number,
+        catalogRevision: value.catalogRevision as number,
+        catalogDigest: value.catalogDigest as `sha256:${string}`,
+        authorityDigest: value.authorityDigest as `sha256:${string}`,
         actor: actor.data,
         occurredAt: occurredAt.toISOString()
       });
@@ -504,17 +562,26 @@ export class PostgresWorkspacePageStore {
     kind: WorkspacePageOperationKind,
     idempotencyKey: string,
     request: unknown,
+    fenceValue: WorkspacePageMutationFence,
     actorValue: unknown,
     parseResult: (value: unknown) => T,
     work: (session: RuntimeExtensionSession) => Promise<MutationResult<T>>
   ): Promise<T> {
     assertIdempotencyKey(idempotencyKey);
     const actor = assertActor(actorValue);
+    const fence = assertMutationFence(identity, fenceValue);
     const requestDigest = digest(request);
     const session = await this.pool.connect();
     try {
       await session.query("begin");
       await session.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [canonicalJson([identity.applicationId, identity.environment, identity.pageId])]);
+      const authority = await session.query<AuthorityStateRow>(
+        `select authorization_revision, lifecycle_revision from k_nex_authorization_state where application_id=$1 for share`,
+        [identity.applicationId]
+      );
+      if (!authority.rows[0] || authority.rows[0].authorization_revision !== fence.authorizationRevision || authority.rows[0].lifecycle_revision !== fence.lifecycleRevision) {
+        fail("AUTHORITY_CONFLICT", "Workspace page mutation authority is stale.");
+      }
       const existing = await session.query<OperationRow>(
         `select operation_kind, request_digest, result_json from k_nex_workspace_page_operations where application_id=$1 and environment=$2 and page_id=$3 and idempotency_key=$4 for update`,
         [identity.applicationId, identity.environment, identity.pageId, idempotencyKey]
@@ -540,6 +607,11 @@ export class PostgresWorkspacePageStore {
         workingCopyRevision: mutation.workingCopyRevision,
         accessRevision: mutation.accessRevision,
         ...(mutation.pointerRevision === undefined ? {} : { pointerRevision: mutation.pointerRevision }),
+        authorizationRevision: fence.authorizationRevision,
+        lifecycleRevision: fence.lifecycleRevision,
+        catalogRevision: fence.catalogRevision,
+        catalogDigest: fence.catalogDigest,
+        authorityDigest: fence.authorityDigest,
         occurredAt
       });
       const safeAudit = Object.freeze({ ...safeEvent, actor });

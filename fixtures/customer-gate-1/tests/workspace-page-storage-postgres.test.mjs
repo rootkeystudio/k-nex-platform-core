@@ -6,13 +6,25 @@ import test from "node:test";
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import pg from "pg";
 
-import { PostgresWorkspaceNavigationStore, PostgresWorkspacePageStore } from "@k-nex/payload-adapter";
+import { issueWorkspacePageMutationFence, PostgresWorkspaceNavigationStore, PostgresWorkspacePageStore } from "@k-nex/payload-adapter";
 
 const POSTGRES_IMAGE = "postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94";
 const fixtureDirectory = fileURLToPath(new URL("..", import.meta.url));
 const instant = "2026-09-03T08:00:00.000Z";
 const actor = { kind: "user", id: "user:owner" };
 const digest = (character) => `sha256:${character.repeat(64)}`;
+
+function mutationFence(identity, authorizationRevision = 1, lifecycleRevision = 1) {
+  return issueWorkspacePageMutationFence({
+    applicationId: identity.applicationId,
+    environment: identity.environment,
+    authorizationRevision,
+    lifecycleRevision,
+    catalogRevision: lifecycleRevision,
+    catalogDigest: digest("e"),
+    authorityDigest: digest("f")
+  });
+}
 
 function boot(connectionString) {
   return new Promise((resolve, reject) => {
@@ -59,6 +71,14 @@ async function waitForAdvisoryWaiters(pool, count) {
   throw new Error(`Timed out waiting for ${count} workspace-page mutations to contend on the lock.`);
 }
 
+async function mutationCounts(pool, applicationId) {
+  const names = ["pages", "access", "working", "published", "pointers", "receipts", "audit", "outbox", "operations"];
+  const tables = ["k_nex_workspace_pages", "k_nex_workspace_page_access", "k_nex_workspace_working_copies", "k_nex_workspace_published_revisions", "k_nex_workspace_publication_pointers", "k_nex_workspace_publication_receipts", "k_nex_workspace_page_audit", "k_nex_workspace_page_outbox", "k_nex_workspace_page_operations"];
+  const result = {};
+  for (let index = 0; index < tables.length; index += 1) result[names[index]] = (await pool.query(`select count(*)::int as count from ${tables[index]} where application_id=$1`, [applicationId])).rows[0].count;
+  return result;
+}
+
 test("P12.5 stores workspace pages, ACL, CAS copies, immutable publications, rollback, and physical restore", { timeout: 240_000 }, async () => {
   const container = await new PostgreSqlContainer(POSTGRES_IMAGE).withDatabase("workspace_pages").withStartupTimeout(120_000).start();
   let pool = new pg.Pool({ connectionString: container.getConnectionUri() });
@@ -69,16 +89,19 @@ test("P12.5 stores workspace pages, ACL, CAS copies, immutable publications, rol
     const navigationStore = new PostgresWorkspaceNavigationStore(pool, () => new Date(instant));
     const alpha = values();
     const beta = values("customer-beta");
+    await pool.query("insert into k_nex_authorization_state (application_id, authorization_revision, lifecycle_revision) values ($1,1,1),($2,1,1)", [alpha.identity.applicationId, beta.identity.applicationId]);
+    let alphaFence = mutationFence(alpha.identity);
+    const betaFence = mutationFence(beta.identity);
 
-    assert.deepEqual(await store.create({ page: alpha.page, access: alpha.access, workingCopy: alpha.workingCopy, idempotencyKey: "workspace-create-one" }), alpha.page);
-    assert.deepEqual(await store.create({ page: alpha.page, access: alpha.access, workingCopy: alpha.workingCopy, idempotencyKey: "workspace-create-one" }), alpha.page, "response-loss replay must return the first result");
-    await assert.rejects(store.create({ page: { ...alpha.page, title: "different" }, access: alpha.access, workingCopy: alpha.workingCopy, idempotencyKey: "workspace-create-one" }), { code: "IDEMPOTENCY_CONFLICT" });
+    assert.deepEqual(await store.create({ page: alpha.page, access: alpha.access, workingCopy: alpha.workingCopy, idempotencyKey: "workspace-create-one", fence: alphaFence }), alpha.page);
+    assert.deepEqual(await store.create({ page: alpha.page, access: alpha.access, workingCopy: alpha.workingCopy, idempotencyKey: "workspace-create-one", fence: alphaFence }), alpha.page, "response-loss replay must return the first result");
+    await assert.rejects(store.create({ page: { ...alpha.page, title: "different" }, access: alpha.access, workingCopy: alpha.workingCopy, idempotencyKey: "workspace-create-one", fence: alphaFence }), { code: "IDEMPOTENCY_CONFLICT" });
     console.log("P12_ATK_09_CHANGED_IDEMPOTENCY_PAYLOAD_POSTGRES_DENIED=PASS");
-    await store.create({ page: beta.page, access: beta.access, workingCopy: beta.workingCopy, idempotencyKey: "workspace-create-beta" });
+    await store.create({ page: beta.page, access: beta.access, workingCopy: beta.workingCopy, idempotencyKey: "workspace-create-beta", fence: betaFence });
     assert.equal((await store.list({ applicationId: "customer-alpha", environment: "production" })).length, 1);
     assert.equal((await store.list({ applicationId: "customer-beta", environment: "production" })).length, 1);
     const themedDraft = nextPage(alpha.page, { title: "private-page-title-themed" });
-    assert.equal((await store.updateMetadata({ currentRevision: alpha.page.revision, page: themedDraft, idempotencyKey: "workspace-theme-draft" })).title, themedDraft.title);
+    assert.equal((await store.updateMetadata({ currentRevision: alpha.page.revision, page: themedDraft, idempotencyKey: "workspace-theme-draft", fence: alphaFence })).title, themedDraft.title);
 
     const folder = { id: "customer.folder.reports", owner: { kind: "customer" }, kind: "folder", parentId: "sales.navigation.root", label: "Reports", icon: "folder", order: 20 };
     assert.deepEqual(await navigationStore.create({ applicationId: "customer-alpha", environment: "production" }, folder, actor), { node: folder, revision: 1 });
@@ -87,13 +110,13 @@ test("P12.5 stores workspace pages, ACL, CAS copies, immutable publications, rol
     assert.equal((await navigationStore.list({ applicationId: "customer-beta", environment: "production" })).length, 0);
 
     const save = { expectedRevision: 1, editorSessionId: "editor-session-one", idempotencyKey: "workspace-save-one", document: { ...alpha.document, version: 2 } };
-    const saved = await store.saveWorkingCopy(alpha.identity, save, actor, saveExpected(await store.read(alpha.identity)));
+    const saved = await store.saveWorkingCopy(alpha.identity, save, actor, saveExpected(await store.read(alpha.identity)), alphaFence);
     assert.equal(saved.revision, 2);
-    assert.deepEqual(await store.saveWorkingCopy(alpha.identity, save, actor, { expectedPageRevision: themedDraft.revision, expectedAccessRevision: 0 }), saved, "accepted autosave replay must survive the newer page revision");
+    assert.deepEqual(await store.saveWorkingCopy(alpha.identity, save, actor, { expectedPageRevision: themedDraft.revision, expectedAccessRevision: 0 }, alphaFence), saved, "accepted autosave replay must survive the newer page revision");
     let snapshot = await store.read(alpha.identity);
     const race = await Promise.allSettled([
-      store.saveWorkingCopy(alpha.identity, { ...save, expectedRevision: saved.revision, idempotencyKey: "workspace-save-race-a", document: { ...alpha.document, version: 3 } }, actor, saveExpected(snapshot)),
-      store.saveWorkingCopy(alpha.identity, { ...save, expectedRevision: saved.revision, idempotencyKey: "workspace-save-race-b", document: { ...alpha.document, version: 3 } }, actor, saveExpected(snapshot))
+      store.saveWorkingCopy(alpha.identity, { ...save, expectedRevision: saved.revision, idempotencyKey: "workspace-save-race-a", document: { ...alpha.document, version: 3 } }, actor, saveExpected(snapshot), alphaFence),
+      store.saveWorkingCopy(alpha.identity, { ...save, expectedRevision: saved.revision, idempotencyKey: "workspace-save-race-b", document: { ...alpha.document, version: 3 } }, actor, saveExpected(snapshot), alphaFence)
     ]);
     assert.deepEqual(race.map(({ status }) => status).sort(), ["fulfilled", "rejected"]);
     assert.equal(race.find(({ status }) => status === "rejected").reason.code, "REVISION_CONFLICT", "stale tab must receive a conflict");
@@ -105,14 +128,14 @@ test("P12.5 stores workspace pages, ACL, CAS copies, immutable publications, rol
     try {
       await lock.query("begin");
       await lock.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [pageLockKey(alpha.identity)]);
-      const revocation = store.replaceAccess({ access, expectedPageRevision: snapshot.page.revision, expectedAccessRevision: snapshot.access.accessRevision, idempotencyKey: "workspace-access-one", updatedBy: actor });
+      const revocation = store.replaceAccess({ access, expectedPageRevision: snapshot.page.revision, expectedAccessRevision: snapshot.access.accessRevision, idempotencyKey: "workspace-access-one", updatedBy: actor, fence: alphaFence });
       await waitForAdvisoryWaiters(pool, 1);
       const staleAutosave = store.saveWorkingCopy(alpha.identity, {
         expectedRevision: snapshot.workingCopy.revision,
         editorSessionId: "editor-session-revoked",
         idempotencyKey: "workspace-save-revoked-race",
         document: { ...snapshot.workingCopy.document, version: snapshot.workingCopy.revision + 1 }
-      }, actor, saveExpected(snapshot));
+      }, actor, saveExpected(snapshot), alphaFence);
       await waitForAdvisoryWaiters(pool, 2);
       await lock.query("commit");
       await revocation;
@@ -132,24 +155,24 @@ test("P12.5 stores workspace pages, ACL, CAS copies, immutable publications, rol
     const firstPointer = { schemaVersion: 1, identity: alpha.identity, pointerRevision: 1, publishedRevisionId: firstRevision.revisionId, publishedDocumentRevision: firstRevision.documentRevision, updatedAt: instant };
     const firstReceipt = { schemaVersion: 1, receiptId: "workspace-receipt-one", operation: "publish", identity: alpha.identity, pointerRevision: 1, publishedRevisionId: firstRevision.revisionId, accessRevision: 1, dependencyDigest: firstRevision.dependencies.digest, requestedBy: actor, authorityDigest: digest("b"), idempotencyKey: "workspace-publish-one", occurredAt: instant };
     for (const revision of [{ ...firstRevision, page: { ...firstRevision.page, title: "forged-title" } }, { ...firstRevision, access: { ...firstRevision.access, assignments: [] } }]) {
-      await assert.rejects(store.publish({ page: firstPage, revision, pointer: firstPointer, receipt: firstReceipt }), { code: "REVISION_CONFLICT" }, "publication snapshots must equal locked current metadata and ACL");
+      await assert.rejects(store.publish({ page: firstPage, revision, pointer: firstPointer, receipt: firstReceipt, fence: alphaFence }), { code: "REVISION_CONFLICT" }, "publication snapshots must equal locked current metadata and ACL");
     }
-    assert.deepEqual(await store.publish({ page: firstPage, revision: firstRevision, pointer: firstPointer, receipt: firstReceipt }), firstReceipt);
-    assert.deepEqual(await store.publish({ page: firstPage, revision: firstRevision, pointer: firstPointer, receipt: firstReceipt }), firstReceipt);
+    assert.deepEqual(await store.publish({ page: firstPage, revision: firstRevision, pointer: firstPointer, receipt: firstReceipt, fence: alphaFence }), firstReceipt);
+    assert.deepEqual(await store.publish({ page: firstPage, revision: firstRevision, pointer: firstPointer, receipt: firstReceipt, fence: alphaFence }), firstReceipt);
 
     snapshot = await store.read(alpha.identity);
     const replacedMetadata = nextPage(snapshot.page, { title: "private-page-title-replaced", description: "private-page-description-replaced", navigation: { state: "unplaced", reason: "manual" } });
-    await store.updateMetadata({ currentRevision: snapshot.page.revision, page: replacedMetadata, idempotencyKey: "workspace-metadata-replaced" });
+    await store.updateMetadata({ currentRevision: snapshot.page.revision, page: replacedMetadata, idempotencyKey: "workspace-metadata-replaced", fence: alphaFence });
     snapshot = await store.read(alpha.identity);
     const replacementAccess = { ...snapshot.access, accessRevision: snapshot.access.accessRevision + 1, assignments: [{ subject: { kind: "role", roleId: "private-current-editor" }, capability: "edit" }] };
-    await store.replaceAccess({ access: replacementAccess, expectedPageRevision: snapshot.page.revision, expectedAccessRevision: snapshot.access.accessRevision, idempotencyKey: "workspace-access-replaced", updatedBy: actor });
+    await store.replaceAccess({ access: replacementAccess, expectedPageRevision: snapshot.page.revision, expectedAccessRevision: snapshot.access.accessRevision, idempotencyKey: "workspace-access-replaced", updatedBy: actor, fence: alphaFence });
     snapshot = await store.read(alpha.identity);
     const historical = await store.readPublishedRevision(alpha.identity, firstRevision.revisionId);
     assert.deepEqual(historical.page, firstRevision.page, "published metadata must remain reconstructable after replacement");
     assert.deepEqual(historical.access, firstRevision.access, "published ACL must remain reconstructable after replacement");
     assert.deepEqual(snapshot.access, replacementAccess, "current ACL remains separate from published history");
     const secondSave = { expectedRevision: snapshot.workingCopy.revision, editorSessionId: "editor-session-two", idempotencyKey: "workspace-save-two", document: { ...snapshot.workingCopy.document, version: snapshot.workingCopy.revision + 1 } };
-    await store.saveWorkingCopy(alpha.identity, secondSave, actor, saveExpected(snapshot));
+    await store.saveWorkingCopy(alpha.identity, secondSave, actor, saveExpected(snapshot), alphaFence);
     snapshot = await store.read(alpha.identity);
     const secondRevisionId = "workspace-publication-two";
     const secondDependencies = { ...firstRevision.dependencies, digest: digest("c") };
@@ -157,7 +180,7 @@ test("P12.5 stores workspace pages, ACL, CAS copies, immutable publications, rol
     const secondRevision = { ...firstRevision, revisionId: secondRevisionId, documentRevision: snapshot.workingCopy.revision, document: snapshot.workingCopy.document, page: secondPage, access: snapshot.access, dependencies: secondDependencies };
     const secondPointer = { ...firstPointer, pointerRevision: 2, publishedRevisionId: secondRevision.revisionId, publishedDocumentRevision: secondRevision.documentRevision, previousPublishedRevisionId: firstRevision.revisionId };
     const secondReceipt = { ...firstReceipt, receiptId: "workspace-receipt-two", pointerRevision: 2, publishedRevisionId: secondRevision.revisionId, previousPublishedRevisionId: firstRevision.revisionId, accessRevision: snapshot.access.accessRevision, dependencyDigest: secondRevision.dependencies.digest, idempotencyKey: "workspace-publish-two" };
-    await store.publish({ page: secondPage, revision: secondRevision, pointer: secondPointer, receipt: secondReceipt });
+    await store.publish({ page: secondPage, revision: secondRevision, pointer: secondPointer, receipt: secondReceipt, fence: alphaFence });
 
     snapshot = await store.read(alpha.identity);
     const failedRevisionId = "workspace-publication-duplicate-document";
@@ -166,7 +189,7 @@ test("P12.5 stores workspace pages, ACL, CAS copies, immutable publications, rol
     const failedPointer = { ...secondPointer, pointerRevision: 3, publishedRevisionId: failedRevision.revisionId, previousPublishedRevisionId: secondRevision.revisionId };
     const failedReceipt = { ...secondReceipt, receiptId: "workspace-receipt-failed", pointerRevision: 3, publishedRevisionId: failedRevision.revisionId, previousPublishedRevisionId: secondRevision.revisionId, idempotencyKey: "workspace-publish-failed" };
     const beforeFailedMutation = await pool.query("select (select count(*)::int from k_nex_workspace_page_audit where application_id='customer-alpha') audit, (select count(*)::int from k_nex_workspace_page_outbox where application_id='customer-alpha') outbox");
-    await assert.rejects(store.publish({ page: failedPage, revision: failedRevision, pointer: failedPointer, receipt: failedReceipt }));
+    await assert.rejects(store.publish({ page: failedPage, revision: failedRevision, pointer: failedPointer, receipt: failedReceipt, fence: alphaFence }));
     const afterFailedMutation = await pool.query("select (select count(*)::int from k_nex_workspace_page_audit where application_id='customer-alpha') audit, (select count(*)::int from k_nex_workspace_page_outbox where application_id='customer-alpha') outbox");
     assert.deepEqual(afterFailedMutation.rows[0], beforeFailedMutation.rows[0], "failed transaction cannot leak audit/outbox rows");
     console.log("P12_ATK_18_FAILED_TRANSACTION_AUDIT_OUTBOX_LEAKAGE_POSTGRES_DENIED=PASS");
@@ -175,11 +198,90 @@ test("P12.5 stores workspace pages, ACL, CAS copies, immutable publications, rol
     const rollbackPage = nextPage(snapshot.page, { publishedRevisionId: firstRevision.revisionId, dependencyDigest: firstRevision.dependencies.digest });
     const rollbackPointer = { ...secondPointer, pointerRevision: 3, publishedRevisionId: firstRevision.revisionId, publishedDocumentRevision: firstRevision.documentRevision, previousPublishedRevisionId: secondRevision.revisionId };
     const rollbackReceipt = { ...secondReceipt, receiptId: "workspace-receipt-rollback", operation: "rollback", pointerRevision: 3, publishedRevisionId: firstRevision.revisionId, previousPublishedRevisionId: secondRevision.revisionId, dependencyDigest: firstRevision.dependencies.digest, idempotencyKey: "workspace-rollback-one" };
-    await store.rollback({ page: rollbackPage, pointer: rollbackPointer, receipt: rollbackReceipt });
+    await store.rollback({ page: rollbackPage, pointer: rollbackPointer, receipt: rollbackReceipt, fence: alphaFence });
     snapshot = await store.read(alpha.identity);
     assert.deepEqual(snapshot.access, replacementAccess, "rollback must preserve current ACL authority rather than restore the target snapshot");
+
+    const beforeAuthorityDenials = await mutationCounts(pool, alpha.identity.applicationId);
+    const beforeAuthoritySnapshot = snapshot;
+    const pageLock = await pool.connect();
+    try {
+      await pageLock.query("begin");
+      await pageLock.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [pageLockKey(alpha.identity)]);
+      const staleReplay = store.rollback({ page: rollbackPage, pointer: rollbackPointer, receipt: rollbackReceipt, fence: alphaFence });
+      await waitForAdvisoryWaiters(pool, 1);
+      await pool.query("update k_nex_authorization_state set authorization_revision=2 where application_id=$1", [alpha.identity.applicationId]);
+      await pageLock.query("commit");
+      await assert.rejects(staleReplay, { code: "AUTHORITY_CONFLICT" }, "revocation must deny even an already accepted idempotency replay");
+    } finally {
+      await pageLock.query("rollback").catch(() => {});
+      pageLock.release();
+    }
+    alphaFence = mutationFence(alpha.identity, 2, 1);
+    const lifecycleLock = await pool.connect();
+    try {
+      await lifecycleLock.query("begin");
+      await lifecycleLock.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [pageLockKey(alpha.identity)]);
+      const deniedPage = nextPage(snapshot.page, { title: "must-not-commit" });
+      const staleLifecycleMutation = store.updateMetadata({ currentRevision: snapshot.page.revision, page: deniedPage, idempotencyKey: "workspace-lifecycle-stale", fence: alphaFence });
+      await waitForAdvisoryWaiters(pool, 1);
+      await pool.query("update k_nex_authorization_state set lifecycle_revision=2 where application_id=$1", [alpha.identity.applicationId]);
+      await lifecycleLock.query("commit");
+      await assert.rejects(staleLifecycleMutation, { code: "AUTHORITY_CONFLICT" });
+    } finally {
+      await lifecycleLock.query("rollback").catch(() => {});
+      lifecycleLock.release();
+    }
+    assert.deepEqual(await mutationCounts(pool, alpha.identity.applicationId), beforeAuthorityDenials, "stale authority must write no page, ACL, working-copy, publication, audit, outbox, or operation state");
+    assert.deepEqual(await store.read(alpha.identity), beforeAuthoritySnapshot);
+
+    alphaFence = mutationFence(alpha.identity, 2, 2);
+    let reachedAuthorityLock;
+    let releaseMutation;
+    const authorityLocked = new Promise((resolve) => { reachedAuthorityLock = resolve; });
+    const mutationReleased = new Promise((resolve) => { releaseMutation = resolve; });
+    const barrierPool = {
+      query: (...args) => pool.query(...args),
+      connect: async () => {
+        const client = await pool.connect();
+        return {
+          query: async (text, parameters) => {
+            const result = await client.query(text, parameters);
+            if (String(text).includes("from k_nex_authorization_state") && String(text).includes("for share")) {
+              reachedAuthorityLock();
+              await mutationReleased;
+            }
+            return result;
+          },
+          release: () => client.release()
+        };
+      }
+    };
+    const serialStore = new PostgresWorkspacePageStore(barrierPool, () => new Date(instant));
+    const serializedPage = nextPage(snapshot.page, { title: "mutation-wins-before-revocation" });
+    const mutationWins = serialStore.updateMetadata({ currentRevision: snapshot.page.revision, page: serializedPage, idempotencyKey: "workspace-mutation-wins", fence: alphaFence });
+    await authorityLocked;
+    const writer = pool.query("update k_nex_authorization_state set authorization_revision=3 where application_id=$1", [alpha.identity.applicationId]);
+    releaseMutation();
+    assert.deepEqual(await mutationWins, serializedPage);
+    await writer;
+    snapshot = await store.read(alpha.identity);
+    assert.equal(snapshot.page.title, "mutation-wins-before-revocation", "mutation holding the authority row lock must commit before the writer advances authority");
+    console.log("P12_WORKSPACE_MUTATION_AUTHORITY_FENCE_POSTGRES=PASS");
+
+    alphaFence = mutationFence(alpha.identity, 3, 2);
+    const beforeForgedFence = await mutationCounts(pool, alpha.identity.applicationId);
+    const forgedPage = nextPage(snapshot.page, { title: "browser-forged-fence" });
+    await assert.rejects(store.updateMetadata({
+      currentRevision: snapshot.page.revision,
+      page: forgedPage,
+      idempotencyKey: "workspace-browser-forged-fence",
+      fence: JSON.parse(JSON.stringify(alphaFence))
+    }), { code: "INVALID_INPUT" });
+    assert.deepEqual(await mutationCounts(pool, alpha.identity.applicationId), beforeForgedFence, "serialized browser input cannot forge the service mutation capability");
+    assert.deepEqual(await store.read(alpha.identity), snapshot);
     const archived = nextPage(snapshot.page, { state: "archived", navigation: { state: "unplaced", reason: "parent-inactive" } });
-    await store.updateMetadata({ currentRevision: snapshot.page.revision, page: archived, idempotencyKey: "workspace-archive-one" });
+    await store.updateMetadata({ currentRevision: snapshot.page.revision, page: archived, idempotencyKey: "workspace-archive-one", fence: alphaFence });
 
     const persisted = await new PostgresWorkspacePageStore(pool, () => new Date(instant)).read(alpha.identity);
     assert.equal(persisted.page.state, "archived");
