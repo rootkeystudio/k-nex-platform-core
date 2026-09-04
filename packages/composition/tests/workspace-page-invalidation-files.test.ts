@@ -47,6 +47,10 @@ describe("generated workspace invalidation runtime", () => {
       expect(files[path]).toContain(`loadRegisteredSalesRoute(payload, context, ${JSON.stringify(routeId)})`);
       expect(files[path]).toContain("kNexRequestContext(headers");
     }
+    expect(files["src/app/(workspace)/sales/page.tsx"]).toContain('from "../../../k-nex-sales-routes.js"');
+    expect(files["src/app/(workspace)/sales/tasks/page.tsx"]).toContain('from "../../../../k-nex-sales-routes.js"');
+    expect(files["src/app/(workspace)/sales/page.tsx"]).toContain('from "../../components/k-nex-sales-route-runtime.js"');
+    expect(files["src/app/(workspace)/sales/tasks/page.tsx"]).toContain('from "../../../components/k-nex-sales-route-runtime.js"');
     expect(files["src/app/(workspace)/sales/[...path]/page.tsx"]).toBeUndefined();
     expect(runtime).toContain("kNexSalesRegistry.scopedRegistration.contributions.pageTemplates");
     expect(runtime).toContain("state.lifecycleRevision !== kNexSalesRegistry.authorizationGeneration.lifecycleRevision");

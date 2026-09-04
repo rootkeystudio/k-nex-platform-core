@@ -700,14 +700,17 @@ export function RegisteredSalesRouteRuntime({ initialProjection }: Readonly<{ in
 `;
 }
 
-function salesRoutePageSource(routeId: string): string {
+function salesRoutePageSource(routeId: string, pathname: string): string {
+  const nestedSegments = pathname.split("/").length - 1;
+  const source = "../".repeat(3 + nestedSegments);
+  const components = "../".repeat(2 + nestedSegments);
   return `import { headers as getHeaders } from "next/headers";
 import { notFound } from "next/navigation";
 
-import { bootKnexApplication } from "../../../boot.js";
-import { kNexRequestContext } from "../../../k-nex-authority.js";
-import { loadRegisteredSalesRoute } from "../../../k-nex-sales-routes.js";
-import { RegisteredSalesRouteRuntime } from "../../components/k-nex-sales-route-runtime.js";
+import { bootKnexApplication } from "${source}boot.js";
+import { kNexRequestContext } from "${source}k-nex-authority.js";
+import { loadRegisteredSalesRoute } from "${source}k-nex-sales-routes.js";
+import { RegisteredSalesRouteRuntime } from "${components}components/k-nex-sales-route-runtime.js";
 
 export const dynamic = "force-dynamic";
 
@@ -1167,10 +1170,10 @@ export function applicationAuthFiles(options: ApplicationAuthFilesOptions): Read
     "src/app/(auth)/login/page.tsx": loginPageSource(),
     "src/app/(workspace)/layout.tsx": workspaceLayoutSource(options.applicationName),
     "src/app/(workspace)/page.tsx": workspacePageSource(options.applicationName),
-    "src/app/(workspace)/sales/page.tsx": salesRoutePageSource("sales.route.overview"),
-    "src/app/(workspace)/sales/tasks/page.tsx": salesRoutePageSource("sales.route.tasks"),
-    "src/app/(workspace)/sales/opportunities/page.tsx": salesRoutePageSource("sales.route.opportunities"),
-    "src/app/(workspace)/sales/settings/page.tsx": salesRoutePageSource("sales.route.settings"),
+    "src/app/(workspace)/sales/page.tsx": salesRoutePageSource("sales.route.overview", "sales"),
+    "src/app/(workspace)/sales/tasks/page.tsx": salesRoutePageSource("sales.route.tasks", "sales/tasks"),
+    "src/app/(workspace)/sales/opportunities/page.tsx": salesRoutePageSource("sales.route.opportunities", "sales/opportunities"),
+    "src/app/(workspace)/sales/settings/page.tsx": salesRoutePageSource("sales.route.settings", "sales/settings"),
     "src/app/api/k-nex/inventory/route.ts": inventoryRouteSource(),
     "src/app/api/k-nex/navigation/revision/route.ts": navigationRevisionRouteSource(),
     "src/app/api/k-nex/sales/actions/[actionId]/route.ts": salesActionRouteSource(),

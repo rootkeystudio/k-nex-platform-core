@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Wired durable published Theme Profiles into generated shell/page rendering, exact mutation observations, lifecycle impact, and convergence.
+Corrected generated root and nested Sales page import depths so every static route compiles from its real Next path.
 
 ## Validation
 
-Exact Node 24.19.0: focused composition Theme Profile/generator tests 31/31 PASS; composition build PASS.
+Exact Node 24.19.0: composition tests 117/117 PASS; composition build PASS; import-depth assertions cover root and nested routes.
 
 ## Next
 
-Fix generated Sales route import depth, finish real Sales/theme Chromium proofs, then regenerate exact-head evidence.
+Finish real Sales/theme Chromium proofs, then regenerate exact-head evidence.
 
 ## Blockers
 
