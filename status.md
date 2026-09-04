@@ -7,11 +7,11 @@
 
 ## Last completed
 
-System extension administration now targets a structural operator port. The Payload adapter supplies a bounded remote implementation that reads accepted local projections and sends lifecycle mutations only through the mTLS operator transport.
+Generated applications now have fixed current-authority roles, permissions, assignments, and authorization-audit pages plus strict POST-only normal-role and normal-assignment mutations. Protected assignment evidence remains unavailable to browser forms.
 
 ## Validation
 
-Runtime tests (588), Payload adapter tests (275), focused operator tests (5), runtime/Payload adapter builds, and `git diff --check` PASS.
+Composition tests (127), composition build, and `git diff --check` PASS.
 
 ## Next
 

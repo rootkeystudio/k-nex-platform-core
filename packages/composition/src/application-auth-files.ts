@@ -149,7 +149,7 @@ function createRuntime(payload: Payload) {
   const adapter = new CurrentAuthorityAdapter<KnexRequestContext>({
     current: async (context) => session((await payload.auth({ headers: context.headers, canSetHeaders: false })).user, context.correlationId)
   }, resolver);
-  return Object.freeze({ adapter, resolver, store });
+  return Object.freeze({ adapter, catalogProvider, resolver, store });
 }
 
 export function kNexAuthority(payload: Payload) {
