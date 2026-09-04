@@ -1,10 +1,10 @@
 # Phase 12 Result — Runnable Customer Workspace and Dashboard Builder
 
-- **Date:** 2026-09-03
+- **Date:** 2026-09-04
 - **Gate:** Gate 12
 - **Accepted base:** Phase 11
 - **Decision:** **READY FOR PHASE REVIEW**
-- **Review state:** Local focused Gate 12 and hosted release evidence pass. Exact-head PR-focused CI, Linux/AppArmor cumulative Gate 0–12, and independent phase review remain required.
+- **Review state:** Local focused Gate 12 passes on implementation head `347a67204682140ba38b43d9c816d0ad961d2040`. Refreshed hosted release evidence, exact-head PR-focused CI, Linux/AppArmor cumulative Gate 0–12, and independent phase review remain required.
 
 ## Scope proved
 
@@ -23,15 +23,15 @@ Phase 12 turns the platform into a runnable generated customer application. A fi
 | P12.7 | Productized one guarded Puck editor with CAS autosave, idempotency, publication, rollback, and protected regions |
 | P12.8 | Added fixed page/folder administration, placement, access, Theme Profile, archive, audit, and diagnostics views |
 | P12.9 | Proved the generated packed-app owner/editor/viewer journey with real PostgreSQL, Next/Payload HTTP, and Chromium |
-| P12.10 | Added focused/cumulative Gate 12 closure, refreshed signed v1 evidence, and fixed generated-editor React Strict Mode mutation cancellation |
+| P12.10 | Added focused/cumulative Gate 12 closure and repaired all confirmed phase-review findings with generated-app PostgreSQL/HTTP/Chromium evidence |
 
 ## Executable evidence
 
-`pnpm gate:12:focused` builds the affected Phase 12 graph, verifies the exact v1 packed closure, runs selected contract/navigation/shell/administration/builder/service/generator/Sales proofs, then runs real PostgreSQL storage/restore and the generated Next/Payload/PostgreSQL/Chromium journey. It machine-maps all 22 contracted attack IDs to evidence that actually passed.
+`pnpm gate:12:focused` builds the affected Phase 12 graph, verifies the exact v1 packed closure, runs 125 selected contract/navigation/shell/administration/builder/service/generator/Sales tests, then runs three real PostgreSQL/HTTP/Chromium process proofs. It machine-maps all 22 contracted attack IDs to evidence that actually passed.
 
 `pnpm gate:12` first runs cumulative Gate 0–11, then the exact focused Gate 12 evidence. Pull requests may run the focused command, but one exact-head cumulative run is required before merge.
 
-Local `pnpm gate:12:focused` returned `GATE_12_PASS`. Hosted release-evidence run `33786152181` passed for source head `f9a9c394bae91ced207186c987ac7a0a3b667a05`, producing the two customer bundles, five attestations, hosted verification records, runtime inventories, receipts, restore proofs, and fleet evidence committed in this result.
+Local `pnpm gate:12:focused` returned `GATE_12_PASS` on implementation head `347a67204682140ba38b43d9c816d0ad961d2040`. The replacement head additionally proves exact Phase 11 protected-baseline v3→v4 reconciliation, current-Owner page override, transaction-fenced authority/dependencies, static Sales routes/navigation/actions with lifecycle denial, bounded ACL subject projection, usable collapsed navigation, durable Minimal/Neobrutalism shell theming, scoped page-theme override, and canonical workspace-page outbox delivery. Hosted v1 evidence must be regenerated from the final pushed source head before phase review.
 
 ## Boundaries retained
 
