@@ -4,7 +4,7 @@
 - **Gate:** Gate 12
 - **Accepted base:** Phase 11
 - **Decision:** **READY FOR PHASE REVIEW**
-- **Review state:** Local focused Gate 12 passes on implementation head `347a67204682140ba38b43d9c816d0ad961d2040`. Refreshed hosted release evidence, exact-head PR-focused CI, Linux/AppArmor cumulative Gate 0–12, and independent phase review remain required.
+- **Review state:** Local focused Gate 12 and refreshed hosted release evidence pass. Exact-head PR-focused CI, Linux/AppArmor cumulative Gate 0–12, and independent phase review remain required.
 
 ## Scope proved
 
@@ -31,7 +31,7 @@ Phase 12 turns the platform into a runnable generated customer application. A fi
 
 `pnpm gate:12` first runs cumulative Gate 0–11, then the exact focused Gate 12 evidence. Pull requests may run the focused command, but one exact-head cumulative run is required before merge.
 
-Local `pnpm gate:12:focused` returned `GATE_12_PASS` on implementation head `347a67204682140ba38b43d9c816d0ad961d2040`. The replacement head additionally proves exact Phase 11 protected-baseline v3→v4 reconciliation, current-Owner page override, transaction-fenced authority/dependencies, static Sales routes/navigation/actions with lifecycle denial, bounded ACL subject projection, usable collapsed navigation, durable Minimal/Neobrutalism shell theming, scoped page-theme override, and canonical workspace-page outbox delivery. Hosted v1 evidence must be regenerated from the final pushed source head before phase review.
+Local `pnpm gate:12:focused` returned `GATE_12_PASS` on implementation head `347a67204682140ba38b43d9c816d0ad961d2040`. Hosted release-evidence run `33833875773` passed for source head `29bc2d411c6ca6fe3ef331dc92ce84852022e075`; its two customer bundles, five attestations, verification records, runtime inventories, receipts, restore proofs, and fleet evidence are committed here. The replacement additionally proves exact Phase 11 protected-baseline v3→v4 reconciliation, current-Owner page override, transaction-fenced authority/dependencies, static Sales routes/navigation/actions with lifecycle denial, bounded ACL subject projection, usable collapsed navigation, durable Minimal/Neobrutalism shell theming, scoped page-theme override, and canonical workspace-page outbox delivery.
 
 ## Boundaries retained
 

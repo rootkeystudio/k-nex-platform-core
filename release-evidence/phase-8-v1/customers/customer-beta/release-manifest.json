@@ -2,12 +2,12 @@
   "$schema": "../../schemas/package-release-manifest.v1.schema.json",
   "factoryLockTemplates": {
     "minimal": {
-      "digest": "sha256:07638aa78ead4f39974e0ab866d6310378c8aceaa0c03b5540d28121b0cd8028",
+      "digest": "sha256:2a5e57a16f958d23e59c2e55de5ec681f4ce1ee8124d34405fbeb160b64da1bc",
       "preset": "sales-reference",
       "theme": "minimal"
     },
     "neobrutalism": {
-      "digest": "sha256:29286c9d7fd778320696aaf9029954fc632ef85f979daee4a01c1b1fb963ccba",
+      "digest": "sha256:8945f37b8f73e80b6d4e5ddd8f62d0fa965665605db0a18f342a3bbb30c54889",
       "preset": "sales-reference",
       "theme": "neobrutalism"
     }
@@ -34,7 +34,7 @@
       "version": "1.0.0"
     },
     {
-      "integrity": "sha512-nDjaiBmIQYPY/e25RKK8NVl0yshXWiEeVeSa8W2lQXf099kFuLlnO7h3M4A2PQmgCPV57Nw6pdkyoXbejz/OpA==",
+      "integrity": "sha512-ad09GpqjvVsPh31p8LL25s9gsvPtl0omC+VxY4u6ixkhzJWfjCo4NXGcl4KaT84Tyw3//1WJZn3PapW0pzupDQ==",
       "package": "@k-nex/composition",
       "peerCompatibility": {
         "core": "1.0.0",
@@ -86,7 +86,7 @@
       "version": "1.0.0"
     },
     {
-      "integrity": "sha512-+JJRqU2rwEFHWNGciyYv/Vz5dRRUVE5lfqjVKdpJ6uCwgBlLzOLXG3oBE44giJz8vD1Rsu85Jbtd8gz0ZPbOEw==",
+      "integrity": "sha512-GXgDkZggmH0XFDI+V15WNJA3hS72Gb8bId784WsJWs9H9dLY5lVGDjQCIOZqDnq/HI6aDZj4uJB3SYh3gCfs/Q==",
       "package": "@k-nex/payload-adapter",
       "peerCompatibility": {
         "core": "1.0.0",
@@ -112,7 +112,7 @@
       "version": "1.0.0"
     },
     {
-      "integrity": "sha512-G+vwV0Wo3s4FcFS3A2wvSaaj1sg7mHHL8Ov33XvU6/BjtqX7w0pldhNZh2xi2Y5YYRBxXWZ9DhCMzvh2YjSe4Q==",
+      "integrity": "sha512-Pm99r152Tvw2qoW6JD4W+c1JTooIzrRemPPbNhL9y+UdN0IeaBloNvHA01c12LoaQe4lCFzE7yk9Gqwgy0YKUg==",
       "package": "@k-nex/runtime",
       "peerCompatibility": {
         "core": "1.0.0",
@@ -164,7 +164,7 @@
       "version": "1.0.0"
     },
     {
-      "integrity": "sha512-tTSSW+z9ifPLPoz02sdY8iLQfAfBYJGorbSZqenQnIpGE8oHJH+bU05UrLhyWsHiZ/qxLLF93waNVxI+477I0w==",
+      "integrity": "sha512-cS6EHe8CKE0gl6KJgEOk9Ha2sNaBDQmbVVvXnRXgt0XLDGZIw4gzuQlEHWCNT3bS/J74YyrKda7Mw68KHT5zfw==",
       "package": "@k-nex/ui-components",
       "peerCompatibility": {
         "core": "1.0.0",

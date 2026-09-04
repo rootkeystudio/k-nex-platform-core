@@ -5,16 +5,16 @@
   "environment": "staging",
   "platformRelease": "1.0.0",
   "observedAt": "2026-09-01T12:10:00.000Z",
-  "artifactDigest": "sha256:ceef81ec914ae2caf71bd29a2c1292bbde6c06736da937933ddce1e55b9fcf72",
+  "artifactDigest": "sha256:e4e5c6aaf7745b1ee6e700f648128ed2c6d288e00140bcd0231d78073fc53348",
   "releaseEvidence": {
-    "sourceCommit": "da8140461d942354f0f44823dbf3c2bbb371595c",
-    "workflowIdentity": "rootkeystudio/k-nex-platform-core/.github/workflows/release-evidence.yml@da8140461d942354f0f44823dbf3c2bbb371595c",
+    "sourceCommit": "29bc2d411c6ca6fe3ef331dc92ce84852022e075",
+    "workflowIdentity": "rootkeystudio/k-nex-platform-core/.github/workflows/release-evidence.yml@29bc2d411c6ca6fe3ef331dc92ce84852022e075",
     "manifestDigest": "sha256:a0a2f7e2c9d046727804c805422dc4e9a135ff9de181bc06cdd68ccdf830ba72",
-    "lockfileDigest": "sha256:894935b4ad10fc6da0902253d278860f0e9db939e5c5a297871a185554b9f142",
+    "lockfileDigest": "sha256:dd8184834cfe32e7d087071ff8805976eaa4071d50362050891278ed66c89b80",
     "resolvedGraphDigest": "sha256:190375405cf3d6af64d4edf8002bc76b6565f75afff772c0e334e9937df82203",
     "frameworkDigest": "sha256:4e1cd64b546eb33d433cda29c18999d34d811086b4897b02d2401d62348af1f9",
-    "sbomDigest": "sha256:b7753dfc52a66550198ed5d34b923617ca0072d8fb7a2ff99bdf8c7a6c6f54fe",
-    "provenanceDigest": "sha256:0cf053f2cb76bb39fcb0d065d5fc976a26f3e186872a5cd668eaaaec69728786"
+    "sbomDigest": "sha256:cebbe176d5057f9ed0f73446db5fe4fa05b7bcf03fd41fe310e73fd9c5709104",
+    "provenanceDigest": "sha256:a189201ea7ac1112bd2656135b8c12861426852d33507b570b042eaaa9ae8d45"
   },
   "packages": [
     {
@@ -820,7 +820,7 @@
     {
       "package": "@k-nex/composition",
       "version": "1.0.0",
-      "integrity": "sha512-nDjaiBmIQYPY/e25RKK8NVl0yshXWiEeVeSa8W2lQXf099kFuLlnO7h3M4A2PQmgCPV57Nw6pdkyoXbejz/OpA=="
+      "integrity": "sha512-ad09GpqjvVsPh31p8LL25s9gsvPtl0omC+VxY4u6ixkhzJWfjCo4NXGcl4KaT84Tyw3//1WJZn3PapW0pzupDQ=="
     },
     {
       "package": "@k-nex/contracts",
@@ -840,12 +840,12 @@
     {
       "package": "@k-nex/payload-adapter",
       "version": "1.0.0",
-      "integrity": "sha512-+JJRqU2rwEFHWNGciyYv/Vz5dRRUVE5lfqjVKdpJ6uCwgBlLzOLXG3oBE44giJz8vD1Rsu85Jbtd8gz0ZPbOEw=="
+      "integrity": "sha512-GXgDkZggmH0XFDI+V15WNJA3hS72Gb8bId784WsJWs9H9dLY5lVGDjQCIOZqDnq/HI6aDZj4uJB3SYh3gCfs/Q=="
     },
     {
       "package": "@k-nex/runtime",
       "version": "1.0.0",
-      "integrity": "sha512-G+vwV0Wo3s4FcFS3A2wvSaaj1sg7mHHL8Ov33XvU6/BjtqX7w0pldhNZh2xi2Y5YYRBxXWZ9DhCMzvh2YjSe4Q=="
+      "integrity": "sha512-Pm99r152Tvw2qoW6JD4W+c1JTooIzrRemPPbNhL9y+UdN0IeaBloNvHA01c12LoaQe4lCFzE7yk9Gqwgy0YKUg=="
     },
     {
       "package": "@k-nex/theme-neobrutalism",
@@ -860,7 +860,7 @@
     {
       "package": "@k-nex/ui-components",
       "version": "1.0.0",
-      "integrity": "sha512-tTSSW+z9ifPLPoz02sdY8iLQfAfBYJGorbSZqenQnIpGE8oHJH+bU05UrLhyWsHiZ/qxLLF93waNVxI+477I0w=="
+      "integrity": "sha512-cS6EHe8CKE0gl6KJgEOk9Ha2sNaBDQmbVVvXnRXgt0XLDGZIw4gzuQlEHWCNT3bS/J74YyrKda7Mw68KHT5zfw=="
     },
     {
       "package": "@k-nex/ui-data",

@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Refreshed both current customer lockfiles to the final exact v1.0.0 packed archive integrity hashes.
+Regenerated and locally verified signed hosted v1 evidence for the final Phase 12 package/customer closure.
 
 ## Validation
 
-Exact Node 24.19.0/pnpm 11.9.0: `pnpm gate:12:focused` PASS; both customer fixture frozen installs PASS; hosted run `33833458592` correctly rejected stale lock integrity before the repair.
+Exact Node 24.19.0/pnpm 11.9.0: `pnpm gate:12:focused` PASS; hosted release-evidence run `33833875773` PASS on source `29bc2d4`; generated evidence check PASS.
 
 ## Next
 
-Push repaired customer locks, regenerate hosted v1 evidence, run exact-head focused/cumulative CI, then request phase review.
+Commit/push hosted evidence, run exact-head focused/cumulative CI, then close the persistent xhigh phase review.
 
 ## Blockers
 
