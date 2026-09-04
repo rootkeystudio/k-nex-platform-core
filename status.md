@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Mapped generated workspace source budget denials to exact binding-level rate states and proved clean, concurrency-limited, rate-limited, shared, and refilled transitions by named source binding.
+Regenerated, downloaded, and verified hosted signed evidence for the repaired v1 package/customer closure.
 
 ## Validation
 
-Exact Node 24.19.0/pnpm 11.9.0: focused composition test PASS (8/8); isolated real PostgreSQL/HTTP/Chromium runnable-workspace proof PASS (1/1, 192.8s); factory locks PASS; packed ABI/closure PASS (17); Alpha/Beta frozen installs and typechecks PASS.
+Exact Node 24.19.0/pnpm 11.9.0: isolated binding-state PostgreSQL/HTTP/Chromium proof PASS (1/1, 192.8s); hosted release-evidence run `33841660539` PASS on closure source `6feb03f`; generated evidence check PASS.
 
 ## Next
 
-Commit/push the refreshed closure, regenerate hosted signed evidence, then run exact-head PR-focused and Linux/AppArmor cumulative Gate 0–12 CI.
+Commit/push hosted evidence, then run exact-head PR-focused and Linux/AppArmor cumulative Gate 0–12 CI.
 
 ## Blockers
 

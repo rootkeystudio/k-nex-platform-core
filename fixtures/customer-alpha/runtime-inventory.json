@@ -5,16 +5,16 @@
   "environment": "production",
   "platformRelease": "1.0.0",
   "observedAt": "2026-09-01T12:00:00.000Z",
-  "artifactDigest": "sha256:1a05a57b0dc4c1f5bdcfe3397836f9f33f3c96c3e2099dfe66cd4ecab3d20984",
+  "artifactDigest": "sha256:b1fa91ee591d4278abd82f1483c18f9b2b0dcaf38bf368b20b5c2297ab8d6ddc",
   "releaseEvidence": {
-    "sourceCommit": "100dbe6b86fb0e09fa6b8b7ac5a6492766936bdb",
-    "workflowIdentity": "rootkeystudio/k-nex-platform-core/.github/workflows/release-evidence.yml@100dbe6b86fb0e09fa6b8b7ac5a6492766936bdb",
+    "sourceCommit": "6feb03f7532331336c06b983738d8590c65293f2",
+    "workflowIdentity": "rootkeystudio/k-nex-platform-core/.github/workflows/release-evidence.yml@6feb03f7532331336c06b983738d8590c65293f2",
     "manifestDigest": "sha256:d8eb979956a4d54cf655f3aa0d1886d0a5f0fdee006a8b6f14a4bf3acb6fb23d",
-    "lockfileDigest": "sha256:e4faee77b7e4296ad4c0a2cc6dd105f31a6d1c15c201149bd14ddf78d920b7e3",
+    "lockfileDigest": "sha256:2d2968a6cfa740471f6f489986ebd1e2722b269e66cc4bdabd171718498c9e1e",
     "resolvedGraphDigest": "sha256:99bad9d5c498e83c02cc35b47fed0a5602f9e648a8f5948133c19aace8c0fba4",
     "frameworkDigest": "sha256:4e1cd64b546eb33d433cda29c18999d34d811086b4897b02d2401d62348af1f9",
-    "sbomDigest": "sha256:5b093e5cf6a0356d642fcfbd82acae19fe883c427c8df3444f2de4411e1e2701",
-    "provenanceDigest": "sha256:71cbb094b9fb8fb6f9a3bcb0365978c13112b60e07d28d6f55bf1c7d7e089716"
+    "sbomDigest": "sha256:f09b585756db1c361cd82bed4135ec79d8724e8d5f9d8500b77d3b07411fce50",
+    "provenanceDigest": "sha256:fc6d2ca7c651bfb4f6fedee8216b205da56a33b0169f5f20d6f9afd6a47e05cf"
   },
   "packages": [
     {
@@ -820,7 +820,7 @@
     {
       "package": "@k-nex/composition",
       "version": "1.0.0",
-      "integrity": "sha512-Qpvp3YppQ5bRFhAAbaxIZvncAgRWGRy46tDQAxXNkD+Wqen2Dpz4MRbQxiMwreiOy6zZPgVpRbEQaX8LbYL1bQ=="
+      "integrity": "sha512-jK/tvmf7PpSfL3+xOBaw8afNdkd6T3HP2tNxfP8QJjZV2S0RuP4rh9riabJsqURXW7uR9Guopin22N5s0YGtng=="
     },
     {
       "package": "@k-nex/contracts",

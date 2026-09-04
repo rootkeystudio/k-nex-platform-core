@@ -4,7 +4,7 @@
 - **Gate:** Gate 12
 - **Accepted base:** Phase 11
 - **Decision:** **READY FOR PHASE REVIEW**
-- **Review state:** Local focused Gate 12, persistent xhigh repair review, and refreshed hosted release evidence pass. Exact-head PR-focused CI, Linux/AppArmor cumulative Gate 0–12, and final phase review remain required.
+- **Review state:** Local focused Gate 12 and refreshed hosted release evidence pass. Exact-head PR-focused CI, Linux/AppArmor cumulative Gate 0–12, and final persistent xhigh correction review remain required.
 
 ## Scope proved
 
@@ -31,7 +31,7 @@ Phase 12 turns the platform into a runnable generated customer application. A fi
 
 `pnpm gate:12` first runs cumulative Gate 0–11, then the exact focused Gate 12 evidence. Pull requests may run the focused command, but one exact-head cumulative run is required before merge.
 
-Local `pnpm gate:12:focused` returned `GATE_12_PASS` on implementation head `127cbb2b88e2f2c06bbb1d8b63f084ff73853361`. Hosted release-evidence run `33836876005` passed for source head `100dbe6b86fb0e09fa6b8b7ac5a6492766936bdb`; its two customer bundles, five attestations, verification records, runtime inventories, receipts, restore proofs, and fleet evidence are committed here. The replacement proves exact Phase 11 protected-baseline v3→v4 reconciliation, current-Owner page override, transaction-fenced authority/dependencies, static Sales routes/navigation/actions with live revocation, platform authority survival across Sales retirement, later lifecycle recovery, mutable-state readiness, bounded ACL subject projection, usable collapsed navigation, durable Minimal/Neobrutalism shell theming, scoped page-theme override, canonical workspace-page outbox delivery, and split-stream-safe deployment timeout evidence.
+Local `pnpm gate:12:focused` returned `GATE_12_PASS` on implementation head `127cbb2b88e2f2c06bbb1d8b63f084ff73853361`; the later exact binding-state repair passed its isolated generated PostgreSQL/HTTP/Chromium journey on `87bcb44`. Hosted release-evidence run `33841660539` passed for the repaired closure source `6feb03f7532331336c06b983738d8590c65293f2`; its two customer bundles, five attestations, verification records, runtime inventories, receipts, restore proofs, and fleet evidence are committed here. The replacement proves exact Phase 11 protected-baseline v3→v4 reconciliation, current-Owner page override, transaction-fenced authority/dependencies, static Sales routes/navigation/actions with live revocation, binding-level source budget states, platform authority survival across Sales retirement, later lifecycle recovery, mutable-state readiness, bounded ACL subject projection, usable collapsed navigation, durable Minimal/Neobrutalism shell theming, scoped page-theme override, canonical workspace-page outbox delivery, and split-stream-safe deployment timeout evidence.
 
 ## Boundaries retained
 
