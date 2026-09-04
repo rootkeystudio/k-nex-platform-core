@@ -350,6 +350,32 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     assert.equal((await fetch(`${applicationProcess.origin}/system/workspace-pages`, { headers: { cookie: owner.cookie.header } })).status, 200);
     assert.equal((await fetch(`${applicationProcess.origin}/system/access/roles`, { headers: { cookie: owner.cookie.header } })).status, 404, "Generated navigation must not claim unimplemented System administration routes.");
 
+    const folderKey = `workspace-folder-${randomUUID()}`;
+    const folderId = `customer.folder.f${createHash("sha256").update(folderKey).digest("hex").slice(0, 23)}`;
+    const createFolder = await fetch(`${applicationProcess.origin}/api/k-nex/workspace-folders`, {
+      method: "POST", redirect: "manual",
+      headers: { "content-type": "application/x-www-form-urlencoded", cookie: owner.cookie.header, origin: applicationProcess.origin },
+      body: new URLSearchParams({ idempotencyKey: folderKey, label: "Reports", parentNavigationId: "sales.navigation.root", order: "20" })
+    });
+    assert.equal(createFolder.status, 303, `${await createFolder.clone().text()}\n${applicationProcess.output()}`);
+    const invalidFolderMove = await fetch(`${applicationProcess.origin}/api/k-nex/workspace-folders/${encodeURIComponent(folderId)}`, {
+      method: "POST", redirect: "manual",
+      headers: { "content-type": "application/x-www-form-urlencoded", cookie: owner.cookie.header, origin: applicationProcess.origin },
+      body: new URLSearchParams({ expectedRevision: "1", label: "Reports", parentNavigationId: "system.navigation.root", order: "20" })
+    });
+    assert.equal(invalidFolderMove.status, 400, "A customer folder must not move below fixed System navigation.");
+    const competingFolderMoves = await Promise.all([30, 40].map((order) => fetch(`${applicationProcess.origin}/api/k-nex/workspace-folders/${encodeURIComponent(folderId)}`, {
+      method: "POST", redirect: "manual",
+      headers: { "content-type": "application/x-www-form-urlencoded", cookie: owner.cookie.header, origin: applicationProcess.origin },
+      body: new URLSearchParams({ expectedRevision: "1", label: "Reports", parentNavigationId: "sales.navigation.root", order: String(order) })
+    })));
+    assert.deepEqual(competingFolderMoves.map(({ status }) => status).sort(), [303, 409], "Competing folder moves must have one CAS winner.");
+    const folderRow = (await pool.query("select revision, node_json from k_nex_workspace_navigation_folders where application_id=$1 and environment=$2 and folder_id=$3", [applicationId, environmentName, folderId])).rows[0];
+    assert.equal(folderRow.revision, 2);
+    assert.equal(folderRow.node_json.parentId, "sales.navigation.root");
+    assert.ok([30, 40].includes(folderRow.node_json.order));
+    console.log("P12_ATK_04_FOLDER_GRAPH_AND_CAS_POSTGRES_HTTP_DENIED=PASS");
+
     const createLimited = await fetch(`${applicationProcess.origin}/api/users`, {
       method: "POST",
       headers: { "content-type": "application/json", cookie: owner.cookie.header },

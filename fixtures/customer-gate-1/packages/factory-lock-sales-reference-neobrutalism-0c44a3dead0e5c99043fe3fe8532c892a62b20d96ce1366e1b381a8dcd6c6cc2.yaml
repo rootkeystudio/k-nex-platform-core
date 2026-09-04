@@ -954,7 +954,7 @@ packages:
       react: ^18.0.0 || ^19.0.0
 
   '@k-nex/composition@file:.k-nex/packages/k-nex-composition-1.0.0.tgz':
-    resolution: {integrity: sha512-WOHMKziqQ45n0HqhV+5ODaTGeBSaB+qEF+x11LSSQ9VKzOLd5wx5Agw9NKpuogRTToZvSH4tCmchKbaawTDV5Q==, tarball: file:.k-nex/packages/k-nex-composition-1.0.0.tgz}
+    resolution: {integrity: sha512-SotDTGWYZ5Qc4ZuTIfmN47CjwBfzD/0eMZGGdS2+DpICBW+hdmkHX6+g04bLBR/DoM+0yGb2JFsCrjNYaolAyA==, tarball: file:.k-nex/packages/k-nex-composition-1.0.0.tgz}
     version: 1.0.0
 
   '@k-nex/contracts@file:.k-nex/packages/k-nex-contracts-1.0.0.tgz':
@@ -997,7 +997,7 @@ packages:
         optional: true
 
   '@k-nex/payload-adapter@file:.k-nex/packages/k-nex-payload-adapter-1.0.0.tgz':
-    resolution: {integrity: sha512-GXgDkZggmH0XFDI+V15WNJA3hS72Gb8bId784WsJWs9H9dLY5lVGDjQCIOZqDnq/HI6aDZj4uJB3SYh3gCfs/Q==, tarball: file:.k-nex/packages/k-nex-payload-adapter-1.0.0.tgz}
+    resolution: {integrity: sha512-/arCFPeYR/+opqnxuRBUmi/EmohJv5x3Tnn0SFgXi4xkd7JNlsrTUG7WAHkL78UzW9QYaxfV0kGt0YSfYIqG3A==, tarball: file:.k-nex/packages/k-nex-payload-adapter-1.0.0.tgz}
     version: 1.0.0
 
   '@k-nex/runtime@file:.k-nex/packages/k-nex-runtime-1.0.0.tgz':
@@ -1018,7 +1018,7 @@ packages:
       react: ^18.0.0 || ^19.0.0
 
   '@k-nex/ui-components@file:.k-nex/packages/k-nex-ui-components-1.0.0.tgz':
-    resolution: {integrity: sha512-cS6EHe8CKE0gl6KJgEOk9Ha2sNaBDQmbVVvXnRXgt0XLDGZIw4gzuQlEHWCNT3bS/J74YyrKda7Mw68KHT5zfw==, tarball: file:.k-nex/packages/k-nex-ui-components-1.0.0.tgz}
+    resolution: {integrity: sha512-FP34aLTndkuBa/fsZsv5FS3gvwcAfDzjtScUGjJIX7ynttev/1GF6rYuVQstXSTfzP5apCv1n7OsSSjM2C9DVw==, tarball: file:.k-nex/packages/k-nex-ui-components-1.0.0.tgz}
     version: 1.0.0
     peerDependencies:
       react: ^18.0.0 || ^19.0.0

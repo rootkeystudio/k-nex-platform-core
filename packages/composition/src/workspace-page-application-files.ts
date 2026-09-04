@@ -14,6 +14,7 @@ import {
   WorkspacePageSessionRegistry,
   parseWorkspacePageInvalidation,
   type RuntimeExtensionPool,
+  type WorkspaceNavigationMutationCatalog,
   type WorkspacePageDocumentValidator,
   type WorkspacePageScope,
   type WorkspacePageSnapshot
@@ -1231,7 +1232,7 @@ async function folderDecision(payload: Payload, context: KnexRequestContext, ope
   return decision;
 }
 
-async function folderCatalog(payload: Payload) {
+async function folderCatalog(payload: Payload): Promise<WorkspaceNavigationMutationCatalog> {
   if (await currentSalesGeneration(payload).catch(() => undefined) === undefined) {
     return Object.freeze({ staticNodes: workspaceNavigationFixedNodes, staticParentIds: [] });
   }
@@ -1244,9 +1245,11 @@ async function folderCatalog(payload: Payload) {
     const descriptor = value as Readonly<{ id?: unknown; ownerPluginId?: unknown; labelMessageId?: unknown; route?: Readonly<{ routeId?: unknown }>; parentId?: unknown; order?: unknown }>;
     const routeId = descriptor.route?.routeId;
     const route = typeof routeId === "string" ? routes.get(routeId) : undefined;
-    const label = typeof descriptor.labelMessageId === "string" ? kNexSalesRegistry.navigationSection.messages[descriptor.labelMessageId] : undefined;
-    if (typeof descriptor.id !== "string" || descriptor.ownerPluginId !== "module.sales" || route === undefined || typeof label !== "string" || label.length < 1 || label.length > 120 || descriptor.parentId !== undefined && typeof descriptor.parentId !== "string" || !Number.isSafeInteger(descriptor.order)) throw new TypeError("Current Sales navigation descriptor is invalid.");
-    return { id: descriptor.id, owner: { kind: "platform-plugin" as const, pluginId: "module.sales" }, kind: "link" as const, parentId: descriptor.parentId ?? kNexSalesRegistry.navigationSection.id, label, order: descriptor.order, target: { class: "platform-plugin" as const, ownerPluginId: "module.sales", routeId } };
+    const messages = kNexSalesRegistry.navigationSection.messages as Readonly<Record<string, string>>;
+    const label = typeof descriptor.labelMessageId === "string" ? messages[descriptor.labelMessageId] : undefined;
+    const order = descriptor.order;
+    if (typeof descriptor.id !== "string" || descriptor.ownerPluginId !== "module.sales" || typeof routeId !== "string" || route === undefined || typeof label !== "string" || label.length < 1 || label.length > 120 || descriptor.parentId !== undefined && typeof descriptor.parentId !== "string" || typeof order !== "number" || !Number.isSafeInteger(order)) throw new TypeError("Current Sales navigation descriptor is invalid.");
+    return { id: descriptor.id, owner: { kind: "platform-plugin" as const, pluginId: "module.sales" }, kind: "link" as const, parentId: descriptor.parentId ?? kNexSalesRegistry.navigationSection.id, label, order, target: { class: "platform-plugin" as const, ownerPluginId: "module.sales", routeId } };
   });
   const section = { id: kNexSalesRegistry.navigationSection.id, owner: { kind: "platform-plugin" as const, pluginId: "module.sales" }, kind: "folder" as const, label: kNexSalesRegistry.navigationSection.label, icon: "sales" as const, order: kNexSalesRegistry.navigationSection.order };
   return Object.freeze({ staticNodes: [...workspaceNavigationFixedNodes, section, ...children], staticParentIds: [section.id] });
@@ -1257,7 +1260,7 @@ export async function createWorkspaceFolder(payload: Payload, context: KnexReque
   const decision = await folderDecision(payload, context, "create");
   const catalog = await folderCatalog(payload);
   if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{7,159}$/u.test(input.idempotencyKey)) throw new TypeError("Workspace folder idempotency key is invalid.");
-  const id = \`customer.folder.\${createHash("sha256").update(input.idempotencyKey).digest("hex").slice(0, 24)}\`;
+  const id = \`customer.folder.f\${createHash("sha256").update(input.idempotencyKey).digest("hex").slice(0, 23)}\`;
   const node = { id, owner: { kind: "customer" as const }, kind: "folder" as const, parentId: input.parentNavigationId, label: input.label, icon: "folder" as const, order: input.order };
   const fence = { applicationId: decision.applicationId, environment: decision.environment, authorizationRevision: decision.authorizationRevision, lifecycleRevision: decision.lifecycleRevision };
   try { return await runtime.folders.create(scope, node, decision.effectiveActor, fence, catalog); }

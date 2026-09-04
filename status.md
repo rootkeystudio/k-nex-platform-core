@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-09-04
 - **Phase:** Phase 12 — Runnable Customer Workspace and Dashboard Builder
-- **Active task:** Phase 12 review correction integration proof
+- **Active task:** Phase 12 review correction final review
 - **State:** In progress
 
 ## Last completed
 
-Navigation now links only published admissible pages. Sidebar state is durable/server-scoped. Folder mutations use current edit authority, revision fencing, and locked full-candidate graph validation.
+Review P1 corrections are integrated: published-only navigation, durable server-scoped sidebar state, and transaction-fenced folder graph mutation. Generated-app proof also fixed deterministic folder IDs to remain valid resource IDs.
 
 ## Validation
 
-Published-nav resolver/composition focused tests PASS; regenerated-app PostgreSQL/HTTP/Chromium shell proof PASS. Integrated preference/folder focused tests PASS: adapter 7, composition 18, shell 2; `git diff --check` PASS.
+Integrated focused tests PASS: adapter 7, composition 18, shell 2. Packed ABI/closure and factory-lock checks PASS. Generated PostgreSQL/HTTP/Chromium journey PASS, including folder System-parent denial, concurrent CAS, draft omission, durable sidebar reload, and lifecycle recovery; `git diff --check` PASS.
 
 ## Next
 
-Regenerate final packed closure for all integrated fixes, run focused real proof, then same xhigh reviewer.
+Run the same persistent Sol-xhigh review, fix any confirmed gap, then refresh the Phase 12 PR without claiming phase readiness.
 
 ## Blockers
 
