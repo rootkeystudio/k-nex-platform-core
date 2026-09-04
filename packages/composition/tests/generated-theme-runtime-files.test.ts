@@ -14,6 +14,7 @@ describe("generated durable Theme Profile runtime", () => {
 
     expect(runtime).toContain(`import { ${resolver} as resolveInstalledThemeProfile } from "@k-nex/theme-${theme}";`);
     expect(runtime).not.toMatch(/import\s*\(/u);
+    expect(runtime).not.toContain('import "server-only"');
     expect(runtime).not.toContain("active_profile->>'css'");
     expect(runtime).toContain('profile.themeId !== "theme.' + theme + '" || profile.themeVersion !== "1.0.0"');
     expect(runtime).toContain("const presentation = resolveInstalledThemeProfile(profile);");
@@ -33,6 +34,7 @@ describe("generated durable Theme Profile runtime", () => {
     expect(runtime).toContain("insert into runtime_theme_profile_outbox");
     expect(runtime).toContain("previousRevisionId: null");
     expect(runtime).toContain("stateDigest");
+    expect(applicationAuthFiles({ applicationId: "customer-alpha", applicationName: "Customer Alpha", theme: "minimal" })["src/k-nex-bootstrap-owner.ts"]).toContain("await bootstrapApplicationTheme(payload);");
   });
 
   it("generates the accepted v1 Theme Profile publication tables", () => {

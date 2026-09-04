@@ -17,6 +17,11 @@ export interface WorkspacePageInvalidation {
   readonly workingCopyRevision: number;
   readonly accessRevision: number;
   readonly pointerRevision?: number;
+  readonly authorizationRevision: number;
+  readonly lifecycleRevision: number;
+  readonly catalogRevision: number;
+  readonly catalogDigest: `sha256:${string}`;
+  readonly authorityDigest: `sha256:${string}`;
   readonly occurredAt: string;
 }
 
@@ -81,6 +86,9 @@ export function parseWorkspacePageInvalidation(value: unknown): WorkspacePageInv
     record.pointerRevision !== undefined && (!revision(record.pointerRevision) || record.pointerRevision === 0) || typeof record.occurredAt !== "string" || new Date(record.occurredAt).toISOString() !== record.occurredAt) {
     throw new Error("Workspace page invalidation is invalid.");
   }
+  if (!revision(record.authorizationRevision) || !revision(record.lifecycleRevision) || !revision(record.catalogRevision) || record.catalogRevision !== record.lifecycleRevision ||
+    typeof record.catalogDigest !== "string" || !/^sha256:[0-9a-f]{64}$/u.test(record.catalogDigest) ||
+    typeof record.authorityDigest !== "string" || !/^sha256:[0-9a-f]{64}$/u.test(record.authorityDigest)) throw new Error("Workspace page invalidation is invalid.");
   const event = Object.freeze({
     schemaVersion: 1 as const,
     eventId: record.eventId,
@@ -93,6 +101,11 @@ export function parseWorkspacePageInvalidation(value: unknown): WorkspacePageInv
     workingCopyRevision: record.workingCopyRevision as number,
     accessRevision: record.accessRevision as number,
     ...(record.pointerRevision === undefined ? {} : { pointerRevision: record.pointerRevision as number }),
+    authorizationRevision: record.authorizationRevision as number,
+    lifecycleRevision: record.lifecycleRevision as number,
+    catalogRevision: record.catalogRevision as number,
+    catalogDigest: record.catalogDigest as `sha256:${string}`,
+    authorityDigest: record.authorityDigest as `sha256:${string}`,
     occurredAt: record.occurredAt
   });
   if (canonicalJson(event) !== canonicalJson(value)) throw new Error("Workspace page invalidation is not canonical.");

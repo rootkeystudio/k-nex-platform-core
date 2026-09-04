@@ -276,6 +276,7 @@ import { acquireBootstrapLock, assertIssuedBootstrapToken, consumeBootstrapToken
 import { kNexAuthority } from "./k-nex-authority.js";
 import { kNexIdentity } from "./k-nex-identity.js";
 import { kNexSalesRegistry } from "./k-nex-registry.js";
+import { bootstrapApplicationTheme } from "./k-nex-theme-runtime.js";
 
 function assertResumableOwnerReceipt(receipt: BootstrapReceipt | undefined, userId: string): asserts receipt is BootstrapReceipt {
   const assignmentId = protectedRoleBootstrapId(kNexIdentity.applicationId, "owner-assignment", userId);
@@ -337,6 +338,7 @@ try {
   crashAfterCommit("protected-owner");
   await ensureInitialSalesOwner(payload, String(user.id));
   crashAfterCommit("sales-authority");
+  await bootstrapApplicationTheme(payload);
   await consumeBootstrapToken(bootstrapLock, token);
   crashAfterCommit("token-consumption");
   console.log(\`K_NEX_OWNER_BOOTSTRAP_PASS \${outcome.id}\`);
@@ -417,9 +419,7 @@ export default async function WorkspaceHome() {
 
 function themeRuntimeSource(theme: ApplicationAuthFilesOptions["theme"]): string {
   const resolver = theme === "minimal" ? "resolveMinimalThemeProfile" : "resolveNeobrutalismThemeProfile";
-  return `import "server-only";
-
-import { createHash } from "node:crypto";
+  return `import { createHash } from "node:crypto";
 
 import { ThemeProfilePublicationEventSchema, ThemeProfileSchema, WorkspaceThemeProfileRefSchema, canonicalJson, type ThemeProfile } from "@k-nex/contracts";
 import type { RuntimeExtensionPool } from "@k-nex/payload-adapter";
@@ -539,6 +539,7 @@ import type { Payload } from "payload";
 import { authorizeNavigationPermission, kNexAuthority, kNexRequestContext } from "./k-nex-authority.js";
 import { kNexIdentity } from "./k-nex-identity.js";
 import { kNexSalesRegistry } from "./k-nex-registry.js";
+import { workspaceSalesPermissions } from "./k-nex-sales-workspace.js";
 import { resolveApplicationTheme } from "./k-nex-theme-runtime.js";
 import { kNexWorkspacePages, kNexWorkspacePageScope } from "./k-nex-workspace-pages.js";
 
@@ -550,16 +551,13 @@ async function currentSalesNavigation(payload: Payload, context: ReturnType<type
   if (!salesGenerationCurrent) return [];
   const routes = kNexSalesRegistry.scopedRegistration.contributions.routes.map(({ value }) => value as RegisteredRoute);
   const templates = kNexSalesRegistry.scopedRegistration.contributions.pageTemplates.map(({ value }) => value as RegisteredTemplate);
+  const permissions = new Set(await workspaceSalesPermissions(payload, context));
   return (await Promise.all(kNexSalesRegistry.scopedRegistration.contributions.navigation.map(async ({ value }) => {
     const descriptor = value as RegisteredNavigation;
     const route = routes.find((candidate) => candidate.id === descriptor.route.routeId);
     const template = templates.find((candidate) => candidate.id === route?.viewId);
     if (route?.ownerPluginId !== "module.sales" || template?.ownerPluginId !== "module.sales" || template.route.routeId !== route.id) return undefined;
-    const [routeAllowed, templateAllowed] = await Promise.all([
-      authorizeNavigationPermission(payload, context, route.permission),
-      authorizeNavigationPermission(payload, context, template.permission)
-    ]);
-    return routeAllowed && templateAllowed ? descriptor : undefined;
+    return await authorizeNavigationPermission(payload, context, route.permission) && permissions.has(template.permission) ? descriptor : undefined;
   }))).filter((descriptor): descriptor is RegisteredNavigation => descriptor !== undefined);
 }
 
@@ -655,12 +653,13 @@ function registeredAction(actionId: string): RegisteredAction {
 export async function loadRegisteredSalesRoute(payload: Payload, context: KnexRequestContext, routeId: string) {
   await currentSalesGeneration(payload);
   const { route, template } = routeTemplate(routeId);
-  if (!await authorizeNavigationPermission(payload, context, route.permission) || !await authorizeNavigationPermission(payload, context, template.permission)) {
+  const [routeAllowed, permissions] = await Promise.all([
+    authorizeNavigationPermission(payload, context, route.permission), workspaceSalesPermissions(payload, context)
+  ]);
+  if (!routeAllowed || !permissions.includes(template.permission)) {
     throw new TypeError("Sales route is denied.");
   }
-  const [permissions, sourceResults] = await Promise.all([
-    workspaceSalesPermissions(payload, context), loadWorkspaceSalesSources(payload, context, template.document, new AbortController().signal)
-  ]);
+  const sourceResults = await loadWorkspaceSalesSources(payload, context, template.document, new AbortController().signal);
   return Object.freeze({ document: template.document, permissions, sourceResults });
 }
 
@@ -717,7 +716,7 @@ export const dynamic = "force-dynamic";
 export default async function SalesRoute() {
   const payload = await bootKnexApplication("workspace-web");
   const headers = await getHeaders();
-  const context = kNexRequestContext(headers, "sales-route-${routeId}");
+  const context = kNexRequestContext(headers, "sales-route");
   try { return <RegisteredSalesRouteRuntime initialProjection={await loadRegisteredSalesRoute(payload, context, ${JSON.stringify(routeId)})} />; } catch { return notFound(); }
 }
 `;

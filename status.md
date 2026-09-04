@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Regenerated the exact v1.0.0 packed mirror, factory locks, and release manifest from current Phase 12 sources.
+Repaired generated theme bootstrap, static Sales route admission, and canonical workspace-page invalidation delivery with current fence metadata.
 
 ## Validation
 
-Exact Node 24.19.0/pnpm 11.9.0: 17 package archives, two factory locks, release manifest, packed ABI, and closure checks PASS.
+Exact Node 24.19.0/pnpm 11.9.0: affected composition/payload-adapter tests (20 tests) and both package builds PASS; standalone Theme Profile PostgreSQL/HTTP/Chromium proof PASS.
 
 ## Next
 
-Finish real Sales/theme Chromium proofs, then regenerate exact-head evidence.
+Regenerate the v1.0.0 packed closure, rerun the Sales PostgreSQL/HTTP/Chromium proof, then run Gate 12 closeout.
 
 ## Blockers
 

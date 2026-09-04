@@ -18,10 +18,10 @@ describe("generated workspace invalidation runtime", () => {
     expect(navigation).toContain("const template = templates.find((candidate) => candidate.id === route?.viewId);");
     expect(navigation).toContain('route?.ownerPluginId !== "module.sales" || template?.ownerPluginId !== "module.sales" || template.route.routeId !== route.id');
     expect(navigation).toContain("authorizeNavigationPermission(payload, context, route.permission)");
-    expect(navigation).toContain("authorizeNavigationPermission(payload, context, template.permission)");
-    expect(navigation).toContain("return routeAllowed && templateAllowed ? descriptor : undefined;");
+    expect(navigation).toContain("const permissions = new Set(await workspaceSalesPermissions(payload, context));");
+    expect(navigation).toContain("permissions.has(template.permission)");
     expect(navigation).toContain("navigation: salesNavigation");
-    expect(routes).toContain("if (!await authorizeNavigationPermission(payload, context, route.permission) || !await authorizeNavigationPermission(payload, context, template.permission)) {");
+    expect(routes).toContain("if (!routeAllowed || !permissions.includes(template.permission)) {");
     expect(navigation).toContain("...kNexSalesRegistry.navigationSection");
     expect(navigation).toContain("if (!salesGenerationCurrent) return [];");
     expect(files["src/app/(workspace)/sales/[[...path]]/page.tsx"]).toBeUndefined();
@@ -45,7 +45,7 @@ describe("generated workspace invalidation runtime", () => {
     expect(routes.map(([path]) => files[path]).filter(Boolean)).toHaveLength(4);
     for (const [path, routeId] of routes) {
       expect(files[path]).toContain(`loadRegisteredSalesRoute(payload, context, ${JSON.stringify(routeId)})`);
-      expect(files[path]).toContain("kNexRequestContext(headers");
+      expect(files[path]).toContain('kNexRequestContext(headers, "sales-route")');
     }
     expect(files["src/app/(workspace)/sales/page.tsx"]).toContain('from "../../../k-nex-sales-routes.js"');
     expect(files["src/app/(workspace)/sales/tasks/page.tsx"]).toContain('from "../../../../k-nex-sales-routes.js"');
@@ -55,7 +55,7 @@ describe("generated workspace invalidation runtime", () => {
     expect(runtime).toContain("kNexSalesRegistry.scopedRegistration.contributions.pageTemplates");
     expect(runtime).toContain("state.lifecycleRevision !== kNexSalesRegistry.authorizationGeneration.lifecycleRevision");
     expect(runtime).toContain("authorizeNavigationPermission(payload, context, route.permission)");
-    expect(runtime).toContain("authorizeNavigationPermission(payload, context, template.permission)");
+    expect(runtime).toContain("permissions.includes(template.permission)");
     expect(runtime).toContain("loadWorkspaceSalesSources(payload, context, template.document");
     expect(runtime).toContain("executeWorkspaceSalesAction(payload, context, registeredAction(actionId)");
     expect(runtime).not.toContain("openWorkspacePageSession");

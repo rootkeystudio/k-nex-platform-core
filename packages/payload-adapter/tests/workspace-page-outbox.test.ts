@@ -15,6 +15,11 @@ const invalidation = Object.freeze({
   pageRevision: 5,
   workingCopyRevision: 3,
   accessRevision: 2,
+  authorizationRevision: 4,
+  lifecycleRevision: 6,
+  catalogRevision: 6,
+  catalogDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  authorityDigest: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
   occurredAt: "2026-09-03T12:00:00.000Z"
 });
 
