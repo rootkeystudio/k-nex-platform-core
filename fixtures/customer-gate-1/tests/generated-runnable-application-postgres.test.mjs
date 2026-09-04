@@ -26,6 +26,22 @@ const expected = (state) => ({
   lifecycleRevision: state.lifecycleRevision
 });
 
+function revenueMetricNodeIdFromProjection(projection) {
+  const revenueMetricNode = projection.document.regions.main.find((node) => node.bindings?.source?.source.id === salesTotalPotentialRevenueDescriptor.id);
+  assert.ok(revenueMetricNode, "The projection must retain its bound Sales revenue metric.");
+  return revenueMetricNode.id;
+}
+
+function assertRevenueMetricBinding(projection, { state, problemCode, problemStatus }, message) {
+  const binding = projection.sourceResults[revenueMetricNodeIdFromProjection(projection)];
+  assert.ok(binding, `${message} The bound Sales revenue metric result is missing.`);
+  assert.equal(binding.state, state, `${message} The bound Sales revenue metric state must match.`);
+  if (problemCode !== undefined) {
+    assert.equal(binding.problem?.code, problemCode, `${message} The bound Sales revenue metric problem code must match.`);
+    assert.equal(binding.problem?.status, problemStatus, `${message} The bound Sales revenue metric problem status must match.`);
+  }
+}
+
 async function unusedPort() {
   const server = createServer();
   await new Promise((resolveListen, reject) => server.once("error", reject).listen(0, "127.0.0.1", resolveListen));
@@ -730,7 +746,9 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
       const exhausted = await exhaustedRequest;
       assert.equal(exhausted.status, 200, `The fifth direct view session must preserve its binding-level concurrency state when the Sales query lock releases.\n${await exhausted.clone().text()}\n${applicationProcess.output()}`);
       const exhaustedSession = await exhausted.json();
-      assert.equal(Object.values(exhaustedSession.projection.sourceResults).filter((binding) => binding.problem?.code === "QUERY_CONCURRENCY_EXCEEDED").length, 1, "Exactly one bound high-cost metric must report the shared four-query concurrency ceiling.");
+      const concurrencyLimitedBindings = Object.values(exhaustedSession.projection.sourceResults).filter((binding) => binding.state === "rate-limited" && binding.problem?.code === "QUERY_CONCURRENCY_EXCEEDED" && binding.problem?.status === 429);
+      assert.equal(concurrencyLimitedBindings.length, 1, "Exactly one bound high-cost metric must report the shared four-query concurrency ceiling.");
+      assertRevenueMetricBinding(exhaustedSession.projection, { state: "rate-limited", problemCode: "QUERY_CONCURRENCY_EXCEEDED", problemStatus: 429 }, "The fifth direct view session must map the named Sales revenue metric to the shared concurrency limit.");
     } finally {
       await concurrent.release();
     }
@@ -1002,7 +1020,9 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     });
     const managerControlSession = await fetchViewSession(pageId);
     assert.equal(managerControlSession.status, 200, `The restarted application must admit the current owner's small control session before rate exhaustion.\n${await managerControlSession.clone().text()}\n${applicationProcess.output()}`);
-    assert.equal((await managerControlSession.json()).projection.sourceResults !== undefined, true, "The small control session must load its bound sources.");
+    const managerControlProjection = (await managerControlSession.json()).projection;
+    assert.equal(managerControlProjection.sourceResults !== undefined, true, "The small control session must load its bound sources.");
+    assertRevenueMetricBinding(managerControlProjection, { state: "success" }, "The initial clean control session must succeed for the named Sales revenue metric.");
     const createRatePage = await fetch(`${applicationProcess.origin}/api/k-nex/workspace-pages`, {
       method: "POST", redirect: "manual",
       headers: { "content-type": "application/x-www-form-urlencoded", cookie: manager.cookie.header, origin: applicationProcess.origin },
@@ -1044,15 +1064,18 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     const rateExhaustion = await fetchViewSession(ratePageId);
     assert.equal(rateExhaustion.status, 200, `One sequential 128-metric session must return its binding-level shared high-cost Sales rate states without exceeding its four-query concurrency ceiling.\n${await rateExhaustion.clone().text()}\n${applicationProcess.output()}`);
     const rateExhaustionProjection = await rateExhaustion.json();
-    const rateExhaustionBindings = Object.values(rateExhaustionProjection.projection.sourceResults);
-    assert.equal(rateExhaustionBindings.some((binding) => binding.problem?.code === "QUERY_RATE_EXCEEDED"), true, "The dense high-cost session must include at least one rate-limited binding.");
-    assert.equal(rateExhaustionBindings.some((binding) => binding.problem?.code === "QUERY_CONCURRENCY_EXCEEDED"), false, "The sequential rate proof must not exceed the four-query concurrency ceiling.");
+    const denseRevenueMetricBindings = rateExhaustionProjection.projection.document.regions.main
+      .filter((node) => node.bindings?.source?.source.id === salesTotalPotentialRevenueDescriptor.id)
+      .map((node) => rateExhaustionProjection.projection.sourceResults[node.id]);
+    assert.equal(denseRevenueMetricBindings.some((binding) => binding?.state === "rate-limited" && binding.problem?.code === "QUERY_RATE_EXCEEDED" && binding.problem?.status === 429), true, "The dense high-cost session must include an exact rate-limited Sales revenue metric binding.");
+    assert.equal(denseRevenueMetricBindings.some((binding) => binding?.problem?.code === "QUERY_CONCURRENCY_EXCEEDED"), false, "The sequential dense metric proof must not report a concurrency failure.");
     const exhaustedControlSession = await fetchViewSession(pageId);
     assert.equal(exhaustedControlSession.status, 200, `The same authorized small session must return the shared rate-limited binding after the temporary page exhausts its bucket.\n${await exhaustedControlSession.clone().text()}\n${applicationProcess.output()}`);
     const exhaustedControlProjection = await exhaustedControlSession.json();
     const exhaustedControlBindings = Object.values(exhaustedControlProjection.projection.sourceResults);
     assert.equal(exhaustedControlBindings.some((binding) => binding.problem?.code === "QUERY_RATE_EXCEEDED"), true, "The small session must observe the shared high-cost rate limit immediately.");
     assert.equal(exhaustedControlBindings.some((binding) => binding.problem?.code === "QUERY_CONCURRENCY_EXCEEDED"), false, "The small rate-limited session must not report a concurrency failure.");
+    assertRevenueMetricBinding(exhaustedControlProjection.projection, { state: "rate-limited", problemCode: "QUERY_RATE_EXCEEDED", problemStatus: 429 }, "The immediate shared control session must map the named Sales revenue metric to the shared rate limit.");
     await new Promise((resolveWait) => setTimeout(resolveWait, 1_100));
     const refilledControlSession = await fetchViewSession(pageId);
     assert.equal(refilledControlSession.status, 200, `The same small session must recover after one high-cost source rate token refills.\n${await refilledControlSession.clone().text()}\n${applicationProcess.output()}`);
@@ -1060,9 +1083,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     const refilledControlBindings = Object.values(refilledControlProjection.projection.sourceResults);
     assert.equal(refilledControlBindings.some((binding) => binding.problem?.code === "QUERY_RATE_EXCEEDED"), false, "The small session must not retain a rate-limited binding after its high-cost source token refills.");
     assert.equal(refilledControlBindings.some((binding) => binding.problem?.code === "QUERY_CONCURRENCY_EXCEEDED"), false, "The refilled sequential small session must not report a concurrency failure.");
-    const revenueMetricNode = refilledControlProjection.projection.document.regions.main.find((node) => node.bindings?.source?.source.id === salesTotalPotentialRevenueDescriptor.id);
-    assert.ok(revenueMetricNode, "The control page must retain its bound Sales revenue metric.");
-    assert.equal(refilledControlProjection.projection.sourceResults[revenueMetricNode.id]?.state, "success", "The bound Sales revenue metric must succeed after its high-cost source token refills.");
+    assertRevenueMetricBinding(refilledControlProjection.projection, { state: "success" }, "The named Sales revenue metric must succeed after its high-cost source token refills.");
     console.log("P12_QUERY_BUDGET_PROCESS_LIFETIME_HTTP_RATE_AND_CONCURRENCY=PASS");
     assert.equal((await fetch(`${applicationProcess.origin}/workspace/pages/${encodeURIComponent(pageId)}`, { headers: { cookie: durableOwner.cookie.header } })).status, 404, "A former owner with page ACL but no current platform permission must be denied.");
     const formerOwnerAccessState = await durableStore.readState(applicationId, environmentName);
