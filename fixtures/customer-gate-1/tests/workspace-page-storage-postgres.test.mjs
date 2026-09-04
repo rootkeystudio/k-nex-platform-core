@@ -28,6 +28,24 @@ function mutationFence(identity, authorizationRevision = 1, lifecycleRevision = 
   });
 }
 
+function navigationMutationFence(identity, authorizationRevision = 1, lifecycleRevision = 1) {
+  return {
+    applicationId: identity.applicationId,
+    environment: identity.environment,
+    authorizationRevision,
+    lifecycleRevision
+  };
+}
+
+const navigationCatalog = {
+  staticNodes: [
+    { id: "system.navigation.root", owner: { kind: "platform" }, kind: "folder", label: "System", icon: "system", order: 1_000_000 },
+    { id: "system.navigation.workspace-pages", owner: { kind: "platform" }, kind: "link", parentId: "system.navigation.root", label: "Workspace pages", icon: "dashboard", order: 45, target: { class: "system", routeId: "system.route.workspace-pages" } },
+    { id: "sales.navigation.root", owner: { kind: "platform-plugin", pluginId: "module.sales" }, kind: "folder", label: "Sales", icon: "sales", order: 100 }
+  ],
+  staticParentIds: ["sales.navigation.root"]
+};
+
 function boot(connectionString) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, ["tests/boot-once.mjs"], {
@@ -104,6 +122,7 @@ test("P12.5 stores workspace pages, ACL, CAS copies, immutable publications, rol
     }
     let alphaFence = mutationFence(alpha.identity);
     const betaFence = mutationFence(beta.identity);
+    const alphaNavigationFence = navigationMutationFence(alpha.identity);
 
     assert.deepEqual(await store.create({ page: alpha.page, access: alpha.access, workingCopy: alpha.workingCopy, idempotencyKey: "workspace-create-one", fence: alphaFence }), alpha.page);
     assert.deepEqual(await store.create({ page: alpha.page, access: alpha.access, workingCopy: alpha.workingCopy, idempotencyKey: "workspace-create-one", fence: alphaFence }), alpha.page, "response-loss replay must return the first result");
@@ -116,9 +135,9 @@ test("P12.5 stores workspace pages, ACL, CAS copies, immutable publications, rol
     assert.equal((await store.updateMetadata({ currentRevision: alpha.page.revision, page: themedDraft, idempotencyKey: "workspace-theme-draft", fence: alphaFence })).title, themedDraft.title);
 
     const folder = { id: "customer.folder.reports", owner: { kind: "customer" }, kind: "folder", parentId: "sales.navigation.root", label: "Reports", icon: "folder", order: 20 };
-    assert.deepEqual(await navigationStore.create({ applicationId: "customer-alpha", environment: "production" }, folder, actor), { node: folder, revision: 1 });
-    assert.deepEqual(await navigationStore.update({ applicationId: "customer-alpha", environment: "production" }, { ...folder, order: 30 }, 1, actor), { node: { ...folder, order: 30 }, revision: 2 });
-    await assert.rejects(navigationStore.update({ applicationId: "customer-alpha", environment: "production" }, { ...folder, order: 40 }, 1, actor), { code: "REVISION_CONFLICT" });
+    assert.deepEqual(await navigationStore.create({ applicationId: "customer-alpha", environment: "production" }, folder, actor, alphaNavigationFence, navigationCatalog), { node: folder, revision: 1 });
+    assert.deepEqual(await navigationStore.update({ applicationId: "customer-alpha", environment: "production" }, { ...folder, order: 30 }, 1, actor, alphaNavigationFence, navigationCatalog), { node: { ...folder, order: 30 }, revision: 2 });
+    await assert.rejects(navigationStore.update({ applicationId: "customer-alpha", environment: "production" }, { ...folder, order: 40 }, 1, actor, alphaNavigationFence, navigationCatalog), { code: "REVISION_CONFLICT" });
     assert.equal((await navigationStore.list({ applicationId: "customer-beta", environment: "production" })).length, 0);
 
     const save = { expectedRevision: 1, editorSessionId: "editor-session-one", idempotencyKey: "workspace-save-one", document: { ...alpha.document, version: 2 } };
