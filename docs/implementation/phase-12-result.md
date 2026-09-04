@@ -4,7 +4,7 @@
 - **Gate:** Gate 12
 - **Accepted base:** Phase 11
 - **Decision:** **READY FOR PHASE REVIEW**
-- **Review state:** Local focused Gate 12 and refreshed hosted release evidence pass. Exact-head PR-focused CI, Linux/AppArmor cumulative Gate 0–12, and independent phase review remain required.
+- **Review state:** Local focused Gate 12 and persistent xhigh repair review pass. Refreshed hosted release evidence, exact-head PR-focused CI, Linux/AppArmor cumulative Gate 0–12, and final phase review remain required.
 
 ## Scope proved
 
@@ -27,11 +27,11 @@ Phase 12 turns the platform into a runnable generated customer application. A fi
 
 ## Executable evidence
 
-`pnpm gate:12:focused` builds the affected Phase 12 graph, verifies the exact v1 packed closure, runs 125 selected contract/navigation/shell/administration/builder/service/generator/Sales tests, then runs three real PostgreSQL/HTTP/Chromium process proofs. It machine-maps all 22 contracted attack IDs to evidence that actually passed.
+`pnpm gate:12:focused` builds the affected Phase 12 graph, verifies the exact v1 packed closure, runs 130 selected contract/navigation/shell/administration/builder/service/generator/Sales tests, then runs three real PostgreSQL/HTTP/Chromium process proofs. It machine-maps all 22 contracted attack IDs to evidence that actually passed.
 
 `pnpm gate:12` first runs cumulative Gate 0–11, then the exact focused Gate 12 evidence. Pull requests may run the focused command, but one exact-head cumulative run is required before merge.
 
-Local `pnpm gate:12:focused` returned `GATE_12_PASS` on implementation head `347a67204682140ba38b43d9c816d0ad961d2040`. Hosted release-evidence run `33833875773` passed for source head `29bc2d411c6ca6fe3ef331dc92ce84852022e075`; its two customer bundles, five attestations, verification records, runtime inventories, receipts, restore proofs, and fleet evidence are committed here. The replacement additionally proves exact Phase 11 protected-baseline v3→v4 reconciliation, current-Owner page override, transaction-fenced authority/dependencies, static Sales routes/navigation/actions with lifecycle denial, bounded ACL subject projection, usable collapsed navigation, durable Minimal/Neobrutalism shell theming, scoped page-theme override, and canonical workspace-page outbox delivery.
+Local `pnpm gate:12:focused` returned `GATE_12_PASS` on implementation head `127cbb2b88e2f2c06bbb1d8b63f084ff73853361`. The replacement proves exact Phase 11 protected-baseline v3→v4 reconciliation, current-Owner page override, transaction-fenced authority/dependencies, static Sales routes/navigation/actions with live revocation, platform authority survival across Sales retirement, later lifecycle recovery, mutable-state readiness, bounded ACL subject projection, usable collapsed navigation, durable Minimal/Neobrutalism shell theming, scoped page-theme override, canonical workspace-page outbox delivery, and split-stream-safe deployment timeout evidence. Refreshed hosted evidence remains pending for this closure.
 
 ## Boundaries retained
 

@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Passed the repaired generated Sales application with real PostgreSQL, Next/Payload HTTP, and Chromium.
+Passed the complete local focused Gate 12 after persistent xhigh repair review returned PASS.
 
 ## Validation
 
-Exact Node 24.19.0/pnpm 11.9.0: isolated `test:p12:shell` PASS in 209.7s, including open-route revocation, Sales retirement/platform survival, lifecycle recovery, and mutable-state readiness.
+Exact Node 24.19.0/pnpm 11.9.0: `pnpm gate:12:focused` PASS; 130 unit checks, three real PostgreSQL/HTTP/Chromium process proofs, all 22 attacks mapped; persistent Sol xhigh repair review PASS.
 
 ## Next
 
-Run persistent xhigh slice review, then the phase-end focused Gate 12 fixture.
+Push the repaired closure and regenerate signed hosted release evidence.
 
 ## Blockers
 
