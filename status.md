@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Added transaction-time authorization/lifecycle fencing for every workspace-page mutation, including stale replay denial and zero-write race proofs.
+Materialized Sales registry navigation as four fixed generated routes with current-generation/permission admission and registered source/action gateways.
 
 ## Validation
 
-Exact Node 24.19.0: workspace-page service 24/24 and real PostgreSQL storage 1/1 PASS; revocation/lifecycle races, stale replay, serialization, browser forgery, and zero-write denial covered.
+Exact Node 24.19.0: composition readiness and workspace invalidation source tests 7/7 PASS; no catch-all route or page-ACL authority path.
 
 ## Next
 
-Finish Theme Profile/dependency transaction fencing, real shell/page theming, plugin routes, and bounded ACL subject projection; then regenerate exact-head evidence.
+Add real generated PostgreSQL/Chromium Sales-route proof, finish Theme Profile/dependency transaction fencing and shell/page theming, and bounded ACL subject projection; then regenerate exact-head evidence.
 
 ## Blockers
 

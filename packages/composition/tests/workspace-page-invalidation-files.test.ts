@@ -4,15 +4,53 @@ import { applicationAuthFiles } from "../src/application-auth-files.js";
 import { workspacePageApplicationFiles } from "../src/workspace-page-application-files.js";
 
 describe("generated workspace invalidation runtime", () => {
-  it("generates only implemented System navigation and no catch-all workspace routes", () => {
+  it("generates scoped static Sales navigation and no catch-all workspace routes", () => {
     const files = applicationAuthFiles({ applicationId: "customer-alpha", applicationName: "Customer Alpha", theme: "minimal" });
     const navigation = files["src/k-nex-workspace-navigation.ts"]!;
 
     expect(navigation).toContain('implementedSystemRouteIds: ["system.route.workspace", "system.route.workspace-pages"]');
-    expect(navigation).toContain("plugins: [{ ...kNexSalesRegistry.navigationSection, routes: [], navigation: [] }]");
+    expect(navigation).toContain("const salesGenerationCurrent = state.lifecycleRevision === kNexSalesRegistry.authorizationGeneration.lifecycleRevision");
+    expect(navigation).toContain("kNexSalesRegistry.scopedRegistration.contributions.routes.map(({ value }) => value)");
+    expect(navigation).toContain("kNexSalesRegistry.scopedRegistration.contributions.navigation.map(({ value }) => value)");
+    expect(navigation).toContain("...kNexSalesRegistry.navigationSection");
+    expect(navigation).toContain("salesGenerationCurrent ?");
     expect(files["src/app/(workspace)/sales/[[...path]]/page.tsx"]).toBeUndefined();
     expect(files["src/app/(workspace)/system/[[...path]]/page.tsx"]).toBeUndefined();
     expect(JSON.stringify(files)).not.toContain("Registered workspace route.");
+  });
+
+  it("generates only four registered Sales pages with current authority and registered actions", () => {
+    const files = applicationAuthFiles({ applicationId: "customer-alpha", applicationName: "Customer Alpha", theme: "minimal" });
+    const routes = [
+      ["src/app/(workspace)/sales/page.tsx", "sales.route.overview"],
+      ["src/app/(workspace)/sales/tasks/page.tsx", "sales.route.tasks"],
+      ["src/app/(workspace)/sales/opportunities/page.tsx", "sales.route.opportunities"],
+      ["src/app/(workspace)/sales/settings/page.tsx", "sales.route.settings"]
+    ] as const;
+    const runtime = files["src/k-nex-sales-routes.ts"]!;
+    const client = files["src/app/components/k-nex-sales-route-runtime.tsx"]!;
+    const action = files["src/app/api/k-nex/sales/actions/[actionId]/route.ts"]!;
+    const readiness = files["src/k-nex-readiness.ts"]!;
+
+    expect(routes.map(([path]) => files[path]).filter(Boolean)).toHaveLength(4);
+    for (const [path, routeId] of routes) {
+      expect(files[path]).toContain(`loadRegisteredSalesRoute(payload, context, ${JSON.stringify(routeId)})`);
+      expect(files[path]).toContain("kNexRequestContext(headers");
+    }
+    expect(files["src/app/(workspace)/sales/[...path]/page.tsx"]).toBeUndefined();
+    expect(runtime).toContain("kNexSalesRegistry.scopedRegistration.contributions.pageTemplates");
+    expect(runtime).toContain("state.lifecycleRevision !== kNexSalesRegistry.authorizationGeneration.lifecycleRevision");
+    expect(runtime).toContain("authorizeNavigationPermission(payload, context, route.permission)");
+    expect(runtime).toContain("authorizeNavigationPermission(payload, context, template.permission)");
+    expect(runtime).toContain("loadWorkspaceSalesSources(payload, context, template.document");
+    expect(runtime).toContain("executeWorkspaceSalesAction(payload, context, registeredAction(actionId)");
+    expect(runtime).not.toContain("openWorkspacePageSession");
+    expect(client).toContain("createUiDocumentRuntime(createUiRuntimeRegistry");
+    expect(client).toContain('fetch("/api/k-nex/sales/actions/" + encodeURIComponent(request.action.id)');
+    expect(action).toContain("executeRegisteredSalesRouteAction");
+    expect(action).toContain("request.signal");
+    expect(readiness).toContain('"src/app/(workspace)/sales/page.tsx"');
+    expect(readiness).toContain('"src/app/api/k-nex/sales/actions/[actionId]/route.ts"');
   });
 
   it("dispatches both durable outboxes through one PostgreSQL channel", () => {

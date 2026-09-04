@@ -451,6 +451,8 @@ export async function resolveCurrentWorkspaceNavigation(payload: Payload, header
   const state = await kNexAuthority(payload).store.readState(kNexIdentity.applicationId, kNexIdentity.environment);
   if (state === undefined) return undefined;
   const context = kNexRequestContext(headers, "workspace-navigation");
+  const salesGenerationCurrent = state.lifecycleRevision === kNexSalesRegistry.authorizationGeneration.lifecycleRevision &&
+    state.authorizationRevision >= kNexSalesRegistry.authorizationGeneration.authorizationRevision;
   const workspace = kNexWorkspacePages(payload);
   const canReadPages = await authorizeNavigationPermission(payload, context, "system.workspace-pages.read");
   const [pageItems, folderItems] = canReadPages ? await Promise.all([
@@ -465,7 +467,11 @@ export async function resolveCurrentWorkspaceNavigation(payload: Payload, header
     environment: kNexIdentity.environment,
     revision: state.authorizationRevision,
     implementedSystemRouteIds: ["system.route.workspace", "system.route.workspace-pages"],
-    plugins: [{ ...kNexSalesRegistry.navigationSection, routes: [], navigation: [] }],
+    // The section is durable customer-placement structure. Only current static
+    // registration contributions may contribute executable plugin links.
+    plugins: [{ ...kNexSalesRegistry.navigationSection,
+      routes: salesGenerationCurrent ? kNexSalesRegistry.scopedRegistration.contributions.routes.map(({ value }) => value) : [],
+      navigation: salesGenerationCurrent ? kNexSalesRegistry.scopedRegistration.contributions.navigation.map(({ value }) => value) : [] }],
     customerFolders: folderItems.map(({ node }) => node),
     pages,
     preferences: { sidebar: "expanded", favoritePageIds: [], recentPageIds: [] },
@@ -479,6 +485,135 @@ export async function resolveCurrentWorkspaceNavigation(payload: Payload, header
     folders: folderItems.map(({ node, revision }) => [node.id, revision]).sort((left, right) => String(left[0]).localeCompare(String(right[0])))
   })).digest("hex");
   return Object.freeze({ navigation, watermark, preferenceKey: kNexIdentity.applicationId + ":user:" + String(authentication.user.id) + ":workspace-sidebar" });
+}
+`;
+}
+
+function salesRouteRuntimeSource(): string {
+  return `import "server-only";
+
+import type { DataSourceBindingResult, UiDocument } from "@k-nex/contracts";
+import type { Payload } from "payload";
+
+import { authorizeNavigationPermission, kNexAuthority, type KnexRequestContext } from "./k-nex-authority.js";
+import { kNexIdentity } from "./k-nex-identity.js";
+import { kNexSalesRegistry } from "./k-nex-registry.js";
+import { executeWorkspaceSalesAction, loadWorkspaceSalesSources, workspaceSalesPermissions } from "./k-nex-sales-workspace.js";
+
+type RegisteredRoute = Readonly<{ id: string; ownerPluginId: string; permission: string; viewId: string }>;
+type RegisteredTemplate = Readonly<{ id: string; ownerPluginId: string; route: Readonly<{ routeId: string }>; permission: string; document: UiDocument }>;
+type RegisteredAction = Readonly<{ id: string; version: number }>;
+
+function currentSalesGeneration(payload: Payload) {
+  return kNexAuthority(payload).store.readState(kNexIdentity.applicationId, kNexIdentity.environment).then((state) => {
+    if (state === undefined || state.lifecycleRevision !== kNexSalesRegistry.authorizationGeneration.lifecycleRevision ||
+      state.authorizationRevision < kNexSalesRegistry.authorizationGeneration.authorizationRevision) throw new TypeError("Sales route generation is unavailable.");
+    return state;
+  });
+}
+
+function routeTemplate(routeId: string): Readonly<{ route: RegisteredRoute; template: RegisteredTemplate }> {
+  const route = kNexSalesRegistry.scopedRegistration.contributions.routes.find((entry) => entry.id === routeId)?.value as RegisteredRoute | undefined;
+  const template = kNexSalesRegistry.scopedRegistration.contributions.pageTemplates.find((entry) => entry.id === route?.viewId)?.value as RegisteredTemplate | undefined;
+  if (route?.ownerPluginId !== "module.sales" || template?.ownerPluginId !== "module.sales" || template.route.routeId !== route.id) {
+    throw new TypeError("Sales route registration is unavailable.");
+  }
+  return Object.freeze({ route, template });
+}
+
+function registeredAction(actionId: string): RegisteredAction {
+  const action = kNexSalesRegistry.scopedRegistration.contributions.actions.find((entry) => entry.id === actionId)?.value as { readonly descriptor?: RegisteredAction } | undefined;
+  const bound = kNexSalesRegistry.scopedRegistration.contributions.pageTemplates.some((entry) => {
+    const template = entry.value as { readonly requirements?: { readonly actions?: readonly RegisteredAction[] } };
+    return template.requirements?.actions?.some(({ id, version }) => id === action?.descriptor?.id && version === action.descriptor.version) === true;
+  });
+  if (action?.descriptor === undefined || !bound) throw new TypeError("Sales route action is unavailable.");
+  return action.descriptor;
+}
+
+export async function loadRegisteredSalesRoute(payload: Payload, context: KnexRequestContext, routeId: string) {
+  await currentSalesGeneration(payload);
+  const { route, template } = routeTemplate(routeId);
+  if (!await authorizeNavigationPermission(payload, context, route.permission) || !await authorizeNavigationPermission(payload, context, template.permission)) {
+    throw new TypeError("Sales route is denied.");
+  }
+  const [permissions, sourceResults] = await Promise.all([
+    workspaceSalesPermissions(payload, context), loadWorkspaceSalesSources(payload, context, template.document, new AbortController().signal)
+  ]);
+  return Object.freeze({ document: template.document, permissions, sourceResults });
+}
+
+export async function executeRegisteredSalesRouteAction(payload: Payload, context: KnexRequestContext, actionId: string, input: unknown, idempotencyKey: string, signal: AbortSignal) {
+  await currentSalesGeneration(payload);
+  return executeWorkspaceSalesAction(payload, context, registeredAction(actionId), input, idempotencyKey, signal);
+}
+`;
+}
+
+function salesRouteRuntimeClientSource(): string {
+  return `"use client";
+
+import type { DataSourceBindingResult, UiDocument } from "@k-nex/contracts";
+import { salesOpportunitiesDescriptor, salesTasksDescriptor, salesTotalPotentialRevenueDescriptor } from "@k-nex/module-sales/contracts";
+import { salesUiBlockDefinitions } from "@k-nex/module-sales/ui";
+import { presentUiRuntimeReact } from "@k-nex/ui-components";
+import { createUiDocumentRuntime, createUiRuntimeRegistry, presentUiRuntimeResult } from "@k-nex/ui-runtime";
+import { useMemo } from "react";
+
+const runtime = createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: salesUiBlockDefinitions, sources: [salesOpportunitiesDescriptor, salesTasksDescriptor, salesTotalPotentialRevenueDescriptor] }));
+type Projection = Readonly<{ document: UiDocument; permissions: readonly string[]; sourceResults: Readonly<Record<string, DataSourceBindingResult<unknown>>> }>;
+
+export function RegisteredSalesRouteRuntime({ initialProjection }: Readonly<{ initialProjection: Projection }>) {
+  const result = useMemo(() => runtime.render({
+    document: initialProjection.document, surface: "workspace", actor: { authenticated: true, permissions: new Set(initialProjection.permissions) }, sourceResults: initialProjection.sourceResults,
+    dispatchAction: async (request) => {
+      const response = await fetch("/api/k-nex/sales/actions/" + encodeURIComponent(request.action.id), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ input: request.input, idempotencyKey: "sales-route-action-" + crypto.randomUUID() }) });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.code ?? "Sales action failed.");
+      window.location.reload();
+      return body.data;
+    }
+  }), [initialProjection]);
+  return <section>{presentUiRuntimeReact(presentUiRuntimeResult(result))}</section>;
+}
+`;
+}
+
+function salesRoutePageSource(routeId: string): string {
+  return `import { headers as getHeaders } from "next/headers";
+import { notFound } from "next/navigation";
+
+import { bootKnexApplication } from "../../../boot.js";
+import { kNexRequestContext } from "../../../k-nex-authority.js";
+import { loadRegisteredSalesRoute } from "../../../k-nex-sales-routes.js";
+import { RegisteredSalesRouteRuntime } from "../../components/k-nex-sales-route-runtime.js";
+
+export const dynamic = "force-dynamic";
+
+export default async function SalesRoute() {
+  const payload = await bootKnexApplication("workspace-web");
+  const headers = await getHeaders();
+  const context = kNexRequestContext(headers, "sales-route-${routeId}");
+  try { return <RegisteredSalesRouteRuntime initialProjection={await loadRegisteredSalesRoute(payload, context, ${JSON.stringify(routeId)})} />; } catch { return notFound(); }
+}
+`;
+}
+
+function salesActionRouteSource(): string {
+  return `import { executeRegisteredSalesRouteAction } from "../../../../../k-nex-sales-routes.js";
+import { openWorkspaceJson, workspaceMutationError } from "../../../../../k-nex-workspace-page-http.js";
+
+export const dynamic = "force-dynamic";
+
+export async function POST(request: Request, { params }: Readonly<{ params: Promise<{ actionId: string }> }>) {
+  try {
+    const { payload, context, body } = await openWorkspaceJson(request, "sales-route-action");
+    if (body === null || typeof body !== "object" || Array.isArray(body) || Object.keys(body).sort().join("\\0") !== "idempotencyKey\\0input") throw new TypeError("Sales route action body is invalid.");
+    const value = body as Record<string, unknown>;
+    if (typeof value.idempotencyKey !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._:-]{7,159}$/u.test(value.idempotencyKey)) throw new TypeError("Sales route idempotency key is invalid.");
+    const result = await executeRegisteredSalesRouteAction(payload, context, (await params).actionId, value.input, value.idempotencyKey, request.signal);
+    return Response.json(result.body, { status: result.status, headers: { "cache-control": "no-store" } });
+  } catch (error) { return workspaceMutationError(error); }
 }
 `;
 }
@@ -628,6 +763,10 @@ const expectedRouteSources = Object.freeze([
   "src/app/(payload)/api/graphql-playground/route.ts",
   "src/app/(payload)/api/graphql/route.ts",
   "src/app/(workspace)/page.tsx",
+  "src/app/(workspace)/sales/opportunities/page.tsx",
+  "src/app/(workspace)/sales/page.tsx",
+  "src/app/(workspace)/sales/settings/page.tsx",
+  "src/app/(workspace)/sales/tasks/page.tsx",
   "src/app/(workspace)/system/workspace-pages/[pageId]/page.tsx",
   "src/app/(workspace)/system/workspace-pages/page.tsx",
   "src/app/(workspace)/workspace/pages/[pageId]/edit/page.tsx",
@@ -635,6 +774,7 @@ const expectedRouteSources = Object.freeze([
   "src/app/api/health/route.ts",
   "src/app/api/k-nex/inventory/route.ts",
   "src/app/api/k-nex/navigation/revision/route.ts",
+  "src/app/api/k-nex/sales/actions/[actionId]/route.ts",
   "src/app/api/k-nex/workspace-folders/[folderId]/route.ts",
   "src/app/api/k-nex/workspace-folders/route.ts",
   "src/app/api/k-nex/workspace-pages/[pageId]/[operation]/route.ts",
@@ -887,12 +1027,18 @@ export function applicationAuthFiles(options: ApplicationAuthFilesOptions): Read
     "src/app/(auth)/login/page.tsx": loginPageSource(),
     "src/app/(workspace)/layout.tsx": workspaceLayoutSource(options.applicationName),
     "src/app/(workspace)/page.tsx": workspacePageSource(options.applicationName),
+    "src/app/(workspace)/sales/page.tsx": salesRoutePageSource("sales.route.overview"),
+    "src/app/(workspace)/sales/tasks/page.tsx": salesRoutePageSource("sales.route.tasks"),
+    "src/app/(workspace)/sales/opportunities/page.tsx": salesRoutePageSource("sales.route.opportunities"),
+    "src/app/(workspace)/sales/settings/page.tsx": salesRoutePageSource("sales.route.settings"),
     "src/app/api/k-nex/inventory/route.ts": inventoryRouteSource(),
     "src/app/api/k-nex/navigation/revision/route.ts": navigationRevisionRouteSource(),
+    "src/app/api/k-nex/sales/actions/[actionId]/route.ts": salesActionRouteSource(),
     "src/app/api/readiness/route.ts": readinessRouteSource(),
     "src/app/components/login-form.tsx": loginFormSource(),
     "src/app/components/logout-button.tsx": logoutButtonSource(),
     "src/app/components/k-nex-workspace-shell.tsx": shellClientSource(),
+    "src/app/components/k-nex-sales-route-runtime.tsx": salesRouteRuntimeClientSource(),
     "src/k-nex-authority.ts": authoritySource(),
     "src/k-nex-bootstrap-owner.ts": bootstrapOwnerSource(),
     "src/k-nex-bootstrap-token.ts": bootstrapTokenSource(),
@@ -900,6 +1046,7 @@ export function applicationAuthFiles(options: ApplicationAuthFilesOptions): Read
     "src/k-nex-identity.ts": identitySource(options.applicationId),
     "src/k-nex-issue-bootstrap-token.ts": issueTokenSource(),
     "src/k-nex-readiness.ts": readinessSource(options.theme),
+    "src/k-nex-sales-routes.ts": salesRouteRuntimeSource(),
     "src/k-nex-worker.ts": workerSource(),
     "src/k-nex-users.ts": usersSource(),
     "src/k-nex-workspace-navigation.ts": workspaceNavigationSource()
