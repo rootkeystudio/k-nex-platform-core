@@ -56,7 +56,7 @@ jobs:
           audit_output="$(mktemp)"
           trap 'rm -f "$audit_output"' EXIT
           for attempt in 1 2 3; do
-            if pnpm audit --audit-level high --json >"$audit_output"; then
+            if timeout 45s pnpm audit --audit-level high --json >"$audit_output"; then
               cat "$audit_output"
               break
             fi

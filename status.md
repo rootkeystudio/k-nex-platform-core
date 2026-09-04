@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Extended page mutation fencing to lock exact current plugin authorization generations and published Theme Profile state before replay or writes.
+Bound repository audit attempts without weakening advisory failure handling; retained strict three-attempt evidence semantics.
 
 ## Validation
 
-Exact Node 24.19.0: workspace-page service 26/26 and real PostgreSQL storage 1/1 PASS; stale theme/plugin races, replay denial, and zero-write invariants covered.
+Exact Node 24.19.0: `pnpm contracts:validate` PASS; workflow/config parsing and repository contracts PASS.
 
 ## Next
 
