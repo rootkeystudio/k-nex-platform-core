@@ -436,7 +436,7 @@ export default async function LoginPage() {
 function workspaceNavigationSource(): string {
   return `import { createHash } from "node:crypto";
 
-import { canonicalJson, type PluginNavigationDescriptor } from "@k-nex/contracts";
+import { canonicalJson, type PluginNavigationDescriptor, type PluginRouteDescriptor } from "@k-nex/contracts";
 import { resolveWorkspaceNavigation } from "@k-nex/ui-runtime";
 import type { Payload } from "payload";
 
@@ -445,7 +445,7 @@ import { kNexIdentity } from "./k-nex-identity.js";
 import { kNexSalesRegistry } from "./k-nex-registry.js";
 import { kNexWorkspacePages, kNexWorkspacePageScope } from "./k-nex-workspace-pages.js";
 
-type RegisteredRoute = Readonly<{ id: string; ownerPluginId: string; permission: string; viewId: string }>;
+type RegisteredRoute = PluginRouteDescriptor;
 type RegisteredTemplate = Readonly<{ id: string; ownerPluginId: string; route: Readonly<{ routeId: string }>; permission: string }>;
 type RegisteredNavigation = PluginNavigationDescriptor;
 
@@ -492,7 +492,7 @@ export async function resolveCurrentWorkspaceNavigation(payload: Payload, header
     // The section is durable customer-placement structure. Only current static
     // registration contributions may contribute executable plugin links.
     plugins: [{ ...kNexSalesRegistry.navigationSection,
-      routes: salesGenerationCurrent ? kNexSalesRegistry.scopedRegistration.contributions.routes.map(({ value }) => value) : [],
+      routes: salesGenerationCurrent ? kNexSalesRegistry.scopedRegistration.contributions.routes.map(({ value }) => value as RegisteredRoute) : [],
       navigation: salesNavigation }],
     customerFolders: folderItems.map(({ node }) => node),
     pages,

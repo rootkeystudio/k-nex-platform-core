@@ -10,9 +10,10 @@ describe("generated workspace invalidation runtime", () => {
     const routes = files["src/k-nex-sales-routes.ts"]!;
 
     expect(navigation).toContain('implementedSystemRouteIds: ["system.route.workspace", "system.route.workspace-pages"]');
-    expect(navigation).toContain('import { canonicalJson, type PluginNavigationDescriptor } from "@k-nex/contracts";');
+    expect(navigation).toContain('import { canonicalJson, type PluginNavigationDescriptor, type PluginRouteDescriptor } from "@k-nex/contracts";');
+    expect(navigation).toContain("routes.map(({ value }) => value as RegisteredRoute)");
     expect(navigation).toContain("const salesGenerationCurrent = state.lifecycleRevision === kNexSalesRegistry.authorizationGeneration.lifecycleRevision");
-    expect(navigation).toContain("kNexSalesRegistry.scopedRegistration.contributions.routes.map(({ value }) => value)");
+    expect(navigation).toContain("kNexSalesRegistry.scopedRegistration.contributions.routes.map(({ value }) => value as RegisteredRoute)");
     expect(navigation).toContain("kNexSalesRegistry.scopedRegistration.contributions.navigation.map(async ({ value }) => {");
     expect(navigation).toContain("const template = templates.find((candidate) => candidate.id === route?.viewId);");
     expect(navigation).toContain('route?.ownerPluginId !== "module.sales" || template?.ownerPluginId !== "module.sales" || template.route.routeId !== route.id');

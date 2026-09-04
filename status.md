@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Defined access management as bounded ACL-subject-directory authority and centralized its revision-coherent role/user projection.
+Repaired the generated Sales route descriptor projection so the packed application type-checks with exact route/navigation authority.
 
 ## Validation
 
-Exact Node 24.19.0: authorization registry 15/15 and generated workspace-page source 8/8 PASS; 501-user cap, minimal fields, final reauthorization/revision check covered.
+Exact Node 24.19.0: generated workspace invalidation/navigation source tests 5/5 PASS; real packed-app proof proceeds past the corrected typed projection.
 
 ## Next
 
