@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Corrected generated Sales action endpoint import depth after real generated Next builds exposed the remaining nested-path defect.
+Removed generated shell parser/state name shadowing exposed by exact generated Next type-checking.
 
 ## Validation
 
-Exact Node 24.19.0: focused Sales generator tests 5/5 PASS; composition build PASS.
+Exact Node 24.19.0: focused composition build PASS; generated Next proof advanced to packed-mirror compatibility.
 
 ## Next
 

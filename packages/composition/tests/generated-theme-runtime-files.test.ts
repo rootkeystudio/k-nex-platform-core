@@ -57,7 +57,7 @@ describe("generated durable Theme Profile runtime", () => {
     expect(navigation).toContain("themePresentation: applicationTheme.presentation");
     expect(layout).toContain("themePresentation={resolved.themePresentation}");
     expect(shell).toContain("themePresentation={themePresentation}");
-    expect(shell).toContain("const nextTheme = themePresentation(body?.themePresentation);");
+    expect(shell).toContain("const nextTheme = parseThemePresentation(body?.themePresentation);");
     expect(shell).toContain("setThemePresentation(nextTheme)");
     expect(route).toContain("themePresentation: resolved.themePresentation");
     expect(files["src/app/(workspace)/page.tsx"]).not.toContain("kNexThemePresentation");

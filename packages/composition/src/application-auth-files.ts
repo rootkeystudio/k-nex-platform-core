@@ -766,7 +766,7 @@ import { useEffect, useState, type ReactNode } from "react";
 
 type ThemePresentation = Readonly<{ profileRevisionId: string; mode: "light" | "dark" | "system"; cssText: string }>;
 
-function themePresentation(value: unknown): ThemePresentation | undefined {
+function parseThemePresentation(value: unknown): ThemePresentation | undefined {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
   const candidate = value as Record<string, unknown>;
   if (Object.keys(candidate).sort().join("\\0") !== "cssText\\0mode\\0profileRevisionId" || typeof candidate.profileRevisionId !== "string" || !/^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)+$/u.test(candidate.profileRevisionId) ||
@@ -789,7 +789,7 @@ export function KnexWorkspaceShell(props: Readonly<{ applicationLabel: string; e
       if (!active) return;
       if (response?.status === 401) { window.location.assign("/login"); return; }
       const body = response?.ok ? await response.json().catch(() => undefined) as { watermark?: unknown; navigation?: unknown; themePresentation?: unknown } | undefined : undefined;
-      const nextTheme = themePresentation(body?.themePresentation);
+      const nextTheme = parseThemePresentation(body?.themePresentation);
       if (typeof body?.watermark === "string" && /^sha256:[0-9a-f]{64}$/u.test(body.watermark) && body.watermark !== watermark && typeof body.navigation === "object" && body.navigation !== null && nextTheme !== undefined) {
         setNavigation(body.navigation as ResolvedWorkspaceNavigation);
         setThemePresentation(nextTheme);
