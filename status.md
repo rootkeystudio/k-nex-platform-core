@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Repaired the slow-Linux rate-budget proof to exhaust the shared process-lifetime bucket in bounded four-request waves without exceeding the concurrency ceiling.
+Mapped generated workspace source budget denials to exact binding-level rate states, replaced the slow-Linux timing proof with deterministic HTTP evidence, and refreshed the affected v1 closure.
 
 ## Validation
 
-Exact Node 24.19.0/pnpm 11.9.0: isolated real PostgreSQL/HTTP/Chromium runnable-workspace proof PASS (1/1, 210.2s); focused Gate 12 PASS; persistent Sol xhigh repair review PASS; hosted release-evidence run `33836876005` PASS on source `100dbe6`; generated evidence check PASS.
+Exact Node 24.19.0/pnpm 11.9.0: focused composition test PASS (8/8); isolated real PostgreSQL/HTTP/Chromium runnable-workspace proof PASS (1/1, 195.7s); factory locks PASS; packed ABI/closure PASS (17); Alpha/Beta frozen installs and typechecks PASS.
 
 ## Next
 
-Push the deterministic proof repair, then run exact-head PR-focused and Linux/AppArmor cumulative Gate 0–12 CI.
+Commit/push the refreshed closure, regenerate hosted signed evidence, then run exact-head PR-focused and Linux/AppArmor cumulative Gate 0–12 CI.
 
 ## Blockers
 

@@ -167,6 +167,8 @@ describe("generated workspace page builder policy", () => {
     expect(sales).toContain('source: (descriptor) => target(descriptor.permission)');
     expect(sales).toContain('field: (descriptor, fieldId) => {');
     expect(sales).toContain('state: response.body.code === "INSUFFICIENT_FIELD_PERMISSION" ? "insufficient-permission" : "forbidden"');
+    expect(sales).toContain('if (response.status === 429) {');
+    expect(sales).toContain('state: "rate-limited", problem: { code: response.body.code, status: 429 }');
     expect(sales).toContain('recordScope = descriptor.id === "sales.opportunities"');
     expect(sales).toContain("for (const node of sourceNodes(document))");
     expect(sales).not.toContain("salesOpportunitiesHandler");

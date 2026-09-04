@@ -494,6 +494,10 @@ export async function loadWorkspaceSalesSources(payload: Payload, context: KnexR
       };
       continue;
     }
+    if (response.status === 429) {
+      output[node.id] = { state: "rate-limited", problem: { code: response.body.code, status: 429 } };
+      continue;
+    }
     throw new DataSourceGatewayError(response.body.code, response.status, response.body.title, response.body.detail);
   }
   return output;
