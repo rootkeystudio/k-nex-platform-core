@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Bound hosted release evidence remains valid. Hardened the inherited static-topology timeout proof so saturated cumulative CI cannot confuse process startup with the bounded artifact wait.
+Bound hosted release evidence remains valid. Hardened cumulative topology startup proof and exact-head audit transport without weakening either assertion.
 
 ## Validation
 
-Exact Node 24.19.0: focused Phase 12 proof PASS on run 33821265460; cumulative run 33821265085 exposed only the startup-watchdog race. Isolated corrected timeout proof 1/1 and diff check PASS. Hosted evidence 33820564496 remains bound.
+Exact Node 24.19.0: Gate 12 focused proof PASS on run 33821265460; cumulative run 33821265085 exposed only the startup-watchdog race; its corrected isolated proof is 1/1 PASS. Audit retry YAML/Bash/classifier syntax and diff check PASS. Hosted evidence 33820564496 remains bound.
 
 ## Next
 
-Commit/push the deterministic proof, require exact-head focused and cumulative Gate 0-12 CI, then resume the same Sol-xhigh phase reviewer.
+Push both closure hardening commits, require exact-head focused and cumulative Gate 0-12 CI, then resume the same Sol-xhigh phase reviewer.
 
 ## Blockers
 

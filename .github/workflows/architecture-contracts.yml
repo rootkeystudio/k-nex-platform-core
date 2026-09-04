@@ -53,6 +53,22 @@ jobs:
           K_NEX_RUNNER_ISOLATION_POLICY: apparmor
       - name: Verify exact-head repository evidence
         run: |
-          pnpm audit --audit-level high
+          audit_output="$(mktemp)"
+          trap 'rm -f "$audit_output"' EXIT
+          for attempt in 1 2 3; do
+            if pnpm audit --audit-level high --json >"$audit_output"; then
+              cat "$audit_output"
+              break
+            fi
+            if node -e 'try { const report = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")); process.exit(report?.advisories && report?.metadata?.vulnerabilities ? 0 : 1) } catch { process.exit(1) }' "$audit_output"; then
+              cat "$audit_output"
+              exit 1
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              cat "$audit_output"
+              exit 1
+            fi
+            sleep "$((attempt * 10))"
+          done
           git diff --check
           test -z "$(git status --porcelain --untracked-files=all)"
