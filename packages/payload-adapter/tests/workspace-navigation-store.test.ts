@@ -35,7 +35,13 @@ describe("P12.8 workspace navigation folder storage", () => {
     expect(await store.read(scope, folder.id)).toEqual({ node: { ...folder, order: 30 }, revision: 2 });
     expect(createSession.query.mock.calls[2]?.[1]).toEqual([scope.applicationId]);
     expect(createSession.query.mock.calls[5]?.[1]).toEqual([scope.applicationId, scope.environment, folder.id, JSON.stringify(folder), JSON.stringify(actor), "2026-09-03T08:00:00.000Z"]);
+    expect(createSession.query.mock.calls[6]?.[0]).toContain("insert into k_nex_workspace_navigation_outbox");
+    expect(createSession.query.mock.calls[6]?.[1]).toEqual([expect.any(String), scope.applicationId, scope.environment, folder.id, "create", 1, fence.authorizationRevision, fence.lifecycleRevision, expect.any(String)]);
+    expect(createSession.query.mock.calls[7]?.[0]).toBe("commit");
     expect(updateSession.query.mock.calls[5]?.[1]).toEqual([scope.applicationId, scope.environment, folder.id, JSON.stringify({ ...folder, order: 30 }), JSON.stringify(actor), "2026-09-03T08:00:00.000Z", 1]);
+    expect(updateSession.query.mock.calls[6]?.[0]).toContain("insert into k_nex_workspace_navigation_outbox");
+    expect(updateSession.query.mock.calls[6]?.[1]).toEqual([expect.any(String), scope.applicationId, scope.environment, folder.id, "update", 2, fence.authorizationRevision, fence.lifecycleRevision, expect.any(String)]);
+    expect(updateSession.query.mock.calls[7]?.[0]).toBe("commit");
   });
 
   it("rejects stale authority, System/foreign parents, cycles, and shadows before SQL writes", async () => {

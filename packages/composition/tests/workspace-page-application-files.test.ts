@@ -91,8 +91,12 @@ describe("generated workspace page builder policy", () => {
     expect(runtime).toContain("staticParentIds: [section.id]");
     expect(runtime).toContain('runtime.folders.create(scope, node, decision.effectiveActor, fence, catalog)');
     expect(runtime).toContain('customer.folder.f\${createHash("sha256").update(input.idempotencyKey).digest("hex").slice(0, 23)}');
+    expect(runtime).toContain('const duplicate = typeof error === "object" && error !== null && "code" in error && error.code === "23505";');
+    expect(runtime).toContain('if (duplicate) {\n      const existing = await runtime.folders.read(scope, id);');
     expect(runtime).toContain('runtime.folders.update(scope, { ...existing.node, label: input.label, parentId: input.parentNavigationId, order: input.order }, input.expectedRevision, decision.effectiveActor, fence, catalog)');
     expect(runtime).not.toContain("Workspace folder move creates a cycle.");
+    expect(runtime).toContain("parseWorkspaceNavigationInvalidation(envelope.invalidation)");
+    expect(runtime).toContain('canonicalJson({ type: "workspace-navigation", invalidation: event })');
   });
 
   it("injects a server-owned Puck validator built from current registered authority", () => {

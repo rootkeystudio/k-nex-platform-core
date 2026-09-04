@@ -504,7 +504,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
       const result = await pool.query("select count(*)::int as count from k_nex_authorization_outbox where application_id=$1 and environment=$2 and status<>'delivered'", [applicationId, environmentName]);
       return result.rows[0].count === 0;
     }, "Authorization outbox did not converge.", workerProcess.child);
-    await until(async () => notificationTypes.has("authorization") && notificationTypes.has("workspace-page"), "Generated worker did not publish both invalidation classes.", workerProcess.child).catch(async (error) => {
+    await until(async () => notificationTypes.has("authorization") && notificationTypes.has("workspace-navigation") && notificationTypes.has("workspace-page"), "Generated worker did not publish all invalidation classes.", workerProcess.child).catch(async (error) => {
       const outbox = await pool.query("select operation_kind, status, attempt_count, last_error_code from k_nex_workspace_page_outbox where application_id=$1 and environment=$2 order by created_at", [applicationId, environmentName]);
       throw new Error(`${error}\nnotifications=${JSON.stringify([...notificationTypes])}\noutbox=${JSON.stringify(outbox.rows)}\nworker=${workerProcess.output()}`);
     });
@@ -712,8 +712,14 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     assert.equal(savedNodes.slice(1).every(({ bindings }) => bindings?.source !== undefined || bindings?.action !== undefined), true, "Inserted Sales blocks must retain trusted runtime bindings.");
 
     const publication = page.getByRole("region", { name: "Page publication controls" });
+    const shellBeforePublication = await page.locator('[data-k-nex-component="workspace-shell"]').elementHandle();
+    assert.ok(shellBeforePublication, "The open editor must retain its workspace shell while navigation converges.");
     await publication.getByRole("button", { name: "Publish page" }).click();
     await publication.getByText("Page published.", { exact: true }).waitFor({ timeout: 10_000 });
+    const alreadyOpenPublishedNavigationLink = page.locator(`[data-navigation-node="${pageId}"]`).getByRole("link", { name: "Sales command center" });
+    await alreadyOpenPublishedNavigationLink.waitFor({ timeout: 10_000 });
+    assert.equal(await page.locator('[data-k-nex-component="workspace-shell"]').evaluate((element, before) => element === before, shellBeforePublication), true, "Publishing must refresh an already-open sidebar without remounting its workspace shell.");
+    await shellBeforePublication.dispose();
     const firstPointerResult = await pool.query("select pointer_json from k_nex_workspace_publication_pointers where application_id=$1 and environment=$2 and page_id=$3", [applicationId, environmentName, pageId]);
     const firstPublishedRevisionId = firstPointerResult.rows[0].pointer_json.publishedRevisionId;
     assert.match(firstPublishedRevisionId, /^workspace\.publication\./u);
@@ -884,7 +890,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     const createUnboundPage = await fetch(`${applicationProcess.origin}/api/k-nex/workspace-pages`, {
       method: "POST", redirect: "manual",
       headers: { "content-type": "application/x-www-form-urlencoded", cookie: restartedOwner.cookie.header, origin: applicationProcess.origin },
-      body: new URLSearchParams({ title: "Sales action-free page", description: "Published without Sales action bindings", parentNavigationId: "sales.navigation.root", order: "101", themeRevision: "", idempotencyKey: `workspace-create-unbound-${randomUUID()}` })
+      body: new URLSearchParams({ title: "Sales action-free page", description: "Published without Sales action bindings", parentNavigationId: folderId, order: "101", themeRevision: "", idempotencyKey: `workspace-create-unbound-${randomUUID()}` })
     });
     assert.equal(createUnboundPage.status, 303, await createUnboundPage.clone().text());
     const unboundPageId = decodeURIComponent(new URL(createUnboundPage.headers.get("location"), applicationProcess.origin).pathname.split("/").at(-1));
@@ -979,6 +985,21 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     await until(async () => (await pool.query("select count(*)::int as count from k_nex_workspace_page_outbox where application_id=$1 and environment=$2 and status<>'delivered'", [applicationId, environmentName])).rows[0].count === 0, "Workspace page outbox did not converge after worker restart.", workerProcess.child);
     await stop(workerProcess.child, "lost-notification boundary");
     workerProcess = undefined;
+    await page.goto(`${applicationProcess.origin}/`);
+    const reportsFolder = page.locator(`[data-navigation-node="${folderId}"]`);
+    await reportsFolder.locator('[data-navigation-label="true"]').filter({ hasText: /^Reports$/u }).waitFor();
+    const shellBeforeFolderUpdate = await page.locator('[data-k-nex-component="workspace-shell"]').elementHandle();
+    assert.ok(shellBeforeFolderUpdate, "The open shell must remain available while current navigation polling recovers a missed notification.");
+    const lostFolderUpdate = await fetch(`${applicationProcess.origin}/api/k-nex/workspace-folders/${encodeURIComponent(folderId)}`, {
+      method: "POST", redirect: "manual",
+      headers: { "content-type": "application/x-www-form-urlencoded", cookie: restartedOwner.cookie.header, origin: applicationProcess.origin },
+      body: new URLSearchParams({ expectedRevision: "2", label: "Reports current", parentNavigationId: "sales.navigation.root", order: String(folderRow.node_json.order) })
+    });
+    assert.equal(lostFolderUpdate.status, 303, "Folder mutation must commit while its worker is stopped.");
+    await reportsFolder.locator('[data-navigation-label="true"]').filter({ hasText: /^Reports current$/u }).waitFor({ timeout: 10_000 });
+    assert.equal(await page.locator('[data-k-nex-component="workspace-shell"]').evaluate((element, before) => element === before, shellBeforeFolderUpdate), true, "Navigation polling must converge without remounting the open shell.");
+    await shellBeforeFolderUpdate.dispose();
+    assert.equal((await pool.query("select count(*)::int as count from k_nex_workspace_navigation_outbox where application_id=$1 and environment=$2 and status<>'delivered'", [applicationId, environmentName])).rows[0].count, 1, "The stopped worker must leave the folder invalidation durable.");
     const currentPageSession = await fetch(`${applicationProcess.origin}/api/k-nex/workspace-pages/${encodeURIComponent(pageId)}/session`, { headers: { cookie: restartedOwner.cookie.header } });
     assert.equal(currentPageSession.status, 200);
     const currentPageState = await currentPageSession.json();
@@ -1010,6 +1031,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     workerProcess = start("node", ["dist/k-nex-worker.js"], { cwd: application, env: applicationEnvironment });
     await until(async () => workerProcess.output().includes("K_NEX_WORKER_READY"), `Generated worker did not recover the lost page invalidation.\n${workerProcess.output()}`, workerProcess.child);
     await until(async () => (await pool.query("select count(*)::int as count from k_nex_workspace_page_outbox where application_id=$1 and environment=$2 and status<>'delivered'", [applicationId, environmentName])).rows[0].count === 0, "Lost workspace invalidation did not converge from the durable outbox.", workerProcess.child);
+    await until(async () => (await pool.query("select count(*)::int as count from k_nex_workspace_navigation_outbox where application_id=$1 and environment=$2 and status<>'delivered'", [applicationId, environmentName])).rows[0].count === 0, "Lost workspace navigation invalidation did not converge from the durable outbox.", workerProcess.child);
     assert.equal(await managerPublishedNavigationLink.count(), 0, "Recovered invalidation must keep the already-open sidebar converged.");
     console.log("P12_ATK_20_REVOKED_STALE_PUBLISH_AND_LOST_INVALIDATION_DENIED=PASS");
 

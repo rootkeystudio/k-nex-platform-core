@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Review P1 corrections are integrated: published-only navigation, durable server-scoped sidebar state, and transaction-fenced folder graph mutation. Generated-app proof also fixed deterministic folder IDs to remain valid resource IDs.
+Latest review corrections are integrated: full-navigation polling watermark, duplicate-only folder replay, authority-bound durable navigation outbox, worker-down reconciliation, and the generated migration-count fixture.
 
 ## Validation
 
-Integrated focused tests PASS: adapter 7, composition 18, shell 2. Packed ABI/closure and factory-lock checks PASS. Generated PostgreSQL/HTTP/Chromium journey PASS, including folder System-parent denial, concurrent CAS, draft omission, durable sidebar reload, and lifecycle recovery; `git diff --check` PASS.
+Integrated focused tests PASS: adapter navigation/outbox 7, composition generation/invalidation 18, package builds, syntax, packed ABI/closure, and factory locks. Generated PostgreSQL/HTTP/Chromium journey PASS in 198s, including live publish navigation, worker-down folder reconciliation, durable outbox recovery, and lifecycle recovery; `git diff --check` PASS.
 
 ## Next
 

@@ -34,6 +34,7 @@ export * from "./workspace-page-outbox.js";
 export * from "./workspace-page-schema-migration.js";
 export * from "./workspace-page-service.js";
 export * from "./workspace-navigation-store.js";
+export * from "./workspace-navigation-outbox.js";
 export * from "./workspace-sidebar-preference.js";
 export * from "./workspace-sidebar-preference-schema-migration.js";
 export * from "./platform-plugin-authorization-descriptors.js";

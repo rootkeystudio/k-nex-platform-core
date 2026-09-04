@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import {
   AuthorizationSubjectSchema,
   canonicalJson,
@@ -10,6 +12,7 @@ import {
 } from "@k-nex/contracts";
 
 import type { RuntimeExtensionPool, RuntimeExtensionSession } from "./runtime-extension-store.js";
+import { writeWorkspaceNavigationInvalidationOutbox } from "./workspace-navigation-outbox.js";
 import { WorkspacePageStoreError, type WorkspacePageScope } from "./workspace-page-store.js";
 
 interface FolderRow {
@@ -144,7 +147,7 @@ export class PostgresWorkspaceNavigationStore {
     const updatedBy = actor(actorValue);
     const mutationFence = fence(fenceValue, owner);
     const mutationCatalog = catalog(catalogValue);
-    return this.mutate(owner, node, updatedBy, mutationFence, mutationCatalog, async (session, updatedAt) => {
+    return this.mutate(owner, node, updatedBy, mutationFence, mutationCatalog, "create", async (session, updatedAt) => {
       const result = await session.query<FolderRow>(
         `insert into k_nex_workspace_navigation_folders (application_id, environment, folder_id, revision, node_json, updated_by_json, updated_at)
          values ($1,$2,$3,1,$4::jsonb,$5::jsonb,$6) returning revision, node_json`,
@@ -162,7 +165,7 @@ export class PostgresWorkspaceNavigationStore {
     const updatedBy = actor(actorValue);
     const mutationFence = fence(fenceValue, owner);
     const mutationCatalog = catalog(catalogValue);
-    return this.mutate(owner, node, updatedBy, mutationFence, mutationCatalog, async (session, updatedAt) => {
+    return this.mutate(owner, node, updatedBy, mutationFence, mutationCatalog, "update", async (session, updatedAt) => {
       const result = await session.query<FolderRow>(
         `update k_nex_workspace_navigation_folders set revision=revision+1, node_json=$4::jsonb, updated_by_json=$5::jsonb, updated_at=$6
          where application_id=$1 and environment=$2 and folder_id=$3 and revision=$7 returning revision, node_json`,
@@ -173,7 +176,7 @@ export class PostgresWorkspaceNavigationStore {
     });
   }
 
-  private async mutate<T>(owner: WorkspacePageScope, node: WorkspaceNavigationNode, updatedBy: AuthorizationSubject, mutationFence: WorkspaceNavigationMutationFence, mutationCatalog: WorkspaceNavigationMutationCatalog, write: (session: RuntimeExtensionSession, updatedAt: string) => Promise<T>): Promise<T> {
+  private async mutate(owner: WorkspacePageScope, node: WorkspaceNavigationNode, updatedBy: AuthorizationSubject, mutationFence: WorkspaceNavigationMutationFence, mutationCatalog: WorkspaceNavigationMutationCatalog, operation: "create" | "update", write: (session: RuntimeExtensionSession, updatedAt: string) => Promise<WorkspaceNavigationFolderSnapshot>): Promise<WorkspaceNavigationFolderSnapshot> {
     const session = await this.pool.connect();
     try {
       await session.query("begin");
@@ -190,7 +193,21 @@ export class PostgresWorkspaceNavigationStore {
         session.query<PageRow>(`select page_json from k_nex_workspace_pages where application_id=$1 and environment=$2 for share`, [owner.applicationId, owner.environment])
       ]);
       this.validateGraph(owner, node, mutationCatalog, folders.rows, pages.rows);
-      const result = await write(session, this.timestamp());
+      const updatedAt = this.timestamp();
+      const result = await write(session, updatedAt);
+      await writeWorkspaceNavigationInvalidationOutbox(session, {
+        schemaVersion: 1,
+        eventId: randomUUID(),
+        eventType: "workspace-navigation.changed",
+        operation,
+        applicationId: owner.applicationId,
+        environment: owner.environment,
+        folderId: result.node.id,
+        folderRevision: result.revision,
+        authorizationRevision: mutationFence.authorizationRevision,
+        lifecycleRevision: mutationFence.lifecycleRevision,
+        occurredAt: updatedAt
+      });
       await session.query("commit");
       return result;
     } catch (error) {

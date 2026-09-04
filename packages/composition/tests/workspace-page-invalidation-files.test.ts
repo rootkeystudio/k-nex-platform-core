@@ -96,26 +96,32 @@ describe("generated workspace invalidation runtime", () => {
     expect(authority).not.toContain("lifecycleRevision !== 0 && lifecycleRevision !== 1");
   });
 
-  it("dispatches both durable outboxes through one PostgreSQL channel", () => {
+  it("dispatches durable invalidations through one PostgreSQL channel while shell polling reconciles misses", () => {
     const worker = applicationAuthFiles({ applicationId: "customer-alpha", applicationName: "Customer Alpha", theme: "minimal" })["src/k-nex-worker.ts"]!;
+    const shell = applicationAuthFiles({ applicationId: "customer-alpha", applicationName: "Customer Alpha", theme: "minimal" })["src/app/components/k-nex-workspace-shell.tsx"]!;
 
     expect(worker).toContain("PostgresAuthorizationOutboxDispatcher");
     expect(worker).toContain("PostgresWorkspacePageOutboxDispatcher");
-    expect(worker.match(/environment: kNexIdentity\.environment/g)).toHaveLength(2);
+    expect(worker).toContain("PostgresWorkspaceNavigationOutboxDispatcher");
+    expect(worker.match(/environment: kNexIdentity\.environment/g)).toHaveLength(3);
     expect(worker).toContain('pool.query("select pg_notify($1,$2)"');
     expect(worker).toContain('notify("authorization", invalidation, signal)');
     expect(worker).toContain('notify("workspace-page", invalidation, signal)');
+    expect(worker).toContain('notify("workspace-navigation", invalidation, signal)');
+    expect(shell).toContain("setInterval(async () => {");
+    expect(shell).toContain('fetch("/api/k-nex/navigation/revision", { cache: "no-store" })');
   });
 
-  it("refreshes an already-open sidebar from a server-owned authority watermark", () => {
+  it("hashes full resolved navigation so an already-open sidebar refreshes for page state and metadata", () => {
     const files = applicationAuthFiles({ applicationId: "customer-alpha", applicationName: "Customer Alpha", theme: "minimal" });
     const navigation = files["src/k-nex-workspace-navigation.ts"]!;
     const shell = files["src/app/components/k-nex-workspace-shell.tsx"]!;
     const route = files["src/app/api/k-nex/navigation/revision/route.ts"]!;
 
     expect(navigation).toContain('const watermark = "sha256:" + createHash("sha256")');
+    expect(navigation).toContain("canonicalJson({\n    navigation,\n    authorizationRevision:");
     expect(navigation).toContain("authorizationRevision: state.authorizationRevision");
-    expect(navigation).toContain("page.accessRevision");
+    expect(navigation).not.toContain("pages: pageItems.map");
     expect(route).toContain("resolveCurrentWorkspaceNavigation");
     expect(route).toContain('"cache-control": "no-store"');
     expect(shell).toContain('fetch("/api/k-nex/navigation/revision", { cache: "no-store" })');

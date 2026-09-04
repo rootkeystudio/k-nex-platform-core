@@ -644,11 +644,10 @@ export async function resolveCurrentWorkspaceNavigation(payload: Payload, header
     pageAccess: async (pageId) => visiblePageIds.has(pageId)
   });
   const watermark = "sha256:" + createHash("sha256").update(canonicalJson({
+    navigation,
     authorizationRevision: state.authorizationRevision,
     lifecycleRevision: state.lifecycleRevision,
-    theme: applicationTheme.observation,
-    pages: pageItems.map(({ page, impact }) => [page.identity.pageId, page.accessRevision, impact.state, impact.code ?? null]).sort((left, right) => String(left[0]).localeCompare(String(right[0]))),
-    folders: folderItems.map(({ node, revision }) => [node.id, revision]).sort((left, right) => String(left[0]).localeCompare(String(right[0])))
+    theme: applicationTheme.observation
   })).digest("hex");
   return Object.freeze({ navigation, watermark, themePresentation: applicationTheme.presentation });
 }
@@ -1256,7 +1255,7 @@ process.exit(0);
 
 function workerSource(): string {
   return `import { canonicalJson } from "@k-nex/contracts";
-import { AuthorizationOutboxWorker, PostgresAuthorizationOutboxDispatcher, PostgresWorkspacePageOutboxDispatcher, WorkspacePageOutboxWorker, type RuntimeExtensionPool } from "@k-nex/payload-adapter";
+import { AuthorizationOutboxWorker, PostgresAuthorizationOutboxDispatcher, PostgresWorkspaceNavigationOutboxDispatcher, PostgresWorkspacePageOutboxDispatcher, WorkspaceNavigationOutboxWorker, WorkspacePageOutboxWorker, type RuntimeExtensionPool } from "@k-nex/payload-adapter";
 
 import { bootKnexApplication } from "./boot.js";
 import { kNexIdentity } from "./k-nex-identity.js";
@@ -1264,7 +1263,7 @@ import { kNexIdentity } from "./k-nex-identity.js";
 const payload = await bootKnexApplication("authorization-worker");
 const channel = "k_nex_runtime_invalidation";
 const pool = payload.db.pool as RuntimeExtensionPool;
-async function notify(type: "authorization" | "workspace-page", invalidation: unknown, signal: AbortSignal) {
+async function notify(type: "authorization" | "workspace-navigation" | "workspace-page", invalidation: unknown, signal: AbortSignal) {
   if (signal.aborted) throw new Error("Runtime invalidation publication was aborted.");
   await pool.query("select pg_notify($1,$2)", [channel, canonicalJson({ type, invalidation })]);
   if (signal.aborted) throw new Error("Runtime invalidation publication was aborted.");
@@ -1285,8 +1284,17 @@ const workspacePageWorker = new WorkspacePageOutboxWorker(
   } },
   { onError: () => console.error("K_NEX_WORKSPACE_PAGE_OUTBOX_ERROR") }
 );
+const workspaceNavigationWorker = new WorkspaceNavigationOutboxWorker(
+  new PostgresWorkspaceNavigationOutboxDispatcher(pool, { applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment }),
+  { publish: (invalidation, signal) => {
+    if (invalidation.applicationId !== kNexIdentity.applicationId || invalidation.environment !== kNexIdentity.environment) throw new Error("Workspace navigation invalidation identity mismatch.");
+    return notify("workspace-navigation", invalidation, signal);
+  } },
+  { onError: () => console.error("K_NEX_WORKSPACE_NAVIGATION_OUTBOX_ERROR") }
+);
 authorizationWorker.start();
 workspacePageWorker.start();
+workspaceNavigationWorker.start();
 console.log("K_NEX_WORKER_READY");
 await new Promise<void>((resolve) => {
   const stop = () => { process.off("SIGINT", stop); process.off("SIGTERM", stop); resolve(); };
@@ -1295,6 +1303,7 @@ await new Promise<void>((resolve) => {
 });
 authorizationWorker.stop();
 workspacePageWorker.stop();
+workspaceNavigationWorker.stop();
 await payload.destroy();
 process.exit(0);
 `;

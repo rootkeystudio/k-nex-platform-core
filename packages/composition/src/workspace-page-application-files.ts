@@ -12,6 +12,7 @@ import {
   PostgresWorkspaceNavigationStore,
   PostgresWorkspacePageStore,
   WorkspacePageSessionRegistry,
+  parseWorkspaceNavigationInvalidation,
   parseWorkspacePageInvalidation,
   type RuntimeExtensionPool,
   type WorkspaceNavigationMutationCatalog,
@@ -56,6 +57,11 @@ function validateNotification(payload: string | undefined): void {
   const value = JSON.parse(payload) as unknown;
   if (value === null || typeof value !== "object" || Array.isArray(value)) throw new TypeError("Runtime invalidation envelope is invalid.");
   const envelope = value as Record<string, unknown>;
+  if (envelope.type === "workspace-navigation") {
+    const event = parseWorkspaceNavigationInvalidation(envelope.invalidation);
+    if (event.applicationId !== scope.applicationId || event.environment !== scope.environment || canonicalJson(value) !== canonicalJson({ type: "workspace-navigation", invalidation: event })) throw new TypeError("Workspace navigation invalidation identity is invalid.");
+    return;
+  }
   if (envelope.type === "workspace-page") {
     const event = parseWorkspacePageInvalidation(envelope.invalidation);
     if (event.applicationId !== scope.applicationId || event.environment !== scope.environment || canonicalJson(value) !== canonicalJson({ type: "workspace-page", invalidation: event })) throw new TypeError("Workspace page invalidation identity is invalid.");
@@ -1265,8 +1271,11 @@ export async function createWorkspaceFolder(payload: Payload, context: KnexReque
   const fence = { applicationId: decision.applicationId, environment: decision.environment, authorizationRevision: decision.authorizationRevision, lifecycleRevision: decision.lifecycleRevision };
   try { return await runtime.folders.create(scope, node, decision.effectiveActor, fence, catalog); }
   catch (error) {
-    const existing = await runtime.folders.read(scope, id);
-    if (existing !== undefined && canonicalJson(existing.node) === canonicalJson(node)) return existing;
+    const duplicate = typeof error === "object" && error !== null && "code" in error && error.code === "23505";
+    if (duplicate) {
+      const existing = await runtime.folders.read(scope, id);
+      if (existing !== undefined && canonicalJson(existing.node) === canonicalJson(node)) return existing;
+    }
     throw error;
   }
 }
