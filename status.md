@@ -7,15 +7,15 @@
 
 ## Last completed
 
-ADR-0027 accepts the private mTLS operator boundary. Runtime/static-lifecycle and System administration schemas are exported as production Payload migrations.
+The server-only operator client now enforces fixed-path HTTPS+mTLS, closed commands, bounded time/body limits, active-time admission, and exact request/operator response binding.
 
 ## Validation
 
-Contract tests (222), payload-adapter tests (260), both builds, generated-contract validation, schema compilation, repository contracts, and `git diff --check` PASS.
+Payload-adapter tests (270), build, and `git diff --check` PASS.
 
 ## Next
 
-Implement the mTLS client/operator port, then compose generated fixed System administration and its real journey.
+Wire the generated production migrations and operator port, then compose fixed System administration and its real journey.
 
 ## Blockers
 
