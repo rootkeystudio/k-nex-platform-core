@@ -115,7 +115,7 @@ const nodeTests = [
 ];
 const tap = run("Phase 11 PostgreSQL/HTTP/Chromium proofs", process.execPath, ["--test", "--test-concurrency=1", "--test-reporter=tap", ...nodeTests], fixture);
 assert.equal(Number(/^# pass (\d+)$/mu.exec(tap)?.[1]), 9, "Phase 11 process proofs must pass exactly nine tests.");
-for (const marker of ["P11_PROTECTED_BASELINE_RELEASE_UPGRADE_EVIDENCE=PASS", "P11_4_CATALOG_REFRESH_POSTGRES_HTTP_EVIDENCE=PASS", "P11_7_SYSTEM_OPERATIONS_POSTGRES_EVIDENCE=PASS", "P11_8_FIXED_ADMINISTRATION_POSTGRES_CHROMIUM_EVIDENCE=PASS", "P11_9_EFFECTIVE_SETTINGS_CONVERGENCE_EVIDENCE=PASS"]) {
+for (const marker of ["P12_PROTECTED_BASELINE_RELEASE_UPGRADE_EVIDENCE=PASS", "P11_4_CATALOG_REFRESH_POSTGRES_HTTP_EVIDENCE=PASS", "P11_7_SYSTEM_OPERATIONS_POSTGRES_EVIDENCE=PASS", "P11_8_FIXED_ADMINISTRATION_POSTGRES_CHROMIUM_EVIDENCE=PASS", "P11_9_EFFECTIVE_SETTINGS_CONVERGENCE_EVIDENCE=PASS"]) {
   assert.match(tap, new RegExp(`^# ${marker}$`, "mu"), `Missing ${marker}.`);
   passedProofs.add(`process:${marker}`);
 }
@@ -129,7 +129,7 @@ const attackProofs = {
   "descriptor-or-executable-value": ["vitest:settings-admission:projects active, pending, disabled, and retired records without secret references"],
   "secret-exfiltration": ["vitest:settings-change:binds and unbinds only host-owned secret slots with reauthentication", "process:P11_8_FIXED_ADMINISTRATION_POSTGRES_CHROMIUM_EVIDENCE=PASS"],
   "cross-owner-settings": ["vitest:effective-settings:never returns pending, disabled, retired, stale-owner, or invalid values"],
-  "client-selected-authority": ["vitest:settings-change:rejects forged top-level and change fields before authority", "vitest:operations-authority:derives owner, inventory, actor, and permission while rejecting client authority fields", "process:P11_PROTECTED_BASELINE_RELEASE_UPGRADE_EVIDENCE=PASS"],
+  "client-selected-authority": ["vitest:settings-change:rejects forged top-level and change fields before authority", "vitest:operations-authority:derives owner, inventory, actor, and permission while rejecting client authority fields", "process:P12_PROTECTED_BASELINE_RELEASE_UPGRADE_EVIDENCE=PASS"],
   "catalog-network-or-trust-forgery": ["vitest:catalog-network:accepts only one exact configured GitHub release asset API endpoint", "vitest:catalog-network:rejects redirects outside GitHub asset storage and redirect loops"],
   "invalid-refresh-pointer-replacement": ["vitest:catalog-refresh:persists fetch failure without replacing prior pointer", "vitest:catalog-refresh:rechecks requester authority immediately before accepted-pointer CAS", "process:P11_4_CATALOG_REFRESH_POSTGRES_HTTP_EVIDENCE=PASS"],
   "stale-approval-or-cross-actor-replay": ["vitest:catalog-administration:uses one stable server identity and returns a terminal receipt after response loss", "vitest:catalog-current-authority:binds persisted scope, actor, refresh and phase to one current decision", "vitest:settings-change:rejects missing, stale, substituted, cross-actor, and replayed reauthentication evidence", "vitest:settings-current-authority:denies promotion after either captured permission is revoked", "vitest:operations-authority:returns an exact actor-bound replay before rejecting the now-stale original revision"],
