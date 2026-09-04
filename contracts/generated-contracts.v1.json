@@ -37,6 +37,7 @@
     "schemas/cms-page-metadata.v1.schema.json",
     "schemas/authorization.v1.schema.json",
     "schemas/system-administration.v1.schema.json",
+    "schemas/administration-operator-transport.v1.schema.json",
     "schemas/workspace.v1.schema.json",
     "contracts/phase-12-attack-map.v1.json"
   ],

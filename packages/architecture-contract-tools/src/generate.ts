@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   ActionDescriptorSchema,
+  AdministrationOperatorAuthenticatedCommandSchema,
   AgentToolDescriptorSchema,
   ApplicationManifestSchema,
   AuthorizationContractsSchema,
@@ -273,6 +274,7 @@ const primaryArtifacts = [
   { path: "schemas/cms-page-metadata.v1.schema.json", value: cmsPageMetadataJsonSchema() },
   { path: "schemas/authorization.v1.schema.json", value: authorizationContractsJsonSchema() },
   { path: "schemas/system-administration.v1.schema.json", value: systemAdministrationContractsJsonSchema() },
+  { path: "schemas/administration-operator-transport.v1.schema.json", value: identifiedJsonSchema(AdministrationOperatorAuthenticatedCommandSchema, "https://schemas.k-nex.dev/administration-operator-transport/v1.schema.json", "K-Nex Administration Operator Transport v1") },
   { path: "schemas/workspace.v1.schema.json", value: workspaceContractsJsonSchema() },
   { path: "contracts/phase-12-attack-map.v1.json", value: phase12AttackRegistry }
 ] satisfies readonly Artifact[];

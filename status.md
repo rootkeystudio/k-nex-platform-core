@@ -7,16 +7,16 @@
 
 ## Last completed
 
-Sales authority and workspace dependency checks now retain the exact current Sales generation across unrelated aggregate lifecycle advances. Folder mutations require workspace-page access administration.
+ADR-0027 accepts the private mTLS operator boundary. Runtime/static-lifecycle and System administration schemas are exported as production Payload migrations.
 
 ## Validation
 
-Composition tests (123) and build PASS. Real generated PostgreSQL/HTTP/Chromium journey PASS, including unrelated Hot Application lifecycle advance preserving Sales navigation, routes, actions, and pages. Packed ABI/closure and factory locks PASS; `git diff --check` PASS.
+Contract tests (222), payload-adapter tests (260), both builds, generated-contract validation, schema compilation, repository contracts, and `git diff --check` PASS.
 
 ## Next
 
-Export production administration/runtime schemas, implement the accepted operator transport, then compose generated fixed System administration.
+Implement the mTLS client/operator port, then compose generated fixed System administration and its real journey.
 
 ## Blockers
 
-Generated lifecycle administration requires an accepted external operator/supervisor transport, trust identity, production migrations, and inventory binding; see `docs/implementation/phase-12-review-blockers.md`.
+Generated System administration routes and real operator journey remain incomplete; see `docs/implementation/phase-12-review-blockers.md`.

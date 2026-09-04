@@ -12,6 +12,7 @@ export * from "./transactional-outbox.js";
 export * from "./event-outbox-schema-migration.js";
 export * from "./runtime-extension-store.js";
 export * from "./runtime-extension-outbox.js";
+export * from "./runtime-extension-schema-migrations.js";
 export * from "./theme-profile-store.js";
 export * from "./system-operations-store.js";
 export * from "./static-deployment-store.js";
@@ -42,6 +43,10 @@ export * from "./system-settings-store.js";
 export * from "./system-settings-outbox.js";
 export * from "./system-settings-descriptor-source.js";
 export * from "./settings-validation-coordinator.js";
+export * from "./system-administration-schema-migrations.js";
+export * from "./system-settings-schema-migration.js";
+export * from "./catalog-mirror-schema-migration.js";
+export * from "./system-operations-schema-migration.js";
 
 export type PayloadCompositionErrorCode =
   | "INVALID_DATABASE_URL"
