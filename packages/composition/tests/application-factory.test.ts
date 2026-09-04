@@ -97,7 +97,18 @@ describe("create-knex-app", () => {
     expect(first.files["src/payload.config.ts"]).toContain("prodMigrations: migrations");
     expect(first.files["src/payload.config.ts"]).toContain('kNexApplicationId: "customer-alpha"');
     expect(first.files["src/boot.ts"]).toContain("bootKnexApplication");
-    expect(first.files["src/migrations/index.ts"]).toContain("20260827_000002_knex_bootstrap");
+    const generatedMigrationNames = [...first.files["src/migrations/index.ts"]!.matchAll(/name: "([^"]+)"/gu)].map(([, name]) => name);
+    expect(generatedMigrationNames).toEqual([
+      "20260827_000001_sales_baseline",
+      "20260827_000002_knex_bootstrap",
+      "20260829_000007_runtime_extensions",
+      "20260901_000019_authorization",
+      "20260901_000022_static_lifecycle_admission",
+      "20260902_000023_system_administration",
+      "20260903_000026_workspace_pages",
+      "20260903_000027_event_outbox",
+      "20260904_000028_workspace_sidebar_preferences"
+    ]);
     expect(first.files["tsconfig.json"]).toContain('"moduleResolution": "bundler"');
     expect(first.files["tsconfig.scripts.json"]).toContain('"module": "NodeNext"');
     expect(first.files["src/k-nex-registry.ts"]).toContain("salesRegistration");
@@ -132,9 +143,12 @@ describe("create-knex-app", () => {
     expect(first.files["src/k-nex-bootstrap-owner.ts"]).toContain('crashAfterCommit("protected-owner")');
     expect(first.files["src/k-nex-bootstrap-owner.ts"]).toContain('crashAfterCommit("sales-authority")');
     expect(first.files["src/k-nex-bootstrap-owner.ts"]).toContain('crashAfterCommit("token-consumption")');
-    expect(first.files["src/migrations/20260903_000003_knex_authorization.ts"]).toContain("kNexAuthorizationSchemaMigration");
-    expect(first.files["src/migrations/20260903_000004_knex_workspace_pages.ts"]).toContain("kNexWorkspacePageSchemaMigration");
-    expect(first.files["src/migrations/20260903_000005_knex_event_outbox.ts"]).toContain("kNexEventOutboxSchemaMigration");
+    expect(first.files["src/migrations/20260901_000019_authorization.ts"]).toContain("kNexAuthorizationSchemaMigration");
+    expect(first.files["src/migrations/20260901_000022_static_lifecycle_admission.ts"]).toContain("kNexStaticLifecycleAdmissionSchemaMigration");
+    expect(first.files["src/migrations/20260902_000023_system_administration.ts"]).toContain("kNexSystemAdministrationSchemaMigrations");
+    expect(first.files["src/migrations/20260902_000023_system_administration.ts"]).toContain("[...kNexSystemAdministrationSchemaMigrations].reverse()");
+    expect(first.files["src/migrations/20260903_000026_workspace_pages.ts"]).toContain("kNexWorkspacePageSchemaMigration");
+    expect(first.files["src/migrations/20260903_000027_event_outbox.ts"]).toContain("kNexEventOutboxSchemaMigration");
     expect(first.files["src/app/api/k-nex/inventory/route.ts"]).toContain("system.extensions.read");
     expect(Object.values(first.files).every((source) => !source.includes("fixtures/customer-gate-1"))).toBe(true);
     const packageJson = JSON.parse(first.files["package.json"]!);

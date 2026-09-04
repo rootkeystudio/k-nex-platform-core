@@ -1017,11 +1017,13 @@ export const kNexApplicationReadyMarker = "K_NEX_APPLICATION_READY";
 const expectedMigrationNames = Object.freeze([
   "20260827_000001_sales_baseline",
   "20260827_000002_knex_bootstrap",
-  "20260903_000003_knex_authorization",
-  "20260903_000004_knex_workspace_pages",
-  "20260903_000005_knex_event_outbox",
-  "20260904_000006_knex_theme_profiles",
-  "20260904_000007_knex_workspace_sidebar_preferences"
+  "20260829_000007_runtime_extensions",
+  "20260901_000019_authorization",
+  "20260901_000022_static_lifecycle_admission",
+  "20260902_000023_system_administration",
+  "20260903_000026_workspace_pages",
+  "20260903_000027_event_outbox",
+  "20260904_000028_workspace_sidebar_preferences"
 ]);
 const expectedRouteSources = Object.freeze([
   "src/app/(auth)/forbidden/page.tsx",

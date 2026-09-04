@@ -213,60 +213,6 @@ export async function down({ db }: MigrateDownArgs): Promise<void> {
 `;
 }
 
-function themeProfileMigrationSource(): string {
-  return `import { sql, type MigrateDownArgs, type MigrateUpArgs } from "@payloadcms/db-postgres";
-
-export async function up({ db }: MigrateUpArgs): Promise<void> {
-  await db.execute(sql.raw(\`CREATE TABLE "runtime_theme_profile_publications" (
-    "application_id" varchar(128) NOT NULL,
-    "environment" varchar(64) NOT NULL,
-    "profile_id" varchar(128) NOT NULL,
-    "revision" integer DEFAULT 0 NOT NULL,
-    "active_revision_id" varchar(128),
-    "active_profile" jsonb,
-    "previous_revision_id" varchar(128),
-    "previous_profile" jsonb,
-    "draft_revision_id" varchar(128),
-    "draft_profile" jsonb,
-    "state_digest" varchar(71),
-    "updated_at" timestamp(3) with time zone DEFAULT now() NOT NULL,
-    PRIMARY KEY ("application_id", "environment", "profile_id"),
-    CONSTRAINT "runtime_theme_profile_revision_check" CHECK ("revision" BETWEEN 0 AND 1000000000),
-    CONSTRAINT "runtime_theme_profile_active_pair_check" CHECK (("active_revision_id" IS NULL)=("active_profile" IS NULL)),
-    CONSTRAINT "runtime_theme_profile_previous_pair_check" CHECK (("previous_revision_id" IS NULL)=("previous_profile" IS NULL)),
-    CONSTRAINT "runtime_theme_profile_draft_pair_check" CHECK (("draft_revision_id" IS NULL)=("draft_profile" IS NULL)),
-    CONSTRAINT "runtime_theme_profile_json_check" CHECK (
-      ("active_profile" IS NULL OR jsonb_typeof("active_profile")='object') AND
-      ("previous_profile" IS NULL OR jsonb_typeof("previous_profile")='object') AND
-      ("draft_profile" IS NULL OR jsonb_typeof("draft_profile")='object')
-    ),
-    CONSTRAINT "runtime_theme_profile_state_digest_check" CHECK ("state_digest" IS NULL OR "state_digest" ~ '^sha256:[0-9a-f]{64}$')
-  );
-  CREATE TABLE "runtime_theme_profile_outbox" (
-    "event_id" varchar(128) PRIMARY KEY NOT NULL,
-    "application_id" varchar(128) NOT NULL,
-    "environment" varchar(64) NOT NULL,
-    "profile_id" varchar(128) NOT NULL,
-    "revision" integer NOT NULL,
-    "event_json" jsonb NOT NULL,
-    "status" varchar(16) DEFAULT 'pending' NOT NULL,
-    "created_at" timestamp(3) with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT "runtime_theme_profile_outbox_owner_fk" FOREIGN KEY ("application_id", "environment", "profile_id")
-      REFERENCES "runtime_theme_profile_publications" ("application_id", "environment", "profile_id") ON DELETE cascade,
-    CONSTRAINT "runtime_theme_profile_outbox_revision_key" UNIQUE ("application_id", "environment", "profile_id", "revision"),
-    CONSTRAINT "runtime_theme_profile_outbox_revision_check" CHECK ("revision" BETWEEN 1 AND 1000000000),
-    CONSTRAINT "runtime_theme_profile_outbox_status_check" CHECK ("status" IN ('pending','delivered')),
-    CONSTRAINT "runtime_theme_profile_outbox_event_check" CHECK (jsonb_typeof("event_json")='object')
-  );
-  CREATE INDEX "runtime_theme_profile_outbox_pending_idx" ON "runtime_theme_profile_outbox" ("status", "revision", "event_id") WHERE "status"='pending';\`));
-}
-
-export async function down({ db }: MigrateDownArgs): Promise<void> {
-  await db.execute(sql.raw('DROP TABLE "runtime_theme_profile_outbox"; DROP TABLE "runtime_theme_profile_publications";'));
-}
-`;
-}
-
 function json(value: unknown): string {
   return `${JSON.stringify(value, null, 2)}\n`;
 }
@@ -382,12 +328,14 @@ export function planCreateKnexApplication(options: CreateKnexApplicationOptions)
     "src/k-nex-registry.ts": registrySource(options.theme, options.applicationId, release?.packages.find(({ package: packageName }) => packageName === "@k-nex/module-sales")?.integrity ?? "sha512-d29ya3NwYWNl", release?.release.version ?? "1.0.0"),
     "src/migrations/20260827_000001_sales_baseline.ts": payloadBaselineMigrationSource(),
     "src/migrations/20260827_000002_knex_bootstrap.ts": bootstrapMigrationSource(options.applicationId, release?.release.version ?? "1.0.0"),
-    "src/migrations/20260903_000003_knex_authorization.ts": `import { kNexAuthorizationSchemaMigration } from "@k-nex/payload-adapter";\n\nexport const up = kNexAuthorizationSchemaMigration.up;\nexport const down = kNexAuthorizationSchemaMigration.down;\n`,
-    "src/migrations/20260903_000004_knex_workspace_pages.ts": `import { kNexWorkspacePageSchemaMigration } from "@k-nex/payload-adapter";\n\nexport const up = kNexWorkspacePageSchemaMigration.up;\nexport const down = kNexWorkspacePageSchemaMigration.down;\n`,
-    "src/migrations/20260903_000005_knex_event_outbox.ts": `import { kNexEventOutboxSchemaMigration } from "@k-nex/payload-adapter";\n\nexport const up = kNexEventOutboxSchemaMigration.up;\nexport const down = kNexEventOutboxSchemaMigration.down;\n`,
-    "src/migrations/20260904_000006_knex_theme_profiles.ts": themeProfileMigrationSource(),
-    "src/migrations/20260904_000007_knex_workspace_sidebar_preferences.ts": `import { kNexWorkspaceSidebarPreferenceSchemaMigration } from "@k-nex/payload-adapter";\n\nexport const up = kNexWorkspaceSidebarPreferenceSchemaMigration.up;\nexport const down = kNexWorkspaceSidebarPreferenceSchemaMigration.down;\n`,
-    "src/migrations/index.ts": `import * as baseline from "./20260827_000001_sales_baseline.js";\nimport * as bootstrap from "./20260827_000002_knex_bootstrap.js";\nimport * as authorization from "./20260903_000003_knex_authorization.js";\nimport * as workspacePages from "./20260903_000004_knex_workspace_pages.js";\nimport * as eventOutbox from "./20260903_000005_knex_event_outbox.js";\nimport * as themeProfiles from "./20260904_000006_knex_theme_profiles.js";\nimport * as workspaceSidebarPreferences from "./20260904_000007_knex_workspace_sidebar_preferences.js";\n\nexport const migrations = [\n  { name: "20260827_000001_sales_baseline", up: baseline.up, down: baseline.down },\n  { name: "20260827_000002_knex_bootstrap", up: bootstrap.up, down: bootstrap.down },\n  { name: "20260903_000003_knex_authorization", up: authorization.up, down: authorization.down },\n  { name: "20260903_000004_knex_workspace_pages", up: workspacePages.up, down: workspacePages.down },\n  { name: "20260903_000005_knex_event_outbox", up: eventOutbox.up, down: eventOutbox.down },\n  { name: "20260904_000006_knex_theme_profiles", up: themeProfiles.up, down: themeProfiles.down },\n  { name: "20260904_000007_knex_workspace_sidebar_preferences", up: workspaceSidebarPreferences.up, down: workspaceSidebarPreferences.down }\n];\n`,
+    "src/migrations/20260829_000007_runtime_extensions.ts": `import { kNexRuntimeExtensionSchemaMigrations, type CustomerPayloadMigration } from "@k-nex/payload-adapter";\n\nexport async function up(args: Parameters<CustomerPayloadMigration["up"]>[0]): Promise<void> {\n  for (const migration of kNexRuntimeExtensionSchemaMigrations) await migration.up(args);\n}\n\nexport async function down(args: Parameters<CustomerPayloadMigration["down"]>[0]): Promise<void> {\n  for (const migration of [...kNexRuntimeExtensionSchemaMigrations].reverse()) await migration.down(args);\n}\n`,
+    "src/migrations/20260901_000019_authorization.ts": `import { kNexAuthorizationSchemaMigration } from "@k-nex/payload-adapter";\n\nexport const up = kNexAuthorizationSchemaMigration.up;\nexport const down = kNexAuthorizationSchemaMigration.down;\n`,
+    "src/migrations/20260901_000022_static_lifecycle_admission.ts": `import { kNexStaticLifecycleAdmissionSchemaMigration } from "@k-nex/payload-adapter";\n\nexport const up = kNexStaticLifecycleAdmissionSchemaMigration.up;\nexport const down = kNexStaticLifecycleAdmissionSchemaMigration.down;\n`,
+    "src/migrations/20260902_000023_system_administration.ts": `import { kNexSystemAdministrationSchemaMigrations, type CustomerPayloadMigration } from "@k-nex/payload-adapter";\n\nexport async function up(args: Parameters<CustomerPayloadMigration["up"]>[0]): Promise<void> {\n  for (const migration of kNexSystemAdministrationSchemaMigrations) await migration.up(args);\n}\n\nexport async function down(args: Parameters<CustomerPayloadMigration["down"]>[0]): Promise<void> {\n  for (const migration of [...kNexSystemAdministrationSchemaMigrations].reverse()) await migration.down(args);\n}\n`,
+    "src/migrations/20260903_000026_workspace_pages.ts": `import { kNexWorkspacePageSchemaMigration } from "@k-nex/payload-adapter";\n\nexport const up = kNexWorkspacePageSchemaMigration.up;\nexport const down = kNexWorkspacePageSchemaMigration.down;\n`,
+    "src/migrations/20260903_000027_event_outbox.ts": `import { kNexEventOutboxSchemaMigration } from "@k-nex/payload-adapter";\n\nexport const up = kNexEventOutboxSchemaMigration.up;\nexport const down = kNexEventOutboxSchemaMigration.down;\n`,
+    "src/migrations/20260904_000028_workspace_sidebar_preferences.ts": `import { kNexWorkspaceSidebarPreferenceSchemaMigration } from "@k-nex/payload-adapter";\n\nexport const up = kNexWorkspaceSidebarPreferenceSchemaMigration.up;\nexport const down = kNexWorkspaceSidebarPreferenceSchemaMigration.down;\n`,
+    "src/migrations/index.ts": `import * as baseline from "./20260827_000001_sales_baseline.js";\nimport * as bootstrap from "./20260827_000002_knex_bootstrap.js";\nimport * as runtimeExtensions from "./20260829_000007_runtime_extensions.js";\nimport * as authorization from "./20260901_000019_authorization.js";\nimport * as staticLifecycleAdmission from "./20260901_000022_static_lifecycle_admission.js";\nimport * as systemAdministration from "./20260902_000023_system_administration.js";\nimport * as workspacePages from "./20260903_000026_workspace_pages.js";\nimport * as eventOutbox from "./20260903_000027_event_outbox.js";\nimport * as workspaceSidebarPreferences from "./20260904_000028_workspace_sidebar_preferences.js";\n\nexport const migrations = [\n  { name: "20260827_000001_sales_baseline", up: baseline.up, down: baseline.down },\n  { name: "20260827_000002_knex_bootstrap", up: bootstrap.up, down: bootstrap.down },\n  { name: "20260829_000007_runtime_extensions", up: runtimeExtensions.up, down: runtimeExtensions.down },\n  { name: "20260901_000019_authorization", up: authorization.up, down: authorization.down },\n  { name: "20260901_000022_static_lifecycle_admission", up: staticLifecycleAdmission.up, down: staticLifecycleAdmission.down },\n  { name: "20260902_000023_system_administration", up: systemAdministration.up, down: systemAdministration.down },\n  { name: "20260903_000026_workspace_pages", up: workspacePages.up, down: workspacePages.down },\n  { name: "20260903_000027_event_outbox", up: eventOutbox.up, down: eventOutbox.down },\n  { name: "20260904_000028_workspace_sidebar_preferences", up: workspaceSidebarPreferences.up, down: workspaceSidebarPreferences.down }\n];\n`,
     "src/payload.config.ts": payloadConfigSource(options.applicationId),
   };
   if (releaseManifest !== undefined) files[".k-nex/package-release-manifest.json"] = releaseManifest;

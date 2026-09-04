@@ -7,15 +7,15 @@
 
 ## Last completed
 
-The server-only operator client now enforces fixed-path HTTPS+mTLS, closed commands, bounded time/body limits, active-time admission, and exact request/operator response binding.
+Generated applications now install the runtime, authorization, static-lifecycle, System administration, workspace, outbox, and preference schemas in dependency order without duplicate Theme Profile tables.
 
 ## Validation
 
-Payload-adapter tests (270), build, and `git diff --check` PASS.
+Composition tests (123), build, and `git diff --check` PASS.
 
 ## Next
 
-Wire the generated production migrations and operator port, then compose fixed System administration and its real journey.
+Implement the operator port, then compose fixed System administration and its real journey.
 
 ## Blockers
 

@@ -37,16 +37,22 @@ describe("generated durable Theme Profile runtime", () => {
     expect(applicationAuthFiles({ applicationId: "customer-alpha", applicationName: "Customer Alpha", theme: "minimal" })["src/k-nex-bootstrap-owner.ts"]).toContain("await bootstrapApplicationTheme(payload);");
   });
 
-  it("generates the accepted v1 Theme Profile publication tables", () => {
+  it("uses the runtime aggregate as the sole Theme Profile table migration", () => {
     const files = planCreateKnexApplication({ applicationId: "customer-alpha", applicationName: "Customer Alpha", theme: "minimal", database: "external" }).files;
-    const migration = files["src/migrations/20260904_000006_knex_theme_profiles.ts"]!;
+    const runtimeMigration = files["src/migrations/20260829_000007_runtime_extensions.ts"]!;
+    const migrationSources = Object.entries(files)
+      .filter(([path]) => path.startsWith("src/migrations/"))
+      .map(([, source]) => source)
+      .join("\n");
 
-    expect(migration).toContain('CREATE TABLE "runtime_theme_profile_publications"');
-    expect(migration).toContain('CREATE TABLE "runtime_theme_profile_outbox"');
-    expect(migration).toContain('CONSTRAINT "runtime_theme_profile_state_digest_check"');
-    expect(files["src/migrations/index.ts"]).toContain('name: "20260904_000006_knex_theme_profiles"');
-    expect(files["src/migrations/20260904_000007_knex_workspace_sidebar_preferences.ts"]).toContain("kNexWorkspaceSidebarPreferenceSchemaMigration");
-    expect(files["src/migrations/index.ts"]).toContain('name: "20260904_000007_knex_workspace_sidebar_preferences"');
+    expect(runtimeMigration).toContain("kNexRuntimeExtensionSchemaMigrations");
+    expect(runtimeMigration).toContain("for (const migration of kNexRuntimeExtensionSchemaMigrations) await migration.up(args);");
+    expect(runtimeMigration).toContain("for (const migration of [...kNexRuntimeExtensionSchemaMigrations].reverse()) await migration.down(args);");
+    expect(files).not.toHaveProperty("src/migrations/20260904_000006_knex_theme_profiles.ts");
+    expect(migrationSources).not.toContain('CREATE TABLE "runtime_theme_profile_publications"');
+    expect(migrationSources).not.toContain('CREATE TABLE "runtime_theme_profile_outbox"');
+    expect(files["src/migrations/20260904_000028_workspace_sidebar_preferences.ts"]).toContain("kNexWorkspaceSidebarPreferenceSchemaMigration");
+    expect(files["src/migrations/index.ts"]).toContain('name: "20260904_000028_workspace_sidebar_preferences"');
   });
 
   it("wires current durable presentation around whole shell and polling watermark", () => {
