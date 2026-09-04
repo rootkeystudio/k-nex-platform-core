@@ -8,7 +8,10 @@ import test from "node:test";
 
 const fixtureDirectory = fileURLToPath(new URL("..", import.meta.url));
 const topologyProcess = join(fixtureDirectory, "static-deployment", "topology-process.mjs");
-const PROBE_LINE_STARTUP_TIMEOUT_MS = 10_000;
+// Topology startup loads the complete static-deployment graph before its first
+// readiness line. This allowance must cover saturated cumulative CI; the
+// bounded artifact-wait behavior is timed only after readiness below.
+const PROBE_LINE_STARTUP_TIMEOUT_MS = 60_000;
 
 function startProbe(environment) {
   const child = spawn(process.execPath, [topologyProcess], {
