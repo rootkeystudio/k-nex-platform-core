@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Added live registered-Sales route refresh and fail-closed clearing for permission revocation or generation retirement.
+Made the deployment artifact probe preserve JSON records split across arbitrary stream chunks.
 
 ## Validation
 
-Exact Node 24.19.0/pnpm 11.9.0: composition tests (117) PASS; composition build PASS; diff check PASS. Real generated-app proof pending after all review fixes.
+Exact Node 24.19.0/pnpm 11.9.0: artifact-wait fixture build PASS; isolated artifact-wait tests (2) PASS; diff check PASS. Real generated-app proof pending after all review fixes.
 
 ## Next
 
