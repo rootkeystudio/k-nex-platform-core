@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Regenerated the exact v1 packed closure and both factory/customer locks for the reviewed runtime fixes.
+Passed the repaired generated Sales application with real PostgreSQL, Next/Payload HTTP, and Chromium.
 
 ## Validation
 
-Exact Node 24.19.0/pnpm 11.9.0: packed closure/factory-lock checks PASS; customer-alpha and customer-beta frozen installs PASS; diff check PASS.
+Exact Node 24.19.0/pnpm 11.9.0: isolated `test:p12:shell` PASS in 209.7s, including open-route revocation, Sales retirement/platform survival, lifecycle recovery, and mutable-state readiness.
 
 ## Next
 
-Run the isolated generated Sales application PostgreSQL/HTTP/Chromium proof.
+Run persistent xhigh slice review, then the phase-end focused Gate 12 fixture.
 
 ## Blockers
 
