@@ -7,16 +7,16 @@
 
 ## Last completed
 
-Generated applications now compose fixed extension/catalog and operations/receipt routes. Extension mutations use the bounded mTLS operator client with server-derived actor, action, revisions, and a package-bound host inventory digest; operations remain an authoritative read-only projection in the web process.
+The deployment-side administration operator now has reusable TLS 1.3 mTLS transport and extension command handling. Retained Platform Plugins can be re-enabled only from the exact host generation, and static runtime inventory initializes from locked deployment/fencing evidence.
 
 ## Validation
 
-Composition tests (136), composition build, and `git diff --check` PASS.
+Runtime tests (590), selected payload-adapter operator/store tests (45), runtime/payload-adapter builds, and `git diff --check` PASS.
 
 ## Next
 
-Prove the real mTLS operator journey and generated access/theme/settings administration through PostgreSQL, HTTP, and Chromium.
+Package the generated System administration closure and record the real PostgreSQL/HTTP/Chromium evidence.
 
 ## Blockers
 
-External operator implementation, runtime-inventory initialization, and the real administration journey remain incomplete; see `docs/implementation/phase-12-review-blockers.md`.
+Generated closure regeneration, result documentation, and the Phase 12 gate remain.

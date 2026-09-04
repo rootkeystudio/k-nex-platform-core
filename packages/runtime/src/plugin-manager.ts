@@ -184,6 +184,25 @@ export interface ExtensionDispositionReceipt {
   readonly occurredAt: string;
 }
 
+/** Terminal proof for re-enabling a Platform Plugin already compiled into this host image. */
+export interface ExtensionEnableReceipt {
+  readonly receiptId: string;
+  readonly operationId: string;
+  readonly operation: "install";
+  readonly disposition: "active";
+  readonly generationId: string;
+  readonly sourceCommit: string;
+  readonly compositionChangePlanDigest: string;
+  readonly buildEvidenceDigest: string;
+  readonly applicationDigest: string;
+  readonly imageDigest: string;
+  readonly hostInventoryDigest: string;
+  readonly revisionBefore: number;
+  readonly revisionAfter: number;
+  readonly inventoryRevision: number;
+  readonly occurredAt: string;
+}
+
 export interface ActiveGenerationSecurityDecision {
   readonly catalogDigest: string;
   readonly catalogSignerIdentity: string;
@@ -229,7 +248,7 @@ export interface ExtensionRunnerQuarantineReceipt {
   readonly occurredAt: string;
 }
 
-export type ExtensionManagerReceipt = ExtensionActivationReceipt | ExtensionDispositionReceipt | StaticDeploymentReceipt;
+export type ExtensionManagerReceipt = ExtensionActivationReceipt | ExtensionDispositionReceipt | ExtensionEnableReceipt | StaticDeploymentReceipt;
 
 export interface ExtensionValidationReport {
   readonly operationId: string;
@@ -282,6 +301,7 @@ export type DynamicPluginManagerPlan = Readonly<{
 export type PluginManagerPlan =
   | DynamicPluginManagerPlan
   | Readonly<{ executionClass: "live-generation"; operationId: string; plan: Extract<ExtensionInstallPlan, { deliveryClass: "platform-plugin" }> & { operation: "disable" }; sourceCommit: string; generationId: string }>
+  | Readonly<{ executionClass: "live-generation"; operationId: string; plan: Extract<ExtensionInstallPlan, { deliveryClass: "platform-plugin" }> & { operation: "install" }; sourceCommit: string; generationId: string; retainedStaticGeneration: StaticRetainedGeneration }>
   | Readonly<{ executionClass: "static-release"; preparation: "impact-only"; operationId: string; plan: Extract<ExtensionInstallPlan, { deliveryClass: "platform-plugin" }>; sourceCommit: string; generationId: string; quarantineRecovery: boolean }>
   | Readonly<{ executionClass: "static-release"; preparation: "source-ready"; operationId: string; plan: Extract<ExtensionInstallPlan, { deliveryClass: "platform-plugin" }>; sourceCommit: string; generationId: string; sourceChange: StaticCompositionChangeResult; quarantineRecovery: boolean }>
   | Readonly<{ executionClass: "static-release"; preparation: "prepared"; operationId: string; plan: Extract<ExtensionInstallPlan, { deliveryClass: "platform-plugin" }>; sourceCommit: string; generationId: string; sourceChange: StaticCompositionChangeResult; deployment: TrustedDeploymentRequest; quarantineRecovery: boolean }>;
@@ -314,6 +334,7 @@ export interface RuntimeExtensionStore {
   stageGeneration(input: Readonly<{ operationId: string; leaseToken: string; stage: StagedGenerationActivation }>): Promise<Readonly<{ operation: RuntimeExtensionOperation; event: ExtensionLifecycleEvent }>>;
   refreshGenerationReadiness(input: Readonly<{ operationId: string; leaseToken: string; stage: StagedGenerationActivation }>): Promise<RuntimeExtensionOperation>;
   activateGeneration(operationId: string, leaseToken: string): Promise<ExtensionActivationReceipt>;
+  enableGeneration(operationId: string, leaseToken: string): Promise<ExtensionEnableReceipt>;
   rollbackGeneration(operationId: string, leaseToken: string, stage: StagedGenerationActivation): Promise<ExtensionActivationReceipt>;
   completeStaticRelease(operationId: string, leaseToken: string, receipt: StaticDeploymentReceipt): Promise<StaticDeploymentReceipt>;
   disableGeneration(operationId: string, leaseToken: string): Promise<ExtensionDispositionReceipt>;
@@ -467,7 +488,7 @@ function assertPlanMatches(
     throw new PluginManagerError("PLAN_MISMATCH", "Planner output does not match the authorized extension request.");
   }
   if (!plan.targetGenerationId) throw new PluginManagerError("PLAN_MISMATCH", "Planner output has no target generation identity.");
-  const retainedReenable = request.extension.deliveryClass !== "platform-plugin" && inventory.disposition === "disabled" && request.operation === "install";
+  const retainedReenable = inventory.disposition === "disabled" && request.operation === "install";
   if (retainedReenable) {
     if (plan.targetGenerationId !== inventory.currentGenerationId) {
       throw new PluginManagerError("PLAN_MISMATCH", "Re-enable must target the retained generation from current inventory.");
@@ -488,6 +509,34 @@ function assertPlanMatches(
   } else if (plan.targetGenerationId !== inventory.currentGenerationId) {
     throw new PluginManagerError("PLAN_MISMATCH", "Disable must remain bound to the active inventory generation.");
   }
+}
+
+export interface StaticRetainedGeneration {
+  readonly generationId: string;
+  readonly version: string;
+  readonly sourceCommit: string;
+  readonly compositionChangePlanDigest: string;
+  readonly buildEvidenceDigest: string;
+  readonly applicationDigest: string;
+  readonly imageDigest: string;
+  readonly migrationRevision: number;
+  readonly workerFencingToken: number;
+  readonly receiptId: string;
+  readonly hostInventoryDigest: string;
+}
+
+function retainedStaticGeneration(inventory: RuntimeExtensionInventory, extension: Extract<ExtensionIdentity, { deliveryClass: "platform-plugin" }>): StaticRetainedGeneration {
+  const entry = inventory.extensions.platformPlugins[extension.id];
+  if (!entry || entry.disposition !== "disabled" || !entry.retainedGeneration) {
+    throw new PluginManagerError("PLAN_MISMATCH", "Platform Plugin re-enable requires one retained disabled generation.");
+  }
+  const generation = entry.retainedGeneration;
+  return Object.freeze({
+    generationId: generation.generationId, version: generation.version, sourceCommit: generation.sourceCommit,
+    compositionChangePlanDigest: generation.compositionChangePlanDigest, buildEvidenceDigest: generation.buildEvidenceDigest,
+    applicationDigest: generation.applicationDigest, imageDigest: generation.imageDigest, migrationRevision: generation.migrationRevision,
+    workerFencingToken: generation.workerFencingToken, receiptId: generation.receiptId, hostInventoryDigest: inventory.hostInventoryDigest
+  });
 }
 
 function authorityOwner(request: ExtensionChangeRequest): VerifiedGenerationAuthorityOwner {
@@ -584,7 +633,8 @@ export class PluginManager {
   async plan(request: ExtensionChangeRequest): Promise<PluginManagerPlan> {
     if (!validRequest(request)) throw new PluginManagerError("INVALID_REQUEST", "Extension change request is invalid.");
     const requestDigest = await extensionOperationRequestDigest(request);
-    const inventory = inventoryGenerationState(await this.store.inventory(request.applicationId, request.environment), request);
+    const runtimeInventory = await this.store.inventory(request.applicationId, request.environment);
+    const inventory = inventoryGenerationState(runtimeInventory, request);
     assertRetainedReleaseReenable(request, inventory);
     admittedAuthorizationOperation(request, inventory);
     const authorization = await this.authorizer.authorize({ ...request, operation: "plan", requestDigest });
@@ -624,6 +674,12 @@ export class PluginManager {
     if (parsed.deliveryClass === "platform-plugin") {
       if (parsed.operation === "disable") {
         result = Object.freeze({ executionClass: "live-generation", operationId, plan: { ...parsed, operation: "disable" as const }, sourceCommit: planned.sourceCommit, generationId: planned.generationId });
+      } else if (parsed.operation === "install" && inventory.disposition === "disabled") {
+        const retained = retainedStaticGeneration(runtimeInventory, { deliveryClass: "platform-plugin", id: request.extension.id });
+        if (planned.sourceCommit !== retained.sourceCommit || planned.generationId !== retained.generationId) {
+          throw new PluginManagerError("PLAN_MISMATCH", "Platform Plugin re-enable must bind the exact retained host generation.");
+        }
+        result = Object.freeze({ executionClass: "live-generation", operationId, plan: { ...parsed, operation: "install" as const }, sourceCommit: planned.sourceCommit, generationId: planned.generationId, retainedStaticGeneration: retained });
       } else {
         result = Object.freeze({ executionClass: "static-release", preparation: "impact-only", operationId, plan: parsed, sourceCommit: planned.sourceCommit, generationId: planned.generationId,
           quarantineRecovery: request.operation === "update" && inventory.disposition === "quarantined" });
@@ -733,15 +789,24 @@ export class PluginManager {
     if (operation.plan.executionClass === "static-release") {
       throw new PluginManagerError("WRONG_EXECUTION_CLASS", "Platform Plugin validation belongs to trusted source/build/deployment authority.");
     }
+    if (operation.request.extension.deliveryClass === "platform-plugin" && operation.request.operation === "install" &&
+      "retainedStaticGeneration" in operation.plan && ["planning", "completed"].includes(operation.phase)) {
+      return Object.freeze({ operationId, executionClass: "live-generation", phase: operation.phase, valid: true, checks: ["retained-static-generation", "host-inventory-binding"] });
+    }
     const owner = authorityOwner(operation.request);
     const valid = operation.authority !== undefined && (assertAuthorityOwner(operation.authority, owner), await this.artifacts.reverify(operation.authority, owner));
     return Object.freeze({ operationId, executionClass: "live-generation", phase: operation.phase, valid, checks: valid ? ["verified-bundle", "generation-authority"] : [] });
   }
 
-  async activate(operationId: string): Promise<ExtensionActivationReceipt> {
+  async activate(operationId: string): Promise<ExtensionActivationReceipt | ExtensionEnableReceipt> {
     const replay = await this.completedReceipt(operationId, ["install", "update"]);
-    if (replay) return replay as ExtensionActivationReceipt;
+    if (replay) return replay as ExtensionActivationReceipt | ExtensionEnableReceipt;
     let current = await this.store.resumeOperation(operationId, this.workerId);
+    if (current.plan?.executionClass === "live-generation" && current.request.extension.deliveryClass === "platform-plugin" &&
+      current.request.operation === "install" && current.phase === "planning" && "retainedStaticGeneration" in current.plan) {
+      await this.reauthorize(current);
+      return this.store.enableGeneration(operationId, current.leaseToken);
+    }
     if (!current.plan || current.plan.executionClass !== "live-generation" || !current.authority || !["install", "update"].includes(current.request.operation)) {
       throw new PluginManagerError("INVALID_STATE", "Only a verified live generation can be activated.");
     }

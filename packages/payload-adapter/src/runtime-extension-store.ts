@@ -4,9 +4,11 @@ import {
   canonicalJson,
   compareExactSemverPrecedence,
   ExactSemverSchema,
+  ExtensionIdentitySchema,
   ExtensionLifecycleEventSchema,
   ExtensionSecurityQuarantineEventSchema,
   RuntimeExtensionInventorySchema,
+  StaticDeploymentReceiptSchema,
   type ExtensionLifecycleEvent,
   type ExtensionSecurityQuarantineEvent,
   type RuntimeExtensionInventory,
@@ -16,6 +18,7 @@ import type {
   ClaimOperationResult,
   ExtensionActivationReceipt,
   ExtensionDispositionReceipt,
+  ExtensionEnableReceipt,
   ExtensionRunnerQuarantineReceipt,
   ExtensionSecurityQuarantineReceipt,
   ExtensionManagerReceipt,
@@ -25,6 +28,8 @@ import type {
   RuntimeExtensionStore,
   RunnerQuarantineReason,
   StagedGenerationActivation,
+  StaticApplicationGeneration,
+  StaticRetainedGeneration,
   VerifiedGenerationAuthority
 } from "@k-nex/runtime";
 import type { AuthorizationLifecycleProjectionInput, SharedStaticGenerationRebindInput } from "./authorization-lifecycle-projector.js";
@@ -46,6 +51,32 @@ export interface RuntimeExtensionPool {
 
 export interface RuntimeExtensionClock {
   now(): Date;
+}
+
+export interface StaticHostPlatformPlugin {
+  readonly id: string;
+  readonly package: Readonly<{ name: string; version: string; integrity: string }>;
+  readonly runtimeGenerationId: string;
+}
+
+export interface StaticHostRuntimeInventoryReconciliation {
+  readonly applicationId: string;
+  readonly environment: string;
+  readonly platformPlugins: readonly StaticHostPlatformPlugin[];
+  readonly deployment:
+    | Readonly<{ kind: "initial"; generation: StaticApplicationGeneration; workerFencingToken: number }>
+    | Readonly<{ kind: "receipt"; receipt: StaticDeploymentReceipt }>;
+}
+
+interface StaticHostAuthorityRow {
+  revision: number;
+  active_generation_id: string;
+  active_generation: Record<string, unknown>;
+  active_execution_generation: string;
+  fencing_token: string | number;
+  promotion_revision: number;
+  lease_expires_at: Date | string;
+  event_json: unknown | null;
 }
 
 interface RuntimeExtensionAuthorizationLifecycleProjector {
@@ -343,7 +374,9 @@ function assertPlanIdentity(row: OperationRow, plan: PluginManagerPlan, state: E
     fail("GENERATION_MISMATCH", "Persisted plan does not bind this operation to the current inventory generation.");
   }
   if (!planned.targetGenerationId) fail("GENERATION_MISMATCH", "Persisted plan has no target generation identity.");
-  if ((row.delivery_class === "platform-plugin" && row.operation_kind === "disable") !==
+  const retainedStaticEnable = row.delivery_class === "platform-plugin" && row.operation_kind === "install" &&
+    plan.executionClass === "live-generation" && "retainedStaticGeneration" in plan;
+  if ((row.delivery_class === "platform-plugin" && (row.operation_kind === "disable" || retainedStaticEnable)) !==
       (plan.executionClass === "live-generation" && planned.deliveryClass === "platform-plugin")) {
     fail("GENERATION_MISMATCH", "Platform Plugin execution class does not match its lifecycle operation.");
   }
@@ -354,7 +387,14 @@ function assertPlanIdentity(row: OperationRow, plan: PluginManagerPlan, state: E
       (row.operation_kind === "update" && state.disposition === "quarantined")) {
     fail("GENERATION_MISMATCH", "Static quarantine recovery authority does not match durable lifecycle state.");
   }
-  if (["install", "update"].includes(row.operation_kind)) {
+  if (retainedStaticEnable) {
+    if (state.disposition !== "disabled" || !state.retained_generation ||
+      canonicalJson(staticRetainedGeneration(state.retained_generation, plan.retainedStaticGeneration.hostInventoryDigest)) !== canonicalJson(plan.retainedStaticGeneration) ||
+      plan.sourceCommit !== plan.retainedStaticGeneration.sourceCommit || plan.generationId !== plan.retainedStaticGeneration.generationId ||
+      planned.version !== plan.retainedStaticGeneration.version) {
+      fail("GENERATION_MISMATCH", "Retained Platform Plugin enable plan does not match the disabled host generation.");
+    }
+  } else if (["install", "update"].includes(row.operation_kind)) {
     if (planned.targetGenerationId === state.active_generation_id || planned.targetGenerationId === state.rollback_generation_id) {
       fail("GENERATION_MISMATCH", "Install and update target generations must be fresh.");
     }
@@ -368,6 +408,96 @@ function assertPlanIdentity(row: OperationRow, plan: PluginManagerPlan, state: E
     }
   } else if (planned.targetGenerationId !== currentGenerationId) {
     fail("GENERATION_MISMATCH", "Disable plan must remain bound to the active inventory generation.");
+  }
+}
+
+function staticRetainedGeneration(retained: Record<string, unknown>, hostInventoryDigest: string): StaticRetainedGeneration {
+  if (retained["authority"] !== "static-build" || !validRecordId(String(retained["generationId"])) || !ExactSemverSchema.safeParse(retained["version"]).success ||
+    typeof retained["sourceCommit"] !== "string" || !/^[0-9a-f]{40}$/u.test(retained["sourceCommit"]) ||
+    !["compositionChangePlanDigest", "buildEvidenceDigest", "applicationDigest", "imageDigest"].every((key) => typeof retained[key] === "string" && /^sha256:[0-9a-f]{64}$/u.test(retained[key])) ||
+    !Number.isSafeInteger(retained["migrationRevision"]) || Number(retained["migrationRevision"]) < 0 ||
+    !Number.isSafeInteger(retained["workerFencingToken"]) || Number(retained["workerFencingToken"]) < 1 ||
+    !validRecordId(String(retained["receiptId"])) || !/^sha256:[0-9a-f]{64}$/u.test(hostInventoryDigest)) {
+    fail("GENERATION_MISMATCH", "Retained Platform Plugin evidence is invalid.");
+  }
+  return {
+    generationId: String(retained["generationId"]), version: String(retained["version"]), sourceCommit: String(retained["sourceCommit"]),
+    compositionChangePlanDigest: String(retained["compositionChangePlanDigest"]), buildEvidenceDigest: String(retained["buildEvidenceDigest"]),
+    applicationDigest: String(retained["applicationDigest"]), imageDigest: String(retained["imageDigest"]),
+    migrationRevision: Number(retained["migrationRevision"]), workerFencingToken: Number(retained["workerFencingToken"]), receiptId: String(retained["receiptId"]), hostInventoryDigest
+  };
+}
+
+function staticHostPlugins(input: StaticHostRuntimeInventoryReconciliation): readonly StaticHostPlatformPlugin[] {
+  if (!validRecordId(input.applicationId) || !/^[a-z][a-z0-9-]{1,63}$/u.test(input.environment) ||
+    input.platformPlugins.length < 1 || input.platformPlugins.length > 256) {
+    fail("STATE_INVALID", "Static host runtime inventory owner or size is invalid.");
+  }
+  const plugins = [...input.platformPlugins].sort((left, right) => left.id < right.id ? -1 : left.id > right.id ? 1 : 0);
+  const runtimeGenerationIds = new Set<string>();
+  for (const [index, plugin] of plugins.entries()) {
+    if (!ExtensionIdentitySchema.safeParse({ deliveryClass: "platform-plugin", id: plugin.id }).success ||
+      !validRecordId(plugin.runtimeGenerationId) || !ExactSemverSchema.safeParse(plugin.package.version).success ||
+      !/^@?[a-z0-9][a-z0-9._-]*(?:\/[a-z0-9][a-z0-9._-]*)?$/u.test(plugin.package.name) ||
+      !/^(?:sha256:[0-9a-f]{64}|sha512-[A-Za-z0-9+/]{86}==)$/u.test(plugin.package.integrity) ||
+      (index > 0 && plugins[index - 1]!.id === plugin.id) || runtimeGenerationIds.has(plugin.runtimeGenerationId)) {
+      fail("STATE_INVALID", "Static host Platform Plugin inventory is invalid.");
+    }
+    runtimeGenerationIds.add(plugin.runtimeGenerationId);
+  }
+  return Object.freeze(plugins.map((plugin) => Object.freeze({
+    id: plugin.id,
+    package: Object.freeze({ ...plugin.package }),
+    runtimeGenerationId: plugin.runtimeGenerationId
+  })));
+}
+
+interface StaticHostDeploymentEvidence {
+  readonly activeGenerationId: string;
+  readonly sourceCommit: string;
+  readonly compositionChangePlanDigest: string;
+  readonly buildEvidenceDigest: string;
+  readonly applicationDigest: string;
+  readonly imageDigest: string;
+  readonly migrationRevision: number;
+  readonly workerFencingToken: number;
+  readonly promotionRevision: number;
+  readonly receiptId: string;
+  readonly receipt?: StaticDeploymentReceipt;
+  readonly initialGeneration?: StaticApplicationGeneration;
+}
+
+function staticHostGenerationEvidence(plugin: StaticHostPlatformPlugin, deployment: StaticHostDeploymentEvidence) {
+  return Object.freeze({
+    authority: "static-build" as const,
+    generationId: plugin.runtimeGenerationId,
+    version: plugin.package.version,
+    sourceCommit: deployment.sourceCommit,
+    compositionChangePlanDigest: deployment.compositionChangePlanDigest,
+    buildEvidenceDigest: deployment.buildEvidenceDigest,
+    applicationDigest: deployment.applicationDigest,
+    imageDigest: deployment.imageDigest,
+    migrationRevision: deployment.migrationRevision,
+    workerFencingToken: deployment.workerFencingToken,
+    receiptId: deployment.receiptId
+  });
+}
+
+function assertStaticHostAuthority(row: StaticHostAuthorityRow | undefined, deployment: StaticHostDeploymentEvidence, now: Date): void {
+  const leaseExpiresAt = row ? new Date(row.lease_expires_at).valueOf() : Number.NaN;
+  if (!row || row.revision !== deployment.promotionRevision || row.active_generation_id !== deployment.activeGenerationId ||
+    row.active_execution_generation !== deployment.activeGenerationId || Number(row.fencing_token) !== deployment.workerFencingToken ||
+    row.promotion_revision !== deployment.promotionRevision || !Number.isFinite(now.valueOf()) || !Number.isFinite(leaseExpiresAt) || leaseExpiresAt <= now.valueOf() ||
+    (deployment.receipt ? canonicalJson(row.event_json) !== canonicalJson(deployment.receipt) : row.event_json !== null)) {
+    fail("GENERATION_MISMATCH", "Static host deployment receipt, serving generation, or worker fence is not current.");
+  }
+  const generation = row.active_generation;
+  if ((deployment.initialGeneration && canonicalJson(generation) !== canonicalJson(deployment.initialGeneration)) ||
+    generation["generationId"] !== deployment.activeGenerationId || generation["sourceCommit"] !== deployment.sourceCommit ||
+    generation["compositionChangePlanDigest"] !== deployment.compositionChangePlanDigest || generation["buildEvidenceDigest"] !== deployment.buildEvidenceDigest ||
+    generation["applicationDigest"] !== deployment.applicationDigest || generation["imageDigest"] !== deployment.imageDigest ||
+    generation["migrationRevision"] !== deployment.migrationRevision) {
+    fail("GENERATION_MISMATCH", "Static host deployment generation does not match its durable receipt.");
   }
 }
 
@@ -519,6 +649,119 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
     }
   }
 
+  /**
+   * Seeds an empty Platform Plugin projection from locked revision-zero deployment
+   * state or a durable supervisor receipt. Boot reconciliation is not a user lifecycle
+   * transition, so it cannot fabricate actor audit or authorization transition evidence.
+   */
+  async reconcileStaticHostInventory(input: StaticHostRuntimeInventoryReconciliation): Promise<RuntimeExtensionInventory> {
+    const plugins = staticHostPlugins(input);
+    const configuredHostInventoryDigest = await sha256({ applicationId: input.applicationId, environment: input.environment, platformPlugins: plugins });
+    if (configuredHostInventoryDigest !== this.hostInventoryDigest) {
+      fail("GENERATION_MISMATCH", "Static host inventory differs from the configured immutable host inventory.");
+    }
+    let deployment: StaticHostDeploymentEvidence;
+    if (input.deployment.kind === "receipt") {
+      const parsed = StaticDeploymentReceiptSchema.safeParse(input.deployment.receipt);
+      if (!parsed.success || canonicalJson(parsed.data) !== canonicalJson(input.deployment.receipt) ||
+        !["promote", "rollback"].includes(parsed.data.operation) || parsed.data.applicationId !== input.applicationId || parsed.data.environment !== input.environment) {
+        fail("GENERATION_MISMATCH", "Static host inventory does not bind the current deployment receipt.");
+      }
+      const receipt = parsed.data;
+      if (receipt.promotionRevision !== receipt.revisionAfter) fail("GENERATION_MISMATCH", "Static deployment receipt revision is inconsistent.");
+      deployment = Object.freeze({
+        activeGenerationId: receipt.activeGenerationId, sourceCommit: receipt.sourceCommit,
+        compositionChangePlanDigest: receipt.compositionChangePlanDigest, buildEvidenceDigest: receipt.buildEvidenceDigest,
+        applicationDigest: receipt.applicationDigest, imageDigest: receipt.imageDigest, migrationRevision: receipt.migrationRevision,
+        workerFencingToken: receipt.workerFencingToken, promotionRevision: receipt.promotionRevision, receiptId: receipt.receiptId, receipt
+      });
+    } else {
+      const generation = input.deployment.generation;
+      if (!validRecordId(generation.generationId) || !/^[0-9a-f]{40}$/u.test(generation.sourceCommit) ||
+        ![generation.compositionChangePlanDigest, generation.buildEvidenceDigest, generation.applicationDigest, generation.imageDigest].every((value) => /^sha256:[0-9a-f]{64}$/u.test(value)) ||
+        !/^[A-Za-z0-9._/-]+@sha256:[0-9a-f]{64}$/u.test(generation.imageReference) || !generation.imageReference.endsWith(`@${generation.imageDigest}`) ||
+        !Number.isSafeInteger(generation.migrationRevision) || generation.migrationRevision < 0 ||
+        !Number.isSafeInteger(input.deployment.workerFencingToken) || input.deployment.workerFencingToken < 1) {
+        fail("GENERATION_MISMATCH", "Initial static host deployment evidence is invalid.");
+      }
+      const initialDigest = await sha256({ applicationId: input.applicationId, environment: input.environment, generation, workerFencingToken: input.deployment.workerFencingToken, hostInventoryDigest: this.hostInventoryDigest });
+      deployment = Object.freeze({
+        activeGenerationId: generation.generationId, sourceCommit: generation.sourceCommit,
+        compositionChangePlanDigest: generation.compositionChangePlanDigest, buildEvidenceDigest: generation.buildEvidenceDigest,
+        applicationDigest: generation.applicationDigest, imageDigest: generation.imageDigest, migrationRevision: generation.migrationRevision,
+        workerFencingToken: input.deployment.workerFencingToken, promotionRevision: 0,
+        receiptId: `static-host-initial-${initialDigest.slice("sha256:".length, "sha256:".length + 32)}`,
+        initialGeneration: Object.freeze(structuredClone(generation))
+      });
+    }
+    const reconciliationDigest = await sha256({ applicationId: input.applicationId, environment: input.environment, receiptId: deployment.receiptId, hostInventoryDigest: this.hostInventoryDigest });
+    const operationId = `static-host-reconcile-${reconciliationDigest.slice("sha256:".length, "sha256:".length + 32)}`;
+    await this.transaction(async (session) => {
+      await session.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [canonicalJson([input.applicationId, input.environment, "static-host-runtime-inventory"])]);
+      const authority = await session.query<StaticHostAuthorityRow>(
+        `select d.revision, d.active_generation_id, d.active_generation,
+           f.active_execution_generation, f.fencing_token, f.promotion_revision, f.lease_expires_at, x.event_json
+         from runtime_static_deployments d
+         join runtime_worker_generation_fences f using (application_id, environment)
+         left join runtime_static_deployment_outbox x on x.application_id=d.application_id and x.environment=d.environment
+           and x.revision=d.revision and ($3::varchar is null or x.event_id=$3)
+         where d.application_id=$1 and d.environment=$2
+         for update of d, f`,
+        [input.applicationId, input.environment, deployment.receipt ? deployment.receiptId : null]
+      );
+      assertStaticHostAuthority(authority.rows[0], deployment, this.clock.now());
+      const existing = await session.query<ExtensionRow>(
+        `select *, 0::int as inventory_revision from runtime_extensions
+         where application_id=$1 and environment=$2 and delivery_class='platform-plugin'
+         order by extension_id for update`,
+        [input.applicationId, input.environment]
+      );
+      const configured = new Map(plugins.map((plugin) => [plugin.id, staticHostGenerationEvidence(plugin, deployment)]));
+      if (existing.rows.length > 0) {
+        for (const row of existing.rows) {
+          const expected = configured.get(row.extension_id);
+          if (!expected) {
+            if (row.disposition === "active") fail("GENERATION_MISMATCH", "Active Platform Plugin is absent from configured host inventory.");
+            continue;
+          }
+          configured.delete(row.extension_id);
+          const actual = row.disposition === "active" ? row.active_generation : row.disposition === "removed" ? null : row.retained_generation;
+          if (!actual || canonicalJson(actual) !== canonicalJson(expected) ||
+            (row.disposition === "active" && row.active_generation_id !== expected.generationId)) {
+            fail("GENERATION_MISMATCH", "Platform Plugin runtime projection differs from current host release evidence.");
+          }
+        }
+        if (configured.size > 0) fail("GENERATION_MISMATCH", "Configured Platform Plugin is missing from an initialized runtime projection.");
+        return;
+      }
+      await session.query(
+        `insert into runtime_extension_inventory_revisions (application_id, environment, revision)
+         values ($1,$2,0) on conflict do nothing`,
+        [input.applicationId, input.environment]
+      );
+      const advanced = await session.query<{ revision: number }>(
+        `update runtime_extension_inventory_revisions set revision=revision+1
+         where application_id=$1 and environment=$2 returning revision`,
+        [input.applicationId, input.environment]
+      );
+      if (!advanced.rows[0]) fail("STATE_INVALID", "Static host runtime inventory revision is unavailable.");
+      for (const plugin of plugins) {
+        const evidence = staticHostGenerationEvidence(plugin, deployment);
+        const stateDigest = await sha256({ disposition: "active", generation: evidence, hostInventoryDigest: this.hostInventoryDigest });
+        const inserted = await session.query(
+          `insert into runtime_extensions (
+             application_id, environment, delivery_class, extension_id, revision, disposition,
+             active_generation_id, active_generation, last_operation_id, last_receipt_id, state_digest
+           ) values ($1,$2,'platform-plugin',$3,1,'active',$4,$5::jsonb,$6,$7,$8)
+           on conflict do nothing returning extension_id`,
+          [input.applicationId, input.environment, plugin.id, plugin.runtimeGenerationId, JSON.stringify(evidence), operationId, deployment.receiptId, stateDigest]
+        );
+        if (inserted.rowCount !== 1) fail("REVISION_CONFLICT", "Platform Plugin runtime projection changed during host reconciliation.");
+      }
+    });
+    return this.inventory(input.applicationId, input.environment);
+  }
+
   async reconcileExpiredOperations(input: Readonly<{ applicationId: string; environment: string }>): Promise<number> {
     const now = timestamp(this.clock);
     return this.transaction(async (session) => {
@@ -662,7 +905,11 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
       const saved = updated.rows[0];
       if (!saved) fail("LEASE_CONFLICT", "Runtime extension plan lease changed.");
       if (!(plan.executionClass === "static-release" && plan.preparation === "impact-only")) {
-        await this.appendTransition(session, saved, "planning", undefined, current.active_generation ?? undefined);
+        const retainedStaticReenable = plan.executionClass === "live-generation" && row.delivery_class === "platform-plugin" &&
+          row.operation_kind === "install" && "retainedStaticGeneration" in plan;
+        const retainedGeneration = retainedStaticReenable ? current.retained_generation : current.active_generation;
+        if (retainedStaticReenable && !retainedGeneration) fail("GENERATION_MISMATCH", "Platform Plugin re-enable lost its retained host generation.");
+        await this.appendTransition(session, saved, "planning", undefined, retainedGeneration ?? undefined);
       }
       return operation(saved);
     });
@@ -857,6 +1104,60 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
         revisionAfter: revision, inventoryRevision, compatibility: generation.compatibility_json,
         rollback: generation.compatibility_json.status === "irreversible" ? "blocked-irreversible" : rollbackAvailable ? "available" : "unavailable",
         occurredAt: event.occurredAt
+      });
+      await this.completeOperation(session, row, receipt);
+      return receipt;
+    });
+  }
+
+  async enableGeneration(id: string, token: string): Promise<ExtensionEnableReceipt> {
+    return this.transaction(async (session) => {
+      const replay = await this.completedReceipt(session, id, ["install"]);
+      if (replay) return replay as ExtensionEnableReceipt;
+      const row = await this.lockOperation(session, id, token);
+      const plan = row.plan_json;
+      if (row.phase !== "planning" || row.delivery_class !== "platform-plugin" || row.operation_kind !== "install" ||
+        plan?.executionClass !== "live-generation" || !("retainedStaticGeneration" in plan)) {
+        fail("PHASE_CONFLICT", "Only a retained disabled Platform Plugin generation can be enabled live.");
+      }
+      await session.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [identityKey(row)]);
+      const stateResult = await session.query<ExtensionRow>(
+        `select *, 0::int as inventory_revision from runtime_extensions where application_id=$1 and environment=$2 and delivery_class=$3 and extension_id=$4 for update`,
+        [row.application_id, row.environment, row.delivery_class, row.extension_id]
+      );
+      const state = stateResult.rows[0];
+      if (!state || state.revision !== row.expected_revision + 1 || state.disposition !== "disabled" || state.active_generation_id || !state.retained_generation) {
+        fail("REVISION_CONFLICT", "Disabled Platform Plugin changed before re-enable.");
+      }
+      const retained = staticRetainedGeneration(state.retained_generation, this.hostInventoryDigest);
+      if (canonicalJson(retained) !== canonicalJson(plan.retainedStaticGeneration) || plan.sourceCommit !== retained.sourceCommit ||
+        plan.generationId !== retained.generationId || plan.plan.targetGenerationId !== retained.generationId || plan.plan.currentGenerationId !== retained.generationId ||
+        plan.plan.version !== retained.version) {
+        fail("GENERATION_MISMATCH", "Retained Platform Plugin or current host inventory does not match the enable plan.");
+      }
+      const revision = state.revision + 1;
+      const inventoryRevision = await this.advanceInventoryRevision(session, row.application_id, row.environment);
+      const updated = await session.query(
+        `update runtime_extensions set revision=$5, disposition='active', active_generation_id=$6, active_generation=$7::jsonb,
+           rollback_generation_id=null, rollback_generation=null, retained_generation=null, rollback_compatibility_json=null,
+           last_operation_id=$8, updated_at=now()
+         where application_id=$1 and environment=$2 and delivery_class=$3 and extension_id=$4 and revision=$9`,
+        [row.application_id, row.environment, row.delivery_class, row.extension_id, revision, retained.generationId,
+          JSON.stringify(state.retained_generation), row.operation_id, state.revision]
+      );
+      if (updated.rowCount !== 1) fail("REVISION_CONFLICT", "Disabled Platform Plugin changed during re-enable.");
+      await session.query(
+        `update runtime_extension_generations set state='active', receipt_id=$6, activated_at=now()
+         where application_id=$1 and environment=$2 and delivery_class=$3 and extension_id=$4 and generation_id=$5`,
+        [row.application_id, row.environment, row.delivery_class, row.extension_id, retained.generationId, evidenceIds(row, revision).receiptId]
+      );
+      const event = await this.writeTransitionEvidence(session, row, "completed", undefined, revision, inventoryRevision, "active", undefined, state.retained_generation);
+      await this.projectAuthorizationLifecycle(session, event, [retained.generationId]);
+      const receipt: ExtensionEnableReceipt = Object.freeze({
+        receiptId: event.receiptId, operationId: row.operation_id, operation: "install", disposition: "active", generationId: retained.generationId,
+        sourceCommit: retained.sourceCommit, compositionChangePlanDigest: retained.compositionChangePlanDigest, buildEvidenceDigest: retained.buildEvidenceDigest,
+        applicationDigest: retained.applicationDigest, imageDigest: retained.imageDigest, hostInventoryDigest: retained.hostInventoryDigest,
+        revisionBefore: state.revision, revisionAfter: revision, inventoryRevision, occurredAt: event.occurredAt
       });
       await this.completeOperation(session, row, receipt);
       return receipt;

@@ -134,6 +134,14 @@ class MemoryStore implements RuntimeExtensionStore {
       rollback: "unavailable", occurredAt: "2026-08-29T09:00:00.000Z"
     };
   }
+  async enableGeneration() {
+    return {
+      receiptId: "enable-receipt-1", operationId: this.operation!.operationId, operation: "install" as const, disposition: "active" as const,
+      generationId: "customer-alpha-green-12", sourceCommit: "a".repeat(40), compositionChangePlanDigest: digest("a"),
+      buildEvidenceDigest: digest("b"), applicationDigest: digest("c"), imageDigest: digest("d"), hostInventoryDigest: digest("7"),
+      revisionBefore: 4, revisionAfter: 5, inventoryRevision: 5, occurredAt: "2026-08-29T09:00:00.000Z"
+    };
+  }
   async rollbackGeneration(_id: string, _token: string, stage: StagedGenerationActivation): Promise<ExtensionActivationReceipt> {
     if (!this.rollbackResult) throw new Error("unused");
     this.rollbackStage = stage;
@@ -523,7 +531,7 @@ describe("PluginManager", () => {
     await expect(freshGeneration.value.plan(platformRequest)).rejects.toMatchObject({ code: "PLAN_MISMATCH" });
   });
 
-  it("re-enables an exact retained Platform Plugin release through a fresh application generation", async () => {
+  it("re-enables an exact retained Platform Plugin generation without source/build work", async () => {
     const runtime = manager();
     const platformRequest: ExtensionChangeRequest = {
       ...request, extension: { deliveryClass: "platform-plugin", id: "module.fixture.plugin" }, targetVersion: "1.0.0", expectedRevision: 4,
@@ -541,18 +549,23 @@ describe("PluginManager", () => {
     };
     const platformPlan: ExtensionInstallPlan = {
       schemaVersion: 1, planId: "fixture-reenable-5", operationId: "placeholder", operation: "install", version: "1.0.0", artifactDigest: digest("a"),
-      expectedRevision: 4, currentGenerationId: "customer-alpha-green-12", targetGenerationId: "customer-alpha-reenable-13", approvalRequired: true,
+      expectedRevision: 4, currentGenerationId: "customer-alpha-green-12", targetGenerationId: "customer-alpha-green-12", approvalRequired: true,
       rollback: { available: true, windowSeconds: 86_400 }, deliveryClass: "platform-plugin", id: "module.fixture.plugin",
       availability: { outcome: "zero-downtime-eligible", checks: { oldGenerationHealthy: true, expandCompatibleMigration: true, writerReaderOverlap: true, workerDrain: true, realtimeConvergence: true, targetReadiness: true, inventoryMatch: true, rollbackCompatible: true } }
     };
-    runtime.planner.plan.mockImplementation(async (planning) => ({ plan: { ...platformPlan, operationId: planning.operationId }, sourceCommit: "c".repeat(40), generationId: "customer-alpha-reenable-13" }));
+    runtime.planner.plan.mockImplementation(async (planning) => ({ plan: { ...platformPlan, operationId: planning.operationId }, sourceCommit: "b".repeat(40), generationId: "customer-alpha-green-12" }));
     runtime.staticChanges.request.mockResolvedValue({ status: "source-change-ready", planDigest: digest("e"), targetSourceCommit: "c".repeat(40), change: staticChange });
     runtime.deployments.request.mockResolvedValue({ status: "build-requested", buildRequestDigest: digest("f"), sourceCommit: "c".repeat(40) });
-    await expect(runtime.value.plan(platformRequest)).resolves.toMatchObject({ executionClass: "static-release", generationId: "customer-alpha-reenable-13" });
+    const planned = await runtime.value.plan(platformRequest);
+    expect(planned).toMatchObject({ executionClass: "live-generation", generationId: "customer-alpha-green-12", retainedStaticGeneration: { generationId: "customer-alpha-green-12" } });
+    await expect(runtime.value.validate(planned.operationId)).resolves.toMatchObject({ valid: true, checks: ["retained-static-generation", "host-inventory-binding"] });
+    await expect(runtime.value.activate(planned.operationId)).resolves.toMatchObject({ disposition: "active", generationId: "customer-alpha-green-12" });
+    expect(runtime.staticChanges.request).not.toHaveBeenCalled();
+    expect(runtime.deployments.request).not.toHaveBeenCalled();
 
     const reused = manager();
     reused.store.inventoryValue = runtime.store.inventoryValue;
-    reused.planner.plan.mockImplementation(async (planning) => ({ plan: { ...platformPlan, operationId: planning.operationId, targetGenerationId: "customer-alpha-green-12" }, sourceCommit: "c".repeat(40), generationId: "customer-alpha-green-12" }));
+    reused.planner.plan.mockImplementation(async (planning) => ({ plan: { ...platformPlan, operationId: planning.operationId, targetGenerationId: "customer-alpha-reenable-13" }, sourceCommit: "b".repeat(40), generationId: "customer-alpha-reenable-13" }));
     await expect(reused.value.plan(platformRequest)).rejects.toMatchObject({ code: "PLAN_MISMATCH" });
   });
 

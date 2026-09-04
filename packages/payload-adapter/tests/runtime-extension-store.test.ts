@@ -206,6 +206,58 @@ function staticUninstallHarness(
   };
 }
 
+function staticEnableHarness(options: Readonly<{ hostDigest?: string; updateRowCount?: number; completed?: boolean; beforePlan?: boolean }> = {}) {
+  const queries: Array<readonly [string, readonly unknown[] | undefined]> = [];
+  const projector = { project: vi.fn(async () => undefined) };
+  const retained = {
+    authority: "static-build", generationId: "static-generation-retained", version: "1.0.0", sourceCommit: "a".repeat(40),
+    compositionChangePlanDigest: digest("b"), buildEvidenceDigest: digest("c"), applicationDigest: digest("d"), imageDigest: digest("e"),
+    migrationRevision: 3, workerFencingToken: 4, receiptId: "static-receipt-retained"
+  };
+  const hostInventoryDigest = options.hostDigest ?? digest("9");
+  const result = {
+    receiptId: "receipt-static-enable-1-6", operationId: "operation-static-enable-1", operation: "install" as const, disposition: "active" as const,
+    generationId: retained.generationId, sourceCommit: retained.sourceCommit, compositionChangePlanDigest: retained.compositionChangePlanDigest,
+    buildEvidenceDigest: retained.buildEvidenceDigest, applicationDigest: retained.applicationDigest, imageDigest: retained.imageDigest, hostInventoryDigest,
+    revisionBefore: 5, revisionAfter: 6, inventoryRevision: 6, occurredAt: now.toISOString()
+  };
+  const enablePlan = {
+    executionClass: "live-generation" as const, operationId: "operation-static-enable-1", sourceCommit: retained.sourceCommit, generationId: retained.generationId,
+    retainedStaticGeneration: { generationId: retained.generationId, version: retained.version, sourceCommit: retained.sourceCommit,
+      compositionChangePlanDigest: retained.compositionChangePlanDigest, buildEvidenceDigest: retained.buildEvidenceDigest,
+      applicationDigest: retained.applicationDigest, imageDigest: retained.imageDigest, migrationRevision: retained.migrationRevision,
+      workerFencingToken: retained.workerFencingToken, receiptId: retained.receiptId, hostInventoryDigest },
+    plan: { operationId: "operation-static-enable-1", operation: "install" as const, deliveryClass: "platform-plugin" as const, id: "module.sales", expectedRevision: 4, currentGenerationId: retained.generationId, targetGenerationId: retained.generationId, version: retained.version, artifactDigest: digest("f"), approvalRequired: true, rollback: { available: true, windowSeconds: 86_400 }, availability: { outcome: "zero-downtime-eligible" as const, checks: { oldGenerationHealthy: true, expandCompatibleMigration: true, writerReaderOverlap: true, workerDrain: true, realtimeConvergence: true, targetReadiness: true, inventoryMatch: true, rollbackCompatible: true } } },
+  };
+  const operation = {
+    operation_id: "operation-static-enable-1", application_id: owner.applicationId, environment: owner.environment,
+    delivery_class: "platform-plugin" as const, extension_id: "module.sales", operation_kind: "install" as const, request_digest: digest("1"),
+    request_json: { applicationId: owner.applicationId, environment: owner.environment, extension: { deliveryClass: "platform-plugin" as const, id: "module.sales" }, operation: "install" as const, targetVersion: retained.version, expectedRevision: 4, idempotencyKey: "static-enable-1", correlationId: "correlation-static-enable-1" },
+    authorization_json: { actor: { kind: "trusted-automation" as const, identity: "test" }, decisionId: digest("2") }, expected_revision: 4,
+    phase: options.completed ? "completed" : "planning", lease_owner: "worker-1", lease_token: "lease-1", lease_expires_at: "2026-08-31T12:01:00.000Z",
+    plan_json: options.beforePlan ? null : enablePlan, authority_json: null, result_json: options.completed ? result : null
+  };
+  const state = {
+    application_id: owner.applicationId, environment: owner.environment, delivery_class: "platform-plugin" as const, extension_id: "module.sales",
+    revision: options.beforePlan ? 4 : 5, disposition: "disabled" as const, active_generation_id: null, active_generation: null, rollback_generation_id: null, rollback_generation: null,
+    rollback_compatibility_json: null, retained_generation: retained, last_operation_id: "operation-static-disable-1", last_receipt_id: retained.receiptId, state_digest: digest("8"), inventory_revision: 5
+  };
+  const query = vi.fn(async <T extends object>(text: string, parameters?: readonly unknown[]) => {
+    queries.push([text, parameters]);
+    if (text.includes("from runtime_extension_operations")) return { rows: [operation] as unknown as T[] };
+    if (text.includes("from runtime_extensions")) return { rows: [state] as unknown as T[] };
+    if (text.startsWith("update runtime_extension_operations set plan_json=")) return { rows: [{ ...operation, plan_json: JSON.parse(String(parameters?.[2])) }] as unknown as T[], rowCount: 1 };
+    if (text.startsWith("update runtime_extension_inventory_revisions")) return { rows: [{ revision: 6 }] as unknown as T[], rowCount: 1 };
+    if (text.startsWith("update runtime_extensions set revision=revision+1")) return { rows: [{ revision: 5 }] as unknown as T[], rowCount: 1 };
+    if (text.startsWith("update runtime_extensions set revision=")) return { rows: [] as T[], rowCount: options.updateRowCount ?? 1 };
+    if (text.startsWith("update runtime_extension_operations set phase='completed'")) return { rows: [] as T[], rowCount: 1 };
+    return { rows: [] as T[], rowCount: 1 };
+  });
+  const session: RuntimeExtensionSession = { query, release: vi.fn() };
+  const pool: RuntimeExtensionPool = { connect: vi.fn(async () => session), query };
+  return { store: new PostgresRuntimeExtensionStore(pool, { now: () => now }, digest("9"), { authorizationLifecycleProjector: projector, sharedStaticGenerationRebinder: staticRebinder() }), projector, queries, retained, result, enablePlan };
+}
+
 function quarantinedLiveUpdateHarness() {
   const queries: Array<readonly [string, readonly unknown[] | undefined]> = [];
   const projector = { project: vi.fn(async () => undefined) };
@@ -445,5 +497,42 @@ describe("PostgresRuntimeExtensionStore static retained uninstall", () => {
     expect(value.queries.map(([text]) => text)).toContain("rollback");
     expect(value.queries.map(([text]) => text)).not.toContain("commit");
     expect(value.queries.some(([text]) => text.startsWith("update runtime_extension_operations set phase='completed'"))).toBe(false);
+  });
+});
+
+describe("PostgresRuntimeExtensionStore retained Platform Plugin enable", () => {
+  it("persists a re-enable plan using the disabled static generation evidence", async () => {
+    const value = staticEnableHarness({ beforePlan: true });
+    await expect(value.store.savePlan("operation-static-enable-1", "lease-1", value.enablePlan)).resolves.toMatchObject({ plan: value.enablePlan });
+    const transition = value.queries.find(([text]) => text.startsWith("insert into runtime_extension_transition_receipts"));
+    expect(JSON.parse(String(transition?.[1]?.[3]))).toMatchObject({ evidence: { generationId: value.retained.generationId, sourceCommit: value.retained.sourceCommit } });
+  });
+
+  it("restores the exact retained host generation, projects authorization, and records terminal evidence", async () => {
+    const value = staticEnableHarness();
+    await expect(value.store.enableGeneration("operation-static-enable-1", "lease-1")).resolves.toEqual(value.result);
+    const update = value.queries.find(([text]) => text.startsWith("update runtime_extensions set revision="));
+    expect(update?.[1]?.[5]).toBe(value.retained.generationId);
+    expect(JSON.parse(String(update?.[1]?.[6]))).toEqual(value.retained);
+    expect(value.projector.project).toHaveBeenCalledWith(expect.objectContaining({ runtimeGenerationIds: [value.retained.generationId], transition: expect.objectContaining({ lifecycleState: "active" }) }));
+  });
+
+  it("replays the exact completed enable receipt without another inventory mutation", async () => {
+    const value = staticEnableHarness({ completed: true });
+    await expect(value.store.enableGeneration("operation-static-enable-1", "lease-1")).resolves.toEqual(value.result);
+    expect(value.queries.some(([text]) => text.startsWith("update runtime_extensions set revision="))).toBe(false);
+  });
+
+  it("fails closed when retained host evidence differs from the current store host", async () => {
+    const value = staticEnableHarness({ hostDigest: digest("8") });
+    await expect(value.store.enableGeneration("operation-static-enable-1", "lease-1")).rejects.toMatchObject({ code: "GENERATION_MISMATCH" });
+    expect(value.queries.some(([text]) => text.startsWith("update runtime_extensions set revision="))).toBe(false);
+  });
+
+  it("rolls back a raced retained enable instead of replacing a newer lifecycle state", async () => {
+    const value = staticEnableHarness({ updateRowCount: 0 });
+    await expect(value.store.enableGeneration("operation-static-enable-1", "lease-1")).rejects.toMatchObject({ code: "REVISION_CONFLICT" });
+    expect(value.queries.map(([text]) => text)).toContain("rollback");
+    expect(value.queries.map(([text]) => text)).not.toContain("commit");
   });
 });

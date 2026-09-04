@@ -150,6 +150,7 @@ class MemoryExtensionStore implements RuntimeExtensionStore {
   async rollbackGeneration(): Promise<never> { throw new Error("not needed for planning proof"); }
   async completeStaticRelease(): Promise<never> { throw new Error("not needed for planning proof"); }
   async disableGeneration(): Promise<never> { throw new Error("not needed for planning proof"); }
+  async enableGeneration(): Promise<never> { throw new Error("not needed for planning proof"); }
   async uninstallGeneration(): Promise<never> { throw new Error("not needed for planning proof"); }
   async quarantineActiveGeneration(): Promise<never> { throw new Error("not needed for planning proof"); }
   async readSecurityQuarantineReceipt(): Promise<undefined> { return undefined; }
@@ -269,13 +270,10 @@ describe("system extension administration real authority chain", () => {
     await expect(service.operationStatus({ context: plannerOnly, operationId: plannerPlan.operationId })).resolves.toMatchObject({ operationId: plannerPlan.operationId });
 
     resolver.authorize.mockClear();
-    await expect(service.validate({ context: plannerOnly, expected, operationId: plannerPlan.operationId })).rejects.toMatchObject({ code: "INVALID_STATE" });
-    expect(resolver.authorize.mock.calls.map(([, input]) => input.permissionId).sort()).toEqual([
-      "system.extensions.install-live",
-      "system.extensions.plan"
-    ]);
+    await expect(service.validate({ context: plannerOnly, expected, operationId: plannerPlan.operationId })).rejects.toMatchObject({ code: "REVISION_CONFLICT" });
+    expect(resolver.authorize.mock.calls.map(([, input]) => input.permissionId)).toEqual(["system.extensions.plan"]);
     resolver.authorize.mockClear();
-    await expect(service.execute({ context: plannerOnly, expected, operationId: plannerPlan.operationId })).rejects.toMatchObject({ code: "EXECUTION_UNAVAILABLE" });
+    await expect(service.execute({ context: plannerOnly, expected, operationId: plannerPlan.operationId })).rejects.toMatchObject({ code: "REVISION_CONFLICT" });
     expect(resolver.authorize.mock.calls.map(([, input]) => input.permissionId)).toEqual(["system.extensions.plan"]);
     expect(artifacts.stage).not.toHaveBeenCalled();
     expect(staticChanges.request).not.toHaveBeenCalled();

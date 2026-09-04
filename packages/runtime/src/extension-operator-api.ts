@@ -16,6 +16,7 @@ import type {
   ExtensionActivationReceipt,
   ExtensionChangeRequest,
   ExtensionDispositionReceipt,
+  ExtensionEnableReceipt,
   ExtensionOperationStatus,
   ExtensionValidationReport,
   PluginManager,
@@ -72,7 +73,7 @@ export interface ExtensionSystemStatus extends ExtensionRuntimeStatusObservation
 }
 
 type OperatorManager = Pick<PluginManager, "plan" | "stage" | "validate" | "operation" | "activate" | "rollback" | "disable" | "uninstall" | "inventory" | "completeStaticRelease" | "prepareStaticRelease">;
-type OperatorMutationResult = ExtensionActivationReceipt | ExtensionDispositionReceipt | StaticDeploymentOutcome | StaticDeploymentReceipt;
+type OperatorMutationResult = ExtensionActivationReceipt | ExtensionDispositionReceipt | ExtensionEnableReceipt | StaticDeploymentOutcome | StaticDeploymentReceipt;
 
 function validOwner(applicationId: string, environment: string): boolean {
   return /^[a-z][a-z0-9-]{2,127}$/u.test(applicationId) && /^[a-z][a-z0-9-]{1,63}$/u.test(environment);

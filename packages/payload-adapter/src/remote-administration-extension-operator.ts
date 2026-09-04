@@ -123,9 +123,8 @@ export class RemoteAdministrationExtensionOperator implements SystemExtensionOpe
         extensionRevision: request.expectedRevision
       }));
       const operation = await this.acceptedOperation(response);
-      if (!operation.plan || canonicalJson(operation.request) !== canonicalJson(request) || operation.plan.operationId !== operation.operationId) fail("RESULT_INVALID");
+      if (!operation.plan || canonicalJson(extensionRequestBinding(operation.request)) !== canonicalJson(extensionRequestBinding(request)) || operation.plan.operationId !== operation.operationId) fail("RESULT_INVALID");
       await bindResultDigest(response, operation);
-      await this.assertCurrentInventory();
       return operation.plan;
     });
   }
@@ -144,6 +143,7 @@ export class RemoteAdministrationExtensionOperator implements SystemExtensionOpe
       const valid = operation.plan?.executionClass === "static-release"
         ? isPreparedStaticPlan(operation.plan) && ["source-change-ready", "build-attested", "zero-downtime-eligible", "maintenance-required", "rollback-window-open"].includes(operation.phase)
         : operation.plan?.executionClass === "live-generation" && ((["disable", "rollback", "uninstall"].includes(operation.request.operation) && ["planning", "completed"].includes(operation.phase)) ||
+          (operation.request.extension.deliveryClass === "platform-plugin" && operation.request.operation === "install" && "retainedStaticGeneration" in operation.plan && ["planning", "completed"].includes(operation.phase)) ||
           (operation.authority !== undefined && ["staged", "waiting-configuration", "waiting-approval", "warming", "completed"].includes(operation.phase)));
       return Object.freeze({
         operationId,
@@ -164,12 +164,14 @@ export class RemoteAdministrationExtensionOperator implements SystemExtensionOpe
     return this.safe(async () => {
       const before = await this.boundOperation(operationId);
       await this.assertCurrentInventory();
-      if (!before.plan || !allowed.includes(before.request.operation) || before.request.expectedRevision !== entryRevision(this.#inventory, before.request.extension)) fail("REVISION_CONFLICT");
+      const current = inventoryEntry(this.#inventory, before.request.extension);
+      if (!before.plan || !allowed.includes(before.request.operation) || !current || before.request.expectedRevision >= current.revision || current.lastOperationId !== operationId) fail("REVISION_CONFLICT");
       const response = await this.#client.submit(this.command({
         kind: "extension-execute",
         operationId,
         idempotencyKey: executionIdempotencyKey(operationId),
-        extensionRevision: before.request.expectedRevision
+        inventoryRevision: this.#inventory.revision,
+        extensionRevision: current.revision
       }));
       const operation = await this.acceptedOperation(response, operationId);
       if (operation.phase !== "completed" || !operation.result || canonicalJson(operation.request) !== canonicalJson(before.request)) fail("RESULT_INVALID");
@@ -178,7 +180,7 @@ export class RemoteAdministrationExtensionOperator implements SystemExtensionOpe
     });
   }
 
-  private command(input: Readonly<({ kind: "extension-plan"; extension: ExtensionIdentity; version: string; operation: ExtensionChangeRequest["operation"] } | { kind: "extension-execute"; operationId: string }) & { idempotencyKey: string; extensionRevision: number }>): AdministrationOperatorCommand {
+  private command(input: Readonly<({ kind: "extension-plan"; extension: ExtensionIdentity; version: string; operation: ExtensionChangeRequest["operation"] } | { kind: "extension-execute"; operationId: string }) & { idempotencyKey: string; inventoryRevision?: number; extensionRevision: number }>): AdministrationOperatorCommand {
     const now = this.#now();
     if (!Number.isFinite(now.valueOf())) fail("AUTHORITY_MISMATCH");
     const base = {
@@ -188,7 +190,7 @@ export class RemoteAdministrationExtensionOperator implements SystemExtensionOpe
       expected: {
         authorizationRevision: this.#actor.authorizationRevision,
         lifecycleRevision: this.#actor.lifecycleRevision,
-        inventoryRevision: this.#inventory.revision,
+        inventoryRevision: input.inventoryRevision ?? this.#inventory.revision,
         extensionRevision: input.extensionRevision
       },
       idempotencyKey: input.idempotencyKey,
@@ -263,6 +265,11 @@ function operationBinding(operation: RuntimeExtensionOperation) {
   };
 }
 
+function extensionRequestBinding(request: ExtensionChangeRequest) {
+  const { correlationId: _operatorOwnedCorrelationId, ...binding } = request;
+  return binding;
+}
+
 async function bindResultDigest(response: AdministrationOperatorResponse, operation: RuntimeExtensionOperation): Promise<void> {
   if (response.resultDigest !== remoteAdministrationExtensionOperationDigest(operation)) fail("RESULT_INVALID");
 }
@@ -273,9 +280,13 @@ function inventoryBinding(inventory: RuntimeExtensionInventory) {
 }
 
 function entryRevision(inventory: RuntimeExtensionInventory, extension: ExtensionIdentity): number {
+  return inventoryEntry(inventory, extension)?.revision ?? 0;
+}
+
+function inventoryEntry(inventory: RuntimeExtensionInventory, extension: ExtensionIdentity) {
   const entries = extension.deliveryClass === "platform-plugin" ? inventory.extensions.platformPlugins
     : extension.deliveryClass === "hot-application" ? inventory.extensions.hotApplications : inventory.extensions.themeSkins;
-  return entries[extension.id]?.revision ?? 0;
+  return entries[extension.id];
 }
 
 function executionIdempotencyKey(operationId: string): string {
