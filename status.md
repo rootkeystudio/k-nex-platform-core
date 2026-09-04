@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Materialized Sales registry navigation as four fixed generated routes with current-generation/permission admission and registered source/action gateways.
+Applied an explicit resolved Theme Presentation to the fixed workspace shell and moved shell controls to shared admin semantic tokens.
 
 ## Validation
 
-Exact Node 24.19.0: composition readiness and workspace invalidation source tests 7/7 PASS; no catch-all route or page-ACL authority path.
+Exact Node 24.19.0: workspace shell SSR tests 2/2 PASS; exact profile scope/CSS, semantic shell tokens, focus treatment, and collapsed rail covered.
 
 ## Next
 
-Add real generated PostgreSQL/Chromium Sales-route proof, finish Theme Profile/dependency transaction fencing and shell/page theming, and bounded ACL subject projection; then regenerate exact-head evidence.
+Wire durable shell/page Theme Profile resolution and transaction fencing, add real Sales-route proof, and finish bounded ACL subject projection; then regenerate exact-head evidence.
 
 ## Blockers
 

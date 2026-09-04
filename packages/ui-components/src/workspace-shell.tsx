@@ -2,9 +2,12 @@
 
 import { useEffect, useMemo, useState, type ReactElement, type ReactNode } from "react";
 
+import type { ThemePresentationSnapshot } from "@k-nex/ui-design-system-contracts";
 import type { ResolvedWorkspaceNavigation } from "@k-nex/ui-runtime";
 import { Icon, VisuallyHidden } from "./foundation.js";
 import { WorkspaceNavigationDrawer } from "./navigation.js";
+
+type WorkspaceShellThemePresentation = Pick<ThemePresentationSnapshot, "profileRevisionId" | "mode" | "cssText">;
 
 export interface WorkspaceShellProps {
   readonly applicationLabel: string;
@@ -12,10 +15,25 @@ export interface WorkspaceShellProps {
   readonly currentHref: string;
   readonly navigation: ResolvedWorkspaceNavigation;
   readonly preferenceKey: string;
+  readonly themePresentation: WorkspaceShellThemePresentation;
   readonly children: ReactNode;
 }
 
 const railIcons = Object.freeze({ apps: "▦", dashboard: "▤", folder: "▱", sales: "▥", system: "⚙" });
+
+const workspaceShellCss = `
+[data-k-nex-component="workspace-shell"]{background:var(--k-nex-admin-color-background);color:var(--k-nex-admin-color-foreground)}
+[data-k-nex-component="workspace-shell"] .workspace-sidebar{background:var(--k-nex-admin-color-background);border-inline-end:1px solid var(--k-nex-admin-color-border);padding:calc(var(--k-nex-admin-spacing-content)*1px)}
+[data-k-nex-component="workspace-shell"] .workspace-header{background:var(--k-nex-admin-color-background);border-block-end:1px solid var(--k-nex-admin-color-border);gap:calc(var(--k-nex-admin-spacing-content)*1px);padding:calc(var(--k-nex-admin-spacing-content)*.75px) calc(var(--k-nex-admin-spacing-content)*1px)}
+[data-k-nex-component="workspace-shell"] .workspace-brand{gap:calc(var(--k-nex-admin-spacing-content)*.25px);margin-block-end:calc(var(--k-nex-admin-spacing-content)*1px)}
+[data-k-nex-component="workspace-shell"] .workspace-sidebar > button,[data-k-nex-component="workspace-shell"] .workspace-mobile-trigger,[data-k-nex-component="workspace-shell"] .workspace-drawer button{background:var(--k-nex-admin-color-background);border:1px solid var(--k-nex-admin-color-border);border-radius:calc(var(--k-nex-admin-radius-control)*1px);color:var(--k-nex-admin-color-foreground);padding:calc(var(--k-nex-admin-spacing-content)*.5px)}
+[data-k-nex-component="workspace-shell"] .workspace-environment{border-color:var(--k-nex-admin-color-border);border-radius:calc(var(--k-nex-admin-radius-control)*1px);padding:calc(var(--k-nex-admin-spacing-content)*.2px) calc(var(--k-nex-admin-spacing-content)*.6px)}
+[data-k-nex-component="workspace-shell"] .workspace-desktop-navigation-rail .workspace-rail-item[data-active]{background:var(--k-nex-admin-color-accent);color:var(--k-nex-admin-color-foreground)}
+[data-k-nex-component="workspace-shell"] .workspace-skip-link:focus,[data-k-nex-component="workspace-shell"] :is(a,button):focus-visible{outline:3px solid var(--k-nex-admin-color-accent);outline-offset:3px}
+[data-k-nex-component="workspace-shell"] .workspace-skip-link:focus,[data-k-nex-component="workspace-shell"] .workspace-drawer{background:var(--k-nex-admin-color-background);color:var(--k-nex-admin-color-foreground);padding:calc(var(--k-nex-admin-spacing-content)*1px)}
+[data-k-nex-component="workspace-shell"] .workspace-drawer-overlay{background:color-mix(in srgb,var(--k-nex-admin-color-foreground) 45%,transparent)}
+@media (prefers-reduced-motion:no-preference){[data-k-nex-component="workspace-shell"]{transition:grid-template-columns calc(var(--k-nex-admin-motion-duration)*1ms) ease}}
+`;
 
 function railIcon(icon?: keyof typeof railIcons): ReactElement {
   return <Icon>{railIcons[icon ?? "apps"]}</Icon>;
@@ -41,7 +59,7 @@ function navigationContent(navigation: ResolvedWorkspaceNavigation, currentHref:
   return <nav aria-label="Workspace navigation">{branch()}{shortcuts("Favorites", navigation.favorites)}{shortcuts("Recent", navigation.recent)}</nav>;
 }
 
-export function WorkspaceShell({ applicationLabel, environment, currentHref, navigation, preferenceKey, children }: WorkspaceShellProps): ReactElement {
+export function WorkspaceShell({ applicationLabel, environment, currentHref, navigation, preferenceKey, themePresentation, children }: WorkspaceShellProps): ReactElement {
   const [collapsed, setCollapsed] = useState(navigation.sidebar === "collapsed");
   useEffect(() => {
     const stored = globalThis.localStorage?.getItem(preferenceKey);
@@ -56,7 +74,9 @@ export function WorkspaceShell({ applicationLabel, environment, currentHref, nav
     if (route === undefined) return "Workspace";
     return navigation.tree.nodes.find(({ target }) => target !== undefined && JSON.stringify(target) === JSON.stringify(route.target))?.label ?? "Workspace";
   }, [currentHref, navigation]);
-  return <div data-k-nex-component="workspace-shell" data-sidebar={collapsed ? "collapsed" : "expanded"}>
+  return <div className="workspace-shell" data-k-nex-component="workspace-shell" data-k-nex-theme-profile={themePresentation.profileRevisionId} data-k-nex-theme-mode={themePresentation.mode} data-sidebar={collapsed ? "collapsed" : "expanded"}>
+    <style>{themePresentation.cssText}</style>
+    <style>{workspaceShellCss}</style>
     <a className="workspace-skip-link" href="#workspace-main">Skip to main content</a>
     <aside className="workspace-sidebar" aria-label="Desktop workspace navigation">
       <div className="workspace-brand"><strong>{applicationLabel}</strong><span>{environment}</span></div>
