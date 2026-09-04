@@ -34,16 +34,16 @@
         "name": "resolved-graph-or-plan"
       },
       {
-        "digest": "sha256:02f24c06ca5ef0a892aef77b3ecceab2aec1615acf79019eb6870bce62857026",
+        "digest": "sha256:561f8612eb5d6539425b3464b026fc2df40a60c9f6bc26c43de8af45fcdbd9aa",
         "name": "sbom"
       }
     ],
-    "sourceCommit": "7b28f623a43dbd7c4d579402f07a214743dd4ebd",
-    "workflowIdentity": "rootkeystudio/k-nex-platform-core/.github/workflows/release-evidence.yml@7b28f623a43dbd7c4d579402f07a214743dd4ebd"
+    "sourceCommit": "da8140461d942354f0f44823dbf3c2bbb371595c",
+    "workflowIdentity": "rootkeystudio/k-nex-platform-core/.github/workflows/release-evidence.yml@da8140461d942354f0f44823dbf3c2bbb371595c"
   },
   "predicateType": "https://k-nex.dev/provenance/v1",
   "subject": {
-    "digest": "sha256:370c41c3c0aebafb914471329c0a33a6d9b39664d1ad73485c54394af3e55898",
+    "digest": "sha256:b4cfaf47903e50c5d81c1be869bb16ed5ec1dbe391c465151cb919b41a70395b",
     "name": "customer-alpha.application-bundle.json"
   }
 }

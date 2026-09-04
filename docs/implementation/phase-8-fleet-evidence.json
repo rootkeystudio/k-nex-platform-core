@@ -5,15 +5,15 @@
       "applicationId": "customer-alpha",
       "platformRelease": "1.0.0",
       "deploymentId": "deploy:customer-alpha:1.0.0",
-      "inventoryDigest": "sha256:a5f6d13ad69f5ca11998f288901a84575874313890dac6cc940789e0e71f37ce",
-      "restoreInventoryDigest": "sha256:13cc472044bddaae5832ee26a9c2c9d5ebf7de0b897cba9f94e2a6d8b8970371"
+      "inventoryDigest": "sha256:852c4fb2333378daa1ac4f77bdbd54a2b4261b4aebcec1d1f9d1ce34dce794d3",
+      "restoreInventoryDigest": "sha256:b2c5e68300d2c660017655c019993ba961bf25071460380f7af2e98417891157"
     },
     {
       "applicationId": "customer-beta",
       "platformRelease": "1.0.0",
       "deploymentId": "deploy:customer-beta:1.0.0",
-      "inventoryDigest": "sha256:60f9e5ba1fd1fe367b4240a668b5aa86a0386712c852caa30ad3edc03b4e7c18",
-      "restoreInventoryDigest": "sha256:6d37b5b900c24bf4948e8dee89fba717ef6f8fa849b1a40d3de9676ea224446d"
+      "inventoryDigest": "sha256:3ad6d05be8380fc037270396979925fffc7db9830b4df1b28faf36eead69d0b7",
+      "restoreInventoryDigest": "sha256:74461cf3a9eab92656e7da55ff0d48e9d47002143194216feb4b65f76d09b8b3"
     }
   ],
   "releasePolicy": {
@@ -25,11 +25,11 @@
     "applications": [
       {
         "applicationId": "customer-alpha",
-        "expectedOperationalInventoryDigest": "sha256:13cc472044bddaae5832ee26a9c2c9d5ebf7de0b897cba9f94e2a6d8b8970371"
+        "expectedOperationalInventoryDigest": "sha256:b2c5e68300d2c660017655c019993ba961bf25071460380f7af2e98417891157"
       },
       {
         "applicationId": "customer-beta",
-        "expectedOperationalInventoryDigest": "sha256:6d37b5b900c24bf4948e8dee89fba717ef6f8fa849b1a40d3de9676ea224446d"
+        "expectedOperationalInventoryDigest": "sha256:74461cf3a9eab92656e7da55ff0d48e9d47002143194216feb4b65f76d09b8b3"
       }
     ]
   }
