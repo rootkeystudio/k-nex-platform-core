@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Aligned Gate 11 protected-baseline marker with current Phase 12 evidence.
+Replaced slow-Linux dense rate proof with bounded one-node four-request waves against the same process-lifetime actor/source budget.
 
 ## Validation
 
-Exact Node 24.19.0/pnpm 11.9.0: isolated binding-state PostgreSQL/HTTP/Chromium proof PASS (1/1, 192.8s); hosted release-evidence run `33841660539` PASS on closure source `6feb03f`; generated evidence check PASS; packed customer boot PostgreSQL proof PASS (1/1, 66.2s); Gate 11 focused PASS.
+Exact Node 24.19.0/pnpm 11.9.0: one-node rate-proof isolated PostgreSQL/HTTP/Chromium journey PASS (1/1, 193.0s); prior binding-state proof PASS (1/1, 192.8s); hosted release-evidence run `33841660539` PASS on closure source `6feb03f`; generated evidence check PASS; packed customer boot PostgreSQL proof PASS (1/1, 66.2s); Gate 11 focused PASS.
 
 ## Next
 
-Push marker repair, then rerun exact-head focused Gate 12 and Linux/AppArmor cumulative Gate 0–12 CI.
+Push the reviewed rate-proof repair, then run exact-head focused Gate 12 and Linux/AppArmor cumulative Gate 0–12 CI.
 
 ## Blockers
 
