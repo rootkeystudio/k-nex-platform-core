@@ -943,7 +943,7 @@ packages:
       react: ^18.0.0 || ^19.0.0
 
   '@k-nex/composition@file:../customer-gate-1/packages/k-nex-composition-1.0.0.tgz':
-    resolution: {integrity: sha512-nDjaiBmIQYPY/e25RKK8NVl0yshXWiEeVeSa8W2lQXf099kFuLlnO7h3M4A2PQmgCPV57Nw6pdkyoXbejz/OpA==, tarball: file:../customer-gate-1/packages/k-nex-composition-1.0.0.tgz}
+    resolution: {integrity: sha512-ad09GpqjvVsPh31p8LL25s9gsvPtl0omC+VxY4u6ixkhzJWfjCo4NXGcl4KaT84Tyw3//1WJZn3PapW0pzupDQ==, tarball: file:../customer-gate-1/packages/k-nex-composition-1.0.0.tgz}
     version: 1.0.0
 
   '@k-nex/contracts@file:../customer-gate-1/packages/k-nex-contracts-1.0.0.tgz':
@@ -986,11 +986,11 @@ packages:
         optional: true
 
   '@k-nex/payload-adapter@file:../customer-gate-1/packages/k-nex-payload-adapter-1.0.0.tgz':
-    resolution: {integrity: sha512-+JJRqU2rwEFHWNGciyYv/Vz5dRRUVE5lfqjVKdpJ6uCwgBlLzOLXG3oBE44giJz8vD1Rsu85Jbtd8gz0ZPbOEw==, tarball: file:../customer-gate-1/packages/k-nex-payload-adapter-1.0.0.tgz}
+    resolution: {integrity: sha512-GXgDkZggmH0XFDI+V15WNJA3hS72Gb8bId784WsJWs9H9dLY5lVGDjQCIOZqDnq/HI6aDZj4uJB3SYh3gCfs/Q==, tarball: file:../customer-gate-1/packages/k-nex-payload-adapter-1.0.0.tgz}
     version: 1.0.0
 
   '@k-nex/runtime@file:../customer-gate-1/packages/k-nex-runtime-1.0.0.tgz':
-    resolution: {integrity: sha512-G+vwV0Wo3s4FcFS3A2wvSaaj1sg7mHHL8Ov33XvU6/BjtqX7w0pldhNZh2xi2Y5YYRBxXWZ9DhCMzvh2YjSe4Q==, tarball: file:../customer-gate-1/packages/k-nex-runtime-1.0.0.tgz}
+    resolution: {integrity: sha512-Pm99r152Tvw2qoW6JD4W+c1JTooIzrRemPPbNhL9y+UdN0IeaBloNvHA01c12LoaQe4lCFzE7yk9Gqwgy0YKUg==, tarball: file:../customer-gate-1/packages/k-nex-runtime-1.0.0.tgz}
     version: 1.0.0
 
   '@k-nex/theme-neobrutalism@file:../customer-gate-1/packages/k-nex-theme-neobrutalism-1.0.0.tgz':
@@ -1007,7 +1007,7 @@ packages:
       react: ^18.0.0 || ^19.0.0
 
   '@k-nex/ui-components@file:../customer-gate-1/packages/k-nex-ui-components-1.0.0.tgz':
-    resolution: {integrity: sha512-tTSSW+z9ifPLPoz02sdY8iLQfAfBYJGorbSZqenQnIpGE8oHJH+bU05UrLhyWsHiZ/qxLLF93waNVxI+477I0w==, tarball: file:../customer-gate-1/packages/k-nex-ui-components-1.0.0.tgz}
+    resolution: {integrity: sha512-cS6EHe8CKE0gl6KJgEOk9Ha2sNaBDQmbVVvXnRXgt0XLDGZIw4gzuQlEHWCNT3bS/J74YyrKda7Mw68KHT5zfw==, tarball: file:../customer-gate-1/packages/k-nex-ui-components-1.0.0.tgz}
     version: 1.0.0
     peerDependencies:
       react: ^18.0.0 || ^19.0.0

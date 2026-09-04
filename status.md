@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Completed the review-repair slice and passed the full focused Gate 12 integrity fixture.
+Refreshed both current customer lockfiles to the final exact v1.0.0 packed archive integrity hashes.
 
 ## Validation
 
-Exact Node 24.19.0/pnpm 11.9.0: `pnpm gate:12:focused` PASS (`GATE_12_PASS`), including 125 selected tests, three real process proofs, exact v1.0.0 closure, and all 22 attacks.
+Exact Node 24.19.0/pnpm 11.9.0: `pnpm gate:12:focused` PASS; both customer fixture frozen installs PASS; hosted run `33833458592` correctly rejected stale lock integrity before the repair.
 
 ## Next
 
-Push the replacement head, regenerate hosted v1 evidence, run exact-head focused/cumulative CI, then request phase review.
+Push repaired customer locks, regenerate hosted v1 evidence, run exact-head focused/cumulative CI, then request phase review.
 
 ## Blockers
 
