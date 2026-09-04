@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Aligned Sales navigation with direct-route admission by requiring both registered route and page-template permissions per link.
+Defined access management as bounded ACL-subject-directory authority and centralized its revision-coherent role/user projection.
 
 ## Validation
 
-Exact Node 24.19.0: generated workspace invalidation/navigation source tests 5/5 PASS; nav-only users no longer receive template-denied links.
+Exact Node 24.19.0: authorization registry 15/15 and generated workspace-page source 8/8 PASS; 501-user cap, minimal fields, final reauthorization/revision check covered.
 
 ## Next
 
-Wire durable shell/page Theme Profile resolution and transaction fencing, add real Sales-route proof, and finish bounded ACL subject projection; then regenerate exact-head evidence.
+Wire durable shell/page Theme Profile resolution and dependency fencing, finish real Sales-route proof, then regenerate exact-head evidence.
 
 ## Blockers
 

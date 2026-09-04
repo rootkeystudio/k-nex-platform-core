@@ -198,6 +198,9 @@ describe("effective authorization registry", () => {
     ]);
     expect(platformPermissionDescriptors.map(({ id }) => id)).not.toContain("system.extensions.install-hot");
     expect(platformPermissionDescriptors.every((entry) => entry.publisher.kind === "platform" && Object.isFrozen(entry))).toBe(true);
+    expect(platformPermissionDescriptors.find(({ id }) => id === "system.workspace-pages.access.manage")).toMatchObject({
+      description: "View only the bounded role and user subject projection needed for page ACL selection, and grant or revoke exact page access."
+    });
   });
 
   it("reconciles and invokes a trusted Platform Plugin policy binding", async () => {

@@ -24,7 +24,7 @@ import { salesPuckBlockBridges } from "@k-nex/module-sales/puck";
 import { createCurrentAuthorityTarget } from "@k-nex/runtime";
 import type { Payload } from "payload";
 
-import { kNexAuthority, type KnexRequestContext } from "./k-nex-authority.js";
+import { authorizeRequest, kNexAuthority, type KnexRequestContext } from "./k-nex-authority.js";
 import { kNexIdentity } from "./k-nex-identity.js";
 import { kNexSalesRegistry, kNexThemePresentation } from "./k-nex-registry.js";
 import { loadWorkspaceSalesSources, workspaceSalesPermissions } from "./k-nex-sales-workspace.js";
@@ -634,10 +634,10 @@ import { SystemWorkspacePageDetailPage } from "@k-nex/ui-pages";
 import { headers as getHeaders } from "next/headers";
 import { notFound } from "next/navigation";
 
-import { authorizeRequest, kNexAuthority, kNexRequestContext } from "../../../../../k-nex-authority.js";
+import { authorizeRequest, kNexRequestContext } from "../../../../../k-nex-authority.js";
 import { bootKnexApplication } from "../../../../../boot.js";
 import { kNexThemePresentation } from "../../../../../k-nex-registry.js";
-import { kNexWorkspacePages, kNexWorkspacePageScope } from "../../../../../k-nex-workspace-pages.js";
+import { kNexWorkspacePages, kNexWorkspacePageScope, loadWorkspacePageAccessSubjects } from "../../../../../k-nex-workspace-pages.js";
 
 export const dynamic = "force-dynamic";
 
@@ -649,23 +649,19 @@ export default async function WorkspacePageAdministration({ params }: Readonly<{
   const runtime = kNexWorkspacePages(payload);
   let detail;
   try { detail = await runtime.service.detail(context, kNexWorkspacePageScope, pageId, "edit"); } catch { return notFound(); }
-  const [folders, audit, canManageAccess, canPublish] = await Promise.all([
+  const [folders, audit, canPublish] = await Promise.all([
     runtime.folders.list(kNexWorkspacePageScope), runtime.service.audit(context, kNexWorkspacePageScope, pageId, 100),
-    authorizeRequest(payload, context, "system.workspace-pages.access.manage", "system.workspace-pages"),
     authorizeRequest(payload, context, "system.workspace-pages.publish", "system.workspace-pages")
   ]);
+  const subjects = await loadWorkspacePageAccessSubjects(payload, context).catch(() => undefined);
+  const canManageAccess = subjects !== undefined;
   const access = canManageAccess ? await runtime.service.readAccess(context, kNexWorkspacePageScope, pageId) : undefined;
   const parents = [{ value: "sales.navigation.root", label: "Sales" }, ...folders.map(({ node }) => ({ value: node.id, label: node.label }))];
-  const state = await kNexAuthority(payload).store.readState(kNexWorkspacePageScope.applicationId, kNexWorkspacePageScope.environment);
-  const expected = state && { applicationId: state.applicationId, environment: state.environment, authorizationRevision: state.authorizationRevision, lifecycleRevision: state.lifecycleRevision };
-  const roles = expected && canManageAccess ? (await kNexAuthority(payload).store.readTransaction(expected, (transaction) => transaction.listRoles(kNexWorkspacePageScope.applicationId))).value : [];
-  const users = canManageAccess ? await payload.find({ collection: "users", overrideAccess: true, limit: 500, pagination: false }) : { docs: [], totalDocs: 0 };
-  if (users.totalDocs > 500) throw new TypeError("Workspace access subject ceiling exceeded.");
   const assignments = access?.assignments ?? [];
   const selected = (kind: "role" | "user", id: string, capability: "view" | "edit") => assignments.some((assignment) => assignment.capability === capability && (assignment.subject.kind === "role" ? kind === "role" && assignment.subject.roleId === id : kind === "user" && assignment.subject.userId === id));
   const options = [
-    ...roles.flatMap((role) => (["view", "edit"] as const).map((capability) => ({ value: \`role|\${role.id}|\${capability}\`, label: \`Role: \${role.label} — \${capability}\`, selected: selected("role", role.id, capability) }))),
-    ...users.docs.flatMap((user) => (["view", "edit"] as const).map((capability) => ({ value: \`user|\${String(user.id)}|\${capability}\`, label: \`User: \${String(user.email ?? user.id)} — \${capability}\`, selected: selected("user", String(user.id), capability) })))
+    ...(subjects?.roles ?? []).flatMap((role) => (["view", "edit"] as const).map((capability) => ({ value: \`role|\${role.id}|\${capability}\`, label: \`Role: \${role.label} — \${capability}\`, selected: selected("role", role.id, capability) }))),
+    ...(subjects?.users ?? []).flatMap((user) => (["view", "edit"] as const).map((capability) => ({ value: \`user|\${user.id}|\${capability}\`, label: \`User: \${user.displayEmail} — \${capability}\`, selected: selected("user", user.id, capability) })))
   ];
   const idempotency = () => \`workspace-admin-\${randomUUID()}\`;
   const page = detail.page;
@@ -716,8 +712,7 @@ export async function POST(request: Request) {
 }
 
 function workspacePageMutationRouteSource(): string {
-  return `import { kNexAuthority } from "../../../../../../k-nex-authority.js";
-import { kNexWorkspacePages, kNexWorkspacePageScope, openWorkspacePageSession } from "../../../../../../k-nex-workspace-pages.js";
+  return `import { kNexWorkspacePages, kNexWorkspacePageScope, loadWorkspacePageAccessSubjects, openWorkspacePageSession } from "../../../../../../k-nex-workspace-pages.js";
 import { exactFields, idempotencyField, integerField, openWorkspaceForm, openWorkspaceJson, optionalTextField, textField, workspaceMutationError, workspaceRedirect } from "../../../../../../k-nex-workspace-page-http.js";
 
 export const dynamic = "force-dynamic";
@@ -787,13 +782,9 @@ export async function POST(request: Request, { params }: Readonly<{ params: Prom
         return { kind: match[1] as "role" | "user", id: match[2]!, capability: match[3] as "view" | "edit" };
       });
       if (new Set(parsed.map(({ kind, id }) => \`\${kind}:\${id}\`)).size !== parsed.length) throw new TypeError("Workspace access subject is duplicated.");
-      const state = await kNexAuthority(payload).store.readState(kNexWorkspacePageScope.applicationId, kNexWorkspacePageScope.environment);
-      if (state === undefined) throw new TypeError("Workspace authority state is unavailable.");
-      const expected = { applicationId: state.applicationId, environment: state.environment, authorizationRevision: state.authorizationRevision, lifecycleRevision: state.lifecycleRevision };
-      const roles = new Set((await kNexAuthority(payload).store.readTransaction(expected, (transaction) => transaction.listRoles(kNexWorkspacePageScope.applicationId))).value.map(({ id }) => id));
-      const users = await payload.find({ collection: "users", overrideAccess: true, limit: 500, pagination: false });
-      if (users.totalDocs > 500) throw new TypeError("Workspace access subject ceiling exceeded.");
-      const userIds = new Set(users.docs.map(({ id }) => String(id)));
+      const subjects = await loadWorkspacePageAccessSubjects(payload, context);
+      const roles = new Set(subjects.roles.map(({ id }) => id));
+      const userIds = new Set(subjects.users.map(({ id }) => id));
       if (parsed.some(({ kind, id }) => kind === "role" ? !roles.has(id) : !userIds.has(id))) throw new TypeError("Workspace access subject is unavailable.");
       await service.replaceAccess(context, kNexWorkspacePageScope, pageId, {
         expectedPageRevision: integerField(form, "expectedPageRevision", 1, 1_000_000_000), expectedAccessRevision: integerField(form, "expectedAccessRevision", 0, 1_000_000_000),
@@ -1095,6 +1086,33 @@ export function kNexWorkspacePages(payload: Payload) {
   let runtime = runtimes.get(payload);
   if (runtime === undefined) { runtime = createRuntime(payload); runtimes.set(payload, runtime); }
   return runtime;
+}
+
+export async function loadWorkspacePageAccessSubjects(payload: Payload, context: KnexRequestContext) {
+  const authority = kNexAuthority(payload);
+  const state = await authority.store.readState(scope.applicationId, scope.environment);
+  if (state === undefined) throw new TypeError("Workspace authority state is unavailable.");
+  const expected = { applicationId: state.applicationId, environment: state.environment, authorizationRevision: state.authorizationRevision, lifecycleRevision: state.lifecycleRevision };
+  if (!await authorizeRequest(payload, context, "system.workspace-pages.access.manage", "system.workspace-pages")) {
+    throw Object.assign(new Error("Workspace page access is denied."), { code: "ACCESS_DENIED" });
+  }
+  const roles = (await authority.store.readTransaction(expected, (transaction) => transaction.listRoles(scope.applicationId))).value;
+  const result = await payload.find({ collection: "users", overrideAccess: true, depth: 0, limit: 501, pagination: false, select: { email: true }, sort: "id" });
+  if (result.docs.length > 500 || result.totalDocs > 500) throw new TypeError("Workspace access subject ceiling exceeded.");
+  const current = await authority.store.readState(scope.applicationId, scope.environment);
+  if (current === undefined || current.authorizationRevision !== expected.authorizationRevision || current.lifecycleRevision !== expected.lifecycleRevision) throw new TypeError("Workspace authority changed during access subject projection.");
+  if (!await authorizeRequest(payload, context, "system.workspace-pages.access.manage", "system.workspace-pages")) {
+    throw Object.assign(new Error("Workspace page access is denied."), { code: "ACCESS_DENIED" });
+  }
+  const finalState = await authority.store.readState(scope.applicationId, scope.environment);
+  if (finalState === undefined || finalState.authorizationRevision !== expected.authorizationRevision || finalState.lifecycleRevision !== expected.lifecycleRevision) throw new TypeError("Workspace authority changed during access subject projection.");
+  return Object.freeze({
+    roles: Object.freeze(roles.map(({ id, label }) => Object.freeze({ id, label }))),
+    users: Object.freeze(result.docs.slice(0, 500).map(({ id, email }) => {
+      if (typeof email !== "string") throw new TypeError("Workspace access user email is unavailable.");
+      return Object.freeze({ id: String(id), displayEmail: email });
+    }))
+  });
 }
 
 export async function openWorkspacePageSession(payload: Payload, context: KnexRequestContext, pageId: string, capability: "view" | "edit", sessionId: string) {

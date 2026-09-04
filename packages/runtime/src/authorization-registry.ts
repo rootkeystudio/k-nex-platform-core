@@ -235,7 +235,7 @@ export const platformPermissionDescriptors: readonly AuthorizationPermissionDesc
   [workspacePagePermissionIds[1], "Create workspace pages", "Create customer workspace pages.", "system.workspace-pages", "write"],
   [workspacePagePermissionIds[2], "Edit workspace pages", "Edit authorized workspace page working copies.", "system.workspace-pages", "write"],
   [workspacePagePermissionIds[3], "Publish workspace pages", "Publish or roll back authorized workspace pages.", "system.workspace-pages", "execute"],
-  [workspacePagePermissionIds[4], "Manage workspace page access", "Grant or revoke exact page access.", "system.workspace-pages", "manage"],
+  [workspacePagePermissionIds[4], "Manage workspace page access", "View only the bounded role and user subject projection needed for page ACL selection, and grant or revoke exact page access.", "system.workspace-pages", "manage"],
   ["system.operations.read", "Read operations", "View operations, health, and receipts.", "system.operations", "read"],
   ["system.operations.backup", "Request backups", "Request a protected backup operation.", "system.operations", "execute"],
   ["system.operations.restore-drill", "Request restore drills", "Request a clean-environment restore drill.", "system.operations", "execute"]

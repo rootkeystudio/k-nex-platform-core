@@ -98,6 +98,39 @@ describe("generated workspace page builder policy", () => {
     expect(source).not.toContain("readProtectedRoleBaselineReceipt");
   });
 
+  it("uses one current-authority bounded subject projection for page ACL selection and validation", () => {
+    const files = workspacePageApplicationFiles({ applicationId: "customer-alpha" });
+    const runtime = files["src/k-nex-workspace-pages.ts"]!;
+    const detail = files["src/app/(workspace)/system/workspace-pages/[pageId]/page.tsx"]!;
+    const mutation = files["src/app/api/k-nex/workspace-pages/[pageId]/[operation]/route.ts"]!;
+
+    expect(runtime).toContain('export async function loadWorkspacePageAccessSubjects(payload: Payload, context: KnexRequestContext)');
+    const accessAuthorization = 'authorizeRequest(payload, context, "system.workspace-pages.access.manage", "system.workspace-pages")';
+    const initialAuthorization = runtime.indexOf(accessAuthorization);
+    const finalAuthorization = runtime.lastIndexOf(accessAuthorization);
+    expect(runtime.split(accessAuthorization)).toHaveLength(3);
+    expect(runtime.indexOf("const state = await authority.store.readState(scope.applicationId, scope.environment);")).toBeLessThan(initialAuthorization);
+    expect(runtime).toContain('readTransaction(expected, (transaction) => transaction.listRoles(scope.applicationId))');
+    expect(initialAuthorization).toBeLessThan(runtime.indexOf('readTransaction(expected, (transaction) => transaction.listRoles(scope.applicationId))'));
+    expect(runtime).toContain('collection: "users", overrideAccess: true, depth: 0, limit: 501, pagination: false, select: { email: true }, sort: "id"');
+    expect(runtime).toContain('if (result.docs.length > 500 || result.totalDocs > 500) throw new TypeError("Workspace access subject ceiling exceeded.");');
+    expect(runtime).toContain('const current = await authority.store.readState(scope.applicationId, scope.environment);');
+    expect(runtime).toContain('current.authorizationRevision !== expected.authorizationRevision || current.lifecycleRevision !== expected.lifecycleRevision');
+    expect(finalAuthorization).toBeGreaterThan(runtime.indexOf('const current = await authority.store.readState(scope.applicationId, scope.environment);'));
+    expect(runtime).toContain('const finalState = await authority.store.readState(scope.applicationId, scope.environment);');
+    expect(runtime).toContain('finalState.authorizationRevision !== expected.authorizationRevision || finalState.lifecycleRevision !== expected.lifecycleRevision');
+    expect(runtime.indexOf('const finalState = await authority.store.readState(scope.applicationId, scope.environment);')).toBeGreaterThan(finalAuthorization);
+    expect(runtime).toContain('result.docs.slice(0, 500).map(({ id, email }) =>');
+    expect(runtime).toContain('return Object.freeze({ id: String(id), displayEmail: email });');
+    expect(detail).toContain('loadWorkspacePageAccessSubjects(payload, context).catch(() => undefined)');
+    expect(detail).toContain('subjects?.users ?? []');
+    expect(detail).not.toContain('payload.find({ collection: "users"');
+    expect(mutation).toContain('const subjects = await loadWorkspacePageAccessSubjects(payload, context);');
+    expect(mutation).toContain('new Set(subjects.roles.map(({ id }) => id))');
+    expect(mutation).toContain('new Set(subjects.users.map(({ id }) => id))');
+    expect(mutation).not.toContain('payload.find({ collection: "users"');
+  });
+
   it("emits only a page-scoped Sales action route with current page and action authority", () => {
     const files = workspacePageApplicationFiles({ applicationId: "customer-alpha" });
     const client = files["src/app/components/k-nex-workspace-page-runtime.tsx"]!;
