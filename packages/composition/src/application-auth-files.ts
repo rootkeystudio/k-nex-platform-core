@@ -631,7 +631,7 @@ export async function resolveCurrentWorkspaceNavigation(payload: Payload, header
     applicationId: kNexIdentity.applicationId,
     environment: kNexIdentity.environment,
     revision: state.authorizationRevision,
-    implementedSystemRouteIds: ["system.route.workspace", "system.route.workspace-pages"],
+    implementedSystemRouteIds: ["system.route.workspace", "system.route.roles", "system.route.permissions", "system.route.assignments", "system.route.workspace-pages"],
     // The section is durable customer-placement structure. Only current static
     // registration contributions may contribute executable plugin links.
     plugins: [{ ...kNexSalesRegistry.navigationSection,

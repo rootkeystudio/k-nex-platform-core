@@ -7,7 +7,7 @@
 
 ## Last completed
 
-Generated applications now have fixed current-authority roles, permissions, assignments, and authorization-audit pages plus strict POST-only normal-role and normal-assignment mutations. Protected assignment evidence remains unavailable to browser forms.
+The generated factory now installs fixed access administration routes, exposes authorized roles/permissions/assignments in System navigation, and includes those immutable nodes in workspace-navigation mutation validation.
 
 ## Validation
 
@@ -15,7 +15,7 @@ Composition tests (127), composition build, and `git diff --check` PASS.
 
 ## Next
 
-Compose fixed access, Theme Profile, settings, extension, catalog, and operations routes; then prove the real operator journey.
+Compose fixed Theme Profile, settings, extension, catalog, and operations routes; then prove the real operator journey.
 
 ## Blockers
 

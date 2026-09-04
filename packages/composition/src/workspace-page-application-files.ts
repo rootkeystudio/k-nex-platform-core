@@ -42,6 +42,9 @@ const workspaceNavigationFixedNodes = Object.freeze([
   { id: "k-nex.navigation.root", owner: { kind: "platform" as const }, kind: "folder" as const, label: "K-Nex", icon: "dashboard" as const, order: 0 },
   { id: "system.navigation.root", owner: { kind: "platform" as const }, kind: "folder" as const, label: "System", icon: "system" as const, order: 1_000_000 },
   { id: "k-nex.navigation.workspace", owner: { kind: "platform" as const }, kind: "link" as const, parentId: "k-nex.navigation.root", label: "Workspace", icon: "dashboard" as const, order: 0, target: { class: "system" as const, routeId: "system.route.workspace" } },
+  { id: "system.navigation.roles", owner: { kind: "platform" as const }, kind: "link" as const, parentId: "system.navigation.root", label: "Roles", order: 10, target: { class: "system" as const, routeId: "system.route.roles" } },
+  { id: "system.navigation.permissions", owner: { kind: "platform" as const }, kind: "link" as const, parentId: "system.navigation.root", label: "Permissions", order: 20, target: { class: "system" as const, routeId: "system.route.permissions" } },
+  { id: "system.navigation.assignments", owner: { kind: "platform" as const }, kind: "link" as const, parentId: "system.navigation.root", label: "Assignments", order: 30, target: { class: "system" as const, routeId: "system.route.assignments" } },
   { id: "system.navigation.workspace-pages", owner: { kind: "platform" as const }, kind: "link" as const, parentId: "system.navigation.root", label: "Workspace pages", icon: "dashboard" as const, order: 45, target: { class: "system" as const, routeId: "system.route.workspace-pages" } }
 ]);
 

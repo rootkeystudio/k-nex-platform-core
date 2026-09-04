@@ -94,6 +94,10 @@ describe("create-knex-app", () => {
     expect(manifest.environment.required).toEqual(["DATABASE_URL", "K_NEX_ENVIRONMENT", "K_NEX_PUBLIC_ORIGIN", "PAYLOAD_SECRET"]);
     expect(JSON.parse(first.files["package.json"]!).dependencies).toMatchObject({ payload: "3.88.0", "@k-nex/builder-puck": "1.0.0", "@k-nex/module-sales": "1.0.0", "@k-nex/theme-minimal": "1.0.0" });
     expect(first.files["src/payload.config.ts"]).toContain("kNexSalesRegistry.collections");
+    expect(first.files["src/app/(workspace)/system/access/roles/page.tsx"]).toContain("SystemRolesPage");
+    expect(first.files["src/app/(workspace)/system/access/permissions/page.tsx"]).toContain("SystemPermissionsPage");
+    expect(first.files["src/app/(workspace)/system/access/assignments/page.tsx"]).toContain("SystemAssignmentsPage");
+    expect(first.files["src/app/(workspace)/system/access/audit/page.tsx"]).toContain("SystemAuthorizationAuditPage");
     expect(first.files["src/payload.config.ts"]).toContain("prodMigrations: migrations");
     expect(first.files["src/payload.config.ts"]).toContain('kNexApplicationId: "customer-alpha"');
     expect(first.files["src/boot.ts"]).toContain("bootKnexApplication");
