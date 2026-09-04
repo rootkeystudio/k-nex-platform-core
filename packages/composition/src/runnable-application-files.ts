@@ -100,16 +100,15 @@ body { margin: 0; min-height: 100vh; background: Canvas; color: CanvasText; }
 h1 { font-size: clamp(2rem, 7vw, 4.5rem); margin: .25rem 0 1rem; }
 .workspace-shell { display: grid; grid-template-columns: 17rem minmax(0, 1fr); grid-template-rows: auto 1fr; min-height: 100vh; }
 .workspace-shell[data-sidebar="collapsed"] { grid-template-columns: 4rem minmax(0, 1fr); }
-.workspace-sidebar { border-inline-end: 1px solid GrayText; grid-row: 1 / -1; min-width: 0; padding: 1rem; }
+.workspace-sidebar { grid-row: 1 / -1; min-width: 0; }
 .workspace-shell[data-sidebar="collapsed"] .workspace-brand, .workspace-shell[data-sidebar="collapsed"] .workspace-desktop-navigation-expanded { display: none; }
 .workspace-desktop-navigation-rail { display: none; }
 .workspace-shell[data-sidebar="collapsed"] .workspace-desktop-navigation-rail { display: block; }
 .workspace-desktop-navigation-rail ul { padding-inline-start: 0; }
 .workspace-desktop-navigation-rail .workspace-rail-item { align-items: center; display: flex; justify-content: center; min-block-size: 2rem; }
-.workspace-desktop-navigation-rail .workspace-rail-item[data-active] { background: Highlight; color: HighlightText; }
 .workspace-desktop-navigation-rail [data-k-nex-component="icon"] { display: inline-grid; font-size: 1.25rem; inline-size: 1.25rem; place-items: center; }
 .workspace-brand { display: grid; gap: .25rem; margin-block-end: 1rem; overflow-wrap: anywhere; }
-.workspace-header { align-items: center; border-block-end: 1px solid GrayText; display: flex; gap: 1rem; justify-content: space-between; min-width: 0; padding: .75rem 1rem; }
+.workspace-header { align-items: center; display: flex; justify-content: space-between; min-width: 0; }
 .workspace-header ol { display: flex; flex-wrap: wrap; gap: .5rem; list-style: none; margin: 0; padding: 0; }
 .workspace-header li + li::before { content: "/"; margin-inline-end: .5rem; }
 .workspace-environment { border: 1px solid currentColor; border-radius: 999px; padding: .2rem .6rem; }
@@ -118,14 +117,13 @@ h1 { font-size: clamp(2rem, 7vw, 4.5rem); margin: .25rem 0 1rem; }
 .workspace-sidebar li, .workspace-drawer li { margin-block: .35rem; min-width: 0; overflow-wrap: anywhere; }
 .workspace-sidebar [data-navigation-label], .workspace-drawer [data-navigation-label] { display: block; font-weight: 700; margin-block-start: 1rem; }
 .workspace-skip-link { inset-block-start: .5rem; inset-inline-start: -100vw; position: fixed; z-index: 1000; }
-.workspace-skip-link:focus { background: Canvas; inset-inline-start: .5rem; padding: .5rem; }
+.workspace-skip-link:focus { inset-inline-start: .5rem; }
 .workspace-mobile-trigger { display: none; }
-.workspace-drawer-overlay { background: color-mix(in srgb, CanvasText 45%, transparent); inset: 0; position: fixed; z-index: 100; }
-.workspace-drawer { background: Canvas; block-size: 100%; inline-size: min(22rem, 90vw); inset-block: 0; inset-inline-start: 0; overflow: auto; padding: 1rem; position: fixed; }
+.workspace-drawer-overlay { inset: 0; position: fixed; z-index: 100; }
+.workspace-drawer { block-size: 100%; inline-size: min(22rem, 90vw); inset-block: 0; inset-inline-start: 0; overflow: auto; position: fixed; }
 .workspace-drawer-heading { align-items: center; display: flex; justify-content: space-between; }
 a:focus-visible, button:focus-visible { outline: 3px solid Highlight; outline-offset: 3px; }
 @media (max-width: 48rem) { .workspace-shell, .workspace-shell[data-sidebar="collapsed"] { display: block; } .workspace-sidebar { display: none; } .workspace-mobile-trigger { display: inline-flex; } }
-@media (prefers-reduced-motion: no-preference) { .workspace-shell { transition: grid-template-columns 160ms ease; } }
 @media (forced-colors: active) { .workspace-sidebar, .workspace-header, .workspace-environment { border-color: CanvasText; } }
 `,
     "src/app/api/health/route.ts": `export const dynamic = "force-dynamic";

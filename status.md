@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Bound repository audit attempts without weakening advisory failure handling; retained strict three-attempt evidence semantics.
+Wired durable published Theme Profiles into generated shell/page rendering, exact mutation observations, lifecycle impact, and convergence.
 
 ## Validation
 
-Exact Node 24.19.0: `pnpm contracts:validate` PASS; workflow/config parsing and repository contracts PASS.
+Exact Node 24.19.0: focused composition Theme Profile/generator tests 31/31 PASS; composition build PASS.
 
 ## Next
 
-Wire durable shell/page Theme Profile resolution and dependency fencing, finish real Sales-route proof, then regenerate exact-head evidence.
+Fix generated Sales route import depth, finish real Sales/theme Chromium proofs, then regenerate exact-head evidence.
 
 ## Blockers
 

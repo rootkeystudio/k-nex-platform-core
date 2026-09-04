@@ -16,7 +16,7 @@ function strictModeGeneratedEditorSession(source: string): Readonly<{ session: G
   const mutationSignals: AbortSignal[] = [];
   let hook = 0;
   let session: GeneratedEditorSession | undefined;
-  const watermark = { authorizationRevision: 1, lifecycleRevision: 1, pageRevision: 1, accessRevision: 1, publicationPointerRevision: 1, publicationRevisionId: "workspace.revision.1" };
+  const watermark = { authorizationRevision: 1, lifecycleRevision: 1, pageRevision: 1, accessRevision: 1, publicationPointerRevision: 1, publicationRevisionId: "workspace.revision.1", themePublicationRevision: 1, themeActiveRevisionId: "workspace.theme.initial", themeStateDigest: `sha256:${"1".repeat(64)}` };
   const useState = <T,>(initial?: T) => [initial, () => undefined] as const;
   const useRef = <T,>(initial: T) => {
     const index = hook++;
@@ -189,7 +189,7 @@ describe("generated workspace page builder policy", () => {
     expect(page).toContain("setRevoked(false)");
     expect(editor).toContain("/session?mode=edit");
     expect(editor).toContain("function sameEditorAuthority(left: Watermark, right: Watermark): boolean {");
-    expect(editor).toContain("return left.authorizationRevision === right.authorizationRevision && left.lifecycleRevision === right.lifecycleRevision && left.accessRevision === right.accessRevision;");
+    expect(editor).toContain("left.themePublicationRevision === right.themePublicationRevision");
     expect(editor).toContain("const currentWatermark = useRef(initialProjection.watermark);");
     expect(editor).toContain("for (let confirmation = 0; response?.status === 404 && confirmation < 2; confirmation += 1)");
     expect(editor).toContain("await new Promise((resolveWait) => setTimeout(resolveWait, 100));");

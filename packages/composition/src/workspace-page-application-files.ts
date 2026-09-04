@@ -26,7 +26,8 @@ import type { Payload } from "payload";
 
 import { authorizeRequest, kNexAuthority, type KnexRequestContext } from "./k-nex-authority.js";
 import { kNexIdentity } from "./k-nex-identity.js";
-import { kNexSalesRegistry, kNexThemePresentation } from "./k-nex-registry.js";
+import { kNexSalesRegistry } from "./k-nex-registry.js";
+import { resolveApplicationTheme, resolvePageThemeOverride } from "./k-nex-theme-runtime.js";
 import { loadWorkspaceSalesSources, workspaceSalesPermissions } from "./k-nex-sales-workspace.js";
 
 const platformBlocks = new Map([
@@ -177,28 +178,28 @@ import { createUiDocumentRuntime, createUiRuntimeRegistry, presentUiRuntimeResul
 import { useEffect, useMemo, useState } from "react";
 
 const runtime = createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: salesUiBlockDefinitions, sources: [salesOpportunitiesDescriptor, salesTasksDescriptor, salesTotalPotentialRevenueDescriptor] }));
-type Watermark = Readonly<{ authorizationRevision: number; lifecycleRevision: number; pageRevision: number; accessRevision: number; publicationPointerRevision: number; publicationRevisionId: string }>;
-type Projection = Readonly<{ document: UiDocument; permissions: readonly string[]; sourceResults: Readonly<Record<string, DataSourceBindingResult<unknown>>>; themeRevision: string; themeCss: string; watermark: Watermark }>;
+type Watermark = Readonly<{ authorizationRevision: number; lifecycleRevision: number; pageRevision: number; accessRevision: number; publicationPointerRevision: number; publicationRevisionId: string; themePublicationRevision: number; themeActiveRevisionId: string; themeStateDigest: string }>;
+type Projection = Readonly<{ document: UiDocument; permissions: readonly string[]; sourceResults: Readonly<Record<string, DataSourceBindingResult<unknown>>>; themeRevision: string; themeMode: "light" | "dark" | "system"; themeCss: string; watermark: Watermark }>;
 
 function projection(value: unknown): Projection | undefined {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
   const candidate = value as Record<string, unknown>;
   const watermark = candidate.watermark;
-  if (watermark === null || typeof watermark !== "object" || Array.isArray(watermark) || candidate.document === null || typeof candidate.document !== "object" || Array.isArray(candidate.document) || !Array.isArray(candidate.permissions) || candidate.sourceResults === null || typeof candidate.sourceResults !== "object" || Array.isArray(candidate.sourceResults) || typeof candidate.themeRevision !== "string" || typeof candidate.themeCss !== "string") return undefined;
+  if (watermark === null || typeof watermark !== "object" || Array.isArray(watermark) || candidate.document === null || typeof candidate.document !== "object" || Array.isArray(candidate.document) || !Array.isArray(candidate.permissions) || candidate.sourceResults === null || typeof candidate.sourceResults !== "object" || Array.isArray(candidate.sourceResults) || typeof candidate.themeRevision !== "string" || !["light", "dark", "system"].includes(String(candidate.themeMode)) || typeof candidate.themeCss !== "string") return undefined;
   const revision = watermark as Record<string, unknown>;
-  if (![revision.authorizationRevision, revision.lifecycleRevision, revision.pageRevision, revision.accessRevision, revision.publicationPointerRevision].every((item) => typeof item === "number" && Number.isSafeInteger(item) && item >= 0) || typeof revision.publicationRevisionId !== "string" || !candidate.permissions.every((item) => typeof item === "string")) return undefined;
+  if (![revision.authorizationRevision, revision.lifecycleRevision, revision.pageRevision, revision.accessRevision, revision.publicationPointerRevision, revision.themePublicationRevision].every((item) => typeof item === "number" && Number.isSafeInteger(item) && item >= 0) || typeof revision.publicationRevisionId !== "string" || typeof revision.themeActiveRevisionId !== "string" || !/^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)+$/u.test(revision.themeActiveRevisionId) || typeof revision.themeStateDigest !== "string" || !/^sha256:[0-9a-f]{64}$/u.test(revision.themeStateDigest) || !candidate.permissions.every((item) => typeof item === "string")) return undefined;
   return candidate as Projection;
 }
 
 function watermark(value: unknown): Watermark | undefined {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
   const candidate = value as Record<string, unknown>;
-  if (![candidate.authorizationRevision, candidate.lifecycleRevision, candidate.pageRevision, candidate.accessRevision, candidate.publicationPointerRevision].every((item) => typeof item === "number" && Number.isSafeInteger(item) && item >= 0) || typeof candidate.publicationRevisionId !== "string") return undefined;
+  if (![candidate.authorizationRevision, candidate.lifecycleRevision, candidate.pageRevision, candidate.accessRevision, candidate.publicationPointerRevision, candidate.themePublicationRevision].every((item) => typeof item === "number" && Number.isSafeInteger(item) && item >= 0) || typeof candidate.publicationRevisionId !== "string" || typeof candidate.themeActiveRevisionId !== "string" || !/^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)+$/u.test(candidate.themeActiveRevisionId) || typeof candidate.themeStateDigest !== "string" || !/^sha256:[0-9a-f]{64}$/u.test(candidate.themeStateDigest)) return undefined;
   return candidate as Watermark;
 }
 
 function sameWatermark(left: Watermark, right: Watermark): boolean {
-  return left.authorizationRevision === right.authorizationRevision && left.lifecycleRevision === right.lifecycleRevision && left.pageRevision === right.pageRevision && left.accessRevision === right.accessRevision && left.publicationPointerRevision === right.publicationPointerRevision && left.publicationRevisionId === right.publicationRevisionId;
+  return left.authorizationRevision === right.authorizationRevision && left.lifecycleRevision === right.lifecycleRevision && left.pageRevision === right.pageRevision && left.accessRevision === right.accessRevision && left.publicationPointerRevision === right.publicationPointerRevision && left.publicationRevisionId === right.publicationRevisionId && left.themePublicationRevision === right.themePublicationRevision && left.themeActiveRevisionId === right.themeActiveRevisionId && left.themeStateDigest === right.themeStateDigest;
 }
 
 export function WorkspacePageRuntime({ pageId, initialProjection }: Readonly<{ pageId: string; initialProjection: Projection }>) {
@@ -241,7 +242,7 @@ export function WorkspacePageRuntime({ pageId, initialProjection }: Readonly<{ p
     }
   }), [current, pageId]);
   if (revoked) return <section role="alert"><h1>Page access revoked</h1><p>Current authority no longer permits this page.</p></section>;
-  return <section data-k-nex-theme-profile={current.themeRevision}><style>{current.themeCss}</style>{presentUiRuntimeReact(presentUiRuntimeResult(result))}</section>;
+  return <section data-k-nex-theme-profile={current.themeRevision} data-k-nex-theme-mode={current.themeMode}><style>{current.themeCss}</style>{presentUiRuntimeReact(presentUiRuntimeResult(result))}</section>;
 }
 `;
 }
@@ -279,18 +280,18 @@ import { WorkspacePuckEditorHost } from "@k-nex/builder-puck/editor";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 type Resource = Readonly<{ id: string; version: number }>;
-type Watermark = Readonly<{ authorizationRevision: number; lifecycleRevision: number; pageRevision: number; accessRevision: number; publicationPointerRevision: number; publicationRevisionId: string }>;
+type Watermark = Readonly<{ authorizationRevision: number; lifecycleRevision: number; pageRevision: number; accessRevision: number; publicationPointerRevision: number; publicationRevisionId: string; themePublicationRevision: number; themeActiveRevisionId: string; themeStateDigest: string }>;
 type Projection = Readonly<{ workingCopy: { revision: number; document: UiDocument }; permissions: readonly string[]; authority: { blocks: readonly Resource[]; sources: readonly Resource[]; actions: readonly Resource[] }; rollbackRevisions: readonly { id: string; label: string }[]; watermark: Watermark }>;
 
 function watermark(value: unknown): Watermark | undefined {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
   const candidate = value as Record<string, unknown>;
-  if (![candidate.authorizationRevision, candidate.lifecycleRevision, candidate.pageRevision, candidate.accessRevision, candidate.publicationPointerRevision].every((item) => typeof item === "number" && Number.isSafeInteger(item) && item >= 0) || typeof candidate.publicationRevisionId !== "string") return undefined;
+  if (![candidate.authorizationRevision, candidate.lifecycleRevision, candidate.pageRevision, candidate.accessRevision, candidate.publicationPointerRevision, candidate.themePublicationRevision].every((item) => typeof item === "number" && Number.isSafeInteger(item) && item >= 0) || typeof candidate.publicationRevisionId !== "string" || typeof candidate.themeActiveRevisionId !== "string" || !/^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)+$/u.test(candidate.themeActiveRevisionId) || typeof candidate.themeStateDigest !== "string" || !/^sha256:[0-9a-f]{64}$/u.test(candidate.themeStateDigest)) return undefined;
   return candidate as Watermark;
 }
 
 function sameEditorAuthority(left: Watermark, right: Watermark): boolean {
-  return left.authorizationRevision === right.authorizationRevision && left.lifecycleRevision === right.lifecycleRevision && left.accessRevision === right.accessRevision;
+  return left.authorizationRevision === right.authorizationRevision && left.lifecycleRevision === right.lifecycleRevision && left.accessRevision === right.accessRevision && left.themePublicationRevision === right.themePublicationRevision && left.themeActiveRevisionId === right.themeActiveRevisionId && left.themeStateDigest === right.themeStateDigest;
 }
 
 export function WorkspacePageEditor({ pageId, initialProjection }: Readonly<{ pageId: string; initialProjection: Projection }>) {
@@ -581,7 +582,7 @@ import { notFound } from "next/navigation";
 
 import { authorizeRequest, kNexRequestContext } from "../../../../k-nex-authority.js";
 import { bootKnexApplication } from "../../../../boot.js";
-import { kNexThemePresentation } from "../../../../k-nex-registry.js";
+import { listPageThemeOverrides } from "../../../../k-nex-theme-runtime.js";
 import { kNexWorkspacePages, kNexWorkspacePageScope } from "../../../../k-nex-workspace-pages.js";
 
 export const dynamic = "force-dynamic";
@@ -590,6 +591,7 @@ export default async function WorkspacePagesAdministration() {
   const payload = await bootKnexApplication("workspace-web");
   const headers = await getHeaders();
   const context = kNexRequestContext(headers, "workspace-pages-admin");
+  const themeOptions = await listPageThemeOverrides(payload);
   const runtime = kNexWorkspacePages(payload);
   let pages;
   try { pages = await runtime.service.list(context, kNexWorkspacePageScope); } catch { return notFound(); }
@@ -617,7 +619,7 @@ export default async function WorkspacePagesAdministration() {
       { name: "title", label: "Title", type: "text" }, { name: "description", label: "Description", type: "text" },
       { name: "parentNavigationId", label: "Placement", type: "select", value: "sales.navigation.root", options: parents },
       { name: "order", label: "Order", type: "number", value: 100, min: 0, max: 1_000_000 },
-      { name: "themeRevision", label: "Theme Profile", type: "select", value: "", options: [{ value: "", label: "Application default" }, { value: kNexThemePresentation.profileRevisionId, label: \`Current admin profile (\${kNexThemePresentation.profileRevisionId})\` }] }
+      { name: "themeRevision", label: "Theme Profile", type: "select", value: "", options: [{ value: "", label: "Application default" }, ...themeOptions] }
     ] } } } : {}),
     ...(canEdit ? { createFolder: { label: "Create folder", form: { actionUrl: "/api/k-nex/workspace-folders", hiddenFields: [{ name: "idempotencyKey", value: idempotency() }], inputs: [
       { name: "label", label: "Folder name", type: "text" }, { name: "parentNavigationId", label: "Parent", type: "select", value: "sales.navigation.root", options: parents },
@@ -636,7 +638,7 @@ import { notFound } from "next/navigation";
 
 import { authorizeRequest, kNexRequestContext } from "../../../../../k-nex-authority.js";
 import { bootKnexApplication } from "../../../../../boot.js";
-import { kNexThemePresentation } from "../../../../../k-nex-registry.js";
+import { listPageThemeOverrides } from "../../../../../k-nex-theme-runtime.js";
 import { kNexWorkspacePages, kNexWorkspacePageScope, loadWorkspacePageAccessSubjects } from "../../../../../k-nex-workspace-pages.js";
 
 export const dynamic = "force-dynamic";
@@ -646,6 +648,7 @@ export default async function WorkspacePageAdministration({ params }: Readonly<{
   const headers = await getHeaders();
   const context = kNexRequestContext(headers, "workspace-page-admin");
   const pageId = (await params).pageId;
+  const themeOptions = await listPageThemeOverrides(payload);
   const runtime = kNexWorkspacePages(payload);
   let detail;
   try { detail = await runtime.service.detail(context, kNexWorkspacePageScope, pageId, "edit"); } catch { return notFound(); }
@@ -678,7 +681,7 @@ export default async function WorkspacePageAdministration({ params }: Readonly<{
       { name: "title", label: "Title", type: "text", value: page.title }, { name: "description", label: "Description", type: "text", value: page.description ?? "" },
       { name: "parentNavigationId", label: "Placement", type: "select", value: page.navigation.state === "placed" ? page.navigation.parentNavigationId : "sales.navigation.root", options: parents },
       { name: "order", label: "Order", type: "number", value: page.navigation.state === "placed" ? page.navigation.order : 100, min: 0, max: 1_000_000 },
-      { name: "themeRevision", label: "Theme Profile", type: "select", value: page.themeProfile?.revisionId ?? "", options: [{ value: "", label: "Application default" }, { value: kNexThemePresentation.profileRevisionId, label: \`Current admin profile (\${kNexThemePresentation.profileRevisionId})\` }] }
+      { name: "themeRevision", label: "Theme Profile", type: "select", value: page.themeProfile === undefined ? "" : page.themeProfile.profileId + "|" + page.themeProfile.revisionId, options: [{ value: "", label: "Application default" }, ...themeOptions] }
     ] } },
     ...(canManageAccess && access ? { replaceAccess: { label: "Replace access", form: { actionUrl: \`/api/k-nex/workspace-pages/\${encodeURIComponent(pageId)}/access\`, hiddenFields: [{ name: "expectedPageRevision", value: String(page.revision) }, { name: "expectedAccessRevision", value: String(access.accessRevision) }, { name: "idempotencyKey", value: idempotency() }], selection: { name: "assignment", label: "Role and user page access", options } } } } : {}),
     archive: { label: "Archive page", confirmation: { title: \`Archive \${page.title}\`, description: "The page leaves navigation but retains publication and audit history.", confirmLabel: "Archive" }, form: { actionUrl: \`/api/k-nex/workspace-pages/\${encodeURIComponent(pageId)}/archive\`, hiddenFields: [{ name: "expectedRevision", value: String(page.revision) }, { name: "idempotencyKey", value: idempotency() }] } },
@@ -823,19 +826,19 @@ import { kNexRequestContext } from "../../../../../../k-nex-authority.js";
 import { loadWorkspacePageEditorProjection, loadWorkspacePageViewProjection, readWorkspacePageWatermark } from "../../../../../../k-nex-workspace-pages.js";
 
 export const dynamic = "force-dynamic";
-type Watermark = Readonly<{ authorizationRevision: number; lifecycleRevision: number; pageRevision: number; accessRevision: number; publicationPointerRevision: number; publicationRevisionId: string }>;
+type Watermark = Readonly<{ authorizationRevision: number; lifecycleRevision: number; pageRevision: number; accessRevision: number; publicationPointerRevision: number; publicationRevisionId: string; themePublicationRevision: number; themeActiveRevisionId: string; themeStateDigest: string }>;
 function requestedWatermark(value: string | null): Watermark | undefined {
   if (value === null) return undefined;
   try {
     const candidate = JSON.parse(value) as unknown;
     if (candidate === null || typeof candidate !== "object" || Array.isArray(candidate)) return undefined;
     const watermark = candidate as Record<string, unknown>;
-    if (Object.keys(watermark).sort().join("\\0") !== "accessRevision\\0authorizationRevision\\0lifecycleRevision\\0pageRevision\\0publicationPointerRevision\\0publicationRevisionId" || ![watermark.authorizationRevision, watermark.lifecycleRevision, watermark.pageRevision, watermark.accessRevision, watermark.publicationPointerRevision].every((item) => typeof item === "number" && Number.isSafeInteger(item) && item >= 0) || typeof watermark.publicationRevisionId !== "string") return undefined;
+    if (Object.keys(watermark).sort().join("\\0") !== "accessRevision\\0authorizationRevision\\0lifecycleRevision\\0pageRevision\\0publicationPointerRevision\\0publicationRevisionId\\0themeActiveRevisionId\\0themePublicationRevision\\0themeStateDigest" || ![watermark.authorizationRevision, watermark.lifecycleRevision, watermark.pageRevision, watermark.accessRevision, watermark.publicationPointerRevision, watermark.themePublicationRevision].every((item) => typeof item === "number" && Number.isSafeInteger(item) && item >= 0) || typeof watermark.publicationRevisionId !== "string" || typeof watermark.themeActiveRevisionId !== "string" || !/^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)+$/u.test(watermark.themeActiveRevisionId) || typeof watermark.themeStateDigest !== "string" || !/^sha256:[0-9a-f]{64}$/u.test(watermark.themeStateDigest)) return undefined;
     return watermark as Watermark;
   } catch { return undefined; }
 }
 function sameWatermark(left: Watermark, right: Watermark): boolean {
-  return left.authorizationRevision === right.authorizationRevision && left.lifecycleRevision === right.lifecycleRevision && left.pageRevision === right.pageRevision && left.accessRevision === right.accessRevision && left.publicationPointerRevision === right.publicationPointerRevision && left.publicationRevisionId === right.publicationRevisionId;
+  return left.authorizationRevision === right.authorizationRevision && left.lifecycleRevision === right.lifecycleRevision && left.pageRevision === right.pageRevision && left.accessRevision === right.accessRevision && left.publicationPointerRevision === right.publicationPointerRevision && left.publicationRevisionId === right.publicationRevisionId && left.themePublicationRevision === right.themePublicationRevision && left.themeActiveRevisionId === right.themeActiveRevisionId && left.themeStateDigest === right.themeStateDigest;
 }
 export async function GET(request: Request, { params }: Readonly<{ params: Promise<{ pageId: string }> }>) {
   try {
@@ -1003,6 +1006,25 @@ function dependenciesFor(document: UiDocument): WorkspacePublishedRevision["depe
   return { entries: ordered, digest: digest(ordered) };
 }
 
+async function salesGenerationImpact(payload: Payload, lifecycleRevision: number | undefined) {
+  const result = await (payload.db.pool as RuntimeExtensionPool).query<{ exact_state: string | null; exact_lifecycle_revision: number | null; other_current: boolean; generation_count: string }>(
+    \`select
+       max(state) filter (where authorization_generation=$3) exact_state,
+       max(lifecycle_revision) filter (where authorization_generation=$3) exact_lifecycle_revision,
+       coalesce(bool_or(state='current' and authorization_generation<>$3), false) other_current,
+       count(*)::text generation_count
+     from k_nex_extension_authorization_generations
+     where application_id=$1 and delivery_class='platform-plugin' and extension_id=$2\`,
+    [scope.applicationId, kNexSalesRegistry.authorizationGeneration.owner.extensionId, kNexSalesRegistry.authorizationGeneration.owner.generation]
+  );
+  const generation = result.rows[0];
+  if (generation === undefined || generation.generation_count === "0") return "plugin-removed" as const;
+  if (generation.other_current) return "plugin-updated" as const;
+  if (generation.exact_state !== "current") return "plugin-disabled" as const;
+  if (generation.exact_lifecycle_revision !== lifecycleRevision || lifecycleRevision !== kNexSalesRegistry.authorizationGeneration.lifecycleRevision) return "plugin-updated" as const;
+  return undefined;
+}
+
 function createRuntime(payload: Payload) {
   const authority = kNexAuthority(payload);
   const store = new PostgresWorkspacePageStore(payload.db.pool as RuntimeExtensionPool);
@@ -1040,8 +1062,12 @@ function createRuntime(payload: Payload) {
     resolvePlacement: (_context: KnexRequestContext, selectionValue: unknown) => resolvePlacement(selectionValue),
     async resolveTheme(_context: KnexRequestContext, selection: unknown) {
       if (selection === undefined || selection === "") return undefined;
-      if (selection !== kNexThemePresentation.profileRevisionId || kNexThemePresentation.surface !== "admin") throw new TypeError("Workspace Theme Profile is unavailable.");
-      return { profileId: "workspace.default-theme", revisionId: kNexThemePresentation.profileRevisionId, surface: "admin" as const };
+      if (typeof selection !== "string") throw new TypeError("Workspace Theme Profile selection is invalid.");
+      const [profileId, revisionId, extra] = selection.split("|");
+      if (!profileId || !revisionId || extra !== undefined) throw new TypeError("Workspace Theme Profile selection is invalid.");
+      const reference = { profileId, revisionId, surface: "admin" as const };
+      await resolvePageThemeOverride(payload, reference);
+      return reference;
     },
     dependencies({ snapshot }: Readonly<{ snapshot: WorkspacePageSnapshot }>) { return dependenciesFor(snapshot.workingCopy.document); },
     async impact({ snapshot, revision }: Readonly<{ snapshot: WorkspacePageSnapshot; revision?: WorkspacePublishedRevision }>) {
@@ -1049,13 +1075,24 @@ function createRuntime(payload: Payload) {
       const selected = revision;
       const theme = selected?.themeProfile ?? snapshot.page.themeProfile;
       const fallback = (snapshot.page.dependencyDigest ?? digest([])) as \`sha256:\${string}\`;
-      if (theme !== undefined && (theme.revisionId !== kNexThemePresentation.profileRevisionId || theme.surface !== "admin")) return { state: "dependency-unavailable" as const, code: "theme-unavailable" as const, catalogRevision: state?.lifecycleRevision ?? 0, dependencyDigest: fallback };
+      try { await (theme === undefined ? resolveApplicationTheme(payload) : resolvePageThemeOverride(payload, theme)); }
+      catch { return { state: "dependency-unavailable" as const, code: "theme-unavailable" as const, catalogRevision: state?.lifecycleRevision ?? 0, dependencyDigest: fallback }; }
+      const pluginCode = await salesGenerationImpact(payload, state?.lifecycleRevision);
+      if (pluginCode !== undefined) return { state: "dependency-unavailable" as const, code: pluginCode, catalogRevision: state?.lifecycleRevision ?? 0, dependencyDigest: fallback };
       try {
         const dependencies = dependenciesFor(selected?.document ?? snapshot.workingCopy.document);
-        return { state: "ready" as const, catalogRevision: state?.lifecycleRevision ?? 0, dependencyDigest: dependencies.digest as \`sha256:\${string}\` };
-      } catch {
-        return { state: "dependency-unavailable" as const, code: "plugin-removed" as const, catalogRevision: state?.lifecycleRevision ?? 0, dependencyDigest: fallback };
-      }
+        return { state: "ready" as const, catalogRevision: state!.lifecycleRevision, dependencyDigest: dependencies.digest as \`sha256:\${string}\` };
+      } catch { return { state: "dependency-unavailable" as const, code: "plugin-removed" as const, catalogRevision: state!.lifecycleRevision, dependencyDigest: fallback }; }
+    },
+    async observe({ snapshot, revision, signal }: Readonly<{ snapshot: WorkspacePageSnapshot; revision?: WorkspacePublishedRevision; signal: AbortSignal }>) {
+      if (signal.aborted) throw new TypeError("Workspace dependency observation was cancelled.");
+      const reference = revision?.themeProfile ?? snapshot.page.themeProfile;
+      const theme = await (reference === undefined ? resolveApplicationTheme(payload) : resolvePageThemeOverride(payload, reference));
+      if (signal.aborted) throw new TypeError("Workspace dependency observation was cancelled.");
+      return Object.freeze({
+        extensionGenerations: Object.freeze([{ applicationId: scope.applicationId, deliveryClass: "platform-plugin" as const, extensionId: kNexSalesRegistry.authorizationGeneration.owner.extensionId, authorizationGeneration: kNexSalesRegistry.authorizationGeneration.owner.generation }]),
+        themePublication: Object.freeze({ applicationId: scope.applicationId, environment: scope.environment, profileId: theme.observation.profileId, activeRevisionId: theme.observation.activeRevisionId, revision: theme.observation.publicationRevision, stateDigest: theme.observation.stateDigest as \`sha256:\${string}\` })
+      });
     }
   };
   const service = new CurrentAuthorityWorkspacePageService<KnexRequestContext>({
@@ -1121,9 +1158,11 @@ export async function openWorkspacePageSession(payload: Payload, context: KnexRe
   const detail = await runtime.service.detail(context, scope, pageId, capability);
   const state = await runtime.synchronizeInvalidations();
   if (initialState.authorizationRevision !== state.authorizationRevision || initialState.lifecycleRevision !== state.lifecycleRevision) throw new TypeError("Workspace page session authority changed.");
+  const reference = capability === "view" ? detail.publication?.revision.themeProfile : detail.page.themeProfile;
+  const theme = await (reference === undefined ? resolveApplicationTheme(payload) : resolvePageThemeOverride(payload, reference));
   const session = runtime.sessions.open({ ...scope, pageId, sessionId, authorizationRevision: state.authorizationRevision, lifecycleRevision: state.lifecycleRevision, accessRevision: detail.page.accessRevision, pageRevision: detail.page.revision });
   if (session.signal.aborted) { session.close(); throw new TypeError("Workspace page session was invalidated."); }
-  return Object.freeze({ detail, signal: session.signal, watermark: Object.freeze({ authorizationRevision: state.authorizationRevision, lifecycleRevision: state.lifecycleRevision, pageRevision: detail.page.revision, accessRevision: detail.page.accessRevision, publicationPointerRevision: detail.publication?.pointer.pointerRevision ?? 0, publicationRevisionId: detail.publication?.pointer.publishedRevisionId ?? "" }), close: session.close });
+  return Object.freeze({ detail, signal: session.signal, theme, watermark: Object.freeze({ authorizationRevision: state.authorizationRevision, lifecycleRevision: state.lifecycleRevision, pageRevision: detail.page.revision, accessRevision: detail.page.accessRevision, publicationPointerRevision: detail.publication?.pointer.pointerRevision ?? 0, publicationRevisionId: detail.publication?.pointer.publishedRevisionId ?? "", themePublicationRevision: theme.observation.publicationRevision, themeActiveRevisionId: theme.observation.activeRevisionId, themeStateDigest: theme.observation.stateDigest }), close: session.close });
 }
 
 export async function readWorkspacePageWatermark(payload: Payload, context: KnexRequestContext, pageId: string, capability: "view" | "edit", sessionId: string) {
@@ -1139,7 +1178,7 @@ export async function loadWorkspacePageViewProjection(payload: Payload, context:
     const document = detail.publication.revision.document;
     const [permissions, sourceResults] = await Promise.all([workspaceSalesPermissions(payload, context, session.signal), loadWorkspaceSalesSources(payload, context, document, session.signal)]);
     if (session.signal.aborted) throw new TypeError("Workspace page projection was invalidated.");
-    return Object.freeze({ document, permissions, sourceResults, themeRevision: detail.publication.revision.themeProfile?.revisionId ?? kNexThemePresentation.profileRevisionId, themeCss: kNexThemePresentation.cssText, watermark: session.watermark });
+    return Object.freeze({ document, permissions, sourceResults, themeRevision: session.theme.presentation.profileRevisionId, themeMode: session.theme.presentation.mode, themeCss: session.theme.presentation.cssText, watermark: session.watermark });
   } finally { session.close(); }
 }
 

@@ -102,6 +102,8 @@ describe("create-knex-app", () => {
     expect(first.files["tsconfig.scripts.json"]).toContain('"module": "NodeNext"');
     expect(first.files["src/k-nex-registry.ts"]).toContain("salesRegistration");
     expect(first.files["src/k-nex-registry.ts"]).toContain('surface: "admin"');
+    expect(first.files["src/k-nex-registry.ts"]).toContain('palette: "light"');
+    expect(first.files["src/k-nex-registry.ts"]).toContain("resolveMinimalThemeProfile(kNexInitialThemeProfile)");
     expect(first.files["src/k-nex-registry.ts"]).not.toContain("salesPageTemplates");
     expect(first.files["next.config.ts"]).not.toContain('"@k-nex/module-sales"');
     expect(first.files["src/k-nex-workspace-pages.ts"]).toContain("CurrentAuthorityWorkspacePageService");
@@ -185,6 +187,8 @@ describe("create-knex-app", () => {
     });
     expect(neobrutalism.files["pnpm-lock.yaml"]).not.toBe(plan.files["pnpm-lock.yaml"]);
     expect(neobrutalism.files["pnpm-lock.yaml"]).toContain("k-nex-theme-neobrutalism-1.0.0.tgz");
+    expect(neobrutalism.files["src/k-nex-registry.ts"]).toContain('palette: "primary"');
+    expect(neobrutalism.files["src/k-nex-registry.ts"]).toContain("resolveNeobrutalismThemeProfile(kNexInitialThemeProfile)");
     expect(plan.installCommands).toEqual([["pnpm", "install", "--frozen-lockfile"]]);
   });
 

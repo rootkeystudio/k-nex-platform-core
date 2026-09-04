@@ -400,7 +400,6 @@ import { redirect } from "next/navigation";
 
 import { authorizeRequest, kNexRequestContext } from "../../k-nex-authority.js";
 import { bootKnexApplication } from "../../boot.js";
-import { kNexThemePresentation } from "../../k-nex-registry.js";
 import { LogoutButton } from "../components/logout-button.js";
 
 export const dynamic = "force-dynamic";
@@ -411,7 +410,104 @@ export default async function WorkspaceHome() {
   const authentication = await payload.auth({ headers, canSetHeaders: false });
   if (!authentication.user) redirect("/login");
   if (!await authorizeRequest(payload, kNexRequestContext(headers, "workspace-home"), "system.workspace-pages.read", "system.workspace-pages")) redirect("/forbidden");
-  return <section className="workspace-home" data-k-nex-theme-profile={kNexThemePresentation.profileRevisionId}><style>{kNexThemePresentation.cssText}</style><p className="eyebrow">K-Nex workspace</p><h1>${jsxStringExpression(applicationName)}</h1><p>Authenticated workspace ready.</p><LogoutButton /></section>;
+  return <section className="workspace-home"><p className="eyebrow">K-Nex workspace</p><h1>${jsxStringExpression(applicationName)}</h1><p>Authenticated workspace ready.</p><LogoutButton /></section>;
+}
+`;
+}
+
+function themeRuntimeSource(theme: ApplicationAuthFilesOptions["theme"]): string {
+  const resolver = theme === "minimal" ? "resolveMinimalThemeProfile" : "resolveNeobrutalismThemeProfile";
+  return `import "server-only";
+
+import { createHash } from "node:crypto";
+
+import { ThemeProfilePublicationEventSchema, ThemeProfileSchema, WorkspaceThemeProfileRefSchema, canonicalJson, type ThemeProfile } from "@k-nex/contracts";
+import type { RuntimeExtensionPool } from "@k-nex/payload-adapter";
+import { ${resolver} as resolveInstalledThemeProfile } from "@k-nex/theme-${theme}";
+import type { ThemePresentationSnapshot } from "@k-nex/ui-design-system-contracts";
+import type { Payload } from "payload";
+
+import { kNexIdentity } from "./k-nex-identity.js";
+import { kNexInitialThemeProfile } from "./k-nex-registry.js";
+
+type ThemeRow = Readonly<{ revision: number; active_revision_id: string | null; active_profile: unknown | null; previous_revision_id: string | null; previous_profile: unknown | null; state_digest: string | null }>;
+export type KnexThemeObservation = Readonly<{ profileId: string; activeRevisionId: string; publicationRevision: number; stateDigest: string }>;
+export type KnexResolvedTheme = Readonly<{ presentation: Pick<ThemePresentationSnapshot, "profileRevisionId" | "mode" | "cssText">; observation: KnexThemeObservation }>;
+
+function digest(value: unknown): string {
+  return "sha256:" + createHash("sha256").update(canonicalJson(value)).digest("hex");
+}
+
+export async function bootstrapApplicationTheme(payload: Payload): Promise<void> {
+  const profile = ThemeProfileSchema.parse(kNexInitialThemeProfile);
+  if (profile.revision.state !== "published") throw new TypeError("Initial Theme Profile must be published.");
+  const stateDigest = digest({ revision: 1, activeRevisionId: profile.revision.id, previousRevisionId: null, activeProfile: profile, previousProfile: null });
+  const owner = { applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment, profileId: profile.id };
+  const eventDigest = digest({ ...owner, operation: "publish", revision: 1, activeRevisionId: profile.revision.id });
+  const event = ThemeProfilePublicationEventSchema.parse({
+    schemaVersion: 1, eventId: "theme-profile-event-" + eventDigest.slice(7, 39), eventType: "theme-profile.publication", operation: "publish", ...owner,
+    revisionBefore: 0, revisionAfter: 1, activeRevisionId: profile.revision.id, occurredAt: profile.revision.publishedAt, stateDigest
+  });
+  await (payload.db.pool as RuntimeExtensionPool).query(
+    \`with inserted as (
+       insert into runtime_theme_profile_publications (application_id, environment, profile_id, revision, active_revision_id, active_profile, state_digest)
+       values ($1,$2,$3,1,$4,$5::jsonb,$6) on conflict (application_id, environment, profile_id) do nothing returning application_id
+     ) insert into runtime_theme_profile_outbox (event_id, application_id, environment, profile_id, revision, event_json)
+       select $7,$1,$2,$3,1,$8::jsonb from inserted\`,
+    [owner.applicationId, owner.environment, owner.profileId, profile.revision.id, JSON.stringify(profile), stateDigest, event.eventId, JSON.stringify(event)]
+  );
+}
+
+function resolved(row: ThemeRow | undefined, profileId: string, revisionId?: string): KnexResolvedTheme {
+  if (row === undefined || !Number.isSafeInteger(row.revision) || row.revision < 1 || row.active_revision_id === null || row.active_profile === null || row.state_digest === null || !/^sha256:[0-9a-f]{64}$/u.test(row.state_digest)) {
+    throw new TypeError("Published admin Theme Profile is unavailable.");
+  }
+  if (digest({ revision: row.revision, activeRevisionId: row.active_revision_id, previousRevisionId: row.previous_revision_id, activeProfile: row.active_profile, previousProfile: row.previous_profile }) !== row.state_digest) {
+    throw new TypeError("Published admin Theme Profile state digest is invalid.");
+  }
+  const profile: ThemeProfile = ThemeProfileSchema.parse(row.active_profile);
+  if (profile.id !== profileId || profile.revision.state !== "published" || profile.revision.id !== row.active_revision_id || (revisionId !== undefined && revisionId !== row.active_revision_id) ||
+    profile.surface !== "admin" || profile.themeId !== "theme.${theme}" || profile.themeVersion !== "1.0.0" || profile.skin !== undefined) {
+    throw new TypeError("Published admin Theme Profile is incompatible with installed theme authority.");
+  }
+  const presentation = resolveInstalledThemeProfile(profile);
+  return Object.freeze({
+    presentation: Object.freeze({ profileRevisionId: presentation.profileRevisionId, mode: presentation.mode, cssText: presentation.cssText }),
+    observation: Object.freeze({ profileId, activeRevisionId: row.active_revision_id, publicationRevision: row.revision, stateDigest: row.state_digest })
+  });
+}
+
+async function read(payload: Payload, profileId: string): Promise<ThemeRow | undefined> {
+  const result = await (payload.db.pool as RuntimeExtensionPool).query<ThemeRow>(
+    \`select revision, active_revision_id, active_profile, previous_revision_id, previous_profile, state_digest from runtime_theme_profile_publications
+     where application_id=$1 and environment=$2 and profile_id=$3\`,
+    [kNexIdentity.applicationId, kNexIdentity.environment, profileId]
+  );
+  return result.rows[0];
+}
+
+export async function resolveApplicationTheme(payload: Payload): Promise<KnexResolvedTheme> {
+  return resolved(await read(payload, kNexInitialThemeProfile.id), kNexInitialThemeProfile.id);
+}
+
+export async function resolvePageThemeOverride(payload: Payload, value: unknown): Promise<KnexResolvedTheme> {
+  const reference = WorkspaceThemeProfileRefSchema.parse(value);
+  return resolved(await read(payload, reference.profileId), reference.profileId, reference.revisionId);
+}
+
+export async function listPageThemeOverrides(payload: Payload) {
+  const result = await (payload.db.pool as RuntimeExtensionPool).query<ThemeRow & { profile_id: string }>(
+    \`select profile_id, revision, active_revision_id, active_profile, previous_revision_id, previous_profile, state_digest from runtime_theme_profile_publications
+     where application_id=$1 and environment=$2 and active_revision_id is not null order by profile_id limit 101\`,
+    [kNexIdentity.applicationId, kNexIdentity.environment]
+  );
+  if (result.rows.length > 100) throw new TypeError("Workspace Theme Profile selection ceiling exceeded.");
+  return Object.freeze(result.rows.flatMap((row) => {
+    try {
+      const theme = resolved(row, row.profile_id);
+      return [Object.freeze({ value: row.profile_id + "|" + theme.observation.activeRevisionId, label: row.profile_id + " (" + theme.observation.activeRevisionId + ")" })];
+    } catch { return []; }
+  }));
 }
 `;
 }
@@ -443,6 +539,7 @@ import type { Payload } from "payload";
 import { authorizeNavigationPermission, kNexAuthority, kNexRequestContext } from "./k-nex-authority.js";
 import { kNexIdentity } from "./k-nex-identity.js";
 import { kNexSalesRegistry } from "./k-nex-registry.js";
+import { resolveApplicationTheme } from "./k-nex-theme-runtime.js";
 import { kNexWorkspacePages, kNexWorkspacePageScope } from "./k-nex-workspace-pages.js";
 
 type RegisteredRoute = PluginRouteDescriptor;
@@ -471,6 +568,7 @@ export async function resolveCurrentWorkspaceNavigation(payload: Payload, header
   if (!authentication.user) return undefined;
   const state = await kNexAuthority(payload).store.readState(kNexIdentity.applicationId, kNexIdentity.environment);
   if (state === undefined) return undefined;
+  const applicationTheme = await resolveApplicationTheme(payload);
   const context = kNexRequestContext(headers, "workspace-navigation");
   const salesGenerationCurrent = state.lifecycleRevision === kNexSalesRegistry.authorizationGeneration.lifecycleRevision &&
     state.authorizationRevision >= kNexSalesRegistry.authorizationGeneration.authorizationRevision;
@@ -503,10 +601,11 @@ export async function resolveCurrentWorkspaceNavigation(payload: Payload, header
   const watermark = "sha256:" + createHash("sha256").update(canonicalJson({
     authorizationRevision: state.authorizationRevision,
     lifecycleRevision: state.lifecycleRevision,
+    theme: applicationTheme.observation,
     pages: pageItems.map(({ page, impact }) => [page.identity.pageId, page.accessRevision, impact.state, impact.code ?? null]).sort((left, right) => String(left[0]).localeCompare(String(right[0]))),
     folders: folderItems.map(({ node, revision }) => [node.id, revision]).sort((left, right) => String(left[0]).localeCompare(String(right[0])))
   })).digest("hex");
-  return Object.freeze({ navigation, watermark, preferenceKey: kNexIdentity.applicationId + ":user:" + String(authentication.user.id) + ":workspace-sidebar" });
+  return Object.freeze({ navigation, watermark, themePresentation: applicationTheme.presentation, preferenceKey: kNexIdentity.applicationId + ":user:" + String(authentication.user.id) + ":workspace-sidebar" });
 }
 `;
 }
@@ -649,7 +748,7 @@ export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
   const resolved = await resolveCurrentWorkspaceNavigation(await bootKnexApplication("workspace-web"), new Headers(request.headers));
   if (resolved === undefined) return Response.json({ code: "UNAUTHENTICATED" }, { status: 401, headers: { "cache-control": "no-store" } });
-  return Response.json({ watermark: resolved.watermark, navigation: resolved.navigation }, { headers: { "cache-control": "no-store" } });
+  return Response.json({ watermark: resolved.watermark, navigation: resolved.navigation, themePresentation: resolved.themePresentation }, { headers: { "cache-control": "no-store" } });
 }
 `;
 }
@@ -662,10 +761,21 @@ import type { ResolvedWorkspaceNavigation } from "@k-nex/ui-runtime";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 
-export function KnexWorkspaceShell(props: Readonly<{ applicationLabel: string; environment: string; navigation: ResolvedWorkspaceNavigation; navigationWatermark: string; preferenceKey: string; children: ReactNode }>) {
+type ThemePresentation = Readonly<{ profileRevisionId: string; mode: "light" | "dark" | "system"; cssText: string }>;
+
+function themePresentation(value: unknown): ThemePresentation | undefined {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const candidate = value as Record<string, unknown>;
+  if (Object.keys(candidate).sort().join("\\0") !== "cssText\\0mode\\0profileRevisionId" || typeof candidate.profileRevisionId !== "string" || !/^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)+$/u.test(candidate.profileRevisionId) ||
+    !["light", "dark", "system"].includes(String(candidate.mode)) || typeof candidate.cssText !== "string" || new TextEncoder().encode(candidate.cssText).byteLength > 1_048_576) return undefined;
+  return candidate as ThemePresentation;
+}
+
+export function KnexWorkspaceShell(props: Readonly<{ applicationLabel: string; environment: string; navigation: ResolvedWorkspaceNavigation; navigationWatermark: string; preferenceKey: string; themePresentation: ThemePresentation; children: ReactNode }>) {
   const [navigation, setNavigation] = useState(props.navigation);
+  const [themePresentation, setThemePresentation] = useState(props.themePresentation);
   const [watermark, setWatermark] = useState(props.navigationWatermark);
-  useEffect(() => { setNavigation(props.navigation); setWatermark(props.navigationWatermark); }, [props.navigation, props.navigationWatermark]);
+  useEffect(() => { setNavigation(props.navigation); setThemePresentation(props.themePresentation); setWatermark(props.navigationWatermark); }, [props.navigation, props.navigationWatermark, props.themePresentation]);
   useEffect(() => {
     let active = true;
     let pending = false;
@@ -675,17 +785,19 @@ export function KnexWorkspaceShell(props: Readonly<{ applicationLabel: string; e
       const response = await fetch("/api/k-nex/navigation/revision", { cache: "no-store" }).catch(() => undefined);
       if (!active) return;
       if (response?.status === 401) { window.location.assign("/login"); return; }
-      const body = response?.ok ? await response.json().catch(() => undefined) as { watermark?: unknown; navigation?: unknown } | undefined : undefined;
-      if (typeof body?.watermark === "string" && body.watermark !== watermark && typeof body.navigation === "object" && body.navigation !== null) {
+      const body = response?.ok ? await response.json().catch(() => undefined) as { watermark?: unknown; navigation?: unknown; themePresentation?: unknown } | undefined : undefined;
+      const nextTheme = themePresentation(body?.themePresentation);
+      if (typeof body?.watermark === "string" && /^sha256:[0-9a-f]{64}$/u.test(body.watermark) && body.watermark !== watermark && typeof body.navigation === "object" && body.navigation !== null && nextTheme !== undefined) {
         setNavigation(body.navigation as ResolvedWorkspaceNavigation);
+        setThemePresentation(nextTheme);
         setWatermark(body.watermark);
       }
       pending = false;
     }, 1_000);
     return () => { active = false; clearInterval(timer); };
   }, [watermark]);
-  const { navigationWatermark: _, navigation: __, ...shell } = props;
-  return <WorkspaceShell {...shell} navigation={navigation} currentHref={usePathname()} />;
+  const { navigationWatermark: _, navigation: __, themePresentation: ___, ...shell } = props;
+  return <WorkspaceShell {...shell} navigation={navigation} themePresentation={themePresentation} currentHref={usePathname()} />;
 }
 `;
 }
@@ -706,7 +818,7 @@ export default async function WorkspaceLayout({ children }: Readonly<{ children:
   const payload = await bootKnexApplication("workspace-web");
   const resolved = await resolveCurrentWorkspaceNavigation(payload, await getHeaders());
   if (resolved === undefined) redirect("/login");
-  return <KnexWorkspaceShell applicationLabel=${jsxStringExpression(applicationName)} environment={kNexIdentity.environment} navigation={resolved.navigation} navigationWatermark={resolved.watermark} preferenceKey={resolved.preferenceKey}>{children}</KnexWorkspaceShell>;
+  return <KnexWorkspaceShell applicationLabel=${jsxStringExpression(applicationName)} environment={kNexIdentity.environment} navigation={resolved.navigation} navigationWatermark={resolved.watermark} preferenceKey={resolved.preferenceKey} themePresentation={resolved.themePresentation}>{children}</KnexWorkspaceShell>;
 }
 `;
 }
@@ -717,7 +829,8 @@ function inventoryRouteSource(): string {
 import { authorizeRequest, kNexAuthority, kNexRequestContext } from "../../../../k-nex-authority.js";
 import { bootKnexApplication } from "../../../../boot.js";
 import { kNexIdentity } from "../../../../k-nex-identity.js";
-import { kNexSalesRegistry, kNexThemePresentation } from "../../../../k-nex-registry.js";
+import { kNexSalesRegistry } from "../../../../k-nex-registry.js";
+import { resolveApplicationTheme } from "../../../../k-nex-theme-runtime.js";
 
 export const dynamic = "force-dynamic";
 
@@ -726,7 +839,8 @@ export async function GET() {
   const headers = await getHeaders();
   if (!await authorizeRequest(payload, kNexRequestContext(headers, "runtime-inventory"), "system.extensions.read", "system.extensions")) return Response.json({ code: "FORBIDDEN" }, { status: 403 });
   const state = await kNexAuthority(payload).store.readState(kNexIdentity.applicationId, kNexIdentity.environment);
-  return Response.json({ schemaVersion: 1, applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment, authorizationRevision: state?.authorizationRevision, lifecycleRevision: state?.lifecycleRevision, plugins: [kNexSalesRegistry.registration.pluginId], theme: { id: kNexThemePresentation.themeId, version: kNexThemePresentation.themeVersion, profileRevisionId: kNexThemePresentation.profileRevisionId }, collections: Object.keys(payload.collections).sort() }, { headers: { "cache-control": "no-store" } });
+  const theme = await resolveApplicationTheme(payload);
+  return Response.json({ schemaVersion: 1, applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment, authorizationRevision: state?.authorizationRevision, lifecycleRevision: state?.lifecycleRevision, plugins: [kNexSalesRegistry.registration.pluginId], theme: theme.observation, collections: Object.keys(payload.collections).sort() }, { headers: { "cache-control": "no-store" } });
 }
 `;
 }
@@ -767,6 +881,7 @@ import type { Payload } from "payload";
 import { kNexAuthority } from "./k-nex-authority.js";
 import { kNexIdentity } from "./k-nex-identity.js";
 import { kNexSalesRegistry, kNexThemePresentation } from "./k-nex-registry.js";
+import { bootstrapApplicationTheme, resolveApplicationTheme } from "./k-nex-theme-runtime.js";
 import { migrations } from "./migrations/index.js";
 
 export const kNexApplicationReadyMarker = "K_NEX_APPLICATION_READY";
@@ -776,7 +891,8 @@ const expectedMigrationNames = Object.freeze([
   "20260827_000002_knex_bootstrap",
   "20260903_000003_knex_authorization",
   "20260903_000004_knex_workspace_pages",
-  "20260903_000005_knex_event_outbox"
+  "20260903_000005_knex_event_outbox",
+  "20260904_000006_knex_theme_profiles"
 ]);
 const expectedRouteSources = Object.freeze([
   "src/app/(auth)/forbidden/page.tsx",
@@ -955,6 +1071,8 @@ export async function reconcileKnexReadiness(payload: Payload) {
   const pool = payload.db.pool as RuntimeExtensionPool;
   await assertMigrationReadiness({ pool, applicationId: kNexIdentity.applicationId, artifactRevision: 1, releaseRevision: "platform-" + release.release.version + "-bootstrap" });
   await assertSalesSchema(pool);
+  await bootstrapApplicationTheme(payload);
+  await resolveApplicationTheme(payload);
   const authority = kNexAuthority(payload);
   const state = await authority.store.readState(kNexIdentity.applicationId, kNexIdentity.environment);
   if (state === undefined || state.lifecycleRevision !== kNexSalesRegistry.authorizationGeneration.lifecycleRevision || state.authorizationRevision < kNexSalesRegistry.authorizationGeneration.authorizationRevision) fail("Authorization lifecycle state mismatch.");
@@ -1068,6 +1186,7 @@ export function applicationAuthFiles(options: ApplicationAuthFilesOptions): Read
     "src/k-nex-identity.ts": identitySource(options.applicationId),
     "src/k-nex-issue-bootstrap-token.ts": issueTokenSource(),
     "src/k-nex-readiness.ts": readinessSource(options.theme),
+    "src/k-nex-theme-runtime.ts": themeRuntimeSource(options.theme),
     "src/k-nex-sales-routes.ts": salesRouteRuntimeSource(),
     "src/k-nex-worker.ts": workerSource(),
     "src/k-nex-users.ts": usersSource(),
