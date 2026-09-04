@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Regenerated, downloaded, and verified hosted signed evidence for the repaired v1 package/customer closure.
+Aligned packed customer boot observation with the six generated Phase 12 migrations.
 
 ## Validation
 
-Exact Node 24.19.0/pnpm 11.9.0: isolated binding-state PostgreSQL/HTTP/Chromium proof PASS (1/1, 192.8s); hosted release-evidence run `33841660539` PASS on closure source `6feb03f`; generated evidence check PASS.
+Exact Node 24.19.0/pnpm 11.9.0: isolated binding-state PostgreSQL/HTTP/Chromium proof PASS (1/1, 192.8s); hosted release-evidence run `33841660539` PASS on closure source `6feb03f`; generated evidence check PASS; packed customer boot PostgreSQL proof PASS (1/1, 66.2s).
 
 ## Next
 
-Commit/push hosted evidence, then run exact-head PR-focused and Linux/AppArmor cumulative Gate 0–12 CI.
+Commit/push packed-customer boot repair, then rerun exact-head Linux/AppArmor cumulative Gate 0–12 CI.
 
 ## Blockers
 
