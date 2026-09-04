@@ -7,16 +7,16 @@
 
 ## Last completed
 
-Hosted exact-head focused `validate` and dependent `repository-evidence` jobs passed in run `33861363563` after the failed-job-only retry. Exact-head Linux/AppArmor cumulative run `33861368033` passed every prior gate and emitted `GATE_11_PASS` at 11:13:39, then was cancelled at 11:19:02 while focused Gate 12 evidence was still progressing: setup consumes about 9 minutes, the cumulative body needs about 74 minutes, and the unchanged focused proof takes about 12m38s. Raised only the `validate` job timeout from 75 to 90 minutes.
+Hardened the Phase 9 PostgreSQL Hot Application fixture’s rollback-retirement race: test-only lifecycle polling is quiesced during unrelated backup/restore and rejected-stage proof, then G2 retirement is observed and rollback begins immediately before the real 10-second deadline. Cancellation and later irreversible G3 retirement retain their existing real-browser assertions.
 
 ## Validation
 
-Hosted exact-head focused `validate` and `repository-evidence` PASS (run `33861363563`); exact-head Linux/AppArmor cumulative run `33861368033` was cancelled solely by the structurally insufficient 75-minute `validate` cap after `GATE_11_PASS` while Gate 12 evidence continued; workflow YAML/dependency shape and `git diff --check` PASS.
+Node 24.19.0 / pnpm 11.9 fixture build, Node syntax check, and `git diff --check` PASS. The isolated real-PostgreSQL target was attempted with both Docker Desktop local-test and AppArmor policies; the former is deliberately rejected before the production-runtime journey and the latter reaches Docker’s expected macOS `POLICY_UNAVAILABLE` AppArmor/proc-map boundary. Linux/AppArmor evidence remains required.
 
 ## Next
 
-Push this 90-minute `validate` timeout correction, then confirm one exact-head Linux/AppArmor cumulative Gate 0–12 run and its dependent `repository-evidence` job pass.
+Run `fixtures/customer-gate-1/tests/runtime-extension-state-postgres.test.mjs` on Linux with the loaded AppArmor profile, then confirm the exact-head cumulative Gate 0–12 and dependent repository-evidence jobs.
 
 ## Blockers
 
-Exact-head Linux/AppArmor cumulative Gate 0–12 and dependent repository evidence are pending the 90-minute `validate` budget; npm audit transport remains intermittent on GitHub runners.
+Local macOS Docker Desktop cannot satisfy the required production AppArmor/proc-map inspection; exact Linux/AppArmor evidence is pending. npm audit transport remains intermittent on GitHub runners.
