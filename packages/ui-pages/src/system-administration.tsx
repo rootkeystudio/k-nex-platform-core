@@ -24,7 +24,7 @@ export interface SystemAdministrationForm {
   readonly inputs?: readonly Readonly<{
     readonly name: string;
     readonly label: string;
-    readonly type: "text" | "number" | "select";
+    readonly type: "text" | "password" | "number" | "select";
     readonly value?: string | number;
     readonly min?: number;
     readonly max?: number;

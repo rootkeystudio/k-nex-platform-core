@@ -98,6 +98,8 @@ describe("create-knex-app", () => {
     expect(first.files["src/app/(workspace)/system/access/permissions/page.tsx"]).toContain("SystemPermissionsPage");
     expect(first.files["src/app/(workspace)/system/access/assignments/page.tsx"]).toContain("SystemAssignmentsPage");
     expect(first.files["src/app/(workspace)/system/access/audit/page.tsx"]).toContain("SystemAuthorizationAuditPage");
+    expect(first.files["src/app/(workspace)/system/themes/page.tsx"]).toContain("SystemThemesPage");
+    expect(first.files["src/app/(workspace)/system/settings/page.tsx"]).toContain("SystemSettingsPage");
     expect(first.files["src/payload.config.ts"]).toContain("prodMigrations: migrations");
     expect(first.files["src/payload.config.ts"]).toContain('kNexApplicationId: "customer-alpha"');
     expect(first.files["src/boot.ts"]).toContain("bootKnexApplication");

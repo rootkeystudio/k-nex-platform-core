@@ -169,6 +169,16 @@ export function kNexRequestContext(headers: Headers, boundary: string): KnexRequ
   return Object.freeze({ headers, correlationId: \`\${boundary}-\${randomUUID()}\` });
 }
 
+export async function reauthenticateCurrentUser(payload: Payload, context: KnexRequestContext, password: string): Promise<boolean> {
+  if (typeof password !== "string" || password.length < 1 || password.length > 1024) return false;
+  try {
+    const current = (await payload.auth({ headers: context.headers, canSetHeaders: false })).user;
+    if (typeof current !== "object" || current === null || !("id" in current) || !("email" in current) || !("collection" in current) || current.collection !== "users" || typeof current.email !== "string") return false;
+    const login = await payload.login({ collection: "users", data: { email: current.email, password }, overrideAccess: false });
+    return login.user !== null && login.user !== undefined && String(login.user.id) === String(current.id);
+  } catch { return false; }
+}
+
 export async function authorizePayloadUser(payload: Payload, user: unknown, permissionId: string, resource: string): Promise<boolean> {
   const trusted = session(user, \`payload-access-\${randomUUID()}\`);
   if (trusted === undefined) return false;
@@ -631,7 +641,7 @@ export async function resolveCurrentWorkspaceNavigation(payload: Payload, header
     applicationId: kNexIdentity.applicationId,
     environment: kNexIdentity.environment,
     revision: state.authorizationRevision,
-    implementedSystemRouteIds: ["system.route.workspace", "system.route.roles", "system.route.permissions", "system.route.assignments", "system.route.workspace-pages"],
+    implementedSystemRouteIds: ["system.route.workspace", "system.route.roles", "system.route.permissions", "system.route.assignments", "system.route.workspace-pages", "system.route.themes", "system.route.settings"],
     // The section is durable customer-placement structure. Only current static
     // registration contributions may contribute executable plugin links.
     plugins: [{ ...kNexSalesRegistry.navigationSection,

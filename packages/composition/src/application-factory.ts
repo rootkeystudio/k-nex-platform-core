@@ -7,6 +7,7 @@ import { ApplicationManifestSchema, canonicalJson, type ApplicationManifest, typ
 import { applicationAuthFiles } from "./application-auth-files.js";
 import { runnableApplicationFiles } from "./runnable-application-files.js";
 import { systemAccessApplicationFiles } from "./system-access-application-files.js";
+import { systemThemeSettingsApplicationFiles } from "./system-theme-settings-application-files.js";
 import { workspacePageApplicationFiles } from "./workspace-page-application-files.js";
 
 export type SalesPresetTheme = "minimal" | "neobrutalism";
@@ -292,6 +293,7 @@ export function planCreateKnexApplication(options: CreateKnexApplicationOptions)
     ...runnableApplicationFiles({ applicationId: options.applicationId, applicationName: options.applicationName, database: options.database, theme: options.theme }),
     ...applicationAuthFiles({ applicationId: options.applicationId, applicationName: options.applicationName, theme: options.theme }),
     ...systemAccessApplicationFiles({ applicationId: options.applicationId }),
+    ...systemThemeSettingsApplicationFiles({ applicationId: options.applicationId }),
     ...workspacePageApplicationFiles({ applicationId: options.applicationId }),
     ".env.example": "DATABASE_URL=\nK_NEX_ENVIRONMENT=\nK_NEX_OWNER_EMAIL=\nK_NEX_OWNER_PASSWORD=\nK_NEX_PUBLIC_ORIGIN=\nPAYLOAD_SECRET=\n",
     ".k-nex/application-plan.json": json({
