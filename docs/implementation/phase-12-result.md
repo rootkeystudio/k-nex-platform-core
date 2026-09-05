@@ -37,7 +37,7 @@ Gate-selected unit evidence covers authority-bound navigation outbox lease recov
 
 The final response-loss closure adds one signed server-owned plan intent, durable exact execute-command digest binding, and completed-replay-before-drift handling. A real TLS 1.3 mTLS relay drops successful plan and execute responses after PostgreSQL commit; the generated app retries byte-identical commands, reuses the same browser intent and operation ID, denies a changed payload under the same key, and records exactly one terminal receipt, audit event, and outbox event. Hosted release-evidence run `33937471560` refreshed both customer bundles, five attestations, verification records, runtime inventories, receipts, restore proofs, and fleet evidence for closure source `b3c199e208e331ea832264a1dd0b2a8dd1e6a2a9`.
 
-Focused/affected evidence: `pnpm gate:12:focused` PASS on the final review-fix tree based on `888b6f9`; isolated operator/store/schema tests, PluginManager, static-host reconciliation, packed closure/factory locks, audit-high, and diff checks also PASS. Inherited cumulative baseline: `3ab9f2e6` / run `33879701153`. The replacement is not relabelled as a cumulative Gate 0–12 run.
+Focused/affected evidence: local `pnpm gate:12:focused` PASS on `15aeab4`, hosted exact-head focused run `33937836682` PASS on evidence head `37caf6e`, and isolated operator/store/schema, PluginManager, static-host reconciliation, packed closure/factory locks, audit-high, diff, and container-cleanliness checks PASS. Exact-head cumulative Gate 0–12 run `33937839132` also passed on `37caf6e`; inherited accepted baseline remains `3ab9f2e6` / run `33879701153`.
 
 ## Boundaries retained
 
