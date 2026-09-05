@@ -298,7 +298,7 @@ function verifiedPackageSource(manifestInput, directory) {
   return { kind: "packed-mirror", directory, authority, release };
 }
 
-test("P12.9 generated app completes the durable authorized workspace journey", { timeout: 420_000 }, async () => {
+test("P12.9 generated app completes the durable authorized workspace journey", { timeout: 600_000 }, async () => {
   const container = await new PostgreSqlContainer(POSTGRES_IMAGE).withDatabase("p12_generated").withStartupTimeout(120_000).start();
   const root = realpathSync(mkdtempSync(join(tmpdir(), "p12-generated-auth-")));
   const application = join(root, "application");

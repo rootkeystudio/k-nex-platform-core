@@ -2,21 +2,21 @@
 
 - **Updated:** 2026-09-05
 - **Phase:** Phase 12 — Runnable Customer Workspace and Dashboard Builder
-- **Active task:** Phase 12 complete; awaiting phase review
-- **State:** Ready for phase review
+- **Active task:** Phase 12 final evidence refresh
+- **State:** In progress
 
 ## Last completed
 
-Closed the final Phase 12 review findings: durable signed plan-intent replay, byte-identical operator retry, PostgreSQL-bound execute-command identity, completed replay before same-operation revision drift, generated operator deployment guidance, and ADR-0027 registration.
+Closed the final logic findings, refreshed both customer frozen-lock integrities for the current v1 package closure, and raised only the generated P12.9 proof timeout from 420s to 600s after hosted CI reached every new response-loss marker before timing out.
 
 ## Validation
 
-`pnpm gate:12:focused` PASS on the review-fix tree based on `888b6f9`: 235 unit assertions, 80 selected proofs, and 3 PostgreSQL/HTTP/Chromium process proofs. Isolated operator/store/schema, PluginManager, static-host, packed closure/factory-lock, audit-high, and diff checks PASS. Inherited cumulative baseline: `3ab9f2e6` / run `33879701153`.
+Local `pnpm gate:12:focused` PASS on `15aeab4`: 235 unit assertions, 80 selected proofs, and 3 PostgreSQL/HTTP/Chromium process proofs. Hosted run `33936644979` reached all new response-loss proofs but hit the former 420s journey cap. Alpha/Beta frozen lock-only installs, syntax, and diff checks PASS. Inherited cumulative baseline: `3ab9f2e6` / run `33879701153`.
 
 ## Next
 
-Project-manager review of PR #33; do not merge from the implementation task.
+Push the evidence-harness correction, refresh signed release evidence, run focused/exact-head required validation, then return PR #33 to the same reviewer.
 
 ## Blockers
 
-None.
+Signed release evidence refresh pending for the current v1 closure.
