@@ -9,23 +9,23 @@
       "name": "application-manifest"
     },
     {
-      "digest": "sha256:a4b0ee446e092db91321eaf7afff2c10704fabb77a67f92eb2c82abaffeb3f25",
+      "digest": "sha256:7a3de6036da8cea1323e4002526a64447eb8036a7baae5e63defa14405abdea7",
       "name": "generated-application-tree"
     },
     {
-      "digest": "sha256:f4c4c5734323de4ac628edc9dc3588e5dd095c915095dc63ce5ee9713d4dadd5",
+      "digest": "sha256:b1fdbc365eb9ce9454a3839901a1673ca586e95d1e95f4d78db7f6430ff57002",
       "name": "lock-runtime-closure"
     },
     {
-      "digest": "sha256:3caba9afbd5b085d97bbf948d64ae76622cdc095dc89a705091a731658d2301b",
+      "digest": "sha256:d991c1b190024f2f34fae2db30749553c8f159c3a8fafa25cfaf6a85530ed03b",
       "name": "lockfile"
     },
     {
-      "digest": "sha256:49cf983ab8a49b035dfd7d7d5ad909759bf2ba184191d81b6101783ccfacb289",
+      "digest": "sha256:c0b0036dc71ce7001fc4466936a013e23a2c6b7944f307ca24bec13873b08dae",
       "name": "package-release-manifest"
     },
     {
-      "digest": "sha256:f4c4c5734323de4ac628edc9dc3588e5dd095c915095dc63ce5ee9713d4dadd5",
+      "digest": "sha256:b1fdbc365eb9ce9454a3839901a1673ca586e95d1e95f4d78db7f6430ff57002",
       "name": "release-closure"
     },
     {
@@ -33,10 +33,10 @@
       "name": "resolved-graph-or-plan"
     },
     {
-      "digest": "sha256:264d498f8505b1d79896e55ac39bad7b540899451965c640877b4978ca581173",
+      "digest": "sha256:99ba0208901f8249b286a786ffb32992188b5518018490f5c00e9108a03043a6",
       "name": "sbom"
     }
   ],
-  "sourceCommit": "6feb03f7532331336c06b983738d8590c65293f2",
-  "workflowIdentity": "rootkeystudio/k-nex-platform-core/.github/workflows/release-evidence.yml@6feb03f7532331336c06b983738d8590c65293f2"
+  "sourceCommit": "b3c199e208e331ea832264a1dd0b2a8dd1e6a2a9",
+  "workflowIdentity": "rootkeystudio/k-nex-platform-core/.github/workflows/release-evidence.yml@b3c199e208e331ea832264a1dd0b2a8dd1e6a2a9"
 }
