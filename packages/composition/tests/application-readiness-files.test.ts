@@ -11,6 +11,7 @@ describe("generated application readiness", () => {
 
     expect(readiness).toContain("export async function reconcileKnexReadiness(payload: Payload)");
     expect(readiness).toContain('export const kNexApplicationReadyMarker = "K_NEX_APPLICATION_READY"');
+    expect(readiness.indexOf("assertAdministrationOperatorConfiguration();")).toBeLessThan(readiness.indexOf("const { release } = reconcileSource(root);"));
     expect(route.match(/import \{ reconcileKnexReadiness \}/gu)).toHaveLength(1);
     expect(doctor.match(/import \{ kNexApplicationReadyMarker, reconcileKnexReadiness \}/gu)).toHaveLength(1);
     expect(route.match(/reconcileKnexReadiness\(payload\)/gu)).toHaveLength(1);
@@ -31,6 +32,9 @@ describe("generated application readiness", () => {
       "Generated migration inventory mismatch.",
       "Sales table schema mismatch.",
       "Sales enum schema mismatch.",
+      "Administration operator configuration is missing.",
+      "Administration operator credential is unreadable.",
+      "Administration operator configuration is invalid.",
       "Authorization lifecycle state mismatch.",
       "Protected role baseline receipt mismatch.",
       "Bootstrap owner assignment mismatch.",
@@ -39,6 +43,7 @@ describe("generated application readiness", () => {
     expect(readiness).toContain("ApplicationManifestSchema.parse");
     expect(readiness).toContain("PackageReleaseManifestSchema.parse");
     expect(readiness).toContain("assertMigrationReadiness");
+    expect(readiness).toContain("new NodeHttpsAdministrationOperatorClient");
     expect(readiness).toContain("assertExactProtectedRoleBaselineState");
     expect(readiness).toContain("currentProtectedPlatformRoleBaselineRelease");
     expect(readiness).toContain("authority.store.readTransaction(expected");
@@ -58,6 +63,19 @@ describe("generated application readiness", () => {
     expect(readiness).toContain('"src/app/(workspace)/system/extensions/[extensionId]/page.tsx"');
     expect(readiness).toContain('"src/app/api/system/themes/profiles/[profileId]/publish/route.ts"');
     expect(readiness).not.toContain("payload.destroy()");
+
+    for (const name of ["K_NEX_ADMINISTRATION_OPERATOR_HOST", "K_NEX_ADMINISTRATION_OPERATOR_PORT", "K_NEX_ADMINISTRATION_OPERATOR_URI_SAN", "K_NEX_ADMINISTRATION_OPERATOR_IDENTITY"]) {
+      expect(readiness).toContain(`requiredAdministrationOperatorConfiguration("${name}")`);
+    }
+    for (const name of ["K_NEX_ADMINISTRATION_OPERATOR_CLIENT_CERT", "K_NEX_ADMINISTRATION_OPERATOR_CLIENT_KEY", "K_NEX_ADMINISTRATION_OPERATOR_CA_CERT"]) {
+      expect(readiness).toContain(`administrationOperatorCredential("${name}")`);
+    }
+    expect(readiness).toContain('allowedCommandFamilies: ["extension-lifecycle"]');
+    expect(readiness).toContain("const certificate = administrationOperatorCredential");
+    expect(readiness).toContain("const privateKey = administrationOperatorCredential");
+    expect(readiness).toContain("const certificateAuthority = administrationOperatorCredential");
+    expect(readiness).toContain("Number(requiredAdministrationOperatorConfiguration(\"K_NEX_ADMINISTRATION_OPERATOR_PORT\"))");
+    expect(readiness).toContain('catch { fail("Administration operator configuration is invalid."); }');
 
     expect(route).toContain('status: "ready", applicationId: readiness.applicationId, authorizationRevision: readiness.authorizationRevision, lifecycleRevision: readiness.lifecycleRevision');
     expect(route).toContain('status: "not-ready" }, { status: 503');

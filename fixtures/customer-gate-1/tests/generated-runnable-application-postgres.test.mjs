@@ -244,6 +244,11 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     const staleOwnerEnvironment = { ...applicationEnvironment, K_NEX_OWNER_EMAIL: staleOwnerEmail, K_NEX_OWNER_PASSWORD: staleOwnerPassword };
     run("pnpm", ["knex:migrate"], { cwd: application, env: applicationEnvironment, stdio: "pipe" });
     run("pnpm", ["build"], { cwd: application, env: applicationEnvironment, stdio: "pipe" });
+    const missingOperatorEnvironment = { ...applicationEnvironment };
+    delete missingOperatorEnvironment.K_NEX_ADMINISTRATION_OPERATOR_HOST;
+    assert.match(failedRun("pnpm", ["knex:doctor"], { cwd: application, env: missingOperatorEnvironment, stdio: "pipe" }), /Administration operator configuration is missing/u);
+    assert.match(failedRun("pnpm", ["knex:doctor"], { cwd: application, env: { ...applicationEnvironment, K_NEX_ADMINISTRATION_OPERATOR_PORT: "0" }, stdio: "pipe" }), /Administration operator configuration is invalid/u);
+    console.log("P12_ADMINISTRATION_OPERATOR_READINESS_CONFIGURATION_DENIED=PASS");
     pool = new pg.Pool({ connectionString: container.getConnectionUri() });
     const { kNexSalesRegistry } = await import(pathToFileURL(join(application, "dist/k-nex-registry.js")).href);
     const { AuthorizationLifecycleProjector, createStaticPlatformPluginAuthorizationDescriptorResolver } = await import(pathToFileURL(realpathSync(join(application, "node_modules/@k-nex/payload-adapter/dist/index.js"))).href);
@@ -565,6 +570,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     });
     await postSystemForm(applicationProcess.origin, owner.cookie.header, "/api/system/access/roles", { id: "customer.workspace-viewer", label: "Workspace viewer" });
     await postSystemForm(applicationProcess.origin, owner.cookie.header, "/api/system/access/roles/customer.workspace-viewer/permissions", { permissionId: "system.workspace-pages.read" });
+    await postSystemForm(applicationProcess.origin, owner.cookie.header, "/api/system/access/roles/customer.workspace-viewer/permissions", { permissionId: "system.roles.read" });
     await postSystemForm(applicationProcess.origin, owner.cookie.header, "/api/system/access/assignments", { roleId: "customer.workspace-viewer", userId: limitedUserId });
     const workspaceViewerAssignmentId = `access.assignment.${createHash("sha256").update(canonicalJson([applicationId, "customer.workspace-viewer", limitedUserId])).digest("hex")}`;
     assert.equal((await fetch(`${applicationProcess.origin}/system/access/roles/customer.workspace-viewer`, { headers: { cookie: owner.cookie.header } })).status, 200);
@@ -590,6 +596,15 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     const limitedHtml = await limitedWorkspace.text();
     assert.equal(limitedHtml.includes("sales.route.overview"), false);
     assert.equal(limitedHtml.includes("/sales"), false);
+    const limitedRoles = await fetch(`${applicationProcess.origin}/system/access/roles`, { headers: { cookie: limited.cookie.header } });
+    assert.equal(limitedRoles.status, 200);
+    const limitedRolesHtml = await limitedRoles.text();
+    assert.equal(limitedRolesHtml.includes('href="/system/access/roles"'), true, "The permitted System subnavigation link must render.");
+    for (const href of ["/system/access/permissions", "/system/access/assignments", "/system/access/audit", "/system/extensions", "/system/themes", "/system/settings", "/system/operations"]) {
+      assert.equal(limitedRolesHtml.includes(`href="${href}"`), false, `Unauthorized System subnavigation must omit ${href}.`);
+    }
+    assert.equal((await fetch(`${applicationProcess.origin}/system/extensions`, { headers: { cookie: limited.cookie.header }, redirect: "manual" })).status, 404, "Direct System route admission must match hidden subnavigation.");
+    console.log("P12_SYSTEM_SUBNAVIGATION_CURRENT_AUTHORITY_POSTGRES_HTTP=PASS");
     assert.equal((await fetch(`${applicationProcess.origin}/sales`, { headers: { cookie: limited.cookie.header } })).status, 404);
     assert.equal((await fetch(`${applicationProcess.origin}/api/k-nex/inventory`, { headers: { cookie: limited.cookie.header } })).status, 403);
     assert.equal((await fetch(`${applicationProcess.origin}/workspace/pages/${encodeURIComponent(pageId)}`, { headers: { cookie: limited.cookie.header } })).status, 404);

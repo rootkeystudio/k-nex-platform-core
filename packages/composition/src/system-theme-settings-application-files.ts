@@ -132,20 +132,6 @@ export function publishedThemeProfile(profile: Readonly<{ revision: unknown }>):
 `;
 }
 
-function navigationSource(): string {
-  return `const systemAdministrationNavigation = Object.freeze([
-  { id: "settings", label: "Settings", href: "/system/settings" },
-  { id: "themes", label: "Themes", href: "/system/themes" },
-  { id: "roles", label: "Roles", href: "/system/access/roles" },
-  { id: "permissions", label: "Permissions", href: "/system/access/permissions" },
-  { id: "assignments", label: "Assignments", href: "/system/access/assignments" },
-  { id: "audit", label: "Authorization audit", href: "/system/access/audit" },
-  { id: "extensions", label: "Extensions", href: "/system/extensions" },
-  { id: "operations", label: "Operations", href: "/system/operations" }
-]);
-`;
-}
-
 function settingsPageSource(): string {
   return `import { headers } from "next/headers";
 import { notFound } from "next/navigation";
@@ -153,7 +139,7 @@ import { notFound } from "next/navigation";
 import { SystemSettingsPage } from "@k-nex/ui-pages";
 
 import { bootKnexApplication } from "../../../../boot.js";
-import { kNexRequestContext } from "../../../../k-nex-authority.js";
+import { currentSystemAdministrationNavigation, kNexRequestContext } from "../../../../k-nex-authority.js";
 import { systemSettingsAdministration } from "../../../../k-nex-system-theme-settings.js";
 
 export const dynamic = "force-dynamic";
@@ -163,11 +149,11 @@ export default async function SystemSettingsPageRoute() {
   const context = kNexRequestContext(await headers(), "system-settings");
   try {
     const settings = await systemSettingsAdministration(payload).list({ context });
-    return <SystemSettingsPage view={{ navigation: systemAdministrationNavigation, title: "Settings", settings: settings.map((item) => ({ id: item.identity.descriptorId, label: item.identity.descriptorId, href: "/system/settings/" + encodeURIComponent(item.identity.descriptorId), owner: item.identity.owner.kind === "platform" ? "Platform system" : item.identity.owner.extensionId, state: item.state, revision: item.documentRevision + "/" + item.settingsRevision })) }} />;
+    return <SystemSettingsPage view={{ navigation: await currentSystemAdministrationNavigation(payload, context), title: "Settings", settings: settings.map((item) => ({ id: item.identity.descriptorId, label: item.identity.descriptorId, href: "/system/settings/" + encodeURIComponent(item.identity.descriptorId), owner: item.identity.owner.kind === "platform" ? "Platform system" : item.identity.owner.extensionId, state: item.state, revision: item.documentRevision + "/" + item.settingsRevision })) }} />;
   } catch { notFound(); }
 }
 
-${navigationSource()}`;
+`;
 }
 
 function settingsDetailPageSource(): string {
@@ -177,7 +163,7 @@ import { notFound } from "next/navigation";
 import { SystemSettingsDetailPage } from "@k-nex/ui-pages";
 
 import { bootKnexApplication } from "../../../../../boot.js";
-import { authorizeRequest, kNexRequestContext } from "../../../../../k-nex-authority.js";
+import { authorizeRequest, currentSystemAdministrationNavigation, kNexRequestContext } from "../../../../../k-nex-authority.js";
 import { systemRouteId, systemSettingsAdministration } from "../../../../../k-nex-system-theme-settings.js";
 
 export const dynamic = "force-dynamic";
@@ -191,14 +177,14 @@ export default async function SystemSettingsDetailRoute({ params }: Readonly<{ p
     if (!item) notFound();
     const canManage = await authorizeRequest(payload, context, "system.settings.manage", "system.settings");
     const values = Object.fromEntries(Object.entries(item.fields).flatMap(([key, field]) => field.kind === "visible-value" ? [[key, field.value]] : []));
-    return <SystemSettingsDetailPage view={{ navigation: systemAdministrationNavigation, title: "Settings", settingsId, settingsLabel: settingsId, owner: item.identity.owner.kind === "platform" ? "Platform system" : item.identity.owner.extensionId, documentState: item.state,
+    return <SystemSettingsDetailPage view={{ navigation: await currentSystemAdministrationNavigation(payload, context), title: "Settings", settingsId, settingsLabel: settingsId, owner: item.identity.owner.kind === "platform" ? "Platform system" : item.identity.owner.extensionId, documentState: item.state,
       fields: Object.entries(item.fields).map(([id, field]) => ({ id, label: id, value: field.kind === "visible-value" ? String(field.value) : field.kind === "redacted-secret" ? "••••••" : "—", state: field.kind })),
       ...(canManage ? { save: { label: "Save settings", form: { actionUrl: "/api/system/settings/" + encodeURIComponent(settingsId), textArea: { name: "values", label: "Settings JSON", value: JSON.stringify(values) }, inputs: [{ name: "password", label: "Password", type: "password" }] } } } : {})
     }} />;
   } catch { notFound(); }
 }
 
-${navigationSource()}`;
+`;
 }
 
 function themesPageSource(): string {
@@ -208,7 +194,7 @@ import { notFound } from "next/navigation";
 import { SystemThemesPage } from "@k-nex/ui-pages";
 
 import { bootKnexApplication } from "../../../../boot.js";
-import { kNexRequestContext } from "../../../../k-nex-authority.js";
+import { currentSystemAdministrationNavigation, kNexRequestContext } from "../../../../k-nex-authority.js";
 import { systemThemeAdministration } from "../../../../k-nex-system-theme-settings.js";
 
 export const dynamic = "force-dynamic";
@@ -218,7 +204,7 @@ export default async function SystemThemesRoute() {
   const context = kNexRequestContext(await headers(), "system-themes");
   try {
     const themes = await systemThemeAdministration(payload, context).list({ context });
-    return <SystemThemesPage view={{ navigation: systemAdministrationNavigation, title: "Themes",
+    return <SystemThemesPage view={{ navigation: await currentSystemAdministrationNavigation(payload, context), title: "Themes",
       packages: themes.packages.map((item) => ({ id: item.id, label: item.displayName, version: item.version, surfaces: item.surfaces.join(", "), availability: item.availability, referenceImpact: item.removal === "blocked" ? "Blocked by " + item.references.length + " profile reference(s)" : "No references" })),
       skins: themes.skins.map((item) => ({ id: item.id, label: item.id, version: item.version ?? "—", lifecycle: item.disposition, actions: item.actions.map((action) => action.action).join(", ") || "None" })),
       profiles: themes.profiles.map((item) => { const profile = item.draft ?? item.active ?? item.previous; return { id: item.profileId, label: item.profileId, href: "/system/themes/profiles/" + encodeURIComponent(item.profileId), surface: profile?.surface ?? "—", package: profile ? profile.themeId + "@" + profile.themeVersion : "—", skin: profile?.skin ? profile.skin.id + "@" + profile.skin.version : "None", revision: String(item.revision), accessibility: profile ? "validated" : "unavailable" }; })
@@ -226,7 +212,7 @@ export default async function SystemThemesRoute() {
   } catch { notFound(); }
 }
 
-${navigationSource()}`;
+`;
 }
 
 function themeDetailPageSource(): string {
@@ -236,7 +222,7 @@ import { notFound } from "next/navigation";
 import { SystemThemeProfileDetailPage } from "@k-nex/ui-pages";
 
 import { bootKnexApplication } from "../../../../../../boot.js";
-import { authorizeRequest, kNexRequestContext } from "../../../../../../k-nex-authority.js";
+import { authorizeRequest, currentSystemAdministrationNavigation, kNexRequestContext } from "../../../../../../k-nex-authority.js";
 import { systemRouteId, systemThemeAdministration } from "../../../../../../k-nex-system-theme-settings.js";
 
 export const dynamic = "force-dynamic";
@@ -252,7 +238,7 @@ export default async function SystemThemeProfileDetailRoute({ params }: Readonly
     if (!profile) notFound();
     const canManage = await authorizeRequest(payload, context, "system.themes.manage", "system.themes");
     const base = "/api/system/themes/profiles/" + encodeURIComponent(profileId);
-    return <SystemThemeProfileDetailPage view={{ navigation: systemAdministrationNavigation, title: "Theme Profile", profileLabel: profileId, profileId, surface: profile.surface, package: profile.themeId + "@" + profile.themeVersion, skin: profile.skin ? profile.skin.id + "@" + profile.skin.version : "None", publication: profile.revision.state, accessibility: "validated",
+    return <SystemThemeProfileDetailPage view={{ navigation: await currentSystemAdministrationNavigation(payload, context), title: "Theme Profile", profileLabel: profileId, profileId, surface: profile.surface, package: profile.themeId + "@" + profile.themeVersion, skin: profile.skin ? profile.skin.id + "@" + profile.skin.version : "None", publication: profile.revision.state, accessibility: "validated",
       ...(canManage ? { preview: { label: "Preview profile", form: { actionUrl: base + "/preview", textArea: { name: "profile", label: "Theme Profile JSON", value: JSON.stringify(profile) } } }, stage: { label: "Stage profile", form: { actionUrl: base + "/stage", textArea: { name: "profile", label: "Theme Profile JSON", value: JSON.stringify(profile) } } } } : {}),
       ...(canManage && item.draft ? { publish: { label: "Publish profile", form: { actionUrl: base + "/publish", inputs: [{ name: "password", label: "Password", type: "password" }] } } } : {}),
       ...(canManage && item.previous ? { rollback: { label: "Rollback profile", form: { actionUrl: base + "/rollback", inputs: [{ name: "password", label: "Password", type: "password" }] }, confirmation: { title: "Rollback Theme Profile", description: "Restore previous compatible profile.", confirmLabel: "Rollback" } } } : {})
@@ -260,7 +246,7 @@ export default async function SystemThemeProfileDetailRoute({ params }: Readonly
   } catch { notFound(); }
 }
 
-${navigationSource()}`;
+`;
 }
 
 function settingsChangeRouteSource(): string {

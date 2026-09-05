@@ -71,7 +71,7 @@ async function protectedObservation(pool, inventory) {
         (select revision from k_nex_release_revision where application_id = $1) as revision,
         (select count(*)::int from k_nex_default_pages) as pages`, [inventory.applicationId]);
       const row = state.rows[0];
-      if (row.tasks !== "sales_tasks" || row.opportunities !== "sales_opportunities" || row.migrations !== 7 || row.revision !== 1 || row.pages !== 2) {
+      if (row.tasks !== "sales_tasks" || row.opportunities !== "sales_opportunities" || row.migrations !== 9 || row.revision !== 1 || row.pages !== 2) {
         response.writeHead(503).end();
         return;
       }
@@ -143,7 +143,7 @@ test("boots both customer apps from packed packages and verifies protected runti
         (select count(*)::int from payload_migrations) as migrations,
         (select revision from k_nex_release_revision where application_id = $1) as revision,
         (select count(*)::int from k_nex_default_pages) as pages`, [applicationId]);
-      assert.deepEqual(generatedState.rows, [{ tasks: "sales_tasks", opportunities: "sales_opportunities", migrations: 7, revision: 1, pages: 2 }]);
+      assert.deepEqual(generatedState.rows, [{ tasks: "sales_tasks", opportunities: "sales_opportunities", migrations: 9, revision: 1, pages: 2 }]);
     }
 
     assert.equal(pools.length, 1);

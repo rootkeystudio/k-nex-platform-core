@@ -84,7 +84,7 @@ import { notFound } from "next/navigation";
 import { SystemRolesPage } from "@k-nex/ui-pages";
 
 import { bootKnexApplication } from "../../../../../boot.js";
-import { authorizeRequest, kNexRequestContext } from "../../../../../k-nex-authority.js";
+import { authorizeRequest, currentSystemAdministrationNavigation, kNexRequestContext } from "../../../../../k-nex-authority.js";
 import { systemAccessAdministration } from "../../../../../k-nex-system-access.js";
 
 export const dynamic = "force-dynamic";
@@ -97,19 +97,13 @@ export default async function SystemAccessRolesPage() {
     const roles = await access.roles({ context });
     const details = await Promise.all(roles.roles.map((role) => access.roleDetail({ context, roleId: role.id })));
     const canManage = await authorizeRequest(payload, context, "system.roles.manage", "system.roles");
-    return <SystemRolesPage view={{ navigation: systemAccessNavigation, title: "Roles",
+    return <SystemRolesPage view={{ navigation: await currentSystemAdministrationNavigation(payload, context), title: "Roles",
       roles: roles.roles.map((role, index) => ({ id: role.id, label: role.label, href: "/system/access/roles/" + encodeURIComponent(role.id), permissionCount: String(details[index]!.grants.length), assignmentCount: String(details[index]!.assignments.length), state: role.protectedRoleId === undefined ? "active" : "protected" })),
       ...(canManage ? { createRole: { label: "Create role", form: { actionUrl: "/api/system/access/roles", inputs: [{ name: "id", label: "Role ID", type: "text" }, { name: "label", label: "Role label", type: "text" }] } } } : {})
     }} />;
   } catch { notFound(); }
 }
 
-const systemAccessNavigation = Object.freeze([
-  { id: "roles", label: "Roles", href: "/system/access/roles" },
-  { id: "permissions", label: "Permissions", href: "/system/access/permissions" },
-  { id: "assignments", label: "Assignments", href: "/system/access/assignments" },
-  { id: "audit", label: "Authorization audit", href: "/system/access/audit" }
-]);
 `;
 }
 
@@ -120,7 +114,7 @@ import { notFound } from "next/navigation";
 import { SystemRoleDetailPage } from "@k-nex/ui-pages";
 
 import { bootKnexApplication } from "../../../../../../boot.js";
-import { authorizeRequest, kNexRequestContext } from "../../../../../../k-nex-authority.js";
+import { authorizeRequest, currentSystemAdministrationNavigation, kNexRequestContext } from "../../../../../../k-nex-authority.js";
 import { accessPermissionGroups, accessRouteId, systemAccessAdministration } from "../../../../../../k-nex-system-access.js";
 
 export const dynamic = "force-dynamic";
@@ -134,19 +128,13 @@ export default async function SystemAccessRoleDetailPage({ params }: Readonly<{ 
     const [detail, permissions, canManage] = await Promise.all([
       access.roleDetail({ context, roleId }), access.permissions({ context }), authorizeRequest(payload, context, "system.roles.manage", "system.roles")
     ]);
-    return <SystemRoleDetailPage view={{ navigation: systemAccessNavigation, title: "Role", roleLabel: detail.role.label, roleState: detail.role.protectedRoleId === undefined ? "active" : "protected",
+    return <SystemRoleDetailPage view={{ navigation: await currentSystemAdministrationNavigation(payload, context), title: "Role", roleLabel: detail.role.label, roleState: detail.role.protectedRoleId === undefined ? "active" : "protected",
       activePermissionGroups: accessPermissionGroups(permissions.active, roleId, detail.grants, canManage && detail.role.protectedRoleId === undefined), templates: [],
       inactiveDiagnostics: detail.grants.filter((grant) => grant.state === "inactive").map((grant) => ({ id: grant.grant.id, label: grant.grant.permissionId, state: grant.inactiveReason ?? "inactive", detail: "This grant remains visible but cannot authorize." }))
     }} />;
   } catch { notFound(); }
 }
 
-const systemAccessNavigation = Object.freeze([
-  { id: "roles", label: "Roles", href: "/system/access/roles" },
-  { id: "permissions", label: "Permissions", href: "/system/access/permissions" },
-  { id: "assignments", label: "Assignments", href: "/system/access/assignments" },
-  { id: "audit", label: "Authorization audit", href: "/system/access/audit" }
-]);
 `;
 }
 
@@ -157,7 +145,7 @@ import { notFound } from "next/navigation";
 import { SystemPermissionsPage } from "@k-nex/ui-pages";
 
 import { bootKnexApplication } from "../../../../../boot.js";
-import { kNexRequestContext } from "../../../../../k-nex-authority.js";
+import { currentSystemAdministrationNavigation, kNexRequestContext } from "../../../../../k-nex-authority.js";
 import { systemAccessAdministration } from "../../../../../k-nex-system-access.js";
 
 export const dynamic = "force-dynamic";
@@ -167,19 +155,13 @@ export default async function SystemAccessPermissionsPage() {
   const context = kNexRequestContext(await headers(), "system-access-permissions");
   try {
     const permissions = await systemAccessAdministration(payload).permissions({ context });
-    return <SystemPermissionsPage view={{ navigation: systemAccessNavigation, title: "Permissions", permissions: [
+    return <SystemPermissionsPage view={{ navigation: await currentSystemAdministrationNavigation(payload, context), title: "Permissions", permissions: [
       ...permissions.active.flatMap((group) => group.permissions.map((permission) => ({ id: permission.descriptor.id, label: permission.descriptor.title, owner: group.owner.kind === "platform" ? "Platform system" : group.owner.extensionId, resource: group.resource, operation: group.operation, state: "active" }))),
       ...permissions.inactive.map(({ snapshot }) => ({ id: snapshot.id, label: snapshot.permission.title, owner: snapshot.owner?.kind === "platform" ? "Platform system" : snapshot.owner?.extensionId ?? "Unavailable", resource: snapshot.permission.resource, operation: snapshot.permission.operation, state: snapshot.state, detail: "Administrative diagnostic only; it cannot authorize." }))
     ] }} />;
   } catch { notFound(); }
 }
 
-const systemAccessNavigation = Object.freeze([
-  { id: "roles", label: "Roles", href: "/system/access/roles" },
-  { id: "permissions", label: "Permissions", href: "/system/access/permissions" },
-  { id: "assignments", label: "Assignments", href: "/system/access/assignments" },
-  { id: "audit", label: "Authorization audit", href: "/system/access/audit" }
-]);
 `;
 }
 
@@ -190,7 +172,7 @@ import { notFound } from "next/navigation";
 import { SystemAssignmentsPage } from "@k-nex/ui-pages";
 
 import { bootKnexApplication } from "../../../../../boot.js";
-import { authorizeRequest, kNexRequestContext } from "../../../../../k-nex-authority.js";
+import { authorizeRequest, currentSystemAdministrationNavigation, kNexRequestContext } from "../../../../../k-nex-authority.js";
 import { systemAccessAdministration } from "../../../../../k-nex-system-access.js";
 
 export const dynamic = "force-dynamic";
@@ -204,7 +186,7 @@ export default async function SystemAccessAssignmentsPage() {
     const canManage = await authorizeRequest(payload, context, "system.role-assignments.manage", "system.role-assignments");
     const roleById = new Map(roles.roles.map((role) => [role.id, role]));
     const normalRoles = roles.roles.filter((role) => role.protectedRoleId === undefined);
-    return <SystemAssignmentsPage view={{ navigation: systemAccessNavigation, title: "Assignments",
+    return <SystemAssignmentsPage view={{ navigation: await currentSystemAdministrationNavigation(payload, context), title: "Assignments",
       ...(canManage && normalRoles.length > 0 ? { createAssignment: { label: "Assign user to role", form: { actionUrl: "/api/system/access/assignments", inputs: [{ name: "userId", label: "User ID", type: "text" }, { name: "roleId", label: "Role", type: "select", options: normalRoles.map((role) => ({ value: role.id, label: role.label })) }] } } } : {}),
       assignments: assignments.map((assignment) => { const role = roleById.get(assignment.roleId); const mutable = canManage && role?.protectedRoleId === undefined; return { id: assignment.id, principal: assignment.principal.kind + ":" + assignment.principal.id, role: role?.label ?? assignment.roleId, state: assignment.state, revision: String(assignment.revision),
         ...(assignment.state === "active" && mutable ? { revoke: { label: "Revoke " + assignment.id, form: { actionUrl: "/api/system/access/assignments/" + encodeURIComponent(assignment.id) + "/revoke" } } } : {})
@@ -213,12 +195,6 @@ export default async function SystemAccessAssignmentsPage() {
   } catch { notFound(); }
 }
 
-const systemAccessNavigation = Object.freeze([
-  { id: "roles", label: "Roles", href: "/system/access/roles" },
-  { id: "permissions", label: "Permissions", href: "/system/access/permissions" },
-  { id: "assignments", label: "Assignments", href: "/system/access/assignments" },
-  { id: "audit", label: "Authorization audit", href: "/system/access/audit" }
-]);
 `;
 }
 
@@ -229,7 +205,7 @@ import { notFound } from "next/navigation";
 import { SystemAuthorizationAuditPage } from "@k-nex/ui-pages";
 
 import { bootKnexApplication } from "../../../../../boot.js";
-import { kNexRequestContext } from "../../../../../k-nex-authority.js";
+import { currentSystemAdministrationNavigation, kNexRequestContext } from "../../../../../k-nex-authority.js";
 import { systemAccessAdministration } from "../../../../../k-nex-system-access.js";
 
 export const dynamic = "force-dynamic";
@@ -239,16 +215,10 @@ export default async function SystemAccessAuditPage() {
   const context = kNexRequestContext(await headers(), "system-access-audit");
   try {
     const audits = await systemAccessAdministration(payload).audits({ context, limit: 100 });
-    return <SystemAuthorizationAuditPage view={{ navigation: systemAccessNavigation, title: "Authorization audit", events: audits.map(({ audit, occurredAt }) => ({ id: audit.auditId, occurredAt, outcome: audit.outcome, reason: audit.reason, permission: audit.permissionId, owner: audit.owner.kind === "platform" ? "Platform system" : audit.owner.extensionId, revision: audit.authorizationRevision + "/" + audit.lifecycleRevision })) }} />;
+    return <SystemAuthorizationAuditPage view={{ navigation: await currentSystemAdministrationNavigation(payload, context), title: "Authorization audit", events: audits.map(({ audit, occurredAt }) => ({ id: audit.auditId, occurredAt, outcome: audit.outcome, reason: audit.reason, permission: audit.permissionId, owner: audit.owner.kind === "platform" ? "Platform system" : audit.owner.extensionId, revision: audit.authorizationRevision + "/" + audit.lifecycleRevision })) }} />;
   } catch { notFound(); }
 }
 
-const systemAccessNavigation = Object.freeze([
-  { id: "roles", label: "Roles", href: "/system/access/roles" },
-  { id: "permissions", label: "Permissions", href: "/system/access/permissions" },
-  { id: "assignments", label: "Assignments", href: "/system/access/assignments" },
-  { id: "audit", label: "Authorization audit", href: "/system/access/audit" }
-]);
 `;
 }
 

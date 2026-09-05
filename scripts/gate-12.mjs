@@ -58,6 +58,29 @@ const unitProofs = [
     "rejects unrestricted URL/style/SQL/package/JS fields and non-namespaced engine metadata",
     "bounds depth, arrays, strings, and canonical document bytes"
   ]),
+  vitest("operator-contracts", "@k-nex/contracts", ["tests/administration-operator-transport.test.ts"], [
+    "accepts a closed authenticated command and canonically binds the verified mTLS identity",
+    "rejects wrong audience and expired commands before operator admission",
+    "requires command-family-specific authority revisions",
+    "rejects cross-tenant commands and commands outside the certificate command family",
+    "binds replay identity to the unchanged canonical request and rejects forged responses"
+  ]),
+  vitest("operator-adapter", "@k-nex/payload-adapter", ["tests/administration-operator-client.test.ts", "tests/administration-operator-https-server.test.ts", "tests/administration-extension-command-handler.test.ts"], [
+    "posts only the canonical command to the fixed mTLS endpoint and accepts an exactly bound response",
+    "rejects invalid, inactive, cross-tenant, and oversized commands before transport",
+    "rejects unbounded timeout and body-limit configuration",
+    "rejects forged request and operator bindings without exposing raw bodies or TLS secrets",
+    "destroys a timed-out request and returns only a safe typed error",
+    "requires TLS 1.3 mTLS, verifies its exact URI SAN, and passes only an authenticated command to the handler",
+    "rejects non-endpoint methods, malformed bodies, expired commands, wrong audience, cross-tenant commands, and denied families without invoking the handler",
+    "fails closed for absent or wrong URI SAN certificates and never exposes handler failures",
+    "owns idempotent listener lifecycle without binding a real port",
+    "binds a durable planned operation to the authenticated request and immutable actor",
+    "uses the operation's lifecycle action for execute and supports the same durable replay",
+    "rejects a plan that the durable operation did not persist exactly",
+    "rejects partial execution and a forged post-execution request",
+    "rejects stale authority or revisions, cross-tenant operations, and another command family before mutation"
+  ]),
   vitest("navigation", "@k-nex/ui-runtime", ["tests/workspace-navigation.test.ts"], [
     "resolves only implemented System routes and keeps Sales as a customer-page parent",
     "keeps an empty customer-page parent without synthesizing a plugin route",
@@ -97,7 +120,7 @@ const unitProofs = [
     "reclaims an expired lease before publishing current navigation",
     "dead-letters a final failed attempt and never reclaims it"
   ]),
-  vitest("generator", "@k-nex/composition", ["tests/application-factory.test.ts", "tests/workspace-page-application-files.test.ts"], [
+  vitest("generator", "@k-nex/composition", ["tests/application-factory.test.ts", "tests/workspace-page-application-files.test.ts", "tests/system-administration-navigation-authority.test.ts"], [
     "plans deterministic exact Sales applications for local or external Postgres",
     "binds a generated application to every exact artifact in a packed release mirror",
     "rejects tampered mirrors and installs immutable bytes captured by the verified plan",
@@ -107,7 +130,8 @@ const unitProofs = [
     "applies idempotently and refuses to overwrite customer files",
     "writes byte-identical controlled source to different clean targets",
     "preflights every destination and never partially writes or follows symlinks",
-    "routes every generated workspace Sales source through the current-authority gateway"
+    "routes every generated workspace Sales source through the current-authority gateway",
+    "renders only current-authority-permitted System links on every generated System page"
   ]),
   vitest("sales-builder", "@k-nex/module-sales", ["tests/puck-library.test.ts"], [
     "rejects missing blocks and unauthorized action replacement",
@@ -134,6 +158,11 @@ assert.equal(Number(/^# pass (\d+)$/mu.exec(processTap)?.[1]), 3, "Phase 12 proc
 const processMarkers = [
   "P12_5_WORKSPACE_STORAGE_POSTGRES_EVIDENCE=PASS",
   "P12_9_GENERATED_APP_POSTGRES_HTTP_CHROMIUM_EVIDENCE=PASS",
+  "P12_ADMINISTRATION_OPERATOR_READINESS_CONFIGURATION_DENIED=PASS",
+  "P12_SYSTEM_ACCESS_ROLE_GRANT_ASSIGNMENT_POSTGRES_HTTP=PASS",
+  "P12_SYSTEM_SETTINGS_AND_THEME_PROFILE_REAUTH_POSTGRES_HTTP=PASS",
+  "P12_SYSTEM_EXTENSION_AND_OPERATIONS_ADMINISTRATION_POSTGRES_HTTP=PASS",
+  "P12_SYSTEM_SUBNAVIGATION_CURRENT_AUTHORITY_POSTGRES_HTTP=PASS",
   "P12_ATK_02_CROSS_CUSTOMER_READ_POSTGRES_DENIED=PASS",
   "P12_ATK_05_UNAUTHORIZED_DIRECT_URL_AND_ENUMERATION_HTTP_DENIED=PASS",
   "P12_ATK_08_STALE_AUTOSAVE_CAS_POSTGRES_DENIED=PASS",

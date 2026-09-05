@@ -168,19 +168,6 @@ export function extensionStatusFor(value: SystemExtensionOperationStatus, extens
 `;
 }
 
-function navigationSource(): string {
-  return `const systemExtensionNavigation = Object.freeze([
-  { id: "settings", label: "Settings", href: "/system/settings" },
-  { id: "themes", label: "Themes", href: "/system/themes" },
-  { id: "roles", label: "Roles", href: "/system/access/roles" },
-  { id: "permissions", label: "Permissions", href: "/system/access/permissions" },
-  { id: "assignments", label: "Assignments", href: "/system/access/assignments" },
-  { id: "audit", label: "Authorization audit", href: "/system/access/audit" },
-  { id: "extensions", label: "Extensions", href: "/system/extensions" },
-  { id: "operations", label: "Operations", href: "/system/operations" }
-]);`;
-}
-
 function listPageSource(): string {
   return `import { headers } from "next/headers";
 import { notFound } from "next/navigation";
@@ -188,7 +175,7 @@ import { notFound } from "next/navigation";
 import { SystemExtensionsPage } from "@k-nex/ui-pages";
 
 import { bootKnexApplication } from "../../../../boot.js";
-import { kNexRequestContext } from "../../../../k-nex-authority.js";
+import { currentSystemAdministrationNavigation, kNexRequestContext } from "../../../../k-nex-authority.js";
 import { systemExtensionAdministration } from "../../../../k-nex-system-extensions.js";
 
 export const dynamic = "force-dynamic";
@@ -198,11 +185,10 @@ export default async function SystemExtensionsRoute() {
   const context = kNexRequestContext(await headers(), "system-extensions");
   try {
     const extensions = await systemExtensionAdministration(payload).list({ context });
-    return <SystemExtensionsPage view={{ navigation: systemExtensionNavigation, title: "Extensions", extensions: extensions.map((extension) => ({ id: extension.extension.deliveryClass + ":" + extension.extension.id + ":" + extension.version, label: extension.displayName, href: "/system/extensions/" + encodeURIComponent(extension.extension.id), deliveryClassLabel: extension.extension.deliveryClass, availabilityLabel: extension.availability, lifecycleLabel: extension.support + "/" + extension.review + "/" + extension.security, revision: extension.version })) }} />;
+    return <SystemExtensionsPage view={{ navigation: await currentSystemAdministrationNavigation(payload, context), title: "Extensions", extensions: extensions.map((extension) => ({ id: extension.extension.deliveryClass + ":" + extension.extension.id + ":" + extension.version, label: extension.displayName, href: "/system/extensions/" + encodeURIComponent(extension.extension.id), deliveryClassLabel: extension.extension.deliveryClass, availabilityLabel: extension.availability, lifecycleLabel: extension.support + "/" + extension.review + "/" + extension.security, revision: extension.version })) }} />;
   } catch { notFound(); }
 }
 
-${navigationSource()}
 `;
 }
 
@@ -213,7 +199,7 @@ import { notFound } from "next/navigation";
 import { SystemExtensionDetailPage } from "@k-nex/ui-pages";
 
 import { bootKnexApplication } from "../../../../../boot.js";
-import { kNexRequestContext } from "../../../../../k-nex-authority.js";
+import { currentSystemAdministrationNavigation, kNexRequestContext } from "../../../../../k-nex-authority.js";
 import { currentExtension, currentExtensionAction, extensionOperationId, extensionStatusFor, extensionRouteId, systemExtensionAdministration } from "../../../../../k-nex-system-extensions.js";
 
 export const dynamic = "force-dynamic";
@@ -233,14 +219,13 @@ export default async function SystemExtensionDetailRoute({ params, searchParams 
     const query = await searchParams;
     const operation = query.operation === undefined ? undefined : extensionStatusFor(await service.operationStatus({ context, operationId: extensionOperationId(query.operation) }), record.extension);
     const base = "/api/system/extensions/" + encodeURIComponent(extensionId);
-    return <SystemExtensionDetailPage view={{ navigation: systemExtensionNavigation, title: "Extension", extensionLabel: record.displayName, extensionId: record.extension.id, deliveryClassLabel: record.extension.deliveryClass, availabilityLabel: record.availability, lifecycleLabel: record.support + "/" + record.review + "/" + record.security, impact: operation?.executionClass ?? "Plan required", approval: operation?.approvalRequired ? "Required" : "Server-derived", audit: operation?.operationId ?? "No current operation",
+    return <SystemExtensionDetailPage view={{ navigation: await currentSystemAdministrationNavigation(payload, context), title: "Extension", extensionLabel: record.displayName, extensionId: record.extension.id, deliveryClassLabel: record.extension.deliveryClass, availabilityLabel: record.availability, lifecycleLabel: record.support + "/" + record.review + "/" + record.security, impact: operation?.executionClass ?? "Plan required", approval: operation?.approvalRequired ? "Required" : "Server-derived", audit: operation?.operationId ?? "No current operation",
       actions: actions.map((action) => ({ label: "Plan " + action.action, form: { actionUrl: base + "/plan", hiddenFields: [{ name: "operation", value: action.executableOperation }, { name: "version", value: record.version }] } })),
       ...(operation && operation.phase !== "completed" ? { execute: { label: "Execute " + operation.operation, form: { actionUrl: base + "/operations/" + encodeURIComponent(operation.operationId) + "/execute", inputs: [{ name: "password", label: "Password", type: "password" }] } } } : {})
     }} />;
   } catch { notFound(); }
 }
 
-${navigationSource()}
 `;
 }
 

@@ -196,6 +196,23 @@ export async function authorizeNavigationPermission(payload: Payload, context: K
   if (descriptor === undefined || descriptor.scope !== "application") return false;
   return authorizeRequest(payload, context, descriptor.id, descriptor.resource);
 }
+
+const systemAdministrationNavigation = Object.freeze([
+  { id: "settings", label: "Settings", href: "/system/settings", permissionId: "system.settings.read" },
+  { id: "themes", label: "Themes", href: "/system/themes", permissionId: "system.themes.read" },
+  { id: "roles", label: "Roles", href: "/system/access/roles", permissionId: "system.roles.read" },
+  { id: "permissions", label: "Permissions", href: "/system/access/permissions", permissionId: "system.permissions.read" },
+  { id: "assignments", label: "Assignments", href: "/system/access/assignments", permissionId: "system.role-assignments.read" },
+  { id: "audit", label: "Authorization audit", href: "/system/access/audit", permissionId: "system.authorization.audit.read" },
+  { id: "extensions", label: "Extensions", href: "/system/extensions", permissionId: "system.extensions.read" },
+  { id: "operations", label: "Operations", href: "/system/operations", permissionId: "system.operations.read" }
+]);
+
+export async function currentSystemAdministrationNavigation(payload: Payload, context: KnexRequestContext) {
+  return Object.freeze((await Promise.all(systemAdministrationNavigation.map(async ({ permissionId, ...item }) =>
+    await authorizeNavigationPermission(payload, context, permissionId) ? item : undefined
+  ))).flatMap((item) => item === undefined ? [] : [item]));
+}
 `;
 }
 
@@ -1011,7 +1028,7 @@ import { join, relative, resolve } from "node:path";
 import { createAuthorizedPuckBuilderProfile } from "@k-nex/builder-puck";
 import { ApplicationManifestSchema, PackageReleaseManifestSchema, PluginManifestSchema, canonicalJson } from "@k-nex/contracts";
 import manifestJson from "@k-nex/module-sales/manifest" with { type: "json" };
-import type { RuntimeExtensionPool } from "@k-nex/payload-adapter";
+import { NodeHttpsAdministrationOperatorClient, type RuntimeExtensionPool } from "@k-nex/payload-adapter";
 import { assertExactProtectedRoleBaselineState, assertMigrationReadiness, currentProtectedPlatformRoleBaselineRelease, protectedRoleBootstrapId } from "@k-nex/runtime";
 import { ${themeResolver} as resolveSelectedThemeProfile } from "@k-nex/theme-${theme}";
 import type { Payload } from "payload";
@@ -1116,6 +1133,31 @@ function jsonFile(path: string, label: string): Readonly<{ source: string; value
   regular(path, label);
   const source = readFileSync(path, "utf8");
   return Object.freeze({ source, value: JSON.parse(source) as unknown });
+}
+function requiredAdministrationOperatorConfiguration(name: string): string {
+  const value = process.env[name];
+  if (!value) fail("Administration operator configuration is missing.");
+  return value;
+}
+function administrationOperatorCredential(name: string): Buffer {
+  try { return readFileSync(requiredAdministrationOperatorConfiguration(name)); }
+  catch { return fail("Administration operator credential is unreadable."); }
+}
+function assertAdministrationOperatorConfiguration(): void {
+  const port = Number(requiredAdministrationOperatorConfiguration("K_NEX_ADMINISTRATION_OPERATOR_PORT"));
+  const hostname = requiredAdministrationOperatorConfiguration("K_NEX_ADMINISTRATION_OPERATOR_HOST");
+  const certificate = administrationOperatorCredential("K_NEX_ADMINISTRATION_OPERATOR_CLIENT_CERT");
+  const privateKey = administrationOperatorCredential("K_NEX_ADMINISTRATION_OPERATOR_CLIENT_KEY");
+  const certificateAuthority = administrationOperatorCredential("K_NEX_ADMINISTRATION_OPERATOR_CA_CERT");
+  const uriSan = requiredAdministrationOperatorConfiguration("K_NEX_ADMINISTRATION_OPERATOR_URI_SAN");
+  const operatorIdentity = requiredAdministrationOperatorConfiguration("K_NEX_ADMINISTRATION_OPERATOR_IDENTITY");
+  try {
+    new NodeHttpsAdministrationOperatorClient({
+      hostname, port, certificate, privateKey, certificateAuthority,
+      expectedMtlsIdentity: { schemaVersion: 1, uriSan, applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment, allowedCommandFamilies: ["extension-lifecycle"] },
+      operatorIdentity, timeoutMs: 30_000, maxRequestBytes: 65_536, maxResponseBytes: 65_536
+    });
+  } catch { fail("Administration operator configuration is invalid."); }
 }
 function sha256(value: string | Buffer): string { return "sha256:" + createHash("sha256").update(value).digest("hex"); }
 function archiveName(packageName: string, version: string): string { return packageName.slice(1).replace("/", "-") + "-" + version + ".tgz"; }
@@ -1238,6 +1280,7 @@ async function assertSalesSchema(pool: RuntimeExtensionPool): Promise<void> {
 }
 
 export async function reconcileKnexReadiness(payload: Payload) {
+  assertAdministrationOperatorConfiguration();
   const root = resolve(process.cwd());
   const { release } = reconcileSource(root);
   const pool = payload.db.pool as RuntimeExtensionPool;

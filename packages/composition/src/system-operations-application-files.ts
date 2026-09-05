@@ -82,19 +82,6 @@ export function systemOperationReferenceId(reference: OperationsCenterReference)
 `;
 }
 
-function navigationSource(): string {
-  return `const systemAdministrationNavigation = Object.freeze([
-  { id: "settings", label: "Settings", href: "/system/settings" },
-  { id: "themes", label: "Themes", href: "/system/themes" },
-  { id: "roles", label: "Roles", href: "/system/access/roles" },
-  { id: "permissions", label: "Permissions", href: "/system/access/permissions" },
-  { id: "assignments", label: "Assignments", href: "/system/access/assignments" },
-  { id: "audit", label: "Authorization audit", href: "/system/access/audit" },
-  { id: "extensions", label: "Extensions", href: "/system/extensions" },
-  { id: "operations", label: "Operations", href: "/system/operations" }
-]);`;
-}
-
 function operationsPageSource(): string {
   return `import { headers } from "next/headers";
 import { notFound } from "next/navigation";
@@ -102,7 +89,7 @@ import { notFound } from "next/navigation";
 import { SystemOperationsPage } from "@k-nex/ui-pages";
 
 import { bootKnexApplication } from "../../../../boot.js";
-import { kNexRequestContext } from "../../../../k-nex-authority.js";
+import { currentSystemAdministrationNavigation, kNexRequestContext } from "../../../../k-nex-authority.js";
 import { systemOperationReferenceId, systemOperationsAdministration } from "../../../../k-nex-system-operations.js";
 
 export const dynamic = "force-dynamic";
@@ -112,14 +99,13 @@ export default async function SystemOperationsRoute() {
   const context = kNexRequestContext(await headers(), "system-operations");
   try {
     const operations = await systemOperationsAdministration(payload).read({ context });
-    return <SystemOperationsPage view={{ navigation: systemAdministrationNavigation, title: "Operations", revision: String(operations.operationsRevision),
+    return <SystemOperationsPage view={{ navigation: await currentSystemAdministrationNavigation(payload, context), title: "Operations", revision: String(operations.operationsRevision),
       operations: operations.references.map((reference) => { const id = systemOperationReferenceId(reference); return { id, source: reference.source, href: "/system/operations/" + encodeURIComponent(id), state: reference.receiptId === undefined ? "receipt pending" : "receipt recorded", receipt: reference.receiptId ?? "—" }; }),
       health: operations.health.map((health) => ({ id: health.observationId, source: health.source, state: health.state, revision: String(health.revision), checks: health.checkIds.join(", ") }))
     }} />;
   } catch { notFound(); }
 }
 
-${navigationSource()}
 `;
 }
 
@@ -130,7 +116,7 @@ import { notFound } from "next/navigation";
 import { SystemOperationDetailPage } from "@k-nex/ui-pages";
 
 import { bootKnexApplication } from "../../../../../boot.js";
-import { kNexRequestContext } from "../../../../../k-nex-authority.js";
+import { currentSystemAdministrationNavigation, kNexRequestContext } from "../../../../../k-nex-authority.js";
 import { systemOperationReferenceId, systemOperationRouteId, systemOperationsAdministration } from "../../../../../k-nex-system-operations.js";
 
 export const dynamic = "force-dynamic";
@@ -144,14 +130,13 @@ export default async function SystemOperationDetailRoute({ params }: Readonly<{ 
     const matches = operations.references.filter((reference) => systemOperationReferenceId(reference) === operationId);
     if (matches.length !== 1) notFound();
     const reference = matches[0]!;
-    return <SystemOperationDetailPage view={{ navigation: systemAdministrationNavigation, title: "Operation", operationId, source: reference.source,
+    return <SystemOperationDetailPage view={{ navigation: await currentSystemAdministrationNavigation(payload, context), title: "Operation", operationId, source: reference.source,
       operationState: reference.receiptId === undefined ? "receipt pending" : "receipt recorded", receipt: reference.receiptId ?? "—", inventory: operations.inventoryDigest,
       audit: reference.receiptId === undefined ? "No terminal receipt recorded." : "Durable receipt " + reference.receiptId
     }} />;
   } catch { notFound(); }
 }
 
-${navigationSource()}
 `;
 }
 
