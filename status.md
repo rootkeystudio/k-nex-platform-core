@@ -7,7 +7,7 @@
 
 ## Last completed
 
-Closed the final logic findings, refreshed both customer frozen-lock integrities, raised only the generated P12.9 proof timeout from 420s to 600s after hosted CI reached every new response-loss marker, and regenerated the signed v1 release evidence.
+Closed the final logic findings, refreshed both customer frozen-lock integrities, raised only the generated P12.9 proof timeout from 420s to 600s after hosted CI reached every new response-loss marker, regenerated the signed v1 release evidence, and removed the superseded evidence claim.
 
 ## Validation
 
