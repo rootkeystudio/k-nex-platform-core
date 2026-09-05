@@ -26,7 +26,7 @@ export interface AdministrationExtensionCommandHandlerOptions {
   readonly operatorIdentity: string;
   readonly clock: () => Date;
   readonly authorizationState: Readonly<{ readState(applicationId: string, environment: string): Promise<AuthorizationState | undefined> }>;
-  readonly store: Pick<PostgresRuntimeExtensionStore, "inventory" | "readOperation" | "readOperationByIdempotency" | "claimExecutionRequestDigest" | "executionRequestDigest">;
+  readonly store: Pick<PostgresRuntimeExtensionStore, "inventory" | "readOperation" | "readOperationByIdempotency" | "withExecutionRequestDigest" | "executionRequestDigest">;
   readonly operatorForActor: (actor: AdministrationActorEnvelope) => ExtensionOperatorApi | Promise<ExtensionOperatorApi>;
 }
 
@@ -55,7 +55,9 @@ export class AdministrationExtensionCommandHandler {
     } else {
       const operation = await this.boundOperation(command.operationId);
       if (operation.phase === "completed" && operation.result) {
-        if (await this.options.store.executionRequestDigest({ operationId: operation.operationId, applicationId: this.options.applicationId, environment: this.options.environment }) !== requestDigest(authenticated)) {
+        const digest = requestDigest(authenticated);
+        const persistedDigest = await this.options.store.executionRequestDigest({ operationId: operation.operationId, applicationId: this.options.applicationId, environment: this.options.environment });
+        if (persistedDigest !== digest) {
           throw new TypeError("Administration execution replay does not match its durable request.");
         }
         const inventory = await this.options.store.inventory(this.options.applicationId, this.options.environment);
@@ -113,24 +115,36 @@ export class AdministrationExtensionCommandHandler {
     const request = canonicalJson(before.request);
     const revision = entryRevision(inventory, before.request.extension);
     const impactOnlyStatic = before.plan?.executionClass === "static-release" && before.plan.preparation === "impact-only";
-    if (!before.plan || revision !== command.expected.extensionRevision ||
+    if (!boundActor(before, actor) || before.requestDigest !== canonicalDigest(before.request) ||
+      command.idempotencyKey !== `execute:${before.operationId}`.slice(0, 160) || !before.plan || revision !== command.expected.extensionRevision ||
       (impactOnlyStatic ? before.request.expectedRevision !== revision : before.request.expectedRevision >= revision || entry(inventory, before.request.extension)?.lastOperationId !== before.operationId)) {
       throw new TypeError("Extension operation no longer owns the current target.");
     }
-    await this.options.store.claimExecutionRequestDigest({ operationId: before.operationId, applicationId: this.options.applicationId, environment: this.options.environment, requestDigest: commandDigest });
-    const operator = await this.options.operatorForActor(actor);
-    switch (before.request.operation) {
-      case "install":
-      case "update": await operator.activate(before.operationId); break;
-      case "rollback": await operator.rollback(before.operationId); break;
-      case "disable": await operator.disable(before.operationId); break;
-      case "uninstall": await operator.uninstall(before.operationId); break;
-    }
-    const after = await this.boundOperation(before.operationId);
-    if (after.phase !== "completed" || !after.result || canonicalJson(after.request) !== request) {
-      throw new TypeError("Extension execution did not produce the bound durable result.");
-    }
-    return after;
+    return this.options.store.withExecutionRequestDigest({
+      operationId: before.operationId,
+      applicationId: this.options.applicationId,
+      environment: this.options.environment,
+      requestDigest: commandDigest
+    }, async () => {
+      const operator = await this.options.operatorForActor(actor);
+      switch (before.request.operation) {
+        case "install":
+        case "update": await operator.activate(before.operationId); break;
+        case "rollback": await operator.rollback(before.operationId); break;
+        case "disable": await operator.disable(before.operationId); break;
+        case "uninstall": await operator.uninstall(before.operationId); break;
+      }
+      const after = await this.boundOperation(before.operationId);
+      if (after.phase !== "completed" || !after.result || canonicalJson(after.request) !== request) {
+        throw new TypeError("Extension execution did not produce the bound durable result.");
+      }
+      const finalInventory = await this.options.store.inventory(this.options.applicationId, this.options.environment);
+      const result = exactExecuteReplay(command, after, actor, finalInventory);
+      if (await this.options.store.executionRequestDigest({ operationId: before.operationId, applicationId: this.options.applicationId, environment: this.options.environment }) !== commandDigest) {
+        throw new TypeError("Extension execution did not commit its durable request binding.");
+      }
+      return result;
+    });
   }
 
   private async boundOperation(operationId: string): Promise<RuntimeExtensionOperation> {

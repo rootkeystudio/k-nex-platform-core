@@ -997,7 +997,7 @@ packages:
         optional: true
 
   '@k-nex/payload-adapter@file:.k-nex/packages/k-nex-payload-adapter-1.0.0.tgz':
-    resolution: {integrity: sha512-oXehmZg6BfnLdxhG2D5470xflxOt1HlTzAn5dg+lg/xnBjI7gY2ZjTprDyw9EoXynZnvZkHCVGcncElMSkpAVg==, tarball: file:.k-nex/packages/k-nex-payload-adapter-1.0.0.tgz}
+    resolution: {integrity: sha512-cvmLx5LfVWbowYgjXOMi7NIf1hD51eVaBjois6Bt8F6w/PHs3E4Q+IED/uNfV2xG2gIkQfw9G5Kg2uqy9o2h6Q==, tarball: file:.k-nex/packages/k-nex-payload-adapter-1.0.0.tgz}
     version: 1.0.0
 
   '@k-nex/runtime@file:.k-nex/packages/k-nex-runtime-1.0.0.tgz':

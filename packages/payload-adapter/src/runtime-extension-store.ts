@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
 
 import {
   canonicalJson,
@@ -86,6 +87,13 @@ interface RuntimeExtensionAuthorizationLifecycleProjector {
 
 interface RuntimeExtensionSharedStaticGenerationRebinder {
   rebind(input: SharedStaticGenerationRebindInput): Promise<void>;
+}
+
+export interface RuntimeExtensionExecutionRequestBinding {
+  readonly operationId: string;
+  readonly applicationId: string;
+  readonly environment: string;
+  readonly requestDigest: string;
 }
 
 const runnerQuarantineReasons = Object.freeze({
@@ -625,6 +633,7 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
   private readonly reconciliationBatchSize: number;
   private readonly authorizationLifecycleProjector: RuntimeExtensionAuthorizationLifecycleProjector | undefined;
   private readonly sharedStaticGenerationRebinder: RuntimeExtensionSharedStaticGenerationRebinder;
+  private readonly executionRequest = new AsyncLocalStorage<RuntimeExtensionExecutionRequestBinding>();
 
   constructor(
     private readonly pool: RuntimeExtensionPool,
@@ -1620,19 +1629,12 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
     return result.rows[0] ? operation(result.rows[0]) : undefined;
   }
 
-  async claimExecutionRequestDigest(input: Readonly<{ operationId: string; applicationId: string; environment: string; requestDigest: string }>): Promise<void> {
+  async withExecutionRequestDigest<T>(input: RuntimeExtensionExecutionRequestBinding, work: () => Promise<T>): Promise<T> {
     if (!/^[a-z][a-z0-9-]{2,127}$/u.test(input.operationId) || !/^[a-z][a-z0-9-]{2,127}$/u.test(input.applicationId) ||
-      !/^[a-z][a-z0-9-]{1,63}$/u.test(input.environment) || !/^sha256:[0-9a-f]{64}$/u.test(input.requestDigest)) {
+      !/^[a-z][a-z0-9-]{1,63}$/u.test(input.environment) || !/^sha256:[0-9a-f]{64}$/u.test(input.requestDigest) || typeof work !== "function" || this.executionRequest.getStore() !== undefined) {
       fail("STATE_INVALID", "Runtime extension execution request binding is invalid.");
     }
-    const result = await this.pool.query<{ execution_request_digest: string }>(
-      `update runtime_extension_operations set execution_request_digest=coalesce(execution_request_digest,$4)
-       where operation_id=$1 and application_id=$2 and environment=$3 returning execution_request_digest`,
-      [input.operationId, input.applicationId, input.environment, input.requestDigest]
-    );
-    if (result.rows.length !== 1 || result.rows[0]?.execution_request_digest !== input.requestDigest) {
-      fail("IDEMPOTENCY_CONFLICT", "Runtime extension execution request does not match its durable binding.");
-    }
+    return this.executionRequest.run(Object.freeze({ ...input }), work);
   }
 
   async executionRequestDigest(input: Readonly<{ operationId: string; applicationId: string; environment: string }>): Promise<string | undefined> {
@@ -1995,11 +1997,24 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
   }
 
   private async completeOperation(session: RuntimeExtensionSession, row: OperationRow, receipt: ExtensionManagerReceipt): Promise<void> {
-    const completed = await session.query(
-      `update runtime_extension_operations set phase='completed', result_json=$3::jsonb, updated_at=now() where operation_id=$1 and lease_token=$2 returning operation_id`,
-      [row.operation_id, row.lease_token, JSON.stringify(receipt)]
-    );
-    if (completed.rowCount !== 1) fail("LEASE_CONFLICT", "Runtime extension completion lease changed.");
+    const binding = this.executionRequest.getStore();
+    if (binding !== undefined && (binding.operationId !== row.operation_id || binding.applicationId !== row.application_id || binding.environment !== row.environment)) {
+      fail("STATE_INVALID", "Runtime extension execution request does not bind the completing operation.");
+    }
+    const completed = binding === undefined
+      ? await session.query(
+        `update runtime_extension_operations set phase='completed', result_json=$3::jsonb, updated_at=now() where operation_id=$1 and lease_token=$2 returning operation_id`,
+        [row.operation_id, row.lease_token, JSON.stringify(receipt)]
+      )
+      : await session.query<{ operation_id: string; execution_request_digest: string }>(
+        `update runtime_extension_operations set phase='completed', result_json=$3::jsonb, execution_request_digest=$4, updated_at=now()
+         where operation_id=$1 and lease_token=$2 and (execution_request_digest is null or execution_request_digest=$4)
+         returning operation_id, execution_request_digest`,
+        [row.operation_id, row.lease_token, JSON.stringify(receipt), binding.requestDigest]
+      );
+    if (completed.rowCount !== 1 || binding !== undefined && completed.rows[0]?.execution_request_digest !== binding.requestDigest) {
+      fail("LEASE_CONFLICT", "Runtime extension completion lease or execution request changed.");
+    }
     await session.query(
       `update runtime_extension_operation_budget set active_count=greatest(active_count-1,0) where application_id=$1 and environment=$2`,
       [row.application_id, row.environment]

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { existsSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -51,6 +52,8 @@ const sourceCommit = required("P12_OPERATOR_SOURCE_COMMIT");
 const hostInventoryDigest = required("P12_OPERATOR_HOST_INVENTORY_DIGEST");
 const port = integer("P12_OPERATOR_PORT");
 const bodyLimit = 65_536;
+const crashBeforeMutationFile = process.env.P12_OPERATOR_CRASH_BEFORE_MUTATION_FILE;
+const crashAfterCommitFile = process.env.P12_OPERATOR_CRASH_AFTER_COMMIT_FILE;
 const registry = await import(pathToFileURL(required("P12_OPERATOR_REGISTRY_PATH")).href);
 const sales = registry.kNexSalesRegistry;
 const extension = Object.freeze({ deliveryClass: "platform-plugin", id: "module.sales" });
@@ -202,7 +205,13 @@ const commandHandler = new AdministrationExtensionCommandHandler({
   clock: () => clock.now(),
   authorizationState: authorizationStore,
   store,
-  operatorForActor: async (actor) => createOperator(actor).operator
+  operatorForActor: async (actor) => {
+    if (crashBeforeMutationFile && !existsSync(crashBeforeMutationFile)) {
+      writeFileSync(crashBeforeMutationFile, "crashed\n", { flag: "wx", mode: 0o600 });
+      process.exit(86);
+    }
+    return createOperator(actor).operator;
+  }
 });
 const server = new NodeHttpsAdministrationOperatorServer({
   certificate: await readFile(required("P12_OPERATOR_SERVER_CERT")),
@@ -212,7 +221,14 @@ const server = new NodeHttpsAdministrationOperatorServer({
   operatorIdentity,
   maxBodyBytes: bodyLimit,
   clock: () => clock.now(),
-  handler: (command) => commandHandler.handle(command)
+  handler: async (command) => {
+    const response = await commandHandler.handle(command);
+    if (crashAfterCommitFile && command.command.kind === "extension-execute" && !existsSync(crashAfterCommitFile)) {
+      writeFileSync(crashAfterCommitFile, "crashed\n", { flag: "wx", mode: 0o600 });
+      process.exit(87);
+    }
+    return response;
+  }
 });
 
 let closePromise;

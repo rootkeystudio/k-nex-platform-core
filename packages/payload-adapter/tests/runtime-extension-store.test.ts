@@ -82,20 +82,14 @@ describe("PostgresRuntimeExtensionStore idempotency lookup", () => {
     await expect(ambiguous.readOperationByIdempotency(input)).rejects.toMatchObject({ code: "STATE_INVALID" });
   });
 
-  it("claims one exact execute-command digest and exposes only its durable binding", async () => {
+  it("keeps an execute-command digest non-durable until terminal mutation", async () => {
     const executionDigest = digest("e");
-    const query = vi.fn(async (text: string) => text.startsWith("update runtime_extension_operations")
-      ? { rows: [{ execution_request_digest: executionDigest }] }
-      : { rows: [{ execution_request_digest: executionDigest }] });
+    const query = vi.fn();
     const store = new PostgresRuntimeExtensionStore({ connect: vi.fn(), query }, { now: () => now }, digest("9"), { sharedStaticGenerationRebinder: staticRebinder() });
     const binding = { operationId: row.operation_id, applicationId: input.applicationId, environment: input.environment };
 
-    await expect(store.claimExecutionRequestDigest({ ...binding, requestDigest: executionDigest })).resolves.toBeUndefined();
-    await expect(store.executionRequestDigest(binding)).resolves.toBe(executionDigest);
-    expect(query).toHaveBeenNthCalledWith(1, expect.stringContaining("execution_request_digest=coalesce(execution_request_digest,$4)"), [binding.operationId, binding.applicationId, binding.environment, executionDigest]);
-
-    const conflict = new PostgresRuntimeExtensionStore({ connect: vi.fn(), query: vi.fn(async () => ({ rows: [{ execution_request_digest: digest("f") }] })) }, { now: () => now }, digest("9"), { sharedStaticGenerationRebinder: staticRebinder() });
-    await expect(conflict.claimExecutionRequestDigest({ ...binding, requestDigest: executionDigest })).rejects.toMatchObject({ code: "IDEMPOTENCY_CONFLICT" });
+    await expect(store.withExecutionRequestDigest({ ...binding, requestDigest: executionDigest }, async () => "done")).resolves.toBe("done");
+    expect(query).not.toHaveBeenCalled();
   });
 });
 
@@ -179,7 +173,7 @@ function expectNoDurableMutation(queries: readonly string[]): void {
 }
 
 function hotApplicationDispositionHarness() {
-  const queries: string[] = [];
+  const queries: Array<readonly [string, readonly unknown[] | undefined]> = [];
   const projector = { project: vi.fn(async () => undefined) };
   const activeGeneration = { authority: "verified-bundle", ...activeAuthority, version: "1.0.0", receiptId: "receipt-active" };
   const operation = {
@@ -197,19 +191,23 @@ function hotApplicationDispositionHarness() {
     rollback_generation_id: null, rollback_generation: null, rollback_compatibility_json: null, retained_generation: null,
     last_operation_id: null, last_receipt_id: null, state_digest: null, inventory_revision: 5
   };
-  const query = vi.fn(async <T extends object>(text: string) => {
-    queries.push(text);
+  const query = vi.fn(async <T extends object>(text: string, parameters?: readonly unknown[]) => {
+    queries.push([text, parameters]);
     if (text.includes("from runtime_extension_operations")) return { rows: [operation] as unknown as T[] };
     if (text.includes("from runtime_extensions")) return { rows: [state] as unknown as T[] };
     if (text.startsWith("update runtime_extension_inventory_revisions")) return { rows: [{ revision: 6 }] as unknown as T[], rowCount: 1 };
-    if (text.startsWith("update runtime_extensions set revision=") || text.startsWith("update runtime_extension_operations set phase='completed'")) return { rows: [] as T[], rowCount: 1 };
+    if (text.startsWith("update runtime_extensions set revision=")) return { rows: [] as T[], rowCount: 1 };
+    if (text.startsWith("update runtime_extension_operations set phase='completed'")) {
+      return { rows: text.includes("execution_request_digest") ? [{ operation_id: operation.operation_id, execution_request_digest: parameters?.[3] }] as unknown as T[] : [] as T[], rowCount: 1 };
+    }
     return { rows: [] as T[], rowCount: 0 };
   });
   const session: RuntimeExtensionSession = { query, release: vi.fn() };
   const pool: RuntimeExtensionPool = { connect: vi.fn(async () => session), query };
   return {
     store: new PostgresRuntimeExtensionStore(pool, { now: () => now }, digest("9"), { authorizationLifecycleProjector: projector, sharedStaticGenerationRebinder: staticRebinder() }),
-    projector
+    projector,
+    queries
   };
 }
 
@@ -458,6 +456,19 @@ describe("PostgresRuntimeExtensionStore rollback readiness", () => {
 });
 
 describe("PostgresRuntimeExtensionStore Hot Application dispositions", () => {
+  it("commits the execute-command digest with terminal receipt, audit, and outbox state", async () => {
+    const value = hotApplicationDispositionHarness();
+    const executionDigest = digest("e");
+
+    await value.store.withExecutionRequestDigest({ operationId: "operation-disable-1", applicationId: owner.applicationId, environment: owner.environment, requestDigest: executionDigest },
+      () => value.store.disableGeneration("operation-disable-1", "lease-1"));
+
+    expect(value.queries).toContainEqual([
+      expect.stringContaining("result_json=$3::jsonb, execution_request_digest=$4"),
+      expect.arrayContaining(["operation-disable-1", "lease-1", expect.any(String), executionDigest])
+    ]);
+  });
+
   it("projects a complete verified retained-generation event for disable", async () => {
     const value = hotApplicationDispositionHarness();
 

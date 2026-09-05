@@ -58,6 +58,7 @@ async function startResponseLossRelay({ port, operatorPort, certificates }) {
   const requests = new Map();
   const responses = new Map();
   const dropped = new Set();
+  let responseLossEnabled = false;
   const server = createHttpsServer({
     minVersion: "TLSv1.3",
     requestCert: true,
@@ -89,7 +90,7 @@ async function startResponseLossRelay({ port, operatorPort, certificates }) {
           const results = responses.get(kind) ?? [];
           results.push(responseBody);
           responses.set(kind, results);
-          if ((kind === "extension-plan" || kind === "extension-execute") && !dropped.has(kind) && upstreamResponse.statusCode === 200) {
+          if (responseLossEnabled && (kind === "extension-plan" || kind === "extension-execute") && !dropped.has(kind) && upstreamResponse.statusCode === 200) {
             dropped.add(kind);
             outgoing.socket?.destroy();
             return;
@@ -113,6 +114,12 @@ async function startResponseLossRelay({ port, operatorPort, certificates }) {
     requests: (kind) => requests.get(kind) ?? [],
     responses: (kind) => responses.get(kind) ?? [],
     dropped: (kind) => dropped.has(kind),
+    enableResponseLoss: () => {
+      requests.clear();
+      responses.clear();
+      dropped.clear();
+      responseLossEnabled = true;
+    },
     close: async () => new Promise((resolveClose, reject) => server.close((error) => error ? reject(error) : resolveClose()))
   });
 }
@@ -133,6 +140,38 @@ async function submitOperatorCommand(port, certificates, command) {
     request.once("error", reject);
     request.end(body);
   });
+}
+
+function executeCommand(planCommand, operationId, current) {
+  const issuedAt = new Date().toISOString();
+  return {
+    schemaVersion: 1,
+    kind: "extension-execute",
+    audience: planCommand.audience,
+    actor: planCommand.actor,
+    expected: {
+      authorizationRevision: planCommand.actor.authorizationRevision,
+      lifecycleRevision: planCommand.actor.lifecycleRevision,
+      inventoryRevision: current.inventoryRevision,
+      extensionRevision: current.extensionRevision
+    },
+    operationId,
+    idempotencyKey: `execute:${operationId}`,
+    issuedAt,
+    expiresAt: new Date(Date.parse(issuedAt) + 300_000).toISOString()
+  };
+}
+
+async function currentExtensionExecutionRevision(pool, applicationId, environment, extensionId) {
+  const result = await pool.query(
+    `select i.revision as inventory_revision, e.revision as extension_revision
+     from runtime_extension_inventory_revisions i
+     join runtime_extensions e on e.application_id=i.application_id and e.environment=i.environment
+     where i.application_id=$1 and i.environment=$2 and e.delivery_class='platform-plugin' and e.extension_id=$3`,
+    [applicationId, environment, extensionId]
+  );
+  assert.equal(result.rowCount, 1, "Execution revision must have one current PostgreSQL inventory entry.");
+  return { inventoryRevision: result.rows[0].inventory_revision, extensionRevision: result.rows[0].extension_revision };
 }
 
 function run(command, arguments_, options) {
@@ -227,6 +266,19 @@ async function login(origin, email, password) {
   return { body, cookie: cookie(response) };
 }
 
+async function browserSession(browser, origin, email, password) {
+  const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: "reduce" });
+  const page = await context.newPage();
+  try {
+    await page.goto(`${origin}/login`);
+    await page.getByLabel("Email").fill(email);
+    await page.getByLabel("Password").fill(password);
+    await page.getByRole("button", { name: "Sign in" }).click();
+    await page.waitForURL(`${origin}/`);
+    return context;
+  } finally { await page.close(); }
+}
+
 async function postSystemForm(origin, sessionCookie, path, fields) {
   const response = await fetch(`${origin}${path}`, {
     method: "POST",
@@ -238,7 +290,7 @@ async function postSystemForm(origin, sessionCookie, path, fields) {
   return response;
 }
 
-async function planAndExecuteExtensionInBrowser(context, origin, password, actionLabel, operation, diagnostics, afterPlan) {
+async function planExtensionInBrowser(context, origin, actionLabel, diagnostics, afterPlan) {
   const administrationPage = await context.newPage();
   try {
     await administrationPage.goto(`${origin}/system/extensions/module.sales`);
@@ -278,6 +330,16 @@ async function planAndExecuteExtensionInBrowser(context, origin, password, actio
     assert.equal(new URL(planReplayResponse.headers().location, origin).searchParams.get("operation"), operationId, "Signed plan-intent replay must return the same operation ID.");
     await administrationPage.waitForURL(new RegExp(`/system/extensions/module\\.sales\\?operation=${operationId}$`, "u"));
     await afterPlan?.(operationId);
+    return { administrationPage, operationId };
+  } catch (error) {
+    await administrationPage.close();
+    throw error;
+  }
+}
+
+async function planAndExecuteExtensionInBrowser(context, origin, password, actionLabel, operation, diagnostics, afterPlan) {
+  const { administrationPage, operationId } = await planExtensionInBrowser(context, origin, actionLabel, diagnostics, afterPlan);
+  try {
     await administrationPage.getByLabel("Password").fill(password);
     await administrationPage.getByRole("button", { name: `Execute ${operation}` }).click();
     await administrationPage.waitForURL(new RegExp(`/system/extensions/module\\.sales\\?operation=${operationId}$`, "u"));
@@ -493,24 +555,25 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     assert.equal(existsSync(replayTokenFile), false);
     console.log("P12_ATK_19_BOOTSTRAP_SCOPE_AND_REPLAY_POSTGRES_DENIED=PASS");
 
-    operatorProcess = start(process.execPath, [resolve(import.meta.dirname, "phase-12-administration-operator.mjs")], {
-      cwd: repositoryRoot,
-      env: {
-        ...applicationEnvironment,
-        P12_OPERATOR_APPLICATION_PATH: application,
-        P12_OPERATOR_APPLICATION_ID: applicationId,
-        P12_OPERATOR_ENVIRONMENT: environmentName,
-        P12_OPERATOR_CLIENT_URI_SAN: operatorUriSan,
-        P12_OPERATOR_IDENTITY: operatorIdentity,
-        P12_OPERATOR_SOURCE_COMMIT: "a".repeat(40),
-        P12_OPERATOR_HOST_INVENTORY_DIGEST: `sha256:${createHash("sha256").update(canonicalJson({ applicationId, environment: environmentName, platformPlugins: [{ id: "module.sales", package: kNexSalesRegistry.staticRelease.package, runtimeGenerationId: kNexSalesRegistry.staticRelease.runtimeGenerationId }] })).digest("hex")}`,
-        P12_OPERATOR_PORT: String(operatorPort),
-        P12_OPERATOR_REGISTRY_PATH: join(application, "dist/k-nex-registry.js"),
-        P12_OPERATOR_SERVER_CERT: operatorCertificates.serverCert,
-        P12_OPERATOR_SERVER_KEY: operatorCertificates.serverKey,
-        P12_OPERATOR_CA_CERT: operatorCertificates.caCert
-      }
+    const operatorEnvironment = {
+      ...applicationEnvironment,
+      P12_OPERATOR_APPLICATION_PATH: application,
+      P12_OPERATOR_APPLICATION_ID: applicationId,
+      P12_OPERATOR_ENVIRONMENT: environmentName,
+      P12_OPERATOR_CLIENT_URI_SAN: operatorUriSan,
+      P12_OPERATOR_IDENTITY: operatorIdentity,
+      P12_OPERATOR_SOURCE_COMMIT: "a".repeat(40),
+      P12_OPERATOR_HOST_INVENTORY_DIGEST: `sha256:${createHash("sha256").update(canonicalJson({ applicationId, environment: environmentName, platformPlugins: [{ id: "module.sales", package: kNexSalesRegistry.staticRelease.package, runtimeGenerationId: kNexSalesRegistry.staticRelease.runtimeGenerationId }] })).digest("hex")}`,
+      P12_OPERATOR_PORT: String(operatorPort),
+      P12_OPERATOR_REGISTRY_PATH: join(application, "dist/k-nex-registry.js"),
+      P12_OPERATOR_SERVER_CERT: operatorCertificates.serverCert,
+      P12_OPERATOR_SERVER_KEY: operatorCertificates.serverKey,
+      P12_OPERATOR_CA_CERT: operatorCertificates.caCert
+    };
+    const startOperator = (extra = {}) => start(process.execPath, [resolve(import.meta.dirname, "phase-12-administration-operator.mjs")], {
+      cwd: repositoryRoot, env: { ...operatorEnvironment, ...extra }
     });
+    operatorProcess = startOperator();
     await until(async () => operatorProcess.output().includes(`P12_ADMINISTRATION_OPERATOR_READY=${operatorPort}`), () => `Administration operator did not start.\n${operatorProcess.output()}`, operatorProcess.child);
     const readinessOutput = run("pnpm", ["knex:doctor"], { cwd: application, env: applicationEnvironment, stdio: "pipe" });
     assert.match(readinessOutput, /K_NEX_APPLICATION_READY/u);
@@ -1515,6 +1578,47 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     assert.equal(preRetirementAction.status, 200, "The same actor must execute the registered Sales action before retirement.");
     assert.equal((await pool.query("select count(*)::int as count from sales_tasks where title=$1", [preRetirementActionTitle])).rows[0].count, 1);
     const operatorDiagnostics = () => `application=${applicationProcess.output()}\noperator=${operatorProcess.output()}`;
+    const dualOperatorState = await durableStore.readState(applicationId, environmentName);
+    assert.ok(dualOperatorState);
+    let restoredFormerOwnerAssignment;
+    await durableStore.transaction(expected(dualOperatorState), async (transaction) => {
+      const formerOwner = (await transaction.listAssignments(applicationId, { kind: "user", id: ownerUserId })).find((assignment) => assignment.roleId === "system.role.owner" && assignment.state === "revoked");
+      assert.ok(formerOwner);
+      restoredFormerOwnerAssignment = { ...formerOwner, state: "active", revision: formerOwner.revision + 1 };
+      await transaction.write({ kind: "assignment", assignment: restoredFormerOwnerAssignment });
+    });
+    const managerPlan = await planExtensionInBrowser(retiredRouteContext, applicationProcess.origin, "disable", operatorDiagnostics);
+    const managerPlanCommand = JSON.parse(responseLossRelay.requests("extension-plan").at(-1).toString("utf8"));
+    try {
+      const ownerActor = { ...managerPlanCommand.actor, principal: { kind: "user", id: ownerUserId }, effectiveActor: { kind: "user", id: ownerUserId } };
+      assert.notEqual(managerPlanCommand.actor.effectiveActor.id, ownerActor.effectiveActor.id, "Fixture must use two current extension actors.");
+      const executionRevision = await currentExtensionExecutionRevision(pool, applicationId, environmentName, "module.sales");
+      const ownerExecute = executeCommand({ ...managerPlanCommand, actor: ownerActor }, managerPlan.operationId, executionRevision);
+      const authorityBeforePoison = await durableStore.readState(applicationId, environmentName);
+      const poisoned = await submitOperatorCommand(operatorPort, operatorCertificates, ownerExecute);
+      assert.notEqual(poisoned.status, 200, "A second current actor cannot execute another actor's planned operation.");
+      assert.deepEqual(await durableStore.readState(applicationId, environmentName), authorityBeforePoison, "Denied cross-actor execute must not alter current authorization state.");
+      assert.equal((await pool.query("select execution_request_digest from runtime_extension_operations where operation_id=$1", [managerPlan.operationId])).rows[0]?.execution_request_digest, null, "Denied cross-actor execute must not bind a durable request digest.");
+      const executed = await submitOperatorCommand(operatorPort, operatorCertificates, executeCommand(managerPlanCommand, managerPlan.operationId, executionRevision));
+      assert.equal(executed.status, 200, `The planned actor must execute after cross-actor denial. ${executed.body.toString("utf8")}`);
+      assert.deepEqual((await pool.query(
+        `select
+           (select count(*)::int from runtime_extension_transition_receipts where operation_id=$1 and event_json->>'operationPhase'='completed') receipts,
+           (select count(*)::int from runtime_extension_audit where operation_id=$1 and event_json->>'operationPhase'='completed') audits,
+           (select count(*)::int from runtime_extension_outbox where event_json->>'operationId'=$1 and event_json->>'operationPhase'='completed') outbox`,
+        [managerPlan.operationId]
+      )).rows, [{ receipts: 1, audits: 1, outbox: 1 }], "Cross-actor denial must leave exactly one planned-actor terminal transition.");
+    } finally {
+      await managerPlan.administrationPage.close();
+    }
+    const restoreFormerOwnerState = await durableStore.readState(applicationId, environmentName);
+    assert.ok(restoreFormerOwnerState);
+    await durableStore.transaction(expected(restoreFormerOwnerState), async (transaction) => {
+      await transaction.write({ kind: "assignment", assignment: { ...restoredFormerOwnerAssignment, state: "revoked", revision: restoredFormerOwnerAssignment.revision + 1 } });
+    });
+    console.log("P12_ADMINISTRATION_OPERATOR_CROSS_ACTOR_EXECUTE_POSTGRES_MTLS_HTTP_DENIED=PASS");
+    await planAndExecuteExtensionInBrowser(retiredRouteContext, applicationProcess.origin, managerPassword, "re-enable", "install", operatorDiagnostics);
+    responseLossRelay.enableResponseLoss();
     const disabledSalesOperationId = await planAndExecuteExtensionInBrowser(retiredRouteContext, applicationProcess.origin, managerPassword, "disable", "disable", operatorDiagnostics, async (operationId) => {
       const attempts = responseLossRelay.requests("extension-plan");
       const results = responseLossRelay.responses("extension-plan");
@@ -1613,6 +1717,57 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     await retiredRoutePage.getByRole("form", { name: "Create task" }).waitFor({ timeout: 10_000 });
     await retiredRouteContext.close();
     console.log("P12_LATER_SALES_GENERATION_RECOVERS_NAVIGATION_ROUTE_AND_ACTION_POSTGRES_HTTP=PASS");
+    const crashContext = await browserSession(browser, applicationProcess.origin, managerEmail, managerPassword);
+    const crashPlan = await planExtensionInBrowser(crashContext, applicationProcess.origin, "disable", operatorDiagnostics);
+    const crashPlanCommand = JSON.parse(responseLossRelay.requests("extension-plan").at(-1).toString("utf8"));
+    await crashPlan.administrationPage.close();
+    await crashContext.close();
+    const crashCommand = executeCommand(crashPlanCommand, crashPlan.operationId, await currentExtensionExecutionRevision(pool, applicationId, environmentName, "module.sales"));
+    const crashFile = join(root, "operator-pre-mutation-crash");
+    await stop(operatorProcess.child, "administration operator before injected crash");
+    operatorProcess = startOperator({ P12_OPERATOR_CRASH_BEFORE_MUTATION_FILE: crashFile });
+    await until(async () => operatorProcess.output().includes(`P12_ADMINISTRATION_OPERATOR_READY=${operatorPort}`), () => `Crash-injected operator did not start.\n${operatorProcess.output()}`, operatorProcess.child);
+    await assert.rejects(submitOperatorCommand(operatorPort, operatorCertificates, crashCommand));
+    await until(async () => operatorProcess.child.exitCode === 86, () => `Crash-injected operator did not exit.\n${operatorProcess.output()}`);
+    assert.equal(existsSync(crashFile), true, "Crash injection must occur before lifecycle mutation.");
+    assert.equal((await pool.query("select execution_request_digest from runtime_extension_operations where operation_id=$1", [crashPlan.operationId])).rows[0]?.execution_request_digest, null, "Pre-mutation crash must leave no execution request binding.");
+    assert.deepEqual((await pool.query(
+      `select
+         (select count(*)::int from runtime_extension_transition_receipts where operation_id=$1 and event_json->>'operationPhase'='completed') receipts,
+         (select count(*)::int from runtime_extension_audit where operation_id=$1 and event_json->>'operationPhase'='completed') audits,
+         (select count(*)::int from runtime_extension_outbox where event_json->>'operationId'=$1 and event_json->>'operationPhase'='completed') outbox`,
+      [crashPlan.operationId]
+    )).rows, [{ receipts: 0, audits: 0, outbox: 0 }], "Pre-mutation crash must not create a terminal transition.");
+    const committedCrashFile = join(root, "operator-post-commit-crash");
+    operatorProcess = startOperator({ P12_OPERATOR_CRASH_AFTER_COMMIT_FILE: committedCrashFile });
+    await until(async () => operatorProcess.output().includes(`P12_ADMINISTRATION_OPERATOR_READY=${operatorPort}`), () => `Post-commit crash operator did not start.\n${operatorProcess.output()}`, operatorProcess.child);
+    const recoveredCrashCommand = executeCommand(crashPlanCommand, crashPlan.operationId, await currentExtensionExecutionRevision(pool, applicationId, environmentName, "module.sales"));
+    await assert.rejects(submitOperatorCommand(operatorPort, operatorCertificates, recoveredCrashCommand));
+    await until(async () => operatorProcess.child.exitCode === 87, () => `Post-commit crash operator did not exit.\n${operatorProcess.output()}`);
+    assert.equal(existsSync(committedCrashFile), true, "Post-commit crash injection must run before the response is sent.");
+    assert.match((await pool.query("select execution_request_digest from runtime_extension_operations where operation_id=$1", [crashPlan.operationId])).rows[0]?.execution_request_digest ?? "", /^sha256:[0-9a-f]{64}$/u, "Terminal lifecycle transaction must include the execute-command digest.");
+    operatorProcess = startOperator();
+    await until(async () => operatorProcess.output().includes(`P12_ADMINISTRATION_OPERATOR_READY=${operatorPort}`), () => `Restarted operator did not start.\n${operatorProcess.output()}`, operatorProcess.child);
+    const recoveredCrash = await submitOperatorCommand(operatorPort, operatorCertificates, recoveredCrashCommand);
+    assert.equal(recoveredCrash.status, 200, `Exact post-commit retry must return the durable result. ${recoveredCrash.body.toString("utf8")}`);
+    const changedRecoveredCrash = await submitOperatorCommand(operatorPort, operatorCertificates, { ...recoveredCrashCommand, issuedAt: new Date(Date.parse(recoveredCrashCommand.issuedAt) + 1_000).toISOString() });
+    assert.notEqual(changedRecoveredCrash.status, 200, "Changed post-commit command bytes must not replay the durable result.");
+    assert.deepEqual((await pool.query(
+      `select
+         (select count(*)::int from runtime_extension_operations where operation_id=$1 and phase='completed') operations,
+         (select count(*)::int from runtime_extension_transition_receipts where operation_id=$1 and event_json->>'operationPhase'='completed') receipts,
+         (select count(*)::int from runtime_extension_audit where operation_id=$1 and event_json->>'operationPhase'='completed') audits,
+         (select count(*)::int from runtime_extension_outbox where event_json->>'operationId'=$1 and event_json->>'operationPhase'='completed') outbox`,
+      [crashPlan.operationId]
+    )).rows, [{ operations: 1, receipts: 1, audits: 1, outbox: 1 }], "Restarted pre-mutation execution must commit exactly one terminal transition.");
+    console.log("P12_ADMINISTRATION_OPERATOR_PRE_MUTATION_CRASH_RESTART_POSTGRES_MTLS_HTTP=PASS");
+    console.log("P12_ADMINISTRATION_OPERATOR_POST_COMMIT_CRASH_EXACT_REPLAY_POSTGRES_MTLS_HTTP=PASS");
+    const recoveredCrashContext = await browserSession(browser, applicationProcess.origin, managerEmail, managerPassword);
+    const recoveredCrashOperationId = await planAndExecuteExtensionInBrowser(recoveredCrashContext, applicationProcess.origin, managerPassword, "re-enable", "install", operatorDiagnostics);
+    await recoveredCrashContext.close();
+    assert.equal((await fetch(`${applicationProcess.origin}/system/operations/${encodeURIComponent(recoveredCrashOperationId)}`, { headers: { cookie: manager.cookie.header } })).status, 200);
+    const recoveredCrashState = await durableStore.readState(applicationId, environmentName);
+    assert.ok(recoveredCrashState);
     const salesGenerationBeforeUnrelatedLifecycle = (await pool.query(
       "select authorization_generation, runtime_generation_ids from k_nex_extension_authorization_generations where application_id=$1 and delivery_class='platform-plugin' and extension_id='module.sales' and state='current'",
       [applicationId]
@@ -1620,7 +1775,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     assert.equal(salesGenerationBeforeUnrelatedLifecycle.length, 1, "The recovered Sales authorization generation must be current before an unrelated lifecycle advance.");
     const unrelatedLifecycleBefore = await durableStore.readState(applicationId, environmentName);
     assert.ok(unrelatedLifecycleBefore);
-    assert.equal(unrelatedLifecycleBefore.lifecycleRevision, restoredSalesState.lifecycleRevision, "The unrelated lifecycle transition must begin immediately after exact Sales recovery.");
+    assert.equal(unrelatedLifecycleBefore.lifecycleRevision, recoveredCrashState.lifecycleRevision, "The unrelated lifecycle transition must begin immediately after crash recovery.");
     const unrelatedLifecycleRevision = unrelatedLifecycleBefore.lifecycleRevision + 1;
     const unrelatedGenerationId = `p12-unrelated-hot-application-${unrelatedLifecycleRevision}`;
     const unrelatedLifecycleSession = await pool.connect();

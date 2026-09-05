@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-09-05
 - **Phase:** Phase 12 — Runnable Customer Workspace and Dashboard Builder
-- **Active task:** Phase 12 complete; awaiting phase review
-- **State:** Ready for phase review
+- **Active task:** Close final Phase 12 execute-digest review P0
+- **State:** In progress
 
 ## Last completed
 
-Closed the final logic findings, refreshed both customer frozen-lock integrities, raised only the generated P12.9 proof timeout from 420s to 600s after hosted CI reached every new response-loss marker, regenerated the signed v1 release evidence, and removed the superseded evidence claim.
+Atomically bound execute-command digest with terminal lifecycle state/receipt/audit/outbox, denied cross-actor poisoning before mutation, and added pre-mutation plus post-commit operator crash/restart proofs with exact replay and changed-command denial.
 
 ## Validation
 
-Local `pnpm gate:12:focused` PASS on `15aeab4`: 235 unit assertions, 80 selected proofs, and 3 PostgreSQL/HTTP/Chromium process proofs. Signed release-evidence run `33937471560` PASS for closure source `b3c199e`; exact-head focused run `33937836682` and cumulative Gate 0–12 run `33937839132` PASS on evidence head `37caf6e`. Canonical packed/evidence, frozen-lock, syntax, diff, and container-cleanliness checks PASS.
+Focused handler/store tests 39/39 PASS; payload-adapter build PASS; packed v1 closure and factory locks PASS; one real generated PostgreSQL/HTTP/Chromium journey PASS with cross-actor, pre-mutation crash, post-commit crash, exact replay, response-loss, audit, receipt, and outbox markers; audit-high PASS; same Sol xhigh reviewer PASS. No cumulative suite rerun.
 
 ## Next
 
-Project-manager review of PR #33; do not merge from the implementation task.
+Commit/push the bounded fix, refresh hosted signed v1 release evidence, and obtain exact-head focused PR evidence.
 
 ## Blockers
 

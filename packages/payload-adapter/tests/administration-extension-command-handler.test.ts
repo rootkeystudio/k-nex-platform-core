@@ -25,6 +25,11 @@ const actor = {
   lifecycleRevision: 11,
   permissions: [{ decisionId: "decision-1", permissionId: "system.extensions.plan", owner: { kind: "platform", namespace: "system" }, scope: { kind: "application", resource: "system.extensions" } }]
 } as const;
+const otherActor = {
+  ...actor,
+  principal: { kind: "user", id: "user:other" },
+  effectiveActor: { kind: "user", id: "user:other" }
+} as const;
 const identity = {
   schemaVersion: 1,
   uriSan: "spiffe://knex-deployment/customer-alpha/production/extensions",
@@ -103,23 +108,29 @@ function harness(options: Readonly<{
   let currentInventory = options.currentInventory ?? inventory;
   let replay = options.replay;
   let executionDigest = options.executionDigest;
+  let activeExecutionDigest: string | undefined;
   const api = { plan: vi.fn(async () => plan), activate: vi.fn(async () => options.afterActivate?.((next) => { stored = next; }, (next) => { currentInventory = next; })), rollback: vi.fn(async () => undefined), disable: vi.fn(async () => undefined), uninstall: vi.fn(async () => undefined) } as unknown as ExtensionOperatorApi;
   const store = {
     inventory: vi.fn(async () => currentInventory),
     readOperation: vi.fn(async () => stored),
     readOperationByIdempotency: vi.fn(async () => replay),
-    claimExecutionRequestDigest: vi.fn(async (input: { requestDigest: string }) => {
+    withExecutionRequestDigest: vi.fn(async (input: { requestDigest: string }, work: () => Promise<unknown>) => {
       if (executionDigest !== undefined && executionDigest !== input.requestDigest) throw new TypeError("execution request conflict");
-      executionDigest = input.requestDigest;
+      activeExecutionDigest = input.requestDigest;
+      try {
+        const result = await work();
+        if (stored.phase === "completed") executionDigest = input.requestDigest;
+        return result;
+      } finally { activeExecutionDigest = undefined; }
     }),
-    executionRequestDigest: vi.fn(async () => executionDigest)
+    executionRequestDigest: vi.fn(async () => executionDigest ?? (stored.phase === "completed" ? activeExecutionDigest : undefined))
   };
   const value = new AdministrationExtensionCommandHandler({
     applicationId: actor.applicationId, environment: actor.environment, operatorIdentity: "operator:production", clock: () => new Date("2026-09-04T12:01:00.000Z"),
     authorizationState: { readState: vi.fn(async () => options.currentState ?? { schemaVersion: 1, applicationId: actor.applicationId, environment: actor.environment, authorizationRevision: 7, lifecycleRevision: 11 }) },
     store: store as never, operatorForActor: vi.fn(() => api)
   });
-  return { value, api, store, setStored: (next: RuntimeExtensionOperation) => { stored = next; }, setReplay: (next: RuntimeExtensionOperation) => { replay = next; } };
+  return { value, api, store, setStored: (next: RuntimeExtensionOperation) => { stored = next; }, setInventory: (next: RuntimeExtensionInventory) => { currentInventory = next; }, setReplay: (next: RuntimeExtensionOperation) => { replay = next; } };
 }
 
 describe("AdministrationExtensionCommandHandler", () => {
@@ -154,11 +165,82 @@ describe("AdministrationExtensionCommandHandler", () => {
     expect(first).toEqual(replay);
     expect(test.api.activate).toHaveBeenCalledWith(plan.operationId);
     expect(test.api.activate).toHaveBeenCalledTimes(1);
-    expect(test.store.claimExecutionRequestDigest).toHaveBeenCalledWith(expect.objectContaining({ operationId: plan.operationId, requestDigest: authenticatedDigest(execute) }));
+    expect(test.store.withExecutionRequestDigest).toHaveBeenCalledWith(expect.objectContaining({ operationId: plan.operationId, requestDigest: authenticatedDigest(execute) }), expect.any(Function));
 
     const changed = authenticated({ ...execute.command, issuedAt: "2026-09-04T12:00:01.000Z" } as never);
     await expect(test.value.handle(changed)).rejects.toThrow(/durable request/u);
     expect(test.api.activate).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects another actor before binding an execution request, then permits the planned actor", async () => {
+    const activeInventory = { ...inventory, revision: 14, extensions: { platformPlugins: {}, themeSkins: {}, hotApplications: {
+      [command.extension.id]: { disposition: "removed", revision: 1, lastOperationId: plan.operationId, lastReceiptId: "receipt-initial-1", stateDigest: digest("d") }
+    } } } as const satisfies RuntimeExtensionInventory;
+    const receipt = { receiptId: "receipt-extension-1", operationId: plan.operationId, operation: "install", generationId: plan.generationId,
+      revisionBefore: 1, revisionAfter: 2, inventoryRevision: 15, compatibility: { status: "compatible", windowId: "window-extension-1", closesAt: "2026-09-04T13:00:00.000Z", migrationDigest: digest("3"), dataRevision: 1 }, rollback: "available", occurredAt: "2026-09-04T12:01:01.000Z" } as const;
+    const finalInventory = { ...activeInventory, revision: 15, extensions: { ...activeInventory.extensions, hotApplications: {
+      [command.extension.id]: { ...activeInventory.extensions.hotApplications[command.extension.id], revision: 2, lastReceiptId: receipt.receiptId }
+    } } } as RuntimeExtensionInventory;
+    const { extension: _extension, version: _version, operation: _operation, ...base } = command;
+    const execute = { ...base, kind: "extension-execute", expected: { authorizationRevision: 7, lifecycleRevision: 11, inventoryRevision: 14, extensionRevision: 1 }, operationId: plan.operationId, idempotencyKey: `execute:${plan.operationId}` } as const;
+    const test = harness({ afterActivate: (replace, replaceInventory) => {
+      replace(operation({ phase: "completed", result: receipt }));
+      replaceInventory(finalInventory);
+    } });
+
+    await expect(test.value.handle(authenticated())).resolves.toMatchObject({ outcome: "accepted" });
+    test.setInventory(activeInventory);
+
+    await expect(test.value.handle(authenticated({ ...execute, actor: otherActor } as never))).rejects.toThrow(/no longer owns/u);
+    expect(test.store.withExecutionRequestDigest).not.toHaveBeenCalled();
+    await expect(test.store.executionRequestDigest({})).resolves.toBeUndefined();
+
+    await expect(test.value.handle(authenticated(execute))).resolves.toMatchObject({ outcome: "accepted" });
+    expect(test.api.activate).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves no execution binding when lifecycle mutation fails, so a restarted retry completes once", async () => {
+    const activeInventory = { ...inventory, revision: 14, extensions: { platformPlugins: {}, themeSkins: {}, hotApplications: {
+      [command.extension.id]: { disposition: "removed", revision: 1, lastOperationId: plan.operationId, lastReceiptId: "receipt-initial-1", stateDigest: digest("d") }
+    } } } as const satisfies RuntimeExtensionInventory;
+    const receipt = { receiptId: "receipt-extension-1", operationId: plan.operationId, operation: "install", generationId: plan.generationId,
+      revisionBefore: 1, revisionAfter: 2, inventoryRevision: 15, compatibility: { status: "compatible", windowId: "window-extension-1", closesAt: "2026-09-04T13:00:00.000Z", migrationDigest: digest("3"), dataRevision: 1 }, rollback: "available", occurredAt: "2026-09-04T12:01:01.000Z" } as const;
+    const finalInventory = { ...activeInventory, revision: 15, extensions: { ...activeInventory.extensions, hotApplications: {
+      [command.extension.id]: { ...activeInventory.extensions.hotApplications[command.extension.id], revision: 2, lastReceiptId: receipt.receiptId }
+    } } } as RuntimeExtensionInventory;
+    const { extension: _extension, version: _version, operation: _operation, ...base } = command;
+    const execute = { ...base, kind: "extension-execute", expected: { authorizationRevision: 7, lifecycleRevision: 11, inventoryRevision: 14, extensionRevision: 1 }, operationId: plan.operationId, idempotencyKey: `execute:${plan.operationId}` } as const;
+    let crash = true;
+    const test = harness({ currentInventory: activeInventory, afterActivate: (replace, replaceInventory) => {
+      if (crash) {
+        crash = false;
+        throw new Error("injected pre-mutation crash");
+      }
+      replace(operation({ phase: "completed", result: receipt }));
+      replaceInventory(finalInventory);
+    } });
+
+    await expect(test.value.handle(authenticated(execute))).rejects.toThrow(/injected pre-mutation crash/u);
+    const retried = authenticated({ ...execute, issuedAt: "2026-09-04T12:00:01.000Z" } as never);
+    await expect(test.value.handle(retried)).resolves.toMatchObject({ outcome: "accepted" });
+    expect(test.api.activate).toHaveBeenCalledTimes(2);
+    expect(test.store.withExecutionRequestDigest).toHaveBeenCalledTimes(2);
+    await expect(test.store.executionRequestDigest({})).resolves.toBe(authenticatedDigest(retried));
+  });
+
+  it("rejects a completed operation whose execute digest was not committed atomically", async () => {
+    const receipt = { receiptId: "receipt-extension-1", operationId: plan.operationId, operation: "install", generationId: plan.generationId,
+      revisionBefore: 1, revisionAfter: 2, inventoryRevision: 15, compatibility: { status: "compatible", windowId: "window-extension-1", closesAt: "2026-09-04T13:00:00.000Z", migrationDigest: digest("3"), dataRevision: 1 }, rollback: "available", occurredAt: "2026-09-04T12:01:01.000Z" } as const;
+    const finalInventory = { ...inventory, revision: 15, extensions: { platformPlugins: {}, themeSkins: {}, hotApplications: {
+      [command.extension.id]: { disposition: "removed", revision: 2, lastOperationId: plan.operationId, lastReceiptId: receipt.receiptId, stateDigest: digest("d") }
+    } } } as RuntimeExtensionInventory;
+    const { extension: _extension, version: _version, operation: _operation, ...base } = command;
+    const execute = authenticated({ ...base, kind: "extension-execute", expected: { authorizationRevision: 7, lifecycleRevision: 11, inventoryRevision: 14, extensionRevision: 1 }, operationId: plan.operationId, idempotencyKey: `execute:${plan.operationId}` } as const);
+    const test = harness({ currentInventory: finalInventory, stored: operation({ phase: "completed", result: receipt }) });
+
+    await expect(test.value.handle(execute)).rejects.toThrow(/durable request/u);
+    expect(test.api.activate).not.toHaveBeenCalled();
+    expect(test.store.withExecutionRequestDigest).not.toHaveBeenCalled();
   });
 
   it("replays one exact committed plan and rejects a changed command under the same idempotency identity", async () => {
