@@ -37,14 +37,18 @@ export interface UpdateTaskOutput {
     readonly title: string;
     readonly status: "open" | "done";
 }
+export type SalesOpportunityStage = "lead" | "qualified" | "won" | "lost";
 export interface UpdateOpportunityStageInput {
     readonly id: string;
-    readonly stage: "lead" | "qualified" | "won" | "lost";
+    readonly expectedStage: SalesOpportunityStage;
+    readonly expectedRevision: string;
+    readonly stage: SalesOpportunityStage;
 }
 export interface UpdateOpportunityStageOutput {
     readonly id: string;
     readonly name: string;
-    readonly stage: "lead" | "qualified" | "won" | "lost";
+    readonly stage: SalesOpportunityStage;
+    readonly revision: string;
 }
 export declare const salesEmptyInputRuntimeSchema: RuntimeSchema<Record<string, never>>;
 export declare const salesCreateTaskInputRuntimeSchema: RuntimeSchema<CreateTaskInput>;
@@ -172,6 +176,7 @@ export declare const salesRevenueMetricBlockDescriptor: PluginUiContributionDesc
 export declare const salesQuickCreateBlockDescriptor: PluginUiContributionDescriptor;
 export declare const salesOpportunityListBlockDescriptor: PluginUiContributionDescriptor;
 export declare const salesOpportunityDetailBlockDescriptor: PluginUiContributionDescriptor;
+export declare const salesOpportunityKanbanBlockDescriptor: PluginUiContributionDescriptor;
 export declare const salesSettingsSummaryBlockDescriptor: PluginUiContributionDescriptor;
 export declare const salesUiComponentDescriptors: readonly PluginUiContributionDescriptor[];
 export declare const salesUiBlockDescriptors: readonly PluginUiContributionDescriptor[];

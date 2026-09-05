@@ -1,0 +1,29 @@
+{
+  "$schema": "https://schemas.k-nex.dev/workspace.v1.schema.json",
+  "contract": {
+    "kind": "working-copy-change",
+    "value": {
+      "document": {
+        "id": "workspace.document.sales-board",
+        "profile": "workspace",
+        "regions": {
+          "main": [
+            {
+              "id": "sales-board-title",
+              "props": {
+                "javascript": "alert(1)"
+              },
+              "type": "content.text",
+              "version": 2
+            }
+          ]
+        },
+        "schemaVersion": 1,
+        "version": 2
+      },
+      "editorSessionId": "editor-session-1",
+      "expectedRevision": 1,
+      "idempotencyKey": "workspace-save-2"
+    }
+  }
+}

@@ -18,11 +18,15 @@ function controls(dispatch = vi.fn()) {
   };
 }
 
+function selectionLabel(element: ReactElement): ReactElement {
+  return (Children.toArray(element.props.children) as ReactElement[]).find((child) =>
+    isValidElement(child) && child.type === "label" && Children.toArray(child.props.children).some((value) => isValidElement(value) && value.props.children === "Selected canvas block"))!;
+}
+
 describe("accessible Puck operation", () => {
   it("selects a block through a labelled native control so its fields can be edited by keyboard", () => {
     const { element, dispatch } = controls();
-    const children = Children.toArray(element.props.children) as ReactElement[];
-    const label = children[0];
+    const label = selectionLabel(element);
     const select = Children.toArray(label.props.children)[1] as ReactElement;
     expect(element.type).toBe("section");
     expect(element.props["aria-label"]).toBe("Canvas block keyboard controls");
@@ -35,7 +39,8 @@ describe("accessible Puck operation", () => {
 
   it("provides named native buttons as a non-drag reorder alternative", () => {
     const { element, dispatch } = controls();
-    const buttons = Children.toArray(element.props.children).filter((child) => isValidElement(child) && child.type === "button") as ReactElement[];
+    const buttons = (Children.toArray(element.props.children).filter((child) => isValidElement(child) && child.type === "button") as ReactElement[])
+      .filter((button) => String(button.props["aria-label"]).startsWith("Move "));
     expect(buttons.slice(0, 2).map((button) => button.props["aria-label"])).toEqual([
       "Move content.text__v1 beta, item 2 earlier",
       "Move content.text__v1 beta, item 2 later"
@@ -67,7 +72,7 @@ describe("accessible Puck operation", () => {
       dispatch
     });
     const children = Children.toArray(element.props.children) as ReactElement[];
-    const select = Children.toArray(children[0].props.children)[1] as ReactElement;
+    const select = Children.toArray(selectionLabel(element).props.children)[1] as ReactElement;
     expect(Children.toArray(select.props.children)).toHaveLength(4);
     expect(Children.toArray(select.props.children).map((option) => (option as ReactElement).props.children)).toEqual([
       "Choose a block",
@@ -75,8 +80,9 @@ describe("accessible Puck operation", () => {
       "Nested content.text__v1 alpha, item 1",
       "Nested content.text__v1 beta, item 2"
     ]);
-    const buttons = children.filter((child) => isValidElement(child) && child.type === "button") as ReactElement[];
-    buttons[0].props.onClick();
+    const earlier = (children.filter((child) => isValidElement(child) && child.type === "button") as ReactElement[])
+      .find((button) => String(button.props["aria-label"]).endsWith("earlier"))!;
+    earlier.props.onClick();
     expect(dispatch).toHaveBeenNthCalledWith(1, {
       type: "move",
       sourceIndex: 1,
@@ -109,5 +115,28 @@ describe("accessible Puck operation", () => {
     const immovable = [{ ...content[0], props: { ...content[0]!.props, __kNexCanMove: false } }, content[1]!];
     expect(createKeyboardReorderActions({ content: immovable, index: 0, direction: "later" })).toBeUndefined();
     expect(createKeyboardMoveActions({ content: immovable, index: 0, sourceZone: "root:default-zone", destinationZone: "other:__kNexChildren", destinationContent: [], destinationIndex: 0 })).toBeUndefined();
+  });
+
+  it("provides keyboard add and delete actions without bypassing trusted delete constraints", () => {
+    const dispatch = vi.fn();
+    const element = AccessiblePuckControls({
+      state: { data: { root: { props: {} }, content }, ui: { itemSelector: { index: 1, zone: "root:default-zone" } } } as never,
+      dispatch,
+      components: [{ type: "content.text__v1", label: "Text" }]
+    });
+    const children = Children.toArray(element.props.children) as ReactElement[];
+    const buttons = children.filter((child) => isValidElement(child) && child.type === "button") as ReactElement[];
+    buttons.find((button) => button.props["aria-label"] === "Add block to canvas")!.props.onClick();
+    buttons.find((button) => String(button.props["aria-label"]).startsWith("Delete content.text"))!.props.onClick();
+    expect(dispatch).toHaveBeenNthCalledWith(1, { type: "insert", componentType: "content.text__v1", destinationIndex: 2, destinationZone: "root:default-zone", id: "builder-node-1" });
+    expect(dispatch).toHaveBeenNthCalledWith(2, { type: "remove", index: 1, zone: "root:default-zone" });
+
+    const protectedElement = AccessiblePuckControls({
+      state: { data: { root: { props: {} }, content: [{ ...content[0], props: { ...content[0]!.props, __kNexCanDelete: false } }] }, ui: { itemSelector: { index: 0, zone: "root:default-zone" } } } as never,
+      dispatch
+    });
+    const protectedDelete = (Children.toArray(protectedElement.props.children) as ReactElement[])
+      .find((child) => isValidElement(child) && child.type === "button" && String(child.props["aria-label"]).startsWith("Delete content.text"))!;
+    expect(protectedDelete.props.disabled).toBe(true);
   });
 });

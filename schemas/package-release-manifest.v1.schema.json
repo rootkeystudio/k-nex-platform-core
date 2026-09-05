@@ -120,6 +120,62 @@
     "__schema7": {
       "additionalProperties": false,
       "properties": {
+        "minimal": {
+          "additionalProperties": false,
+          "properties": {
+            "digest": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "preset": {
+              "const": "sales-reference",
+              "type": "string"
+            },
+            "theme": {
+              "const": "minimal",
+              "type": "string"
+            }
+          },
+          "required": [
+            "preset",
+            "theme",
+            "digest"
+          ],
+          "type": "object"
+        },
+        "neobrutalism": {
+          "additionalProperties": false,
+          "properties": {
+            "digest": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "preset": {
+              "const": "sales-reference",
+              "type": "string"
+            },
+            "theme": {
+              "const": "neobrutalism",
+              "type": "string"
+            }
+          },
+          "required": [
+            "preset",
+            "theme",
+            "digest"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "minimal",
+        "neobrutalism"
+      ],
+      "type": "object"
+    },
+    "__schema8": {
+      "additionalProperties": false,
+      "properties": {
         "policy": {
           "const": "single-current-release",
           "type": "string"
@@ -153,6 +209,9 @@
     "$schema": {
       "$ref": "#/$defs/__schema0"
     },
+    "factoryLockTemplates": {
+      "$ref": "#/$defs/__schema7"
+    },
     "framework": {
       "$ref": "#/$defs/__schema4"
     },
@@ -166,7 +225,7 @@
       "$ref": "#/$defs/__schema1"
     },
     "supportWindow": {
-      "$ref": "#/$defs/__schema7"
+      "$ref": "#/$defs/__schema8"
     }
   },
   "required": [
@@ -174,6 +233,7 @@
     "release",
     "framework",
     "packages",
+    "factoryLockTemplates",
     "supportWindow"
   ],
   "title": "K-Nex Package Release Manifest v1",

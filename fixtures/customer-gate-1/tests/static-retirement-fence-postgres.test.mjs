@@ -298,12 +298,19 @@ test("rejected-generation retirement is atomic, durable, and owner scoped", { ti
     ]);
     assert.equal(reservationOutcome.status, "fulfilled", reservationOutcome.reason?.stack ?? reservationOutcome.reason?.message);
     if (reservationOutcome.value) {
+      console.log("P9_RETIREMENT_PROMOTION_RACE=retirement-won");
       assert.equal(promotionOutcome.status, "rejected");
       assert.equal(promotionOutcome.reason.code, "REVISION_CONFLICT");
       assert.equal((await store.read(alpha)).active.generationId, "shared-blue-11");
     } else {
+      console.log("P9_RETIREMENT_PROMOTION_RACE=promotion-won");
       assert.equal(promotionOutcome.status, "fulfilled");
       assert.equal((await store.read(alpha)).active.generationId, raceGenerationId);
+      const activationTicket = await store.reserveTransitionStep({
+        ...alpha, expectedRevision: promotionOutcome.value.revisionAfter, step: "activate-worker", reservationId: randomUUID()
+      });
+      await store.assertTransitionTicket(activationTicket);
+      await store.completeTransitionStep(activationTicket);
     }
 
     const sharedGenerationId = "shared-owner-green-12";

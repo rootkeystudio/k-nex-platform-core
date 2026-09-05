@@ -172,6 +172,24 @@ const phase9FixedRouteAuthorization = Object.freeze({
   }
 });
 
+const lifecyclePollControlKey = "__K_NEX_TEST_ROUTE_LIFECYCLE_CONTROL__";
+
+async function pauseRouteLifecyclePolling(pages) {
+  await Promise.all(pages.map((page) => page.evaluate(async (controlKey) => {
+    const control = window[controlKey];
+    if (!control || typeof control.pause !== "function") throw new Error("Route lifecycle polling control is unavailable.");
+    await control.pause();
+  }, lifecyclePollControlKey)));
+}
+
+async function pollRouteLifecycleOnce(pages) {
+  await Promise.all(pages.map((page) => page.evaluate(async (controlKey) => {
+    const control = window[controlKey];
+    if (!control || typeof control.pollOnce !== "function") throw new Error("Route lifecycle polling control is unavailable.");
+    await control.pollOnce();
+  }, lifecyclePollControlKey)));
+}
+
 async function listen(handler) {
   const server = createServer(handler);
   await new Promise((resolve, reject) => {
@@ -1138,6 +1156,7 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     const drainingRoutePage = await browserContext.newPage();
     await drainingRoutePage.goto(`${fixedRouteHost.url}/apps/fixture-live/activity/42`);
     await drainingRoutePage.getByRole("heading", { name: "fixture-live-v1" }).waitFor();
+    await pauseRouteLifecyclePolling([routePage, drainingRoutePage]);
     const installedFramePath = await drainingRoutePage.evaluate(() => new URL(window.__K_NEX_HOT_APPLICATION_ROUTE__.remoteUiFrameUrl).pathname);
     const runnerBaseline = await runnerService.state("/runtime-extension-state");
     const browserBaseline = await browserPage.evaluate(() => window.runtimeExtensionState("snapshot"));
@@ -1269,15 +1288,6 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     await updatedRoutePage.getByRole("heading", { name: `source:${updated.generationId}` }).waitFor();
     assert.equal((await requestFixedRoute(fixedRouteHost, installedFramePath)).status, 404, "mixed-generation G1 UI bytes must be denied after G2 becomes active");
     assert.equal(routePage.url(), `${fixedRouteHost.url}/apps/fixture-live/activity/42`, "the original G1 page must remain open across the update rather than proving only a reload");
-    await Promise.all([
-      routePage.waitForFunction((generationId) => window.__K_NEX_HOT_APPLICATION_LIFECYCLE_OBSERVATIONS__?.some((entry) => entry.source === "snapshot-poll" && entry.generationId === generationId && entry.retirementScheduled) === true, updated.generationId),
-      drainingRoutePage.waitForFunction((generationId) => window.__K_NEX_HOT_APPLICATION_LIFECYCLE_OBSERVATIONS__?.some((entry) => entry.source === "snapshot-poll" && entry.generationId === generationId && entry.retirementScheduled) === true, updated.generationId)
-    ]);
-    const g1RetirementDeadline = Math.max(...(await Promise.all([routePage, drainingRoutePage].map((page) => page.evaluate(() => {
-      const observation = window.__K_NEX_HOT_APPLICATION_LIFECYCLE_OBSERVATIONS__?.find((entry) => entry.source === "snapshot-poll" && entry.retirementScheduled);
-      if (!observation) throw new Error("The page did not retain its polling retirement observation.");
-      return observation.observedAt + 10_000;
-    })))));
     assert.deepEqual(warmed, [
       "runner:app-fixture-live-generation-1", "remote-ui:app-fixture-live-generation-1", "storage:app-fixture-live-generation-1", "surfaces:app-fixture-live-generation-1",
       "runner:app-fixture-live-generation-2", "remote-ui:app-fixture-live-generation-2", "storage:app-fixture-live-generation-2", "surfaces:app-fixture-live-generation-2"
@@ -1417,8 +1427,20 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     trafficProbe.resume();
     trafficProbe.transition("rollback", [updated.generationId, installed.generationId]);
     await trafficProbe.waitForGeneration("rollback", updated.generationId);
-    assert.equal(Date.now() < g1RetirementDeadline, true, "rollback did not begin before the original G1 retirement deadline");
-    const rolledBack = await manager.rollback(rollback.operationId);
+    await pollRouteLifecycleOnce([routePage, drainingRoutePage]);
+    await Promise.all([
+      routePage.waitForFunction((generationId) => window.__K_NEX_HOT_APPLICATION_LIFECYCLE_OBSERVATIONS__?.some((entry) => entry.source === "snapshot-poll" && entry.generationId === generationId && entry.retirementScheduled) === true, updated.generationId),
+      drainingRoutePage.waitForFunction((generationId) => window.__K_NEX_HOT_APPLICATION_LIFECYCLE_OBSERVATIONS__?.some((entry) => entry.source === "snapshot-poll" && entry.generationId === generationId && entry.retirementScheduled) === true, updated.generationId)
+    ]);
+    const g1RetirementDeadline = Math.max(...(await Promise.all([routePage, drainingRoutePage].map((page) => page.evaluate(() => {
+      const observation = window.__K_NEX_HOT_APPLICATION_LIFECYCLE_OBSERVATIONS__?.find((entry) => entry.source === "snapshot-poll" && entry.retirementScheduled);
+      if (!observation) throw new Error("The page did not retain its polling retirement observation.");
+      return observation.observedAt + 10_000;
+    })))));
+    const rollbackStartedAt = Date.now();
+    const rollbackPromise = manager.rollback(rollback.operationId);
+    assert.equal(rollbackStartedAt < g1RetirementDeadline, true, "rollback did not begin before the original G1 retirement deadline");
+    const rolledBack = await rollbackPromise;
     const afterRollback = await rollbackMutationSnapshot(pool, identity.id);
     const refreshedRetained = afterRollback.generations.find((generation) => generation.generation_id === installed.generationId);
     assert.deepEqual(afterRollback.pointer[0].active_generation_id, installed.generationId);
@@ -1439,6 +1461,7 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     await trafficProbe.waitForGeneration("rollback", rolledBack.generationId);
     assert.equal(rolledBack.generationId, installed.generationId);
     assert.deepEqual(await manager.rollback(rollback.operationId), rolledBack);
+    await pollRouteLifecycleOnce([routePage, drainingRoutePage]);
     await Promise.all([
       routePage.waitForFunction((generationId) => window.__K_NEX_HOT_APPLICATION_LIFECYCLE_OBSERVATIONS__?.some((entry) => entry.source === "snapshot-poll" && entry.generationId === generationId && entry.retirementCancelled) === true, rolledBack.generationId),
       drainingRoutePage.waitForFunction((generationId) => window.__K_NEX_HOT_APPLICATION_LIFECYCLE_OBSERVATIONS__?.some((entry) => entry.source === "snapshot-poll" && entry.generationId === generationId && entry.retirementCancelled) === true, rolledBack.generationId)
@@ -1478,6 +1501,7 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     await manager.stage(irreversibleUpdate.operationId);
     const cutover = await manager.activate(irreversibleUpdate.operationId);
     assert.equal(cutover.rollback, "blocked-irreversible");
+    await pollRouteLifecycleOnce([routePage, drainingRoutePage]);
     await Promise.all([
       routePage.waitForFunction((generationId) => window.__K_NEX_HOT_APPLICATION_LIFECYCLE_OBSERVATIONS__?.some((entry) => entry.source === "snapshot-poll" && entry.generationId === generationId && entry.retirementScheduled) === true, cutover.generationId),
       drainingRoutePage.waitForFunction((generationId) => window.__K_NEX_HOT_APPLICATION_LIFECYCLE_OBSERVATIONS__?.some((entry) => entry.source === "snapshot-poll" && entry.generationId === generationId && entry.retirementScheduled) === true, cutover.generationId)

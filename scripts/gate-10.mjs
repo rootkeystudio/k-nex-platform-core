@@ -82,7 +82,7 @@ assert.match(tap, /^# P10_9_SYSTEM_ADMIN_POSTGRES_CHROMIUM_EVIDENCE=PASS$/mu, "P
 const phaseResult = read("docs/implementation/phase-10-result.md");
 for (const marker of [
   "# Phase 10 Result",
-  "**Decision:** **READY FOR PHASE REVIEW**",
+  "**Decision:** **ACCEPTED**",
   "GO SYSTEM SETTINGS AND FULL EXTENSION ADMINISTRATION PRODUCTIZATION",
   "Convergence evidence covers seven callback boundaries, but it does not claim seven independent processes."
 ]) assert.ok(phaseResult.includes(marker), `Phase 10 result is missing: ${marker}`);

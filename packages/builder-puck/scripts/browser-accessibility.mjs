@@ -31,10 +31,13 @@ try {
 
   browser = await chromium.launch();
   const page = await browser.newPage();
+  const pageErrors = [];
+  page.on("pageerror", (error) => pageErrors.push(error));
   await page.goto(`http://127.0.0.1:${address.port}`);
+  await page.waitForTimeout(100);
   const controls = page.getByRole("region", { name: "Canvas block keyboard controls" });
   const canvasFrameSelector = '[data-k-nex-builder-canvas="workspace"] iframe';
-  assert.equal(await page.locator(canvasFrameSelector).count(), 1, "Expected one Puck preview iframe inside the fixed shell canvas.");
+  assert.equal(await page.locator(canvasFrameSelector).count(), 1, `Expected one Puck preview iframe inside the fixed shell canvas. ${pageErrors.map((error) => error.message).join(" | ")}`);
   const canvasFrame = page.frameLocator(canvasFrameSelector);
   const selector = controls.getByRole("combobox", { name: "Selected canvas block" });
   assert.equal(await controls.getByRole("option", { name: "Nested content.text__v1 second, item 2" }).count(), 1);
@@ -42,10 +45,23 @@ try {
   const tabTo = async (locator, label) => {
     for (let attempt = 0; attempt < 120; attempt += 1) {
       await page.keyboard.press("Tab");
-      if (await locator.evaluate((element) => document.activeElement === element).catch(() => false)) return;
+      if (await locator.evaluate((element) => document.activeElement === element, { timeout: 250 }).catch(() => false)) return;
     }
     throw new Error(`Keyboard focus did not reach ${label}.`);
   };
+  const add = controls.getByRole("button", { name: "Add block to canvas" });
+  await tabTo(add, "the add block control");
+  assert.equal(await add.isDisabled(), false, "The authorized block add control is disabled.");
+  await page.keyboard.press("Enter");
+  await page.waitForTimeout(100);
+  assert.equal(await page.evaluate(() => window.__kNexDocument?.regions?.main?.length), 4,
+    `Keyboard add did not update the canonical document. ${pageErrors.map((error) => error.message).join(" | ")}`);
+  await tabTo(selector, "the inserted block selector");
+  await page.keyboard.type("content.text__v1 builder-node-1, item 4");
+  const insertedDelete = controls.getByRole("button", { name: /Delete content\.text__v1 builder-node-1/ });
+  await tabTo(insertedDelete, "the delete block control");
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(() => window.__kNexDocument?.regions?.main?.length === 3);
   await tabTo(selector, "the block selector");
   await page.keyboard.type("Nested content.text__v1 second, item 2");
   assert.equal(await selector.inputValue(), "3", "Keyboard selection did not reach the second nested block.");
@@ -98,6 +114,10 @@ try {
   assert.match(await production.innerText(), /Group\s+First\s+Second\s+Group two\s+Third/, "Production presentation dropped nested runtime content.");
   await canvasFrame.getByText("Open tasks (success, 1 rows)", { exact: true }).waitFor();
   await canvasFrame.getByText("Group").first().waitFor();
+  const publish = page.getByRole("button", { name: "Publish page" });
+  await tabTo(publish, "the publish page control");
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(() => window.__kNexPublication?.includes("publish"));
   console.log("Builder browser accessibility journey passed.");
 } finally {
   await browser?.close();

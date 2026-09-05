@@ -6,14 +6,15 @@ import { createPuckBuilderProfileRegistry } from "@k-nex/builder-puck";
 import { createUiDocumentRuntime, createUiRuntimeRegistry, type BrowserDataTransport } from "@k-nex/ui-runtime";
 import { createGenericPuckBlockBridges } from "@k-nex/ui-builder-blocks";
 import { salesCreateTaskMutation } from "../src/browser.js";
-import { salesPageTemplates, salesOpportunitiesDescriptor, salesTaskCreateDescriptor, salesTasksDescriptor, salesTotalPotentialRevenueDescriptor } from "../src/contracts.js";
-import { salesPuckBlockBridges } from "../src/ui.js";
+import { salesPageTemplates, salesOpportunitiesDescriptor, salesOpportunityStageUpdateDescriptor, salesTaskCreateDescriptor, salesTaskUpdateDescriptor, salesTasksDescriptor, salesTotalPotentialRevenueDescriptor } from "../src/contracts.js";
+import { salesPuckBlockBridges } from "../src/puck.js";
 
 const sources = [salesTasksDescriptor, salesOpportunitiesDescriptor, salesTotalPotentialRevenueDescriptor];
 const profile = {
   id: "workspace" as const,
   blocks: salesPuckBlockBridges.map(({ definition }) => ({ id: definition.id, version: definition.version })),
   sources: sources.map(({ id, version }) => ({ id, version })),
+  actions: [salesTaskCreateDescriptor, salesTaskUpdateDescriptor, salesOpportunityStageUpdateDescriptor].map(({ id, version }) => ({ id, version })),
   publication: "save-layout" as const
 };
 
@@ -32,7 +33,20 @@ describe("Sales Puck block library", () => {
     const taskTemplate = salesPageTemplates.find(({ id }) => id === "sales.page.tasks")!;
     const changed = structuredClone(taskTemplate.document);
     changed.regions.main[1]!.bindings!.action = { id: "sales.task.update", version: 1 };
-    expect(() => resolved.validateDocument(changed)).toThrow(/ACTION_NOT_ACCEPTED/);
+    expect(() => resolved.validateDocument(changed)).toThrow(/forbids action/);
+  });
+
+  it("inserts the Kanban with its trusted existing source and action bindings", () => {
+    const resolved = createPuckBuilderProfileRegistry({ blocks: salesPuckBlockBridges, sources, profiles: [profile] }).resolve("workspace")!;
+    const data = resolved.adapter.toPuckData({ id: "workspace.custom", version: 1, schemaVersion: 1, profile: "workspace", regions: { main: [] } });
+    const component = resolved.adapter.config.components["sales.opportunity-kanban__v1"]!;
+    const inserted = { ...data, content: [{ type: "sales.opportunity-kanban__v1", props: { id: "kanban", ...component.defaultProps } }] };
+    const document = resolved.adapter.fromPuckData(inserted);
+    expect(document.regions.main[0]?.bindings).toEqual({
+      source: { source: { id: salesOpportunitiesDescriptor.id, version: 1 }, input: {}, structuralCompatibilityHash: salesOpportunitiesDescriptor.structuralCompatibilityHash, selectedFields: ["name", "stage", "revision", "value"] },
+      action: { id: salesOpportunityStageUpdateDescriptor.id, version: 1 }
+    });
+    expect(resolved.validateDocument(document).regions.main[0]?.type).toBe("sales.opportunity-kanban");
   });
 
   it("composes the generic form with the registered Sales action and standard browser gateway", async () => {

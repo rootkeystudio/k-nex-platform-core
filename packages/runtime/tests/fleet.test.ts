@@ -52,6 +52,10 @@ const supportManifest = {
     { package: "@fixture/fleet-module", version: "1.0.0", role: "plugin", integrity: sri("fixture-current"), peerCompatibility: supportedFrameworkTuple },
     { package: "@fixture/fleet-runtime", version: "1.0.0", role: "core", integrity: sri("runtime-current"), peerCompatibility: supportedFrameworkTuple }
   ],
+  factoryLockTemplates: {
+    minimal: { preset: "sales-reference", theme: "minimal", digest: digest("1") },
+    neobrutalism: { preset: "sales-reference", theme: "neobrutalism", digest: digest("2") }
+  },
   supportWindow: { policy: "single-current-release", supportedReleases: ["1.0.0"], securityFixes: "all-supported-releases" }
 } as const satisfies PackageReleaseManifest;
 const patchManifest = {

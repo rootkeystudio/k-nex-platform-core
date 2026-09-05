@@ -18,7 +18,8 @@ import {
   SystemSettingsPage,
   SystemTemplatesPage,
   SystemThemeProfileDetailPage,
-  SystemThemesPage
+  SystemThemesPage,
+  type SystemAdministrationNavigationItem
 } from "@k-nex/ui-pages";
 import {
   SystemAccessAdministrationError,
@@ -69,6 +70,18 @@ const routeIds = new Set([
 
 const apiPrefix = "/api/system/";
 
+const systemAdministrationNavigation = Object.freeze([
+  { id: "settings", label: "Settings", href: "/system/settings" },
+  { id: "roles", label: "Roles", href: "/system/access/roles" },
+  { id: "permissions", label: "Permissions", href: "/system/access/permissions" },
+  { id: "assignments", label: "Assignments", href: "/system/access/assignments" },
+  { id: "templates", label: "Templates", href: "/system/access/templates" },
+  { id: "audit", label: "Authorization audit", href: "/system/access/audit" },
+  { id: "extensions", label: "Extensions", href: "/system/extensions" },
+  { id: "themes", label: "Themes", href: "/system/themes" },
+  { id: "operations", label: "Operations", href: "/system/operations" }
+] satisfies readonly SystemAdministrationNavigationItem[]);
+
 /**
  * The fixture's complete system-administration surface. Routes are fixed host
  * routes; all rendering and mutation admission stays on the host process.
@@ -110,7 +123,7 @@ async function renderRoute<TContext extends Context>(options: SystemAdministrati
     const roles = await options.access.roles({ context });
     const expected = await options.expected();
     const detail = await Promise.all(roles.roles.map((role) => options.access.roleDetail({ context, roleId: role.id })));
-    page = createElement(SystemRolesPage, { view: {
+    page = createElement(SystemRolesPage, { view: { navigation: systemAdministrationNavigation,
       title: "Roles", revision: revision(expected),
       roles: roles.roles.map((role, index) => ({ id: role.id, label: role.label, href: `/system/access/roles/${role.id}`, permissionCount: String(detail[index]!.grants.length), assignmentCount: String(detail[index]!.assignments.length), state: role.protectedRoleId ? "protected" : "active" }))
     } });
@@ -120,7 +133,7 @@ async function renderRoute<TContext extends Context>(options: SystemAdministrati
       options.access.roleDetail({ context, roleId }), options.access.permissions({ context }), options.access.templates({ context })
     ]);
     const expected = await options.expected();
-    page = createElement(SystemRoleDetailPage, { view: {
+    page = createElement(SystemRoleDetailPage, { view: { navigation: systemAdministrationNavigation,
       title: "Role", revision: revision(expected), roleLabel: detail.role.label, roleState: detail.role.protectedRoleId ? "protected" : "active",
       activePermissionGroups: permissionGroups(permissions.active, roleId, accessExpected(expected), detail.grants, detail.role.protectedRoleId === undefined),
       templates: templates.map((template) => ({ id: template.template.id, title: template.template.title, description: `Version ${template.template.version}; ${template.template.permissionIds.length} active permissions.`,
@@ -130,7 +143,7 @@ async function renderRoute<TContext extends Context>(options: SystemAdministrati
   } else if (path === "/system/access/permissions") {
     const permissions = await options.access.permissions({ context });
     const expected = await options.expected();
-    page = createElement(SystemPermissionsPage, { view: {
+    page = createElement(SystemPermissionsPage, { view: { navigation: systemAdministrationNavigation,
       title: "Permissions", revision: revision(expected),
       permissions: [
         ...permissions.active.flatMap((group) => group.permissions.map((permission) => ({ id: permission.descriptor.id, label: permission.descriptor.title, owner: ownerLabel(group.owner), resource: group.resource, operation: group.operation, state: "active" }))),
@@ -141,32 +154,32 @@ async function renderRoute<TContext extends Context>(options: SystemAdministrati
     const [assignments, roles] = await Promise.all([options.access.assignments({ context }), options.access.roles({ context, includeInactive: true })]);
     const expected = await options.expected();
     const labels = new Map(roles.roles.map((role) => [role.id, role.label]));
-    page = createElement(SystemAssignmentsPage, { view: { title: "Assignments", revision: revision(expected),
+    page = createElement(SystemAssignmentsPage, { view: { navigation: systemAdministrationNavigation, title: "Assignments", revision: revision(expected),
       createAssignment: form("Create fixture assignment", "/api/system/access/assignments", { expected: accessExpected(expected), assignment: { id: "customer.mixed-assignment", principal: { kind: "user", id: "user:inactive-role" }, roleId: "customer.mixed-role" } }),
       assignments: assignments.map((assignment) => ({ id: assignment.id, principal: `${assignment.principal.kind}:${assignment.principal.id}`, role: labels.get(assignment.roleId) ?? assignment.roleId, state: assignment.state, revision: String(assignment.revision),
         ...(assignment.state === "revoked" ? { detail: "Inactive role assignment retained for diagnostics.", reactivate: form(`Reactivate ${assignment.id}`, `/api/system/access/assignments/${encodeURIComponent(assignment.id)}/reactivate`, { expected: accessExpected(expected) }) } : { revoke: form(`Revoke ${assignment.id}`, `/api/system/access/assignments/${encodeURIComponent(assignment.id)}/revoke`, { expected: accessExpected(expected) }) }) })) } });
   } else if (path === "/system/access/templates") {
     const templates = await options.access.templates({ context });
     const expected = await options.expected();
-    page = createElement(SystemTemplatesPage, { view: { title: "Role templates", revision: revision(expected), templates: templates.map((template) => ({ id: template.template.id, title: template.template.title, owner: template.owner.extensionId, version: String(template.template.version), state: "active", detail: `${template.template.permissionIds.length} active permissions.`,
+    page = createElement(SystemTemplatesPage, { view: { navigation: systemAdministrationNavigation, title: "Role templates", revision: revision(expected), templates: templates.map((template) => ({ id: template.template.id, title: template.template.title, owner: template.owner.extensionId, version: String(template.template.version), state: "active", detail: `${template.template.permissionIds.length} active permissions.`,
       instantiate: form(`Instantiate ${template.template.id}`, "/api/system/access/templates/instantiate", { expected: accessExpected(expected), templateId: template.template.id, role: { id: "customer.sales-manager", label: "Customer sales manager" } }) })) } });
   } else if (path === "/system/access/audit") {
     const audits = await options.access.audits({ context, limit: 100 });
     const expected = await options.expected();
-    page = createElement(SystemAuthorizationAuditPage, { view: { title: "Authorization audit", revision: revision(expected), events: audits.map(({ audit, occurredAt }) => ({ id: audit.auditId, occurredAt, outcome: audit.outcome, reason: audit.reason, permission: audit.permissionId, owner: ownerLabel(audit.owner), revision: `${audit.authorizationRevision}/${audit.lifecycleRevision}` })) } });
+    page = createElement(SystemAuthorizationAuditPage, { view: { navigation: systemAdministrationNavigation, title: "Authorization audit", revision: revision(expected), events: audits.map(({ audit, occurredAt }) => ({ id: audit.auditId, occurredAt, outcome: audit.outcome, reason: audit.reason, permission: audit.permissionId, owner: ownerLabel(audit.owner), revision: `${audit.authorizationRevision}/${audit.lifecycleRevision}` })) } });
   } else if (path === "/system/settings") {
     const settings = await options.settings.list({ context });
-    page = createElement(SystemSettingsPage, { view: { title: "Settings", settings: settings.map((item) => ({ id: item.identity.descriptorId, label: item.identity.descriptorId, href: `/system/settings/${item.identity.descriptorId}`, owner: ownerLabel(item.identity.owner), state: item.state, revision: `${item.documentRevision}/${item.settingsRevision}` })) } });
+    page = createElement(SystemSettingsPage, { view: { navigation: systemAdministrationNavigation, title: "Settings", settings: settings.map((item) => ({ id: item.identity.descriptorId, label: item.identity.descriptorId, href: `/system/settings/${item.identity.descriptorId}`, owner: ownerLabel(item.identity.owner), state: item.state, revision: `${item.documentRevision}/${item.settingsRevision}` })) } });
   } else if (isSettingsRoute(path)) {
     const settingsId = decodePathSegment(path, "/system/settings/");
     const item = await options.settings.detail({ context, settingsId });
     if (!item) throw new RouteError(404, "Settings not found.");
-    page = createElement(SystemSettingsDetailPage, { view: { title: "Settings", settingsId, settingsLabel: settingsId, owner: ownerLabel(item.identity.owner), documentState: item.state,
+    page = createElement(SystemSettingsDetailPage, { view: { navigation: systemAdministrationNavigation, title: "Settings", settingsId, settingsLabel: settingsId, owner: ownerLabel(item.identity.owner), documentState: item.state,
       fields: Object.entries(item.fields).map(([id, field]) => ({ id, label: id, value: field.kind === "visible-value" ? String(field.value) : field.kind === "redacted-secret" ? "••••••" : "—", state: field.kind })),
       save: textForm("Save settings", `/api/system/settings/${encodeURIComponent(settingsId)}`, { expectedDocumentRevision: item.documentRevision, expectedSettingsRevision: item.settingsRevision, idempotencyKey: `settings-save-${settingsId.replace(/[^a-z]/gu, "")}` }, "values", "Settings JSON", JSON.stringify(visibleSettings(item))) } });
   } else if (path === "/system/themes") {
     const themes = await options.themes.list({ context });
-    page = createElement(SystemThemesPage, { view: { title: "Themes",
+    page = createElement(SystemThemesPage, { view: { navigation: systemAdministrationNavigation, title: "Themes",
       packages: themes.packages.map((item) => ({ id: item.id, label: item.displayName, version: item.version, surfaces: item.surfaces.join(", "), availability: item.availability, referenceImpact: item.removal === "blocked" ? `Blocked by ${item.references.length} profile reference(s)` : "No references" })),
       skins: themes.skins.map((item) => ({ id: item.id, label: item.id, version: item.version ?? "—", lifecycle: item.disposition, actions: item.actions.map((action) => action.action).join(", ") || "None" })),
       profiles: themes.profiles.map((item) => { const profile = item.draft ?? item.active ?? item.previous; return { id: item.profileId, label: item.profileId, href: `/system/themes/profiles/${item.profileId}`, surface: profile?.surface ?? "—", package: profile ? `${profile.themeId}@${profile.themeVersion}` : "—", skin: profile?.skin ? `${profile.skin.id}@${profile.skin.version}` : "None", revision: String(item.revision), accessibility: profile ? "validated" : "unavailable" }; }) } });
@@ -177,14 +190,14 @@ async function renderRoute<TContext extends Context>(options: SystemAdministrati
     const profile = item.draft ?? item.active ?? item.previous;
     if (!profile) throw new RouteError(404, "Theme Profile has no revision.");
     const base = `/api/system/themes/profiles/${encodeURIComponent(profileId)}`;
-    page = createElement(SystemThemeProfileDetailPage, { view: { title: "Theme Profile", profileLabel: profileId, profileId, surface: profile.surface, package: `${profile.themeId}@${profile.themeVersion}`, skin: profile.skin ? `${profile.skin.id}@${profile.skin.version}` : "None", publication: profile.revision.state, accessibility: "validated",
+    page = createElement(SystemThemeProfileDetailPage, { view: { navigation: systemAdministrationNavigation, title: "Theme Profile", profileLabel: profileId, profileId, surface: profile.surface, package: `${profile.themeId}@${profile.themeVersion}`, skin: profile.skin ? `${profile.skin.id}@${profile.skin.version}` : "None", publication: profile.revision.state, accessibility: "validated",
       preview: textForm("Preview profile", `${base}/preview`, { expectedRevision: item.revision }, "profile", "Theme Profile JSON", JSON.stringify(profile)),
       stage: textForm("Stage profile", `${base}/stage`, {}, "profile", "Theme Profile JSON", JSON.stringify(profile)),
       ...(item.draft ? { publish: form("Publish profile", `${base}/publish`, { expectedRevision: item.revision, profile: publishedProfile(item.draft) }) } : {}),
       ...(item.previous ? { rollback: form("Rollback profile", `${base}/rollback`, { expectedRevision: item.revision }) } : {}) } });
   } else if (path === "/system/operations") {
     const operations = await options.operations.read({ context });
-    page = createElement(SystemOperationsPage, { view: { title: "Operations", revision: String(operations.operationsRevision),
+    page = createElement(SystemOperationsPage, { view: { navigation: systemAdministrationNavigation, title: "Operations", revision: String(operations.operationsRevision),
       operations: operations.references.map((reference) => ({ id: operationReferenceId(reference), source: reference.source, href: `/system/operations/${operationReferenceId(reference)}`, state: "authoritative", receipt: "receiptId" in reference ? reference.receiptId ?? "pending" : "pending" })),
       health: operations.health.map((item) => ({ id: item.observationId, source: item.source, state: item.state, revision: String(item.revision), checks: item.checkIds.join(", ") })),
       backup: form("Request backup", "/api/system/operations/backup", { request: { expectedOperationsRevision: operations.operationsRevision, idempotencyKey: `backup-request-${operations.operationsRevision}` } }),
@@ -194,11 +207,11 @@ async function renderRoute<TContext extends Context>(options: SystemAdministrati
     const operations = await options.operations.read({ context });
     const reference = operations.references.find((item) => operationReferenceId(item) === operationId);
     if (!reference) throw new RouteError(404, "Operation not found.");
-    page = createElement(SystemOperationDetailPage, { view: { title: "Operation", operationId, source: reference.source, operationState: "authoritative", receipt: "receiptId" in reference ? reference.receiptId ?? "pending" : "pending", inventory: operations.inventoryDigest, audit: "Current-authority projection" } });
+    page = createElement(SystemOperationDetailPage, { view: { navigation: systemAdministrationNavigation, title: "Operation", operationId, source: reference.source, operationState: "authoritative", receipt: "receiptId" in reference ? reference.receiptId ?? "pending" : "pending", inventory: operations.inventoryDigest, audit: "Current-authority projection" } });
   } else if (path === "/system/extensions") {
     const [extensions, status] = await Promise.all([options.extensions.list({ context }), options.extensions.status({ context })]);
     const expected = await options.expected();
-    page = createElement(SystemExtensionsPage, { view: { title: "Extensions", revision: revision(expected), extensions: await Promise.all(extensions.map(async (extension) => ({ id: extension.extension.id, label: extension.displayName, href: `/system/extensions/${extension.extension.id}`, deliveryClassLabel: deliveryLabel(extension.extension.deliveryClass), availabilityLabel: await planLabel(options, context, planned, extension.extension, await options.expected(extension.extension)), lifecycleLabel: inventoryDisposition(status.inventory, extension.extension), revision: String(status.inventory.revision) }))) } });
+    page = createElement(SystemExtensionsPage, { view: { navigation: systemAdministrationNavigation, title: "Extensions", revision: revision(expected), extensions: await Promise.all(extensions.map(async (extension) => ({ id: extension.extension.id, label: extension.displayName, href: `/system/extensions/${extension.extension.id}`, deliveryClassLabel: deliveryLabel(extension.extension.deliveryClass), availabilityLabel: await planLabel(options, context, planned, extension.extension, await options.expected(extension.extension)), lifecycleLabel: inventoryDisposition(status.inventory, extension.extension), revision: String(status.inventory.revision) }))) } });
   } else {
     const extensionId = decodePathSegment(path, "/system/extensions/");
     const [records, status] = await Promise.all([options.extensions.list({ context, includeUnavailable: true }), options.extensions.status({ context })]);
@@ -207,7 +220,7 @@ async function renderRoute<TContext extends Context>(options: SystemAdministrati
     const expected = await options.expected(extension.extension);
     const currentPlan = await planStatus(options, context, planned, extension.extension, expected);
     const requestValue = { extension: extension.extension, operation: "install", targetVersion: extension.version, idempotencyKey: `system-plan-${extensionId.replace(/[^a-z]/gu, "")}` };
-    page = createElement(SystemExtensionDetailPage, { view: { title: "Extension", revision: revision(expected), extensionLabel: extension.displayName, extensionId, deliveryClassLabel: deliveryLabel(extension.extension.deliveryClass), availabilityLabel: currentPlan?.display ?? "Plan required", lifecycleLabel: inventoryDisposition(status.inventory, extension.extension), impact: currentPlan === undefined ? "Server plan required before execution." : JSON.stringify(currentPlan.impact), approval: currentPlan?.status.approvalRequired ? "Server verification required when the plan requires approval." : "No approval required by the authoritative plan.", audit: "Server action is audited with the current revision.",
+    page = createElement(SystemExtensionDetailPage, { view: { navigation: systemAdministrationNavigation, title: "Extension", revision: revision(expected), extensionLabel: extension.displayName, extensionId, deliveryClassLabel: deliveryLabel(extension.extension.deliveryClass), availabilityLabel: currentPlan?.display ?? "Plan required", lifecycleLabel: inventoryDisposition(status.inventory, extension.extension), impact: currentPlan === undefined ? "Server plan required before execution." : JSON.stringify(currentPlan.impact), approval: currentPlan?.status.approvalRequired ? "Server verification required when the plan requires approval." : "No approval required by the authoritative plan.", audit: "Server action is audited with the current revision.",
       plan: form("Plan install", "/api/system/extensions/plan", { expected: extensionExpected(expected), request: requestValue }),
       ...(currentPlan === undefined ? {} : { execute: form("Execute planned operation", `/api/system/extensions/${encodeURIComponent(extensionId)}/execute`, { expected: extensionExpected(expected), operationId: currentPlan.operationId }) }) } });
   }

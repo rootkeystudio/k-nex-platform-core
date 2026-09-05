@@ -4,9 +4,16 @@ import { readdirSync, readFileSync } from "node:fs";
 import { posix, resolve } from "node:path";
 import { gunzipSync } from "node:zlib";
 
+import { canonicalJson } from "../packages/contracts/dist/index.js";
+
 const root = resolve(import.meta.dirname, "..");
 const artifactDirectory = resolve(root, "fixtures/customer-gate-1/packages");
-const releases = ["1.0.0"].map((version) => JSON.parse(readFileSync(resolve(root, `releases/${version}/package-release-manifest.json`), "utf8")));
+const releases = ["1.0.0"].map((version) => {
+  const content = readFileSync(resolve(root, `releases/${version}/package-release-manifest.json`), "utf8");
+  const manifest = JSON.parse(content);
+  assert.equal(content, canonicalJson(manifest), `Release ${version} manifest must be canonical so its hosted subject digest equals its authority digest.`);
+  return manifest;
+});
 const workspaceSpecifier = /^(?:workspace:|link:|file:)/u;
 
 function entries(archive) {
@@ -79,6 +86,11 @@ for (const release of releases) for (const expected of release.packages) {
 
 assert.deepEqual([...archives.keys()].filter((identity) => identity.startsWith("@k-nex/")).sort(), [...releasedIdentities].sort(), "Packed release closure and manifest package sets differ.");
 for (const identity of releasedIdentities) assert.match(identity, /@1\.0\.0$/u, `First-party packed identity must remain v1.0.0: ${identity}`);
+for (const release of releases) for (const lock of Object.values(release.factoryLockTemplates)) {
+  const filename = `factory-lock-sales-reference-${lock.theme}-${lock.digest.slice(7)}.yaml`;
+  const content = readFileSync(resolve(artifactDirectory, filename));
+  assert.equal(`sha256:${createHash("sha256").update(content).digest("hex")}`, lock.digest, `Factory lock digest differs for ${lock.theme}.`);
+}
 const salesServer = archives.get("@k-nex/module-sales@1.0.0").packed.get("package/dist/server.js")?.toString("utf8");
 assert.ok(salesServer, "Packed Sales server entrypoint is missing.");
 const runtimeImports = [...salesServer.matchAll(/import\s*\{([^}]+)\}\s*from\s*["']@k-nex\/runtime["']/gu)]

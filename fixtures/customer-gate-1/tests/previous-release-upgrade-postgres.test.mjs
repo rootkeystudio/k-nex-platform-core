@@ -11,19 +11,29 @@ import test from "node:test";
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import pg from "pg";
 
-import { PackageReleaseManifestSchema } from "@k-nex/contracts";
+import { PackageReleaseManifestSchema, canonicalJson } from "@k-nex/contracts";
 import { applyCreateKnexApplication, planCreateKnexApplication } from "@k-nex/composition";
-import { assertMigrationReadiness, executeMigrationJob, planPluginUpgrade } from "@k-nex/runtime";
+import { assertMigrationReadiness, createPackageReleaseManifestAuthority, executeMigrationJob, planPluginUpgrade } from "@k-nex/runtime";
 
 const POSTGRES_IMAGE = "postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94";
 const repositoryRoot = resolve(import.meta.dirname, "../../..");
 const integrity = (content) => `sha512-${createHash("sha512").update(content).digest("base64")}`;
 
+function applicationEnvironment(applicationId, connectionString) {
+  return {
+    ...process.env,
+    DATABASE_URL: connectionString,
+    K_NEX_ENVIRONMENT: "production",
+    K_NEX_PUBLIC_ORIGIN: `https://${applicationId}.example.test`,
+    PAYLOAD_SECRET: "phase-8-prior-upgrade-secret"
+  };
+}
+
 function boot(application, applicationId, connectionString, mode = "observe") {
   return new Promise((resolveProcess, reject) => {
     const child = spawn(process.execPath, [resolve(import.meta.dirname, "packed-customer-boot-child.mjs"), application, applicationId, mode], {
       cwd: application,
-      env: { ...process.env, DATABASE_URL: connectionString, NODE_ENV: "production", PAYLOAD_SECRET: "phase-8-prior-upgrade-secret" },
+      env: { ...applicationEnvironment(applicationId, connectionString), NODE_ENV: "production" },
       stdio: ["ignore", "pipe", "pipe"]
     });
     let stdout = ""; let stderr = "";
@@ -34,14 +44,23 @@ function boot(application, applicationId, connectionString, mode = "observe") {
   });
 }
 
-function installApplication(application, mirror, releaseManifest, applicationId) {
+async function installApplication(application, mirror, releaseManifest, applicationId, connectionString) {
+  const issued = new WeakMap();
+  const authority = createPackageReleaseManifestAuthority({ async verify(token) {
+    const attestation = issued.get(token);
+    if (attestation === undefined) throw new Error("Fixture release attestation is not issued.");
+    return attestation;
+  } });
+  const attestation = Object.freeze({});
+  issued.set(attestation, { subjectDigest: `sha256:${createHash("sha256").update(canonicalJson(releaseManifest)).digest("hex")}`, sourceCommit: "a".repeat(40), workflowIdentity: `fixture/release@${"a".repeat(40)}`, materials: [] });
+  const release = await authority.verify(releaseManifest, attestation);
   const plan = planCreateKnexApplication({
     applicationId, applicationName: "Customer Beta Upgrade", theme: "minimal", database: "external",
-    packageSource: { kind: "packed-mirror", directory: mirror, releaseManifest }
+    packageSource: { kind: "packed-mirror", directory: mirror, authority, release }
   });
   applyCreateKnexApplication(plan, application);
   for (const command of plan.installCommands) execFileSync(command[0], command.slice(1), { cwd: application, env: process.env, stdio: "pipe" });
-  execFileSync("pnpm", ["build"], { cwd: application, env: process.env, stdio: "pipe" });
+  execFileSync("pnpm", ["build"], { cwd: application, env: applicationEnvironment(applicationId, connectionString), stdio: "pipe" });
   return readFileSync(resolve(application, "pnpm-lock.yaml"));
 }
 
@@ -71,14 +90,18 @@ test("boots the current Sales package and applies a neutral fixture upgrade hist
       const filename = `${entry.package.slice(1).replace("/", "-")}-${entry.version}.tgz`;
       copyFileSync(resolve(repositoryRoot, "fixtures/customer-gate-1/packages", filename), resolve(mirror, filename));
     }
+    for (const entry of Object.values(currentManifest.factoryLockTemplates)) {
+      const filename = `factory-lock-sales-reference-${entry.theme}-${entry.digest.slice(7)}.yaml`;
+      copyFileSync(resolve(repositoryRoot, "fixtures/customer-gate-1/packages", filename), resolve(mirror, filename));
+    }
 
-    installApplication(application, mirror, currentManifest, applicationId);
+    await installApplication(application, mirror, currentManifest, applicationId, container.getConnectionUri());
     const priorBoot = await boot(application, applicationId, container.getConnectionUri(), "seed-prior");
     assert.equal(priorBoot.code, 0, `${priorBoot.stdout}\n${priorBoot.stderr}`);
     assert.equal(JSON.parse(priorBoot.stdout.match(/PACKED_CUSTOMER_BOOT (\{.*\})/u)[1]).documents, 1);
 
     rmSync(application, { recursive: true, force: true });
-    installApplication(application, mirror, currentManifest, applicationId);
+    await installApplication(application, mirror, currentManifest, applicationId, container.getConnectionUri());
     const requireFromTarget = createRequire(resolve(application, "package.json"));
     const targetMigrations = await import(pathToFileURL(requireFromTarget.resolve("@k-nex/module-sales/migrations")));
     const plan = planPluginUpgrade({

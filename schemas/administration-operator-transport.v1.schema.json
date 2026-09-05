@@ -1,0 +1,778 @@
+{
+  "$defs": {
+    "__schema0": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/__schema1"
+        },
+        {
+          "$ref": "#/$defs/__schema21"
+        },
+        {
+          "$ref": "#/$defs/__schema22"
+        },
+        {
+          "$ref": "#/$defs/__schema23"
+        },
+        {
+          "$ref": "#/$defs/__schema25"
+        }
+      ]
+    },
+    "__schema1": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "audience": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "expected": {
+          "$ref": "#/$defs/__schema19"
+        },
+        "expiresAt": {
+          "$ref": "#/$defs/__schema18"
+        },
+        "extension": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "deliveryClass": {
+                  "const": "platform-plugin",
+                  "type": "string"
+                },
+                "id": {
+                  "$ref": "#/$defs/__schema12"
+                }
+              },
+              "required": [
+                "deliveryClass",
+                "id"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "deliveryClass": {
+                  "const": "hot-application",
+                  "type": "string"
+                },
+                "id": {
+                  "$ref": "#/$defs/__schema15"
+                }
+              },
+              "required": [
+                "deliveryClass",
+                "id"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "deliveryClass": {
+                  "const": "theme-skin",
+                  "type": "string"
+                },
+                "id": {
+                  "maxLength": 128,
+                  "pattern": "^skin(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "deliveryClass",
+                "id"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "idempotencyKey": {
+          "$ref": "#/$defs/__schema16"
+        },
+        "issuedAt": {
+          "$ref": "#/$defs/__schema17"
+        },
+        "kind": {
+          "const": "extension-plan",
+          "type": "string"
+        },
+        "operation": {
+          "enum": [
+            "install",
+            "update",
+            "disable",
+            "rollback",
+            "uninstall"
+          ],
+          "type": "string"
+        },
+        "schemaVersion": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "version": {
+          "maxLength": 64,
+          "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-(?:(?:0|[1-9][0-9]*)|(?:[0-9]*[A-Za-z-][0-9A-Za-z-]*))(?:\\.(?:(?:0|[1-9][0-9]*)|(?:[0-9]*[A-Za-z-][0-9A-Za-z-]*)))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "audience",
+        "actor",
+        "idempotencyKey",
+        "issuedAt",
+        "expiresAt",
+        "kind",
+        "expected",
+        "extension",
+        "version",
+        "operation"
+      ],
+      "type": "object"
+    },
+    "__schema10": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "platform",
+          "type": "string"
+        },
+        "namespace": {
+          "const": "system",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "namespace"
+      ],
+      "type": "object"
+    },
+    "__schema11": {
+      "additionalProperties": false,
+      "properties": {
+        "deliveryClass": {
+          "const": "platform-plugin",
+          "type": "string"
+        },
+        "extensionId": {
+          "$ref": "#/$defs/__schema12"
+        },
+        "generation": {
+          "$ref": "#/$defs/__schema13"
+        },
+        "kind": {
+          "const": "extension",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "deliveryClass",
+        "extensionId",
+        "generation"
+      ],
+      "type": "object"
+    },
+    "__schema12": {
+      "maxLength": 128,
+      "pattern": "^(module|provider|builder|theme|integration|preset)(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
+      "type": "string"
+    },
+    "__schema13": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    },
+    "__schema14": {
+      "additionalProperties": false,
+      "properties": {
+        "deliveryClass": {
+          "const": "hot-application",
+          "type": "string"
+        },
+        "extensionId": {
+          "$ref": "#/$defs/__schema15"
+        },
+        "generation": {
+          "$ref": "#/$defs/__schema13"
+        },
+        "kind": {
+          "const": "extension",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "deliveryClass",
+        "extensionId",
+        "generation"
+      ],
+      "type": "object"
+    },
+    "__schema15": {
+      "maxLength": 128,
+      "pattern": "^app(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
+      "type": "string"
+    },
+    "__schema16": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{7,159}$",
+      "type": "string"
+    },
+    "__schema17": {
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+      "type": "string"
+    },
+    "__schema18": {
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+      "type": "string"
+    },
+    "__schema19": {
+      "additionalProperties": false,
+      "properties": {
+        "authorizationRevision": {
+          "$ref": "#/$defs/__schema20"
+        },
+        "extensionRevision": {
+          "$ref": "#/$defs/__schema20"
+        },
+        "inventoryRevision": {
+          "$ref": "#/$defs/__schema20"
+        },
+        "lifecycleRevision": {
+          "$ref": "#/$defs/__schema20"
+        }
+      },
+      "required": [
+        "authorizationRevision",
+        "lifecycleRevision",
+        "inventoryRevision",
+        "extensionRevision"
+      ],
+      "type": "object"
+    },
+    "__schema2": {
+      "const": 1,
+      "type": "number"
+    },
+    "__schema20": {
+      "maximum": 1000000000,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "__schema21": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "audience": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "expected": {
+          "$ref": "#/$defs/__schema19"
+        },
+        "expiresAt": {
+          "$ref": "#/$defs/__schema18"
+        },
+        "idempotencyKey": {
+          "$ref": "#/$defs/__schema16"
+        },
+        "issuedAt": {
+          "$ref": "#/$defs/__schema17"
+        },
+        "kind": {
+          "const": "extension-execute",
+          "type": "string"
+        },
+        "operationId": {
+          "pattern": "^[a-z][a-z0-9-]{2,127}$",
+          "type": "string"
+        },
+        "schemaVersion": {
+          "$ref": "#/$defs/__schema2"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "audience",
+        "actor",
+        "idempotencyKey",
+        "issuedAt",
+        "expiresAt",
+        "kind",
+        "expected",
+        "operationId"
+      ],
+      "type": "object"
+    },
+    "__schema22": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "audience": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "expected": {
+          "additionalProperties": false,
+          "properties": {
+            "authorizationRevision": {
+              "$ref": "#/$defs/__schema20"
+            },
+            "catalogRevision": {
+              "$ref": "#/$defs/__schema20"
+            },
+            "inventoryRevision": {
+              "$ref": "#/$defs/__schema20"
+            },
+            "lifecycleRevision": {
+              "$ref": "#/$defs/__schema20"
+            }
+          },
+          "required": [
+            "authorizationRevision",
+            "lifecycleRevision",
+            "catalogRevision",
+            "inventoryRevision"
+          ],
+          "type": "object"
+        },
+        "expiresAt": {
+          "$ref": "#/$defs/__schema18"
+        },
+        "idempotencyKey": {
+          "$ref": "#/$defs/__schema16"
+        },
+        "issuedAt": {
+          "$ref": "#/$defs/__schema17"
+        },
+        "kind": {
+          "const": "catalog-refresh",
+          "type": "string"
+        },
+        "schemaVersion": {
+          "$ref": "#/$defs/__schema2"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "audience",
+        "actor",
+        "idempotencyKey",
+        "issuedAt",
+        "expiresAt",
+        "kind",
+        "expected"
+      ],
+      "type": "object"
+    },
+    "__schema23": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "audience": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "expected": {
+          "$ref": "#/$defs/__schema24"
+        },
+        "expiresAt": {
+          "$ref": "#/$defs/__schema18"
+        },
+        "idempotencyKey": {
+          "$ref": "#/$defs/__schema16"
+        },
+        "issuedAt": {
+          "$ref": "#/$defs/__schema17"
+        },
+        "kind": {
+          "const": "operations-backup",
+          "type": "string"
+        },
+        "schemaVersion": {
+          "$ref": "#/$defs/__schema2"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "audience",
+        "actor",
+        "idempotencyKey",
+        "issuedAt",
+        "expiresAt",
+        "kind",
+        "expected"
+      ],
+      "type": "object"
+    },
+    "__schema24": {
+      "additionalProperties": false,
+      "properties": {
+        "authorizationRevision": {
+          "$ref": "#/$defs/__schema20"
+        },
+        "inventoryDigest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "lifecycleRevision": {
+          "$ref": "#/$defs/__schema20"
+        },
+        "operationsRevision": {
+          "$ref": "#/$defs/__schema20"
+        }
+      },
+      "required": [
+        "authorizationRevision",
+        "lifecycleRevision",
+        "operationsRevision",
+        "inventoryDigest"
+      ],
+      "type": "object"
+    },
+    "__schema25": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "audience": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "expected": {
+          "$ref": "#/$defs/__schema24"
+        },
+        "expiresAt": {
+          "$ref": "#/$defs/__schema18"
+        },
+        "idempotencyKey": {
+          "$ref": "#/$defs/__schema16"
+        },
+        "issuedAt": {
+          "$ref": "#/$defs/__schema17"
+        },
+        "kind": {
+          "const": "operations-restore-drill",
+          "type": "string"
+        },
+        "schemaVersion": {
+          "$ref": "#/$defs/__schema2"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "audience",
+        "actor",
+        "idempotencyKey",
+        "issuedAt",
+        "expiresAt",
+        "kind",
+        "expected"
+      ],
+      "type": "object"
+    },
+    "__schema26": {
+      "additionalProperties": false,
+      "properties": {
+        "allowedCommandFamilies": {
+          "items": {
+            "$ref": "#/$defs/__schema27"
+          },
+          "maxItems": 3,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "applicationId": {
+          "pattern": "^[a-z][a-z0-9-]{2,127}$",
+          "type": "string"
+        },
+        "environment": {
+          "pattern": "^[a-z][a-z0-9-]{1,63}$",
+          "type": "string"
+        },
+        "schemaVersion": {
+          "const": 1,
+          "type": "number"
+        },
+        "uriSan": {
+          "maxLength": 512,
+          "pattern": "^spiffe:\\/\\/[A-Za-z0-9][A-Za-z0-9._-]*(?:\\/[A-Za-z0-9][A-Za-z0-9._:@/-]*)+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "uriSan",
+        "applicationId",
+        "environment",
+        "allowedCommandFamilies"
+      ],
+      "type": "object"
+    },
+    "__schema27": {
+      "enum": [
+        "extension-lifecycle",
+        "catalog",
+        "operations"
+      ],
+      "type": "string"
+    },
+    "__schema3": {
+      "const": "k-nex-administration-operator",
+      "type": "string"
+    },
+    "__schema4": {
+      "additionalProperties": false,
+      "properties": {
+        "applicationId": {
+          "pattern": "^[a-z][a-z0-9-]{2,127}$",
+          "type": "string"
+        },
+        "authorizationRevision": {
+          "$ref": "#/$defs/__schema7"
+        },
+        "delegation": {
+          "additionalProperties": false,
+          "properties": {
+            "delegationId": {
+              "$ref": "#/$defs/__schema6"
+            },
+            "delegator": {
+              "$ref": "#/$defs/__schema5"
+            },
+            "effect": {
+              "const": "reducing",
+              "type": "string"
+            }
+          },
+          "required": [
+            "delegationId",
+            "delegator",
+            "effect"
+          ],
+          "type": "object"
+        },
+        "effectiveActor": {
+          "$ref": "#/$defs/__schema5"
+        },
+        "environment": {
+          "pattern": "^[a-z][a-z0-9-]{1,63}$",
+          "type": "string"
+        },
+        "lifecycleRevision": {
+          "$ref": "#/$defs/__schema7"
+        },
+        "permissions": {
+          "items": {
+            "$ref": "#/$defs/__schema8"
+          },
+          "maxItems": 4,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "principal": {
+          "$ref": "#/$defs/__schema5"
+        },
+        "schemaVersion": {
+          "const": 1,
+          "type": "number"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "applicationId",
+        "environment",
+        "principal",
+        "effectiveActor",
+        "authorizationRevision",
+        "lifecycleRevision",
+        "permissions"
+      ],
+      "type": "object"
+    },
+    "__schema5": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/__schema6"
+            },
+            "kind": {
+              "const": "user",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "id"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/__schema6"
+            },
+            "kind": {
+              "const": "service",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "id"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "__schema6": {
+      "maxLength": 160,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]*$",
+      "type": "string"
+    },
+    "__schema7": {
+      "maximum": 1000000000,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "__schema8": {
+      "additionalProperties": false,
+      "properties": {
+        "decisionId": {
+          "maxLength": 160,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]*$",
+          "type": "string"
+        },
+        "owner": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/__schema10"
+            },
+            {
+              "$ref": "#/$defs/__schema11"
+            },
+            {
+              "$ref": "#/$defs/__schema14"
+            }
+          ]
+        },
+        "permissionId": {
+          "$ref": "#/$defs/__schema9"
+        },
+        "scope": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "application",
+                  "type": "string"
+                },
+                "resource": {
+                  "$ref": "#/$defs/__schema9"
+                }
+              },
+              "required": [
+                "kind",
+                "resource"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "record",
+                  "type": "string"
+                },
+                "recordId": {
+                  "$ref": "#/$defs/__schema6"
+                },
+                "resource": {
+                  "$ref": "#/$defs/__schema9"
+                }
+              },
+              "required": [
+                "kind",
+                "resource",
+                "recordId"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "fieldId": {
+                  "$ref": "#/$defs/__schema9"
+                },
+                "kind": {
+                  "const": "field",
+                  "type": "string"
+                },
+                "recordId": {
+                  "$ref": "#/$defs/__schema6"
+                },
+                "resource": {
+                  "$ref": "#/$defs/__schema9"
+                }
+              },
+              "required": [
+                "kind",
+                "resource",
+                "recordId",
+                "fieldId"
+              ],
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "required": [
+        "decisionId",
+        "permissionId",
+        "owner",
+        "scope"
+      ],
+      "type": "object"
+    },
+    "__schema9": {
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
+      "type": "string"
+    }
+  },
+  "$id": "https://schemas.k-nex.dev/administration-operator-transport/v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "command": {
+      "$ref": "#/$defs/__schema0"
+    },
+    "verifiedMtlsIdentity": {
+      "$ref": "#/$defs/__schema26"
+    }
+  },
+  "required": [
+    "command",
+    "verifiedMtlsIdentity"
+  ],
+  "title": "K-Nex Administration Operator Transport v1",
+  "type": "object"
+}

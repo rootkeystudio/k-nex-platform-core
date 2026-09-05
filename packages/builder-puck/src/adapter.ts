@@ -31,6 +31,7 @@ const childSlotKey = "__kNexChildren";
 const documentKey = "__kNexDocument";
 const fieldPrefix = "__kNexField:";
 const canMoveKey = "__kNexCanMove";
+const canDeleteKey = "__kNexCanDelete";
 const puckBridgeSnapshots = new WeakSet<object>();
 
 export type PuckBridgeField =
@@ -43,6 +44,7 @@ export interface PuckBlockBridge {
   readonly fields: readonly PuckBridgeField[];
   readonly allowChildren: boolean;
   readonly defaultProps: Readonly<Record<string, JsonValue>>;
+  readonly defaultBindings?: UiNode["bindings"];
   readonly constraints?: UiLayoutConstraints;
 }
 
@@ -119,6 +121,11 @@ function nodeCanMove(bridge: PuckBlockBridge, nodeConstraints?: UiLayoutConstrai
     nodeConstraints?.locked !== true && nodeConstraints?.canMove !== false;
 }
 
+function nodeCanDelete(bridge: PuckBlockBridge, nodeConstraints?: UiLayoutConstraints): boolean {
+  return bridge.constraints?.locked !== true && bridge.constraints?.canDelete !== false &&
+    nodeConstraints?.locked !== true && nodeConstraints?.canDelete !== false;
+}
+
 function assertBridge(bridge: PuckBlockBridge): void {
   if (!ResourceIdSchema.safeParse(bridge.definition?.id).success || !Number.isSafeInteger(bridge.definition?.version) || bridge.definition.version < 1) {
     throw new TypeError("Puck block bridges require a canonical block ID and positive version.");
@@ -145,6 +152,7 @@ function assertBridge(bridge: PuckBlockBridge): void {
     }
   }
   assertJsonValue(bridge.defaultProps);
+  if (bridge.defaultBindings !== undefined) assertJsonValue(bridge.defaultBindings);
   if (Object.keys(bridge.defaultProps).some((prop) => !names.includes(prop)) ||
       bridge.fields.some((field) => !Object.hasOwn(bridge.defaultProps, field.prop) || !fieldValueIsValid(field, bridge.defaultProps[field.prop]))) {
     throw new TypeError("Puck bridge defaults must provide valid values for every declared field.");
@@ -194,6 +202,7 @@ export function snapshotPuckBlockBridge(candidate: PuckBlockBridge): PuckBlockBr
     fields: deepFreeze(candidate.fields.map((field) => cloneJson(field))),
     allowChildren: candidate.allowChildren,
     defaultProps: deepFreeze(cloneJson(candidate.defaultProps)),
+    ...(candidate.defaultBindings === undefined ? {} : { defaultBindings: deepFreeze(cloneJson(candidate.defaultBindings)) }),
     ...(candidate.constraints === undefined ? {} : { constraints: deepFreeze(cloneJson(candidate.constraints)) })
   });
   puckBridgeSnapshots.add(snapshot);
@@ -267,7 +276,8 @@ function toComponent(node: UiNode, profile: UiDocument["profile"], bridges: Read
   const props: Record<string, unknown> = {
     id: node.id,
     [canonicalNodeKey]: storedNode(node, profile),
-    [canMoveKey]: nodeCanMove(bridge, node.layout?.constraints)
+    [canMoveKey]: nodeCanMove(bridge, node.layout?.constraints),
+    [canDeleteKey]: nodeCanDelete(bridge, node.layout?.constraints)
   };
   for (const field of editableFields(bridge, node.layout?.constraints)) {
     props[fieldKey(field.prop)] = cloneJson(node.props[field.prop] ?? bridge.defaultProps[field.prop] ?? null);
@@ -356,8 +366,9 @@ function createConfig(bridges: ReadonlyMap<string, PuckBlockBridge>, preview?: P
       ? "cms"
       : bridge.definition.profiles[0];
     if (defaultProfile === undefined) throw new TypeError("Puck bridge requires a supported document profile.");
-    defaultProps[canonicalNodeKey] = storedNode({ id: "new-block", type: bridge.definition.id, version: bridge.definition.version, props: bridge.defaultProps }, defaultProfile);
+    defaultProps[canonicalNodeKey] = storedNode({ id: "new-block", type: bridge.definition.id, version: bridge.definition.version, props: bridge.defaultProps, ...(bridge.defaultBindings === undefined ? {} : { bindings: bridge.defaultBindings }) }, defaultProfile);
     defaultProps[canMoveKey] = nodeCanMove(bridge);
+    defaultProps[canDeleteKey] = nodeCanDelete(bridge);
     if (bridge.allowChildren) defaultProps[childSlotKey] = [];
     components[key] = {
       label: bridge.label,

@@ -205,7 +205,7 @@ test("proves customer-owned migrations and revision-aware Postgres boot", { time
     assert.equal(currentBoot.code, 0, `${currentBoot.stdout}\n${currentBoot.stderr}`);
     assert.match(currentBoot.stdout, /^READY$/m);
     const current = await query(connectionString, "select count(*)::int as count from payload_migrations");
-    assert.equal(current.rows[0].count, 25);
+    assert.equal(current.rows[0].count, 26);
 
     const authenticated = await runFixtureProcess("tests/authenticated-runtime.mjs", connectionString, {
       BOOT_KEY: "gate1-authenticated-runtime"

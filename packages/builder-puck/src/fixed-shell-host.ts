@@ -6,6 +6,7 @@ import type { ResolvedPuckBuilderProfile } from "./profile.js";
 
 export interface PuckFixedShellHostProps extends Omit<PuckEditorHostProps, "adapter"> {
   readonly profile: ResolvedPuckBuilderProfile;
+  readonly editorKey?: string | number;
   readonly authentication: ReactNode;
   readonly router: ReactNode;
   readonly sidebar: ReactNode;
@@ -17,6 +18,7 @@ export interface PuckFixedShellHostProps extends Omit<PuckEditorHostProps, "adap
 /** Keeps platform shell/security regions as siblings of, never children owned by, the editor canvas. */
 export function PuckFixedShellHost({
   profile,
+  editorKey,
   authentication,
   router,
   sidebar,
@@ -35,6 +37,7 @@ export function PuckFixedShellHost({
     createElement("section", { key: "system", "data-k-nex-shell-system-screens": true }, systemScreens),
     createElement("main", { key: "canvas", "data-k-nex-builder-canvas": profile.policy.id },
       createElement(PuckEditorHost, {
+        ...(editorKey === undefined ? {} : { key: editorKey }),
         adapter: profile.adapter,
         document,
         ...(onChange === undefined ? {} : { onChange: (next: UiDocument) => onChange(profile.validateChange(document, next)) }),

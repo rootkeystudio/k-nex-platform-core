@@ -436,7 +436,7 @@ export class PostgresAuthorizationStore implements AuthorizationStore, Protected
 
   private async assertProtectedBaselineReconciliationPrior(view: AuthorizationStoreTransaction, expected: AuthorizationExpectedRevision, expectedPrior: Readonly<{ readonly version: number; readonly digest: string }>): Promise<BootstrapReceipt> {
     const prior = recognizedProtectedPlatformRoleBaselineRelease(expectedPrior.version, expectedPrior.digest);
-    if (prior === undefined || prior.version >= currentProtectedPlatformRoleBaselineRelease.version) {
+    if (prior === undefined || prior.version !== currentProtectedPlatformRoleBaselineRelease.version - 1) {
       fail("MUTATION_INVALID", "Protected role baseline predecessor is not recognized for reconciliation.");
     }
     const receipt = await view.readBootstrapReceipt(expected.applicationId);

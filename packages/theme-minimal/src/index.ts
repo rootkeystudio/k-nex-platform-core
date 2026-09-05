@@ -38,12 +38,12 @@ const defaults: Readonly<Record<(typeof tokenKeys)[number], ThemeProfileTokenVal
 };
 
 const structuralCss = `
-${themeRootSelector}{background:var(--k-nex-public-color-background);color:var(--k-nex-public-color-foreground)}
-${themeRootSelector} [data-k-nex-primitive="stack"]{display:flex;flex-direction:column;gap:calc(var(--k-nex-public-spacing-content)*1px)}
-${themeRootSelector} [data-k-nex-primitive="inline"]{display:flex;align-items:center;gap:calc(var(--k-nex-public-spacing-content)*1px)}
-${themeRootSelector} [data-k-nex-primitive="card"]{border:1px solid var(--k-nex-public-color-border);border-radius:calc(var(--k-nex-public-radius-control)*1px);box-shadow:var(--k-nex-public-shadow-card);padding:calc(var(--k-nex-public-spacing-content)*1px)}
-${themeRootSelector} [data-k-nex-primitive="button"],${themeRootSelector} [data-k-nex-primitive="icon-button"],${themeRootSelector} [data-k-nex-primitive="dialog-trigger"]{min-width:44px;min-height:44px;border:1px solid var(--k-nex-public-color-border);border-radius:calc(var(--k-nex-public-radius-control)*1px);transition-duration:calc(var(--k-nex-public-motion-duration)*1ms)}
-${themeRootSelector} :where([data-k-nex-primitive="button"],[data-k-nex-primitive="icon-button"],[data-k-nex-primitive="dialog-trigger"])[data-focus-visible]{outline:3px solid var(--k-nex-public-color-accent);outline-offset:2px}
+${themeRootSelector}{background:var(--k-nex-admin-color-background,var(--k-nex-public-color-background));color:var(--k-nex-admin-color-foreground,var(--k-nex-public-color-foreground))}
+${themeRootSelector} [data-k-nex-primitive="stack"]{display:flex;flex-direction:column;gap:calc(var(--k-nex-admin-spacing-content,var(--k-nex-public-spacing-content))*1px)}
+${themeRootSelector} [data-k-nex-primitive="inline"]{display:flex;align-items:center;gap:calc(var(--k-nex-admin-spacing-content,var(--k-nex-public-spacing-content))*1px)}
+${themeRootSelector} [data-k-nex-primitive="card"]{border:1px solid var(--k-nex-admin-color-border,var(--k-nex-public-color-border));border-radius:calc(var(--k-nex-admin-radius-control,var(--k-nex-public-radius-control))*1px);box-shadow:var(--k-nex-admin-shadow-card,var(--k-nex-public-shadow-card));padding:calc(var(--k-nex-admin-spacing-content,var(--k-nex-public-spacing-content))*1px)}
+${themeRootSelector} [data-k-nex-primitive="button"],${themeRootSelector} [data-k-nex-primitive="icon-button"],${themeRootSelector} [data-k-nex-primitive="dialog-trigger"]{min-width:44px;min-height:44px;border:1px solid var(--k-nex-admin-color-border,var(--k-nex-public-color-border));border-radius:calc(var(--k-nex-admin-radius-control,var(--k-nex-public-radius-control))*1px);transition-duration:calc(var(--k-nex-admin-motion-duration,var(--k-nex-public-motion-duration))*1ms)}
+${themeRootSelector} :where([data-k-nex-primitive="button"],[data-k-nex-primitive="icon-button"],[data-k-nex-primitive="dialog-trigger"])[data-focus-visible]{outline:3px solid var(--k-nex-admin-color-accent,var(--k-nex-public-color-accent));outline-offset:2px}
 @media (prefers-reduced-motion:reduce){${themeRootSelector} *{transition-duration:0ms!important;animation-duration:0ms!important}}
 @media (forced-colors:active){${themeRootSelector} [data-k-nex-primitive="button"],${themeRootSelector} [data-k-nex-primitive="dialog-trigger"],${themeRootSelector} [data-k-nex-primitive="card"]{border-color:CanvasText}}
 `;
@@ -51,7 +51,7 @@ ${themeRootSelector} :where([data-k-nex-primitive="button"],[data-k-nex-primitiv
 export const minimalThemePackage = defineThemePackage({
   id: "theme.minimal",
   version: "1.0.0",
-  surfaces: ["public"],
+  surfaces: ["admin", "public"],
   tokenSchema: { safeParse: minimalTokenSchema },
   defaults,
   palettes: [

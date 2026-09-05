@@ -9,11 +9,18 @@ const controlStyle: CSSProperties = {
 };
 const childSlotKey = "__kNexChildren";
 const canMoveKey = "__kNexCanMove";
+const canDeleteKey = "__kNexCanDelete";
 const rootZone = "root:default-zone";
+
+export interface AccessiblePuckComponentOption {
+  readonly type: string;
+  readonly label: string;
+}
 
 export interface AccessiblePuckControlsProps {
   readonly state: AppState;
   readonly dispatch: (action: PuckAction) => void;
+  readonly components?: readonly AccessiblePuckComponentOption[];
 }
 
 export function createKeyboardReorderActions(input: {
@@ -74,6 +81,13 @@ function blockLocations(content: readonly ComponentData[], zone = rootZone, dept
       ? [location, ...blockLocations(children as ComponentData[], `${String(block.props.id)}:${childSlotKey}`, depth + 1)]
       : [location];
   });
+}
+
+export function issueKeyboardNodeId(content: readonly ComponentData[]): string {
+  const ids = new Set(blockLocations(content).map(({ block }) => String(block.props.id)));
+  let sequence = 1;
+  while (ids.has(`builder-node-${sequence}`)) sequence += 1;
+  return `builder-node-${sequence}`;
 }
 
 function containerLocations(content: readonly ComponentData[]): readonly ContainerLocation[] {
@@ -162,13 +176,14 @@ function DestinationControls({
 }
 
 /** Native controls provide a keyboard and screen-reader path independent of drag-and-drop. */
-export function AccessiblePuckControls({ state, dispatch }: AccessiblePuckControlsProps): ReactElement {
+export function AccessiblePuckControls({ state, dispatch, components = [] }: AccessiblePuckControlsProps): ReactElement {
   const locations = blockLocations(state.data.content);
   const selector = state.ui.itemSelector;
   const selectedZone = selector?.zone ?? rootZone;
   const selectedLocationIndex = selector === null ? -1 : locations.findIndex(({ zone, index }) => zone === selectedZone && index === selector.index);
   const selected = locations[selectedLocationIndex];
   const containers = containerLocations(state.data.content);
+  let componentType = components[0]?.type ?? "";
   const move = (direction: "earlier" | "later") => {
     if (selected === undefined) return;
     const actions = createKeyboardReorderActions({ content: selected.content, index: selected.index, zone: selected.zone, direction });
@@ -176,6 +191,30 @@ export function AccessiblePuckControls({ state, dispatch }: AccessiblePuckContro
   };
 
   return createElement("section", { "aria-label": "Canvas block keyboard controls", "data-k-nex-accessible-builder-controls": true }, [
+    createElement("label", { key: "component" }, [
+      createElement("span", { key: "label" }, "Block to add"),
+      createElement("select", {
+        key: "select",
+        defaultValue: componentType,
+        disabled: components.length === 0,
+        style: controlStyle,
+        onChange: (event: { currentTarget: { value: string } }) => { componentType = event.currentTarget.value; }
+      }, components.map((component) => createElement("option", { key: component.type, value: component.type }, component.label)))
+    ]),
+    createElement("button", {
+      key: "add",
+      type: "button",
+      "aria-label": "Add block to canvas",
+      disabled: componentType === "" || !components.some(({ type }) => type === componentType),
+      style: controlStyle,
+      onClick: () => dispatch({
+        type: "insert",
+        componentType,
+        destinationIndex: state.data.content.length,
+        destinationZone: rootZone,
+        id: issueKeyboardNodeId(state.data.content)
+      })
+    }, "Add block"),
     createElement("label", { key: "selection" }, [
       createElement("span", { key: "label" }, "Selected canvas block"),
       createElement("select", {
@@ -211,6 +250,16 @@ export function AccessiblePuckControls({ state, dispatch }: AccessiblePuckContro
       style: controlStyle,
       onClick: () => move("later")
     }, "Move later"),
+    createElement("button", {
+      key: "delete",
+      type: "button",
+      "aria-label": selected === undefined ? "Delete selected block" : `Delete ${blockName(selected.block, selected.index)}`,
+      disabled: selected === undefined || selected.block.props[canDeleteKey] === false,
+      style: controlStyle,
+      onClick: () => {
+        if (selected !== undefined && selected.block.props[canDeleteKey] !== false) dispatch({ type: "remove", index: selected.index, zone: selected.zone });
+      }
+    }, "Delete block"),
     createElement(DestinationControls, {
       key: selected === undefined ? "none" : `${selected.zone}:${String(selected.block.props.id)}`,
       selected,
@@ -226,9 +275,15 @@ export function renderAccessiblePuckHeader(input: {
   readonly children: ReactNode;
   readonly state: AppState<Data>;
   readonly dispatch: (action: PuckAction) => void;
+  readonly components?: readonly AccessiblePuckComponentOption[];
 }): ReactElement {
   return createElement("div", { "data-k-nex-accessible-builder-header": true }, [
     createElement("div", { key: "puck-header" }, input.children),
-    createElement(AccessiblePuckControls, { key: "controls", state: input.state, dispatch: input.dispatch })
+    createElement(AccessiblePuckControls, {
+      key: "controls",
+      state: input.state,
+      dispatch: input.dispatch,
+      ...(input.components === undefined ? {} : { components: input.components })
+    })
   ]);
 }

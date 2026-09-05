@@ -1,10 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
 import { canonicalJson } from "@k-nex/contracts";
 import { createOutboxRealtimeRelay, writeTransactionalOutboxEvent } from "@k-nex/payload-adapter";
-import { DataSourceGatewayError, definePluginRegistration, projectSystemSettingsValues } from "@k-nex/runtime";
+import { ActionGatewayError, DataSourceGatewayError, definePluginRegistration, projectSystemSettingsValues } from "@k-nex/runtime";
 import { salesCreateTaskToolDescriptor, salesCreateTaskInputRuntimeSchema, salesCreateTaskOutputRuntimeSchema, salesEmptyInputRuntimeSchema, salesEventDescriptors, salesNavigationDescriptors, salesOpportunitiesDescriptor, salesOpportunitiesOutputRuntimeSchema, salesOpportunityStageInputRuntimeSchema, salesOpportunityStageOutputRuntimeSchema, salesOpportunityStageUpdateDescriptor, salesPageTemplates, salesPermissionDescriptors, salesPermissionPolicyBindings, salesRealtimeTopicDescriptors, salesReferenceMetadata, salesRouteDescriptors, salesRoleTemplates, salesSearchTasksDescriptor, salesTaskCreateDescriptor, salesTaskFields, salesTaskUpdateDescriptor, salesTasksDescriptor, salesTasksOutputRuntimeSchema, salesTotalPotentialRevenueDescriptor, salesTotalPotentialRevenueOutputRuntimeSchema, salesUiBlockDescriptors, salesUiComponentDescriptors, salesUpdateTaskInputRuntimeSchema, salesUpdateTaskOutputRuntimeSchema, salesWorkspaceSettingsDescriptor } from "./contracts.js";
 import { salesUiBlockDefinitions, salesUiComponentDefinitions } from "./ui.js";
-export { salesCreateTaskToolDescriptor, salesNavigationDescriptors, salesPermissionDescriptors, salesPermissionPolicyBindings, salesRouteDescriptors, salesRoleTemplates, salesSearchTasksDescriptor, salesTaskCreateDescriptor, salesTaskPageTemplate, salesTasksDescriptor, salesTotalPotentialRevenueDescriptor, salesWorkspaceSettingsDescriptor } from "./contracts.js";
+export { salesCreateTaskToolDescriptor, salesNavigationDescriptors, salesPermissionDescriptors, salesPermissionPolicyBindings, salesReferenceMetadata, salesRouteDescriptors, salesRoleTemplates, salesSearchTasksDescriptor, salesTaskCreateDescriptor, salesTaskPageTemplate, salesTasksDescriptor, salesTotalPotentialRevenueDescriptor, salesWorkspaceSettingsDescriptor } from "./contracts.js";
 const salesTaskFieldStorage = {
     title: "title",
     status: "status",
@@ -328,7 +328,7 @@ async function tasksTable(context) {
         }
     };
 }
-const opportunityStorage = { name: "name", stage: "stage", value: "value" };
+const opportunityStorage = { name: "name", stage: "stage", revision: "updatedAt", value: "value" };
 function opportunityCell(fieldId, document) {
     const value = document[opportunityStorage[fieldId]];
     if (fieldId === "value")
@@ -466,12 +466,21 @@ export const salesOpportunityStageUpdateHandler = async ({ actor, request, input
         throw parsed.error;
     const payloadRequest = updateRequest(request);
     const user = payloadUser(actor);
-    const updated = await payloadRequest.payload.update({
-        collection: "sales-opportunities", id: parsed.data.id, data: { stage: parsed.data.stage }, depth: 0, overrideAccess: true,
+    const update = await payloadRequest.payload.update({
+        collection: "sales-opportunities",
+        where: { and: [
+                { id: { equals: parsed.data.id } },
+                { stage: { equals: parsed.data.expectedStage } },
+                { updatedAt: { equals: parsed.data.expectedRevision } }
+            ] },
+        data: { stage: parsed.data.stage }, depth: 0, overrideAccess: true,
         ...(user === undefined ? {} : { user }), req: payloadRequest,
         context: eventContext("sales.event.opportunity-changed", idempotencyKey)
     });
-    const result = { id: String(updated.id), name: updated.name, stage: updated.stage };
+    if (update.errors.length > 0 || update.docs.length !== 1)
+        throw new ActionGatewayError("STALE_RECORD", 409, "Sales opportunity changed before the stage update.");
+    const updated = update.docs[0];
+    const result = { id: String(updated.id), name: updated.name, stage: updated.stage, revision: updated.updatedAt };
     const validated = salesOpportunityStageOutputRuntimeSchema.safeParse(result);
     if (!validated.success)
         throw validated.error;
@@ -523,6 +532,17 @@ export const salesOpportunitiesCollection = {
     indexes: [{ fields: ["stage"] }]
 };
 export const salesDefaultSettings = projectSystemSettingsValues(salesWorkspaceSettingsDescriptor);
+const permissionPolicy = (namespace) => {
+    const executor = {
+        evaluate: ({ permissionId }) => ({ schemaVersion: 1, outcome: permissionId === namespace || permissionId.startsWith(`${namespace}.`) ? "allow" : "deny" })
+    };
+    return Object.freeze(executor);
+};
+/** Static domain policy executors bound by the host to the exact Sales generation. */
+export const salesPermissionPolicyExecutors = Object.freeze({
+    "sales.tasks.domain": permissionPolicy("sales.tasks"),
+    "sales.opportunities.domain": permissionPolicy("sales.opportunities")
+});
 export const salesRegistration = definePluginRegistration({
     pluginId: "module.sales",
     contracts: (context) => {

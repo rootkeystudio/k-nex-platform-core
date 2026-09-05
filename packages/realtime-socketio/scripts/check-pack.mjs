@@ -28,7 +28,7 @@ function tarEntries(archive) {
 function assertEquivalent(generated, committed) {
   const generatedEntries = tarEntries(generated);
   const committedEntries = tarEntries(committed);
-  assert.deepEqual([...generatedEntries.keys()], [...committedEntries.keys()]);
+  assert.deepEqual([...generatedEntries.keys()].sort(), [...committedEntries.keys()].sort());
   for (const [name, content] of generatedEntries) {
     const expected = committedEntries.get(name);
     if (expected === undefined) throw new Error(`Packed realtime provider entry ${name} is missing.`);

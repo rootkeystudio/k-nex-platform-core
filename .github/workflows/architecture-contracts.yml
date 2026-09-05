@@ -16,7 +16,7 @@ concurrency:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    timeout-minutes: 90
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -43,19 +43,48 @@ jobs:
           K_NEX_RUNNER_ISOLATION_POLICY: apparmor
       - name: Install browser proofs
         run: pnpm exec playwright install --with-deps chromium
-      - name: Build Phase 11 focused dependencies
+      - name: Run Phase 12 focused evidence
         if: github.event_name == 'pull_request'
-        run: pnpm --filter '@k-nex/extension-bundler...' --filter '@k-nex/payload-adapter...' --filter '@k-nex/customer-gate-1...' -r build
-      - name: Run Phase 11 focused evidence
-        if: github.event_name == 'pull_request'
-        run: pnpm gate:11:focused
-      - name: Run Phase 0 through Gate 11
+        run: pnpm gate:12:focused
+      - name: Run Phase 0 through Gate 12
         if: github.event_name != 'pull_request'
-        run: pnpm gate:11
+        run: pnpm gate:12
         env:
           K_NEX_RUNNER_ISOLATION_POLICY: apparmor
+  repository-evidence:
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Install pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+      - name: Install Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
       - name: Verify exact-head repository evidence
         run: |
-          pnpm audit --audit-level high
+          audit_output="$(mktemp)"
+          trap 'rm -f "$audit_output"' EXIT
+          for attempt in 1 2 3; do
+            if timeout 45s pnpm audit --audit-level high --json >"$audit_output"; then
+              cat "$audit_output"
+              break
+            fi
+            if node -e 'try { const report = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")); process.exit(report?.advisories && report?.metadata?.vulnerabilities ? 0 : 1) } catch { process.exit(1) }' "$audit_output"; then
+              cat "$audit_output"
+              exit 1
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              cat "$audit_output"
+              exit 1
+            fi
+            sleep "$((attempt * 10))"
+          done
           git diff --check
           test -z "$(git status --porcelain --untracked-files=all)"

@@ -36,6 +36,12 @@ describe("Minimal theme", () => {
     expect(light.primitives.Button).toBe(dark.primitives.Button);
   });
 
+  it("supports exact admin workspace profiles", () => {
+    const presentation = resolveMinimalThemeProfile({ ...profile("light", "light"), surface: "admin" });
+    expect(presentation.surface).toBe("admin");
+    expect(presentation.cssVariables["--k-nex-admin-color-background"]).toBe("#ffffff");
+  });
+
   it("rejects unknown or malformed token overrides", () => {
     expect(() => resolveMinimalThemeProfile({ ...profile("light", "light"), values: { "color.unknown": "#ffffff" } })).toThrow("Theme profile values do not satisfy the installed package schema.");
     expect(() => resolveMinimalThemeProfile({ ...profile("light", "light"), values: { "color.accent": "red" } })).toThrow("Theme token strings must be bounded literal CSS values.");

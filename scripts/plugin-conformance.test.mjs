@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { gzipSync } from "node:zlib";
+import { constants, gzipSync } from "node:zlib";
 
 import { assertByteReproducible, assertNoShellWrapper, assertVitestExactTestProof, requiredPluginEvidence, runBoundaryProof, validateConformancePlan } from "./plugin-conformance.mjs";
 
@@ -77,6 +77,23 @@ test("plugin conformance rejects transitive forbidden entrypoint imports", () =>
   }
 });
 
+test("plugin conformance permits React only in the registered UI implementation", () => {
+  const root = mkdtempSync(join(tmpdir(), "k-nex-boundary-ui-react-"));
+  try {
+    mkdirSync(join(root, "src"));
+    mkdirSync(join(root, "dist"));
+    writeFileSync(join(root, "src", "contracts.ts"), "export {};\n");
+    writeFileSync(join(root, "src", "browser.ts"), "export {};\n");
+    writeFileSync(join(root, "src", "ui.ts"), 'import { createElement } from "react";\nexport const view = createElement("div");\n');
+    for (const entrypoint of ["contracts", "browser", "ui", "migrations", "testing"]) writeFileSync(join(root, "dist", `${entrypoint}.d.ts`), "export {};\n");
+    assert.doesNotThrow(() => runBoundaryProof(root));
+    writeFileSync(join(root, "src", "browser.ts"), 'import { createElement } from "react";\nexport const view = createElement("div");\n');
+    assert.throws(() => runBoundaryProof(root), /forbidden dependency react/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("plugin conformance accepts only one exact passed Vitest file and test", () => {
   const report = {
     success: true, numTotalTests: 1, numPassedTests: 1, numFailedTests: 0, numFailedTestSuites: 0, numPendingTests: 0, numTodoTests: 0,
@@ -96,11 +113,14 @@ test("plugin conformance requires repeated pack bytes and canonical committed gz
   const payload = Buffer.from("sales package payload");
   const linux = gzipSync(payload, { level: 1, mtime: 0 });
   linux[9] = 0x03;
-  const committed = gzipSync(payload, { level: 6, mtime: 0 });
+  const committed = gzipSync(payload, { level: constants.Z_BEST_COMPRESSION, mtime: 0 });
   committed[9] = 0xff;
   assert.doesNotThrow(() => assertByteReproducible(linux, Buffer.from(linux), committed, "sales.tgz"));
-  const differentlyCompressed = gzipSync(payload, { level: 9, mtime: 0 });
+  const nonCanonical = gzipSync(payload, { level: 6, mtime: 0 });
+  nonCanonical[9] = 0xff;
+  assert.throws(() => assertByteReproducible(linux, Buffer.from(linux), nonCanonical, "sales.tgz"), /gzip metadata is not canonical and cross-platform/);
+  const differentlyCompressed = gzipSync(payload, { level: constants.Z_BEST_COMPRESSION, mtime: 0 });
   differentlyCompressed[9] = 0x03;
   assert.throws(() => assertByteReproducible(linux, differentlyCompressed, committed, "sales.tgz"), /repeated pack bytes are non-deterministic/);
-  assert.throws(() => assertByteReproducible(linux, Buffer.from(linux), linux, "sales.tgz"), /gzip OS marker is not cross-platform/);
+  assert.throws(() => assertByteReproducible(linux, Buffer.from(linux), linux, "sales.tgz"), /gzip metadata is not canonical and cross-platform/);
 });

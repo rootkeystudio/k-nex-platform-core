@@ -52,5 +52,7 @@ Evidence maturity is atomic per ADR. A phase may provide task-level evidence wit
 | [0022](./0022-rbac-authorization-and-extension-role-templates.md) | Central RBAC and extension role templates | accepted | executable-poc |
 | [0023](./0023-phase-9-production-isolation-and-static-delivery-hardening.md) | Phase 9 production isolation and static delivery hardening | accepted | executable-poc |
 | [0024](./0024-system-settings-and-extension-operations.md) | System settings and extension operations | accepted | design-only |
+| [0025](./0025-runnable-workspace-shell-pages-and-builder.md) | Runnable workspace shell, customer pages, and builder | accepted | design-only |
+| [0027](./0027-generated-administration-operator-transport.md) | Generated administration operator transport | accepted | design-only |
 
 An accepted design-only ADR directs implementation but is not a production-readiness claim. Consequential changes update the decision register, evidence registry, machine-readable contracts, fixtures, tests, and lower-authority prose atomically.

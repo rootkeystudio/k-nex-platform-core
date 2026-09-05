@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash, generateKeyPairSync } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, realpathSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -96,14 +96,28 @@ assert.deepEqual(fleet.list().map(({ inventory }) => [inventory.applicationId, i
 assert.deepEqual(fleet.affected("@k-nex/module-sales", ">=1.0.0").map(({ inventory }) => inventory.applicationId), customers);
 execFileSync("pnpm", ["--dir", "fixtures/customer-gate-1", "exec", "node", "--test", "--test-concurrency=1", "tests/backup-restore-postgres.test.mjs"], { cwd: root, stdio: "inherit" });
 
-const factoryRoot = mkdtempSync(join(tmpdir(), "gate-8-current-v1-factory-"));
+const factoryRoot = realpathSync(mkdtempSync(join(tmpdir(), "gate-8-current-v1-factory-")));
 try {
-  const plan = planCreateKnexApplication({ applicationId: "gate-eight-current-v1", applicationName: "Gate Eight Current V1", theme: "minimal", database: "docker-postgres" });
+  const plan = planCreateKnexApplication({
+    applicationId: "gate-eight-current-v1",
+    applicationName: "Gate Eight Current V1",
+    theme: "minimal",
+    database: "docker-postgres",
+    packageSource: {
+      kind: "packed-mirror",
+      directory: resolve(root, "fixtures/customer-gate-1/packages"),
+      authority: releaseAuthority,
+      release: verifiedRelease
+    }
+  });
   const applied = applyCreateKnexApplication(plan, factoryRoot);
   assert.ok(applied.written.includes("k-nex.app.json") && applied.written.includes("compose.yaml"));
   const manifest = ApplicationManifestSchema.parse(readJson(join(factoryRoot, "k-nex.app.json")));
   assert.deepEqual(manifest.plugins.map(({ id, version }) => ({ id, version })), [{ id: "module.sales", version: "1.0.0" }]);
-  assert.equal(applyCreateKnexApplication(plan, factoryRoot).unchanged.length, Object.keys(plan.files).length);
+  assert.equal(
+    applyCreateKnexApplication(plan, factoryRoot).unchanged.length,
+    Object.keys(plan.files).length + Object.keys(plan.artifactDigests).length
+  );
 } finally {
   rmSync(factoryRoot, { recursive: true, force: true });
 }

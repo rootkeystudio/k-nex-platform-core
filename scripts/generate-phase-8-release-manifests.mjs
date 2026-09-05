@@ -3,10 +3,21 @@ import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { gunzipSync } from "node:zlib";
 
-import { PackageReleaseManifestSchema, supportedFrameworkTuple } from "../packages/contracts/dist/index.js";
+import { PackageReleaseManifestSchema, canonicalJson, supportedFrameworkTuple } from "../packages/contracts/dist/index.js";
 
 const root = resolve(import.meta.dirname, "..");
 const artifacts = resolve(root, "fixtures/customer-gate-1/packages");
+
+function factoryLockTemplates() {
+  return Object.fromEntries(["minimal", "neobrutalism"].map((theme) => {
+    const matches = readdirSync(artifacts).filter((name) => new RegExp(`^factory-lock-sales-reference-${theme}-[0-9a-f]{64}\\.yaml$`, "u").test(name));
+    if (matches.length !== 1) throw new Error(`Expected exactly one ${theme} factory lock template.`);
+    const content = readFileSync(resolve(artifacts, matches[0]));
+    const digest = `sha256:${createHash("sha256").update(content).digest("hex")}`;
+    if (!matches[0].endsWith(`${digest.slice(7)}.yaml`)) throw new Error(`Factory lock filename digest differs for ${theme}.`);
+    return [theme, { preset: "sales-reference", theme, digest }];
+  }));
+}
 
 function packageJson(archive) {
   const tar = gunzipSync(archive);
@@ -42,10 +53,10 @@ for (const { version, salesVersion, supportedReleases } of releases) {
   const manifest = PackageReleaseManifestSchema.parse({
     $schema: "../../schemas/package-release-manifest.v1.schema.json", schemaVersion: 1,
     release: { version, channel: "current", versioningPolicy: "semver-v1", compatibilityPolicy: "exact-framework-tuple" },
-    framework: supportedFrameworkTuple, packages,
+    framework: supportedFrameworkTuple, packages, factoryLockTemplates: factoryLockTemplates(),
     supportWindow: { policy: "single-current-release", supportedReleases, securityFixes: "all-supported-releases" }
   });
   mkdirSync(resolve(root, `releases/${version}`), { recursive: true });
-  writeFileSync(resolve(root, `releases/${version}/package-release-manifest.json`), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+  writeFileSync(resolve(root, `releases/${version}/package-release-manifest.json`), canonicalJson(manifest), "utf8");
 }
 process.stdout.write(`P8_RELEASE_MANIFESTS_GENERATED ${releases.length}x${packedPackages.length}\n`);

@@ -68,4 +68,4 @@ Every Phase 9 task and owner-review remediation is implemented. GitHub Actions r
 
 Gate decision on acceptance: **GO PHASE 10 RBAC AND AUTHORIZATION**.
 
-Phase 10 subsequently passed and merged. Phase 11 continues the administration core; domain expansion remains frozen.
+Phase 10 subsequently began at **P10.1 — Freeze owner, role, grant, assignment, template, and revision contracts**, then passed and merged. Phase 11 also passed and merged; domain expansion remained frozen.

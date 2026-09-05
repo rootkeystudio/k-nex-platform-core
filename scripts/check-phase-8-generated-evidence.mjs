@@ -16,6 +16,8 @@ const required = [
   resolve(evidence, "release-manifest-predicate.json"),
   resolve(evidence, "hosted/manifest/manifest-attestation.jsonl"),
   resolve(evidence, "hosted/manifest-verification.json"),
+  resolve(evidence, "hosted/package-manifest/package-manifest-attestation.jsonl"),
+  resolve(evidence, "hosted/package-manifest-verification.json"),
   resolve(root, "docs/implementation/phase-8-fleet-evidence.json"),
   ...customers.flatMap((customer) => [
     resolve(evidence, `customers/${customer}/${customer}.application-bundle.json`),
@@ -31,7 +33,7 @@ const required = [
   ])
 ];
 if (required.some((path) => !existsSync(path))) {
-  throw new Error("P8_SIGNED_EVIDENCE_REGENERATION_REQUIRED: run release-evidence.yml and commit the phase-8-v1 artifact, including both current v1 customer bundles, hosted application/manifest/SBOM attestation bundles, and generated runtime/fleet evidence.");
+  throw new Error("P8_SIGNED_EVIDENCE_REGENERATION_REQUIRED: run release-evidence.yml and commit the phase-8-v1 artifact, including the package release manifest, both current v1 customer bundles, hosted application/manifest/SBOM attestation bundles, and generated runtime/fleet evidence.");
 }
 
 const readJson = (path) => JSON.parse(readFileSync(path, "utf8"));
@@ -68,7 +70,9 @@ const releases = createPackageReleaseManifestAuthority(manifestVerifier);
 const applications = createApplicationBundleAuthority(applicationVerifier, releases);
 const manifestVerification = verify(resolve(evidence, "release-manifest.json"), resolve(evidence, "hosted/manifest/manifest-attestation.jsonl"), "https://k-nex.dev/release-manifest/v1", resolve(evidence, "hosted/manifest-verification.json"));
 assert.equal(canonicalJson(manifestVerification.verificationResult.statement.predicate), canonicalJson(readJson(resolve(evidence, "release-manifest-predicate.json"))), "Hosted manifest attestation must bind the committed manifest predicate exactly.");
-const verifiedRelease = await releases.verify(release, manifestVerification);
+const packageManifestVerification = verify(resolve(root, "releases/1.0.0/package-release-manifest.json"), resolve(evidence, "hosted/package-manifest/package-manifest-attestation.jsonl"), "https://k-nex.dev/release-manifest/v1", resolve(evidence, "hosted/package-manifest-verification.json"));
+assert.equal(canonicalJson(packageManifestVerification.verificationResult.statement.predicate), canonicalJson(readJson(resolve(evidence, "release-manifest-predicate.json"))), "Hosted package manifest attestation must bind the official release predicate exactly.");
+const verifiedRelease = await releases.verify(release, packageManifestVerification);
 
 for (const customer of customers) {
   const location = resolve(evidence, "customers", customer);

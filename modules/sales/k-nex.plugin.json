@@ -39,6 +39,7 @@
       "sales.service.domain": "required"
     },
     "permissions": {
+      "sales.navigation.read": "required",
       "sales.settings.read": "required",
       "sales.settings.write": "required",
       "sales.opportunities.name.read": "required",
@@ -87,6 +88,7 @@
     },
     "blocks": {
       "sales.opportunity-detail": "required",
+      "sales.opportunity-kanban": "required",
       "sales.opportunity-list": "required",
       "sales.revenue-metric": "required",
       "sales.settings-summary": "required",

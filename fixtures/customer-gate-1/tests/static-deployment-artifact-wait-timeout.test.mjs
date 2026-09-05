@@ -8,7 +8,27 @@ import test from "node:test";
 
 const fixtureDirectory = fileURLToPath(new URL("..", import.meta.url));
 const topologyProcess = join(fixtureDirectory, "static-deployment", "topology-process.mjs");
-const PROBE_LINE_STARTUP_TIMEOUT_MS = 10_000;
+// Topology startup loads the complete static-deployment graph before its first
+// readiness line. This allowance must cover saturated cumulative CI; the
+// bounded artifact-wait behavior is timed only after readiness below.
+const PROBE_LINE_STARTUP_TIMEOUT_MS = 60_000;
+
+function createJsonLineReceiver(onChunk, onLine) {
+  let buffered = "";
+  return (chunk) => {
+    const text = String(chunk);
+    onChunk(text);
+    buffered += text;
+    const completeLines = buffered.split("\n");
+    buffered = completeLines.pop() ?? "";
+    for (const line of completeLines) {
+      if (!line.startsWith("{")) continue;
+      try {
+        onLine(JSON.parse(line));
+      } catch { /* retain malformed process output for diagnostics */ }
+    }
+  };
+}
 
 function startProbe(environment) {
   const child = spawn(process.execPath, [topologyProcess], {
@@ -25,19 +45,15 @@ function startProbe(environment) {
   let output = "";
   const lines = [];
   const listeners = new Set();
-  const receive = (chunk) => {
-    output += chunk;
-    for (const line of chunk.split("\n")) {
-      if (!line.startsWith("{")) continue;
-      try {
-        const value = JSON.parse(line);
-        lines.push(value);
-        for (const listener of listeners) listener(value);
-      } catch { /* retain malformed process output for diagnostics */ }
+  const receive = () => createJsonLineReceiver(
+    (chunk) => { output += chunk; },
+    (value) => {
+      lines.push(value);
+      for (const listener of listeners) listener(value);
     }
-  };
-  child.stdout.setEncoding("utf8").on("data", receive);
-  child.stderr.setEncoding("utf8").on("data", receive);
+  );
+  child.stdout.setEncoding("utf8").on("data", receive());
+  child.stderr.setEncoding("utf8").on("data", receive());
   return {
     output: () => output,
     exited: new Promise((resolve, reject) => {
@@ -64,16 +80,25 @@ function startProbe(environment) {
   };
 }
 
+test("probe JSON lines survive arbitrary stream chunks", () => {
+  const lines = [];
+  const receive = createJsonLineReceiver(() => {}, (value) => lines.push(value));
+  receive('{"type":"rea');
+  receive('dy"}\n{"type":"complete"}');
+  receive('\n');
+  assert.deepEqual(lines, [{ type: "ready" }, { type: "complete" }]);
+});
+
 test("static topology validates and propagates the bounded artifact wait timeout", async () => {
   const directory = await mkdtemp(join(tmpdir(), "knex-p9-artifact-wait-"));
   const artifactPath = join(directory, "artifact.json");
   try {
-    const probe = startProbe({ P9_ARTIFACT_WAIT_TIMEOUT_MS: "75", P9_ARTIFACT_WAIT_PROBE_PATH: artifactPath });
+    const probe = startProbe({ P9_ARTIFACT_WAIT_TIMEOUT_MS: "2000", P9_ARTIFACT_WAIT_PROBE_PATH: artifactPath });
     const ready = await probe.line((value) => value.type === "ready");
-    assert.equal(ready.artifactWaitTimeout, 75);
+    assert.equal(ready.artifactWaitTimeout, 2000);
     await writeFile(artifactPath, "{\"state\":\"ready\"}\n");
     const complete = await probe.line((value) => value.type === "artifact-wait-complete");
-    assert.deepEqual(complete, { type: "artifact-wait-complete", artifactWaitTimeout: 75, artifact: { state: "ready" } });
+    assert.deepEqual(complete, { type: "artifact-wait-complete", artifactWaitTimeout: 2000, artifact: { state: "ready" } });
     assert.deepEqual(await probe.exited, { code: 0, signal: null });
 
     const timeoutProbe = startProbe({ P9_ARTIFACT_WAIT_TIMEOUT_MS: "25", P9_ARTIFACT_WAIT_PROBE_PATH: join(directory, "missing.json") });

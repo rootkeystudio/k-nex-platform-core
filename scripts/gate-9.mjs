@@ -59,7 +59,7 @@ assert.deepEqual(modules, ["sales"], "Sales must remain the only first-party ref
 
 const phaseResult = read("docs/implementation/phase-9-result.md");
 for (const marker of [
-  "# Phase 9 Result", "**Decision:** **READY FOR PHASE REVIEW**", "GO PHASE 10 RBAC AND AUTHORIZATION",
+  "# Phase 9 Result", "**Decision:** **ACCEPTED**", "GO PHASE 10 RBAC AND AUTHORIZATION",
   "P9_REMOTE_UI_BROWSER_PASS", "P9_THEME_SKIN_BROWSER_PASS", "22 required attacks", "P10.1"
 ]) assert.ok(phaseResult.includes(marker), `Phase 9 result is missing: ${marker}`);
 for (let task = 1; task <= 10; task += 1) assert.ok(phaseResult.includes(`P9.${task}`), `Phase 9 result is missing task P9.${task}.`);

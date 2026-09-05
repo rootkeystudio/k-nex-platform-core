@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { DataSourceDescriptor } from "@k-nex/contracts";
 import { salesTasksDescriptor } from "../../../modules/sales/src/server.js";
 
-import { createPuckBuilderProfileRegistry, type PuckBlockBridge, type PuckBuilderProfile } from "../src/index.js";
+import { createAuthorizedPuckBuilderProfile, createPuckBuilderProfileRegistry, type PuckBlockBridge, type PuckBuilderProfile } from "../src/index.js";
 
 const staticBlock: PuckBlockBridge = {
   definition: {
@@ -41,12 +41,14 @@ const cms: PuckBuilderProfile = {
   id: "cms",
   blocks: [{ id: "content.text", version: 1 }],
   sources: [{ id: "sales.public-task-summary", version: 1 }],
+  actions: [],
   publication: "draft-preview-publish"
 };
 const workspace: PuckBuilderProfile = {
   id: "workspace",
   blocks: [{ id: "content.text", version: 1 }, { id: "sales.workspace-task-table", version: 1 }],
   sources: [{ id: "sales.tasks", version: 1 }],
+  actions: [],
   publication: "save-layout"
 };
 
@@ -61,6 +63,47 @@ describe("profile-specific Puck policy", () => {
     expect(cmsProfile?.allowsSource("sales.public-task-summary", 1)).toBe(true);
     expect(workspaceProfile?.allowsSource("sales.tasks", 1)).toBe(true);
     expect(workspaceProfile?.allowsSource("sales.public-task-summary", 1)).toBe(false);
+  });
+
+  it("builds the palette only from current exact block, source, and action authority", () => {
+    const actionBlock: PuckBlockBridge = {
+      ...workspaceBlock,
+      definition: {
+        ...workspaceBlock.definition,
+        id: "sales.task-create",
+        sourcePolicy: undefined,
+        actionPolicy: { required: true, actions: [{ id: "sales.task.create", version: 1 }] }
+      }
+    };
+    const resolved = createAuthorizedPuckBuilderProfile({
+      profile: "workspace",
+      publication: "save-layout",
+      blocks: [staticBlock, workspaceBlock, actionBlock],
+      sources,
+      authority: {
+        blocks: [staticBlock.definition, workspaceBlock.definition, actionBlock.definition],
+        sources: [{ id: "sales.tasks", version: 1 }],
+        actions: []
+      }
+    });
+    expect(Object.keys(resolved.adapter.config.components)).toEqual(["content.text__v1", "sales.workspace-task-table__v1"]);
+    expect(resolved.allowsSource("sales.tasks", 1)).toBe(true);
+    expect(resolved.allowsAction("sales.task.create", 1)).toBe(false);
+
+    const withAction = createAuthorizedPuckBuilderProfile({
+      profile: "workspace",
+      publication: "save-layout",
+      blocks: [actionBlock],
+      sources: [],
+      authority: { blocks: [actionBlock.definition], sources: [], actions: [{ id: "sales.task.create", version: 1 }] }
+    });
+    expect(Object.keys(withAction.adapter.config.components)).toEqual(["sales.task-create__v1"]);
+    expect(withAction.allowsAction("sales.task.create", 1)).toBe(true);
+    const substituted = {
+      id: "workspace.action", version: 1, schemaVersion: 1, profile: "workspace",
+      regions: { main: [{ id: "action-one", type: "sales.task-create", version: 1, props: { text: "Task" }, bindings: { action: { id: "sales.task.delete", version: 1 } } }] }
+    };
+    expect(() => withAction.adapter.toPuckData(substituted)).toThrow(/forbids action/u);
   });
 
   it("deeply snapshots profile constraints and source descriptors", () => {
@@ -323,6 +366,7 @@ describe("profile-specific Puck policy", () => {
         id: "workspace",
         blocks: [{ id: workspaceBlock.definition.id, version: workspaceBlock.definition.version }],
         sources: [{ id: salesTasksDescriptor.id, version: salesTasksDescriptor.version }],
+        actions: [],
         publication: "save-layout"
       }]
     }).resolve("workspace");

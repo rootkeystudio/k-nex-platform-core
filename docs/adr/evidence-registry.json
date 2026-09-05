@@ -178,6 +178,23 @@
       "evidence": [
         "docs/implementation/phase-11-system-settings-and-extension-operations.md"
       ]
+    },
+    "0025": {
+      "level": "design-only",
+      "evidence": [
+        "docs/implementation/phase-12-runnable-workspace-and-dashboard-builder.md",
+        "packages/contracts/src/workspace-page.ts",
+        "contracts/phase-12-attack-map.v1.json"
+      ]
+    },
+    "0027": {
+      "level": "design-only",
+      "evidence": [
+        "docs/implementation/phase-12-review-blockers.md",
+        "packages/contracts/src/administration-operator-transport.ts",
+        "packages/contracts/tests/administration-operator-transport.test.ts",
+        "schemas/administration-operator-transport.v1.schema.json"
+      ]
     }
   }
 }

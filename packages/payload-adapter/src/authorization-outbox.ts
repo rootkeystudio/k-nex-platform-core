@@ -13,6 +13,7 @@ export interface AuthorizationInvalidationSink {
 
 export interface AuthorizationOutboxDispatchOptions {
   readonly applicationId: string;
+  readonly environment: string;
   readonly leaseMs?: number;
   readonly maxAttempts?: number;
   readonly publishTimeoutMs?: number;
@@ -127,10 +128,12 @@ export class PostgresAuthorizationOutboxDispatcher {
   private readonly maxAttempts: number;
   private readonly publishTimeoutMs: number;
   private readonly applicationId: string;
+  private readonly environment: string;
 
   constructor(private readonly pool: RuntimeExtensionPool, options: AuthorizationOutboxDispatchOptions) {
-    if (!/^[a-z][a-z0-9-]{2,127}$/u.test(options.applicationId)) throw new TypeError("Authorization outbox application is invalid.");
+    if (!/^[a-z][a-z0-9-]{2,127}$/u.test(options.applicationId) || !/^[a-z][a-z0-9-]{1,63}$/u.test(options.environment)) throw new TypeError("Authorization outbox identity is invalid.");
     this.applicationId = options.applicationId;
+    this.environment = options.environment;
     this.leaseMs = boundedInteger(options.leaseMs ?? DEFAULT_LEASE_MS, "leaseMs", 1, MAX_DURATION_MS);
     this.maxAttempts = boundedInteger(options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS, "maxAttempts", 1, 20);
     this.publishTimeoutMs = boundedInteger(options.publishTimeoutMs ?? DEFAULT_PUBLISH_TIMEOUT_MS, "publishTimeoutMs", 1, MAX_DURATION_MS);
@@ -164,13 +167,13 @@ export class PostgresAuthorizationOutboxDispatcher {
     await this.pool.query(
       `with candidate as (
          select event_id from k_nex_authorization_outbox
-         where application_id=$2 and attempt_count >= $1 and (status='pending' or (status='processing' and lease_expires_at <= now()))
+         where application_id=$2 and environment=$3 and attempt_count >= $1 and (status='pending' or (status='processing' and lease_expires_at <= now()))
          order by authorization_revision, lifecycle_revision, event_id for update skip locked limit 1
        )
        update k_nex_authorization_outbox as event set status='dead-letter', dead_lettered_at=now(),
          claimed_at=null, lease_expires_at=null, claim_token=null, last_error_code='DELIVERY_FAILED'
        from candidate where event.event_id=candidate.event_id`,
-      [this.maxAttempts, this.applicationId]
+      [this.maxAttempts, this.applicationId, this.environment]
     );
   }
 
@@ -178,16 +181,16 @@ export class PostgresAuthorizationOutboxDispatcher {
     const selected = await this.pool.query<AuthorizationOutboxRow>(
       `with candidate as (
          select event_id from k_nex_authorization_outbox
-         where application_id=$2 and attempt_count < $1 and (status='pending' or (status='processing' and lease_expires_at <= now()))
+         where application_id=$2 and environment=$3 and attempt_count < $1 and (status='pending' or (status='processing' and lease_expires_at <= now()))
          order by attempt_count, authorization_revision, lifecycle_revision, event_id for update skip locked limit 1
        )
        update k_nex_authorization_outbox as event set status='processing', claimed_at=now(),
-         lease_expires_at=now() + ($3 * interval '1 millisecond'), claim_token=$4,
+         lease_expires_at=now() + ($4 * interval '1 millisecond'), claim_token=$5,
          attempt_count=event.attempt_count + 1
        from candidate where event.event_id=candidate.event_id
        returning event.event_id, event.application_id, event.environment, event.authorization_revision, event.lifecycle_revision,
          event.event_json, event.attempt_count, event.claim_token`,
-      [this.maxAttempts, this.applicationId, this.leaseMs, token]
+      [this.maxAttempts, this.applicationId, this.environment, this.leaseMs, token]
     );
     return selected.rows[0] ? claimed(selected.rows[0]) : undefined;
   }

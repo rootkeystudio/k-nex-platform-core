@@ -12,10 +12,15 @@ const migrations: UpgradeMigration[] = kinds.map((kind) => ({
   migrate: (value) => ({ ...(value as object), revision: 2 }),
   validate: (value) => typeof value === "object" && value !== null && "revision" in value && value.revision === 2
 }));
+const factoryLockTemplates = {
+  minimal: { preset: "sales-reference", theme: "minimal", digest: `sha256:${"1".repeat(64)}` },
+  neobrutalism: { preset: "sales-reference", theme: "neobrutalism", digest: `sha256:${"2".repeat(64)}` }
+} as const;
 const targetReleaseManifest = {
   schemaVersion: 1, release: { version: "1.0.0", channel: "current", versioningPolicy: "semver-v1", compatibilityPolicy: "exact-framework-tuple" },
   framework: supportedFrameworkTuple,
   packages: [{ package: "@fixture/module-upgrade", version: "1.0.1", role: "plugin", integrity: `sha512-${"a".repeat(86)}==`, peerCompatibility: supportedFrameworkTuple }],
+  factoryLockTemplates,
   supportWindow: { policy: "single-current-release", supportedReleases: ["1.0.0"], securityFixes: "all-supported-releases" }
 } as const satisfies PackageReleaseManifest;
 const currentReleaseManifest = {

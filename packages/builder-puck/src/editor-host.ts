@@ -13,6 +13,7 @@ export interface PuckEditorHostProps {
 }
 
 const editorConfigs = new WeakMap<object, Config>();
+const editorHeaders = new WeakMap<object, (input: Parameters<typeof renderAccessiblePuckHeader>[0]) => ReactElement>();
 
 function editorConfig(config: Config): Config {
   const cached = editorConfigs.get(config);
@@ -38,13 +39,26 @@ function editorConfig(config: Config): Config {
   return enhanced;
 }
 
+function editorHeader(config: Config): (input: Parameters<typeof renderAccessiblePuckHeader>[0]) => ReactElement {
+  const cached = editorHeaders.get(config);
+  if (cached !== undefined) return cached;
+  const components = Object.entries(config.components).map(([type, candidate]) => ({
+    type,
+    label: (candidate as { readonly label?: string }).label ?? type
+  }));
+  const render = (input: Parameters<typeof renderAccessiblePuckHeader>[0]) => renderAccessiblePuckHeader({ ...input, components });
+  editorHeaders.set(config, render);
+  return render;
+}
+
 /** The only package-level host that mounts Puck against canonical documents. */
 export function PuckEditorHost({ adapter, document, onChange, onPublish }: PuckEditorHostProps): ReactElement {
   const data = adapter.toPuckData(document);
+  const config = editorConfig(adapter.config);
   return createElement(Puck, {
-    config: editorConfig(adapter.config),
+    config,
     data,
-    renderHeader: renderAccessiblePuckHeader,
+    renderHeader: editorHeader(config),
     ...(onChange === undefined ? {} : { onChange: (next: Data) => onChange(adapter.fromPuckData(next)) }),
     ...(onPublish === undefined ? {} : { onPublish: (next: Data) => onPublish(adapter.fromPuckData(next)) })
   });

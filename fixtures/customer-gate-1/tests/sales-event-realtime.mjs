@@ -38,7 +38,7 @@ try {
     collection: "sales-opportunities", data: { name: "P6 durable opportunity", stage: "lead", value: "100" }, overrideAccess: true
   });
   await binding("actions", "sales.opportunity.stage.update")({
-    actor, request: req, authorizationContext: {}, input: { id: String(opportunity.id), stage: "qualified" },
+    actor, request: req, authorizationContext: {}, input: { id: String(opportunity.id), expectedStage: "lead", expectedRevision: opportunity.updatedAt, stage: "qualified" },
     idempotencyKey: "p6-sales-opportunity-event", signal
   });
 

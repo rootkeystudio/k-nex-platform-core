@@ -352,7 +352,12 @@ async function writeResolvedGraph(sourceDirectory) {
 }
 
 async function resolveLock(sourceDirectory) {
-  await command(npm, ["install", "--package-lock-only", "--legacy-peer-deps", "--ignore-scripts", "--no-audit", "--no-fund"], sourceDirectory);
+  const cacheDirectory = await mkdtemp(join(tmpdir(), "k-nex-npm-cache-"));
+  try {
+    await command(npm, ["install", "--package-lock-only", "--legacy-peer-deps", "--ignore-scripts", "--no-audit", "--no-fund", "--cache", cacheDirectory], sourceDirectory);
+  } finally {
+    await rm(cacheDirectory, { recursive: true, force: true });
+  }
   await writeResolvedGraph(sourceDirectory);
 }
 

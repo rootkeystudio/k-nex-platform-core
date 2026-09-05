@@ -27,7 +27,7 @@ export interface CustomerAuthorizationEnvironment {
 /** Customer-owned process composition: durable outbox fast path plus authoritative polling recovery. */
 export class CustomerAuthorizationConvergence {
   private readonly consumers: readonly RuntimeAuthorizationRevisionConsumer[];
-  private readonly worker: AuthorizationOutboxWorker;
+  private readonly workers: readonly AuthorizationOutboxWorker[];
 
   constructor(
     pool: RuntimeExtensionPool,
@@ -69,26 +69,33 @@ export class CustomerAuthorizationConvergence {
         }
       );
     }));
-    const dispatcher = new PostgresAuthorizationOutboxDispatcher(pool, { applicationId });
-    this.worker = new AuthorizationOutboxWorker(dispatcher, {
+    const sink = {
       publish: async (invalidation: AuthorizationRevisionInvalidation) => {
         const pending = this.consumers.filter((consumer) => consumer.invalidate(invalidation));
         await Promise.all(pending.map((consumer) => consumer.poll()));
       }
-    }, { intervalMs: options.dispatchIntervalMs ?? 1_000, onError: options.onError });
+    };
+    this.workers = Object.freeze(environments.map(({ environment }) => new AuthorizationOutboxWorker(
+      new PostgresAuthorizationOutboxDispatcher(pool, { applicationId, environment }),
+      sink,
+      { intervalMs: options.dispatchIntervalMs ?? 1_000, onError: options.onError }
+    )));
   }
 
   start(): void {
     for (const consumer of this.consumers) consumer.start();
-    this.worker.start();
+    for (const worker of this.workers) worker.start();
   }
 
   stop(): void {
-    this.worker.stop();
+    for (const worker of this.workers) worker.stop();
     for (const consumer of this.consumers) consumer.stop();
   }
 
-  dispatchOnce(): Promise<number> { return this.worker.drain(); }
+  async dispatchOnce(): Promise<number> {
+    const delivered = await Promise.all(this.workers.map((worker) => worker.drain()));
+    return delivered.reduce((total, count) => total + count, 0);
+  }
 
   async pollOnce(): Promise<number> {
     const changed = await Promise.all(this.consumers.map((consumer) => consumer.poll()));

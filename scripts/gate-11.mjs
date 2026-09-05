@@ -23,7 +23,7 @@ assert.match(corpus.stdout, /^P11_ATTACK_CORPUS_PASS$/mu, "Phase 11 attack corpu
 const result = read("docs/implementation/phase-11-result.md");
 for (const marker of [
   "# Phase 11 Result",
-  "**Decision:** **READY FOR PHASE REVIEW**",
+  "**Decision:** **ACCEPTED**",
   "GO EXPLICIT CRM/CMS PRODUCTIZATION DECISION"
 ]) assert.ok(result.includes(marker), `Phase 11 result is missing: ${marker}`);
 for (let task = 1; task <= 10; task += 1) assert.ok(result.includes(`P11.${task}`), `Phase 11 result is missing task P11.${task}.`);

@@ -11,6 +11,8 @@
   "scripts": {
     "build": "esbuild tests/hot-application-fixed-route-browser-entry.ts --bundle --format=esm --platform=browser --outfile=dist/tests/hot-application-fixed-route-browser-entry.js && tsc -b",
     "test": "pnpm build && node --test --test-concurrency=1 tests/payload-config.test.mjs tests/static-deployment-artifact-wait-timeout.test.mjs",
+    "test:p12:shell": "node --test --test-force-exit --test-concurrency=1 tests/generated-runnable-application-postgres.test.mjs",
+    "test:p12:storage": "node --test --test-force-exit --test-concurrency=1 tests/workspace-page-storage-postgres.test.mjs",
     "test:postgres": "pnpm build && pnpm --dir ../customer-alpha install --frozen-lockfile && pnpm --dir ../customer-beta install --frozen-lockfile && pnpm --dir ../customer-alpha build && pnpm --dir ../customer-beta build && node --test --test-concurrency=1 tests/app-storage-postgres.test.mjs tests/backup-restore-postgres.test.mjs tests/capability-authority-postgres.test.mjs tests/catalog-checkpoint-postgres.test.mjs tests/migration-fence-postgres.test.mjs tests/packed-customer-boot-postgres.test.mjs tests/postgres-gate.test.mjs tests/previous-release-upgrade-postgres.test.mjs tests/remote-ui-assets-postgres.test.mjs tests/runtime-extension-outbox-postgres.test.mjs tests/runtime-extension-state-postgres.test.mjs tests/static-deployment-postgres.test.mjs tests/static-lifecycle-admission-postgres.test.mjs tests/static-release-semver-postgres.test.mjs tests/static-retirement-fence-postgres.test.mjs tests/theme-skin-profile-postgres.test.mjs"
   },
   "dependencies": {
@@ -40,6 +42,7 @@
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.4",
     "esbuild": "0.28.2",
+    "playwright": "1.61.0",
     "pg": "8.20.0",
     "socket.io-client": "4.8.3",
     "typescript": "6.0.3"

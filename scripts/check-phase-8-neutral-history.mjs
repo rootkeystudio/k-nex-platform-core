@@ -11,6 +11,10 @@ const fixturePackage = "@fixture/module-upgrade";
 const release = (version, integrity) => ({ schemaVersion: 1,
   release: { version: "1.0.0", channel: "current", versioningPolicy: "semver-v1", compatibilityPolicy: "exact-framework-tuple" }, framework: supportedFrameworkTuple,
   packages: [{ package: fixturePackage, version, role: "plugin", integrity, peerCompatibility: supportedFrameworkTuple }],
+  factoryLockTemplates: {
+    minimal: { preset: "sales-reference", theme: "minimal", digest: `sha256:${"1".repeat(64)}` },
+    neobrutalism: { preset: "sales-reference", theme: "neobrutalism", digest: `sha256:${"2".repeat(64)}` }
+  },
   supportWindow: { policy: "single-current-release", supportedReleases: ["1.0.0"], securityFixes: "all-supported-releases" } });
 const prior = release("0.9.0", sri("fixture-prior"));
 const target = release("1.0.1", sri("fixture-target"));

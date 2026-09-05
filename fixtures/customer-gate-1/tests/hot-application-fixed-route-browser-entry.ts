@@ -5,6 +5,7 @@ declare global {
     __K_NEX_HOT_APPLICATION_ROUTE__: Readonly<{ applicationId: string; environment: "production"; appId: string; generationId: string; artifactDigest: string; revision: number; authorizationRevision: number; authorizationProof: string; sessionId: string; route: string; routes: readonly string[]; sources: readonly string[]; actions: readonly string[]; remoteUiFrameUrl: string; snapshotUrl: string; sourceUrl: string; drainMs: number }>;
     __K_NEX_HOT_APPLICATION_ROUTE_SESSION__?: Readonly<{ appId: string; generationId: string; route: string }>;
     __K_NEX_HOT_APPLICATION_LIFECYCLE_OBSERVATIONS__?: readonly Readonly<{ source: "snapshot-poll"; observedAt: number; generationId: string; revision: number; disposition: string; retirementScheduled: boolean; retirementCancelled: boolean }>[];
+    __K_NEX_TEST_ROUTE_LIFECYCLE_CONTROL__?: Readonly<{ pause(): Promise<void>; pollOnce(): Promise<void>; resume(): void }>;
   }
 }
 
@@ -40,6 +41,8 @@ Object.defineProperty(window, "__K_NEX_HOT_APPLICATION_LIFECYCLE_OBSERVATIONS__"
 let activeSession: RemoteUiHostSession | undefined;
 let authorizationRevision = configuration.authorizationRevision;
 let freshAdmissionRequested = false;
+let pollTimer: number | undefined;
+const inFlightPolls = new Set<Promise<void>>();
 function renderNode(node: RemoteUiNode): HTMLElement {
   if (node.component === "stack") {
     const element = document.createElement("div");
@@ -94,7 +97,7 @@ window.__K_NEX_HOT_APPLICATION_ROUTE_SESSION__ = Object.freeze({ appId: configur
 function requestFreshAdmission(revision: number): void {
   if (freshAdmissionRequested) return;
   freshAdmissionRequested = true;
-  clearInterval(pollTimer);
+  if (pollTimer !== undefined) clearInterval(pollTimer);
   activeSession?.dispose("authorization-revoked");
   activeSession = undefined;
   sessions.revokeAuthorization({ applicationId: configuration.applicationId, environment: configuration.environment, authorizationRevision: revision });
@@ -124,6 +127,32 @@ const poll = async (): Promise<void> => {
   sessions.observe(observed, configuration.drainMs);
   lifecycleObservations.push(Object.freeze({ source: "snapshot-poll", observedAt: Date.now(), generationId: observed.generationId, revision: observed.revision, disposition: observed.disposition, retirementScheduled, retirementCancelled }));
 };
-const pollTimer = window.setInterval(() => { void poll(); }, 100);
-void poll();
-addEventListener("pagehide", () => { clearInterval(pollTimer); remote.dispose(); }, { once: true });
+
+function startPolling(): void {
+  if (pollTimer !== undefined) return;
+  pollTimer = window.setInterval(() => { void runPoll(); }, 100);
+}
+
+function runPoll(): Promise<void> {
+  const inFlight = poll();
+  inFlightPolls.add(inFlight);
+  void inFlight.then(() => { inFlightPolls.delete(inFlight); }, () => { inFlightPolls.delete(inFlight); });
+  return inFlight;
+}
+
+async function pausePolling(): Promise<void> {
+  if (pollTimer !== undefined) {
+    clearInterval(pollTimer);
+    pollTimer = undefined;
+  }
+  await Promise.all([...inFlightPolls]);
+}
+
+Object.defineProperty(window, "__K_NEX_TEST_ROUTE_LIFECYCLE_CONTROL__", {
+  enumerable: false,
+  configurable: false,
+  value: Object.freeze({ pause: pausePolling, pollOnce: runPoll, resume: startPolling })
+});
+startPolling();
+void runPoll();
+addEventListener("pagehide", () => { void pausePolling(); remote.dispose(); }, { once: true });

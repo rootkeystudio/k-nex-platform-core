@@ -55,6 +55,12 @@ describe("Neobrutalism theme", () => {
     expect(neobrutalism.primitives.Dialog).toBe(minimal.primitives.Dialog);
   });
 
+  it("supports exact admin workspace profiles", () => {
+    const presentation = resolveNeobrutalismThemeProfile({ ...profile("theme.neobrutalism", "primary"), surface: "admin" });
+    expect(presentation.surface).toBe("admin");
+    expect(presentation.cssVariables["--k-nex-admin-color-background"]).toBe("#fff4cc");
+  });
+
   it("implements all primitive recipes and rejects invalid overrides", () => {
     expect(Object.keys(neobrutalismThemePackage.recipes)).toHaveLength(27);
     expect(() => resolveNeobrutalismThemeProfile({ ...profile("theme.neobrutalism", "primary"), values: { "radius.control": -1 } })).toThrow(/schema/);

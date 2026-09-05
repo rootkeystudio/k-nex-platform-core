@@ -10,6 +10,7 @@ import { createPuckBuilderAdapter, type PuckBlockBridge } from "@k-nex/builder-p
 import { presentUiRuntimeReact } from "@k-nex/ui-components";
 import { createUiDocumentRuntime, createUiRuntimeRegistry, presentUiRuntimeNode, presentUiRuntimeNodeWithIdentity, presentUiRuntimeResult } from "@k-nex/ui-runtime";
 import { createGenericPuckBlockBridges, genericPuckBlockBridges } from "../src/index.js";
+import { genericUiBlockDefinitions } from "../src/runtime.js";
 
 const genericSource: DataSourceDescriptor = {
   id: "content.records",
@@ -128,6 +129,7 @@ describe("generic Puck block library", () => {
 
   it("covers the canonical generic block set and round-trips through shared definitions", () => {
     expect(genericPuckBlockBridges.map(({ label }) => label)).toEqual(["Stack", "Grid", "Section", "Heading", "Text", "Card", "Alert", "Tabs", "Accordion", "Metric", "DataTable", "Form", "EmptyState"]);
+    expect(genericUiBlockDefinitions.map(({ id, version }) => ({ id, version }))).toEqual(genericPuckBlockBridges.map(({ definition }) => ({ id: definition.id, version: definition.version })));
     const nodes = genericPuckBlockBridges.map((bridge, index) => ({
       id: `generic-${index}`,
       type: bridge.definition.id,
@@ -176,6 +178,16 @@ describe("generic Puck block library", () => {
       else if (role === "tablist") expect(runtimeMarkup).toContain('role="tablist"');
       else if (role === "region") expect(runtimeMarkup).toMatch(/<section\b[^>]*aria-label=/);
     }
+  });
+
+  it("escapes persisted text props in editor preview and production output", () => {
+    const text = nestedBridge("content.text");
+    const unsafe = '<img src=x onerror="alert(1)">';
+    const node = { id: "unsafe-text", type: text.definition.id, version: 1, props: { text: unsafe } };
+    const output = text.definition.render({ node, props: node.props, surface: "public", actor });
+    const markup = renderToStaticMarkup(output.element as Parameters<typeof renderToStaticMarkup>[0]);
+    expect(markup).not.toContain("<img");
+    expect(markup).toContain("&lt;img src=x onerror=&quot;alert(1)&quot;&gt;");
   });
 
   it("declares standard source/action policies for the generic data components", () => {

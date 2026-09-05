@@ -16,6 +16,7 @@ export interface PuckBuilderProfile {
   readonly id: UiDocumentProfile;
   readonly blocks: readonly PuckProfileBlockResource[];
   readonly sources: readonly PuckProfileResource[];
+  readonly actions: readonly PuckProfileResource[];
   readonly publication: "draft-preview-publish" | "save-layout";
 }
 
@@ -25,6 +26,7 @@ export interface ResolvedPuckBuilderProfile {
   validateDocument(value: unknown): UiDocument;
   validateChange(previous: unknown, next: unknown): UiDocument;
   allowsSource(id: string, version: number): boolean;
+  allowsAction(id: string, version: number): boolean;
 }
 
 export interface PuckBuilderProfileRegistry {
@@ -58,7 +60,8 @@ function copyProfile(profile: PuckBuilderProfile): PuckBuilderProfile {
       ...resource,
       ...(resource.constraints === undefined ? {} : { constraints: deepFreeze(structuredClone(resource.constraints)) })
     }))),
-    sources: Object.freeze(profile.sources.map((resource) => Object.freeze({ ...resource })))
+    sources: Object.freeze(profile.sources.map((resource) => Object.freeze({ ...resource }))),
+    actions: Object.freeze(profile.actions.map((resource) => Object.freeze({ ...resource })))
   });
 }
 
@@ -164,7 +167,7 @@ function assertAuthorizedChange(
     const bridge = blockDefinitions.get(`${current.node.type}@${current.node.version}`)!;
     const editable = bridge.constraints?.locked ? [] : bridge.constraints?.editableFields ?? bridge.fields.map(({ prop }) => prop);
     const declared = new Set(bridge.fields.map(({ prop }) => prop));
-    if (current.node.bindings !== undefined || current.node.layout !== undefined || current.node.engineMetadata !== undefined ||
+    if (canonicalJson(current.node.bindings ?? null) !== canonicalJson(bridge.defaultBindings ?? null) || current.node.layout !== undefined || current.node.engineMetadata !== undefined ||
         Object.keys(current.node.props).some((prop) => !declared.has(prop))) {
       throw new TypeError(`Inserted block ${id} contains protected configuration.`);
     }
@@ -181,7 +184,8 @@ function assertDocumentPolicy(
   value: unknown,
   policy: PuckBuilderProfile,
   blockDefinitions: ReadonlyMap<string, PuckBlockBridge>,
-  sourceKeys: ReadonlySet<string>
+  sourceKeys: ReadonlySet<string>,
+  actionKeys: ReadonlySet<string>
 ): UiDocument {
   const document = UiDocumentSchema.parse(value);
   if (document.profile !== policy.id) throw new TypeError(`Puck ${policy.id} profile cannot edit a ${document.profile} document.`);
@@ -196,6 +200,13 @@ function assertDocumentPolicy(
     const source = node.bindings?.source?.source;
     if (source !== undefined && !sourceKeys.has(`${source.id}@${source.version}`)) {
       throw new TypeError(`Puck ${policy.id} profile forbids source ${source.id}@${source.version}.`);
+    }
+    const action = node.bindings?.action;
+    if (action !== undefined) {
+      const accepted = bridge.definition.actionPolicy?.actions.some(({ id, version }) => id === action.id && version === action.version) === true;
+      if (!accepted || !actionKeys.has(`${action.id}@${action.version}`)) {
+        throw new TypeError(`Puck ${policy.id} profile forbids action ${action.id}@${action.version}.`);
+      }
     }
     node.children?.forEach(visit);
   };
@@ -228,6 +239,7 @@ export function createPuckBuilderProfileRegistry(input: {
     if (!profiles.has(candidate.id) || resolved.has(candidate.id)) throw new TypeError("Puck builder profile IDs must be recognized and unique.");
     assertResources(candidate.blocks, "Puck profile blocks");
     assertResources(candidate.sources, "Puck profile sources");
+    assertResources(candidate.actions, "Puck profile actions");
     for (const block of candidate.blocks) {
       if (block.constraints !== undefined && !UiLayoutConstraintsSchema.safeParse(block.constraints).success) {
         throw new TypeError("Puck profile block constraints must satisfy the canonical contract.");
@@ -261,6 +273,7 @@ export function createPuckBuilderProfileRegistry(input: {
     const policy = copyProfile(candidate);
     const blockDefinitions = new Map(selectedBridges.map((bridge) => [keyOf(bridge.definition), bridge]));
     const sourceKeys = new Set(policy.sources.map(keyOf));
+    const actionKeys = new Set(policy.actions.map(keyOf));
     const selectedSources = policy.sources.map((resource) => sourceMap.get(keyOf(resource))!);
     const expectedSurface = policy.id === "cms" ? "public" : "workspace";
     const configuredPreview = input.preview?.[policy.id];
@@ -279,7 +292,7 @@ export function createPuckBuilderProfileRegistry(input: {
       ...selectedSources.flatMap((source) => [source.permission, ...(source.outputFields ?? []).map(({ permission }) => permission)])
     ]);
     const validatePublication = (value: unknown): UiDocument => {
-      const document = assertDocumentPolicy(value, policy, blockDefinitions, sourceKeys);
+      const document = assertDocumentPolicy(value, policy, blockDefinitions, sourceKeys, actionKeys);
       const result = runtime.render({
         document,
         surface: policy.id === "cms" ? "public" : "workspace",
@@ -298,22 +311,79 @@ export function createPuckBuilderProfileRegistry(input: {
     });
     const adapter: PuckBuilderAdapter = Object.freeze({
       config: baseAdapter.config,
-      toPuckData: (document: unknown) => baseAdapter.toPuckData(assertDocumentPolicy(document, policy, blockDefinitions, sourceKeys)),
-      fromPuckData: (data: unknown) => assertDocumentPolicy(baseAdapter.fromPuckData(data), policy, blockDefinitions, sourceKeys)
+      toPuckData: (document: unknown) => baseAdapter.toPuckData(assertDocumentPolicy(document, policy, blockDefinitions, sourceKeys, actionKeys)),
+      fromPuckData: (data: unknown) => assertDocumentPolicy(baseAdapter.fromPuckData(data), policy, blockDefinitions, sourceKeys, actionKeys)
     });
     resolved.set(policy.id, Object.freeze({
       policy,
       adapter,
       validateDocument: validatePublication,
       validateChange: (previous: unknown, next: unknown) => {
-        const prior = assertDocumentPolicy(previous, policy, blockDefinitions, sourceKeys);
-        const current = assertDocumentPolicy(next, policy, blockDefinitions, sourceKeys);
+        const prior = assertDocumentPolicy(previous, policy, blockDefinitions, sourceKeys, actionKeys);
+        const current = assertDocumentPolicy(next, policy, blockDefinitions, sourceKeys, actionKeys);
         assertAuthorizedChange(prior, current, blockDefinitions, canvasRegion);
         return current;
       },
-      allowsSource: (id: string, version: number) => sourceKeys.has(`${id}@${version}`)
+      allowsSource: (id: string, version: number) => sourceKeys.has(`${id}@${version}`),
+      allowsAction: (id: string, version: number) => actionKeys.has(`${id}@${version}`)
     }));
   }
 
   return Object.freeze({ resolve: (profile: UiDocumentProfile) => resolved.get(profile) });
+}
+
+export interface PuckBuilderAuthoritySnapshot {
+  readonly blocks: readonly PuckProfileResource[];
+  readonly sources: readonly PuckProfileResource[];
+  readonly actions: readonly PuckProfileResource[];
+}
+
+function sourceSatisfiesBlock(source: DataSourceDescriptor, bridge: PuckBlockBridge): boolean {
+  const policy = bridge.definition.sourcePolicy;
+  if (policy === undefined) return false;
+  return policy.contracts.some(({ id, version }) => source.primaryContract.id === id && source.primaryContract.version === version) &&
+    policy.requiredFields.every((field) => source.outputFields?.some(({ id }) => id === field) === true);
+}
+
+/** Resolves the editor library from server-authorized exact resource identities. */
+export function createAuthorizedPuckBuilderProfile(input: {
+  readonly profile: UiDocumentProfile;
+  readonly publication: PuckBuilderProfile["publication"];
+  readonly blocks: readonly PuckBlockBridge[];
+  readonly sources: readonly DataSourceDescriptor[];
+  readonly authority: PuckBuilderAuthoritySnapshot;
+  readonly preview?: PuckProfilePreviewContext;
+  readonly canvasRegion?: string;
+}): ResolvedPuckBuilderProfile {
+  assertResources(input.authority.blocks, "Authorized Puck blocks");
+  assertResources(input.authority.sources, "Authorized Puck sources");
+  assertResources(input.authority.actions, "Authorized Puck actions");
+  const allowedBlocks = new Set(input.authority.blocks.map(keyOf));
+  const allowedSources = new Set(input.authority.sources.map(keyOf));
+  const allowedActions = new Set(input.authority.actions.map(keyOf));
+  const sources = input.sources.filter((source) => allowedSources.has(keyOf(source)));
+  const blocks = input.blocks.filter((bridge) => {
+    if (!allowedBlocks.has(keyOf(bridge.definition)) || !bridge.definition.profiles.includes(input.profile)) return false;
+    const sourcePolicy = bridge.definition.sourcePolicy;
+    if (sourcePolicy?.required === true && !sources.some((source) => sourceSatisfiesBlock(source, bridge))) return false;
+    const actionPolicy = bridge.definition.actionPolicy;
+    if (actionPolicy?.required === true && !actionPolicy.actions.some((action) => allowedActions.has(keyOf(action)))) return false;
+    return true;
+  });
+  const profile: PuckBuilderProfile = {
+    id: input.profile,
+    blocks: blocks.map(({ definition }) => ({ id: definition.id, version: definition.version })),
+    sources: sources.map(({ id, version }) => ({ id, version })),
+    actions: input.authority.actions.map(({ id, version }) => ({ id, version })),
+    publication: input.publication
+  };
+  const resolved = createPuckBuilderProfileRegistry({
+    blocks,
+    sources,
+    profiles: [profile],
+    ...(input.canvasRegion === undefined ? {} : { canvasRegion: input.canvasRegion }),
+    ...(input.preview === undefined ? {} : { preview: { [input.profile]: input.preview } })
+  }).resolve(input.profile);
+  if (resolved === undefined) throw new TypeError("Authorized Puck profile could not be resolved.");
+  return resolved;
 }
