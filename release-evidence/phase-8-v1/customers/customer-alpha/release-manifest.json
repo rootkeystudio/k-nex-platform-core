@@ -2,12 +2,12 @@
   "$schema": "../../schemas/package-release-manifest.v1.schema.json",
   "factoryLockTemplates": {
     "minimal": {
-      "digest": "sha256:0eb587046f233ec77b651ff8e51f39438ce4b8ea2b759f494c6569b8dc03abcc",
+      "digest": "sha256:2016a99b6e0c342345b02e262f6554d91c134a46793aa0bea7e1f8f1d94e9db5",
       "preset": "sales-reference",
       "theme": "minimal"
     },
     "neobrutalism": {
-      "digest": "sha256:bdb4178feb9cf443a14cfa9988ab596f5b27b5f464f5aef1b527db14d199e3c1",
+      "digest": "sha256:b09a7daf157e9a6d8698bd06de30e69bf8b55fa972ef8734a6d4c4c496c4b5f9",
       "preset": "sales-reference",
       "theme": "neobrutalism"
     }
@@ -86,7 +86,7 @@
       "version": "1.0.0"
     },
     {
-      "integrity": "sha512-oXehmZg6BfnLdxhG2D5470xflxOt1HlTzAn5dg+lg/xnBjI7gY2ZjTprDyw9EoXynZnvZkHCVGcncElMSkpAVg==",
+      "integrity": "sha512-cvmLx5LfVWbowYgjXOMi7NIf1hD51eVaBjois6Bt8F6w/PHs3E4Q+IED/uNfV2xG2gIkQfw9G5Kg2uqy9o2h6Q==",
       "package": "@k-nex/payload-adapter",
       "peerCompatibility": {
         "core": "1.0.0",

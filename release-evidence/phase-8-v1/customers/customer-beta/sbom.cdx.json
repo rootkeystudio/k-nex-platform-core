@@ -2138,7 +2138,7 @@
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "a177a199983a05f9cb771846d83e78ef4c5f9713add47953cc09f9760fa583fc6706323b818d998d3a6b0f2c3d1285f29d99ef6641c254672770494c4a4a4056"
+          "content": "72f98bc792df5566e8c188235ce322ecd21fd610f9d5e55a063a22b3a06df05eb0fcf1ecdc4e10f88103fee35f576c46da022441fc3d1b92a0daeab2f68da1e9"
         }
       ],
       "name": "@k-nex/payload-adapter",
@@ -11603,7 +11603,7 @@
       "type": "application"
     }
   },
-  "serialNumber": "urn:uuid:00000000-0000-4000-8000-c3d7cfd1b086",
+  "serialNumber": "urn:uuid:00000000-0000-4000-8000-d775d74f83d7",
   "specVersion": "1.6",
   "version": 1
 }

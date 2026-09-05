@@ -6,10 +6,10 @@
   "deployedAt": "2026-09-01T12:15:00.000Z",
   "approvedBy": {
     "kind": "workflow",
-    "identity": "rootkeystudio/k-nex-platform-core/.github/workflows/deploy.yml@b3c199e208e331ea832264a1dd0b2a8dd1e6a2a9"
+    "identity": "rootkeystudio/k-nex-platform-core/.github/workflows/deploy.yml@c8fe7f2518c219957297155e307768837186ec5f"
   },
-  "artifactDigest": "sha256:8fca0a5fee4e56dce6ae9549c19d5eeed5c6a76fa6d3965e67d6b310a0e8b2eb",
-  "inventoryDigest": "sha256:89bb161d3982fd642676d81e2e427aacb46d9c30f779e839ec312f8f7c573337",
+  "artifactDigest": "sha256:0a82ba96ccfa3a8b71e4cab23f568a23c1317f2504641970a7ac935bd5bd5976",
+  "inventoryDigest": "sha256:d6cf27f973657f4d9620ae5f39d6dbd00a70673b7e8498d0b21b3113c30af331",
   "migrationRevision": 1,
   "smoke": {
     "status": "passed",

@@ -5,16 +5,16 @@
   "environment": "staging",
   "platformRelease": "1.0.0",
   "observedAt": "2026-09-01T12:10:00.000Z",
-  "artifactDigest": "sha256:8fca0a5fee4e56dce6ae9549c19d5eeed5c6a76fa6d3965e67d6b310a0e8b2eb",
+  "artifactDigest": "sha256:0a82ba96ccfa3a8b71e4cab23f568a23c1317f2504641970a7ac935bd5bd5976",
   "releaseEvidence": {
-    "sourceCommit": "b3c199e208e331ea832264a1dd0b2a8dd1e6a2a9",
-    "workflowIdentity": "rootkeystudio/k-nex-platform-core/.github/workflows/release-evidence.yml@b3c199e208e331ea832264a1dd0b2a8dd1e6a2a9",
+    "sourceCommit": "c8fe7f2518c219957297155e307768837186ec5f",
+    "workflowIdentity": "rootkeystudio/k-nex-platform-core/.github/workflows/release-evidence.yml@c8fe7f2518c219957297155e307768837186ec5f",
     "manifestDigest": "sha256:a0a2f7e2c9d046727804c805422dc4e9a135ff9de181bc06cdd68ccdf830ba72",
-    "lockfileDigest": "sha256:d991c1b190024f2f34fae2db30749553c8f159c3a8fafa25cfaf6a85530ed03b",
+    "lockfileDigest": "sha256:04b9a9b40d6f0379ae9850e9bd1119263d1d78c6e83d5db91ebea5086d7bd76c",
     "resolvedGraphDigest": "sha256:190375405cf3d6af64d4edf8002bc76b6565f75afff772c0e334e9937df82203",
     "frameworkDigest": "sha256:4e1cd64b546eb33d433cda29c18999d34d811086b4897b02d2401d62348af1f9",
-    "sbomDigest": "sha256:99ba0208901f8249b286a786ffb32992188b5518018490f5c00e9108a03043a6",
-    "provenanceDigest": "sha256:8a4f72b579968dc2ebd726ee74fd89bb8d33b6afb8b4022ed8f126cf11933f96"
+    "sbomDigest": "sha256:7da92acefe50ae4aefd94f6aa5373b12582f70550a3323be89c2af36bd3ff3c2",
+    "provenanceDigest": "sha256:f00b1ec6de653d351eea543f7c6cc2264c8ce60486ee3f5b7cc6f3ed16bde470"
   },
   "packages": [
     {
@@ -840,7 +840,7 @@
     {
       "package": "@k-nex/payload-adapter",
       "version": "1.0.0",
-      "integrity": "sha512-oXehmZg6BfnLdxhG2D5470xflxOt1HlTzAn5dg+lg/xnBjI7gY2ZjTprDyw9EoXynZnvZkHCVGcncElMSkpAVg=="
+      "integrity": "sha512-cvmLx5LfVWbowYgjXOMi7NIf1hD51eVaBjois6Bt8F6w/PHs3E4Q+IED/uNfV2xG2gIkQfw9G5Kg2uqy9o2h6Q=="
     },
     {
       "package": "@k-nex/runtime",
