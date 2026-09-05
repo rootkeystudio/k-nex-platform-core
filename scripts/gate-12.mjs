@@ -65,7 +65,7 @@ const unitProofs = [
     "rejects cross-tenant commands and commands outside the certificate command family",
     "binds replay identity to the unchanged canonical request and rejects forged responses"
   ]),
-  vitest("operator-adapter", "@k-nex/payload-adapter", ["tests/administration-operator-client.test.ts", "tests/administration-operator-https-server.test.ts", "tests/administration-extension-command-handler.test.ts"], [
+  vitest("operator-adapter", "@k-nex/payload-adapter", ["tests/administration-operator-client.test.ts", "tests/administration-operator-https-server.test.ts", "tests/administration-extension-command-handler.test.ts", "tests/remote-administration-extension-operator.test.ts", "tests/runtime-extension-store.test.ts", "tests/static-host-runtime-inventory.test.ts"], [
     "posts only the canonical command to the fixed mTLS endpoint and accepts an exactly bound response",
     "rejects invalid, inactive, cross-tenant, and oversized commands before transport",
     "rejects unbounded timeout and body-limit configuration",
@@ -77,9 +77,24 @@ const unitProofs = [
     "owns idempotent listener lifecycle without binding a real port",
     "binds a durable planned operation to the authenticated request and immutable actor",
     "uses the operation's lifecycle action for execute and supports the same durable replay",
+    "replays one exact committed plan and rejects a changed command under the same idempotency identity",
+    "rejects a completed replay after any unrelated later inventory transition",
     "rejects a plan that the durable operation did not persist exactly",
     "rejects partial execution and a forged post-execution request",
-    "rejects stale authority or revisions, cross-tenant operations, and another command family before mutation"
+    "rejects stale authority or revisions, cross-tenant operations, and another command family before mutation",
+    "submits execute and returns the exact terminal durable result",
+    "returns an exact persisted plan after HTTP response loss and rejects a changed payload under the same identity",
+    "uses the complete operation identity and returns the one durable match",
+    "returns no operation for a missing identity and fails closed on an ambiguous identity",
+    "claims one exact execute-command digest and exposes only its durable binding",
+    "initializes from locked revision-zero deployment and live fence with distinct plugin runtime generations",
+    "replays an exact initialized projection without another write",
+    "rejects code inventory that differs from configured host digest before DB access"
+  ]),
+  vitest("plugin-manager", "@k-nex/runtime", ["tests/plugin-manager.test.ts"], [
+    "plans and stages a verified live generation with resumable checkpoints",
+    "keeps Platform Plugin disable on the current application generation without source/build work",
+    "returns persisted receipts for every completed mutation without resuming its lease or side effects"
   ]),
   vitest("navigation", "@k-nex/ui-runtime", ["tests/workspace-navigation.test.ts"], [
     "resolves only implemented System routes and keeps Sales as a customer-page parent",
@@ -162,6 +177,7 @@ const processMarkers = [
   "P12_SYSTEM_ACCESS_ROLE_GRANT_ASSIGNMENT_POSTGRES_HTTP=PASS",
   "P12_SYSTEM_SETTINGS_AND_THEME_PROFILE_REAUTH_POSTGRES_HTTP=PASS",
   "P12_SYSTEM_EXTENSION_AND_OPERATIONS_ADMINISTRATION_POSTGRES_HTTP=PASS",
+  "P12_ADMINISTRATION_OPERATOR_RESPONSE_LOSS_POSTGRES_MTLS_HTTP=PASS",
   "P12_SYSTEM_SUBNAVIGATION_CURRENT_AUTHORITY_POSTGRES_HTTP=PASS",
   "P12_ATK_02_CROSS_CUSTOMER_READ_POSTGRES_DENIED=PASS",
   "P12_ATK_05_UNAUTHORIZED_DIRECT_URL_AND_ENUMERATION_HTTP_DENIED=PASS",

@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { createServer } from "node:net";
+import { createServer as createHttpsServer, request as requestHttps } from "node:https";
+import { createServer as createNetServer } from "node:net";
 import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -44,13 +45,94 @@ function assertRevenueMetricBinding(projection, { state, problemCode, problemSta
 }
 
 async function unusedPort() {
-  const server = createServer();
+  const server = createNetServer();
   await new Promise((resolveListen, reject) => server.once("error", reject).listen(0, "127.0.0.1", resolveListen));
   const address = server.address();
   assert.notEqual(typeof address, "string");
   const port = address.port;
   await new Promise((resolveClose, reject) => server.close((error) => error ? reject(error) : resolveClose()));
   return port;
+}
+
+async function startResponseLossRelay({ port, operatorPort, certificates }) {
+  const requests = new Map();
+  const responses = new Map();
+  const dropped = new Set();
+  const server = createHttpsServer({
+    minVersion: "TLSv1.3",
+    requestCert: true,
+    rejectUnauthorized: true,
+    cert: readFileSync(certificates.serverCert),
+    key: readFileSync(certificates.serverKey),
+    ca: readFileSync(certificates.caCert)
+  }, (incoming, outgoing) => {
+    const chunks = [];
+    incoming.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+    incoming.once("end", () => {
+      const body = Buffer.concat(chunks);
+      let kind;
+      try { kind = JSON.parse(body.toString("utf8")).kind; }
+      catch { kind = "invalid"; }
+      const attempts = requests.get(kind) ?? [];
+      attempts.push(body);
+      requests.set(kind, attempts);
+      const upstream = requestHttps({
+        protocol: "https:", hostname: "127.0.0.1", port: operatorPort, path: incoming.url,
+        method: incoming.method, rejectUnauthorized: true, agent: false,
+        cert: readFileSync(certificates.clientCert), key: readFileSync(certificates.clientKey), ca: readFileSync(certificates.caCert),
+        headers: { "content-type": incoming.headers["content-type"], "content-length": String(body.byteLength), accept: "application/json", connection: "close" }
+      }, (upstreamResponse) => {
+        const responseChunks = [];
+        upstreamResponse.on("data", (chunk) => responseChunks.push(Buffer.from(chunk)));
+        upstreamResponse.once("end", () => {
+          const responseBody = Buffer.concat(responseChunks);
+          const results = responses.get(kind) ?? [];
+          results.push(responseBody);
+          responses.set(kind, results);
+          if ((kind === "extension-plan" || kind === "extension-execute") && !dropped.has(kind) && upstreamResponse.statusCode === 200) {
+            dropped.add(kind);
+            outgoing.socket?.destroy();
+            return;
+          }
+          outgoing.writeHead(upstreamResponse.statusCode ?? 502, upstreamResponse.headers);
+          outgoing.end(responseBody);
+        });
+      });
+      upstream.once("error", () => {
+        if (!outgoing.headersSent) outgoing.writeHead(502);
+        outgoing.end();
+      });
+      upstream.end(body);
+    });
+  });
+  await new Promise((resolveListen, reject) => server.once("error", reject).listen(port, "127.0.0.1", resolveListen));
+  const address = server.address();
+  assert.ok(address && typeof address !== "string");
+  return Object.freeze({
+    port: address.port,
+    requests: (kind) => requests.get(kind) ?? [],
+    responses: (kind) => responses.get(kind) ?? [],
+    dropped: (kind) => dropped.has(kind),
+    close: async () => new Promise((resolveClose, reject) => server.close((error) => error ? reject(error) : resolveClose()))
+  });
+}
+
+async function submitOperatorCommand(port, certificates, command) {
+  const body = Buffer.from(canonicalJson(command));
+  return new Promise((resolveSubmit, reject) => {
+    const request = requestHttps({
+      protocol: "https:", hostname: "127.0.0.1", port, path: "/v1/commands", method: "POST",
+      rejectUnauthorized: true, agent: false,
+      cert: readFileSync(certificates.clientCert), key: readFileSync(certificates.clientKey), ca: readFileSync(certificates.caCert),
+      headers: { "content-type": "application/json", "content-length": String(body.byteLength), accept: "application/json", connection: "close" }
+    }, (response) => {
+      const chunks = [];
+      response.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+      response.once("end", () => resolveSubmit({ status: response.statusCode, body: Buffer.concat(chunks) }));
+    });
+    request.once("error", reject);
+    request.end(body);
+  });
 }
 
 function run(command, arguments_, options) {
@@ -156,13 +238,20 @@ async function postSystemForm(origin, sessionCookie, path, fields) {
   return response;
 }
 
-async function planAndExecuteExtensionInBrowser(context, origin, password, actionLabel, operation, diagnostics) {
+async function planAndExecuteExtensionInBrowser(context, origin, password, actionLabel, operation, diagnostics, afterPlan) {
   const administrationPage = await context.newPage();
   try {
     await administrationPage.goto(`${origin}/system/extensions/module.sales`);
+    const planButton = administrationPage.getByRole("button", { name: `Plan ${actionLabel}` });
+    const planSubmission = await planButton.evaluate((button) => {
+      const form = button.closest("form");
+      const intent = form?.querySelector("input[name='intent']");
+      if (!(form instanceof HTMLFormElement) || !(intent instanceof HTMLInputElement)) throw new Error("Signed extension plan intent is unavailable.");
+      return { action: form.action, intent: intent.value };
+    });
     const [planResponse] = await Promise.all([
       administrationPage.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/system/extensions/module.sales/plan"),
-      administrationPage.getByRole("button", { name: `Plan ${actionLabel}` }).click()
+      planButton.click()
     ]);
     if (planResponse.status() !== 303) {
       const body = await planResponse.text().catch(() => "unavailable");
@@ -171,6 +260,24 @@ async function planAndExecuteExtensionInBrowser(context, origin, password, actio
     await administrationPage.waitForURL(/\/system\/extensions\/module\.sales\?operation=operation-[0-9a-f]{32}$/u);
     const operationId = new URL(administrationPage.url()).searchParams.get("operation");
     assert.match(operationId, /^operation-[0-9a-f]{32}$/u);
+    const [planReplayResponse] = await Promise.all([
+      administrationPage.waitForResponse((response) => response.request().method() === "POST" && response.url() === planSubmission.action),
+      administrationPage.evaluate(({ action, intent }) => {
+        const form = document.createElement("form");
+        form.method = "POST";
+        form.action = action;
+        const field = document.createElement("input");
+        field.name = "intent";
+        field.value = intent;
+        form.append(field);
+        document.body.append(form);
+        form.submit();
+      }, planSubmission)
+    ]);
+    assert.equal(planReplayResponse.status(), 303, "The exact browser-issued signed plan intent must replay successfully.");
+    assert.equal(new URL(planReplayResponse.headers().location, origin).searchParams.get("operation"), operationId, "Signed plan-intent replay must return the same operation ID.");
+    await administrationPage.waitForURL(new RegExp(`/system/extensions/module\\.sales\\?operation=${operationId}$`, "u"));
+    await afterPlan?.(operationId);
     await administrationPage.getByLabel("Password").fill(password);
     await administrationPage.getByRole("button", { name: `Execute ${operation}` }).click();
     await administrationPage.waitForURL(new RegExp(`/system/extensions/module\\.sales\\?operation=${operationId}$`, "u"));
@@ -209,6 +316,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
   const managerPassword = randomBytes(24).toString("base64url");
   let applicationProcess;
   let operatorProcess;
+  let responseLossRelay;
   let workerProcess;
   let pool;
   let notificationClient;
@@ -226,6 +334,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     const operatorUriSan = `spiffe://k-nex.test/applications/${applicationId}/environments/${environmentName}/administration`;
     const operatorIdentity = "fixture.phase-12-administration-operator";
     const operatorCertificates = issueOperatorCertificates(root, operatorUriSan);
+    responseLossRelay = await startResponseLossRelay({ port: 0, operatorPort, certificates: operatorCertificates });
     const applicationEnvironment = {
       ...process.env,
       DATABASE_URL: container.getConnectionUri(),
@@ -233,7 +342,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
       K_NEX_PUBLIC_ORIGIN: `http://127.0.0.1:${port}`,
       PAYLOAD_SECRET: randomBytes(32).toString("hex"),
       K_NEX_ADMINISTRATION_OPERATOR_HOST: "127.0.0.1",
-      K_NEX_ADMINISTRATION_OPERATOR_PORT: String(operatorPort),
+      K_NEX_ADMINISTRATION_OPERATOR_PORT: String(responseLossRelay.port),
       K_NEX_ADMINISTRATION_OPERATOR_CLIENT_CERT: operatorCertificates.clientCert,
       K_NEX_ADMINISTRATION_OPERATOR_CLIENT_KEY: operatorCertificates.clientKey,
       K_NEX_ADMINISTRATION_OPERATOR_CA_CERT: operatorCertificates.caCert,
@@ -403,7 +512,6 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
       }
     });
     await until(async () => operatorProcess.output().includes(`P12_ADMINISTRATION_OPERATOR_READY=${operatorPort}`), () => `Administration operator did not start.\n${operatorProcess.output()}`, operatorProcess.child);
-
     const readinessOutput = run("pnpm", ["knex:doctor"], { cwd: application, env: applicationEnvironment, stdio: "pipe" });
     assert.match(readinessOutput, /K_NEX_APPLICATION_READY/u);
     applicationProcess = await startApplication(application, applicationEnvironment);
@@ -1407,7 +1515,39 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     assert.equal(preRetirementAction.status, 200, "The same actor must execute the registered Sales action before retirement.");
     assert.equal((await pool.query("select count(*)::int as count from sales_tasks where title=$1", [preRetirementActionTitle])).rows[0].count, 1);
     const operatorDiagnostics = () => `application=${applicationProcess.output()}\noperator=${operatorProcess.output()}`;
-    const disabledSalesOperationId = await planAndExecuteExtensionInBrowser(retiredRouteContext, applicationProcess.origin, managerPassword, "disable", "disable", operatorDiagnostics);
+    const disabledSalesOperationId = await planAndExecuteExtensionInBrowser(retiredRouteContext, applicationProcess.origin, managerPassword, "disable", "disable", operatorDiagnostics, async (operationId) => {
+      const attempts = responseLossRelay.requests("extension-plan");
+      const results = responseLossRelay.responses("extension-plan");
+      assert.equal(responseLossRelay.dropped("extension-plan"), true, "extension-plan must lose its first response after the operator returns 200.");
+      assert.equal(attempts.length, 2, "extension-plan must make exactly one transport retry before signed-intent replay.");
+      assert.equal(attempts[1].equals(attempts[0]), true, "extension-plan retry must preserve the exact command bytes.");
+      assert.equal(results.length, 2, "extension-plan retry must receive the durable operator result.");
+      assert.equal(results[1].equals(results[0]), true, "extension-plan retry must return the same durable response that was lost.");
+      assert.equal((await pool.query("select count(*)::int as count from runtime_extension_operations where operation_id=$1 and plan_json is not null", [operationId])).rows[0].count, 1, "Signed plan-intent replay must retain one operation.");
+      const originalCommand = JSON.parse(attempts[0].toString("utf8"));
+      const changedCommand = { ...originalCommand, version: "1.0.1" };
+      assert.equal(changedCommand.idempotencyKey, originalCommand.idempotencyKey);
+      const operationsBefore = (await pool.query("select count(*)::int as count from runtime_extension_operations where application_id=$1 and environment=$2", [applicationId, environmentName])).rows[0].count;
+      const denial = await submitOperatorCommand(responseLossRelay.port, operatorCertificates, changedCommand);
+      assert.notEqual(denial.status, 200, "A changed operator plan payload under the same idempotency key must be denied over real mTLS.");
+      assert.equal((await pool.query("select count(*)::int as count from runtime_extension_operations where application_id=$1 and environment=$2", [applicationId, environmentName])).rows[0].count, operationsBefore, "Changed operator plan replay must not create an operation.");
+    });
+    const executeAttempts = responseLossRelay.requests("extension-execute");
+    const executeResults = responseLossRelay.responses("extension-execute");
+    assert.equal(responseLossRelay.dropped("extension-execute"), true, "extension-execute must lose its first response after the operator returns 200.");
+    assert.equal(executeAttempts.length, 2, "extension-execute must make exactly one transport retry.");
+    assert.equal(executeAttempts[1].equals(executeAttempts[0]), true, "extension-execute retry must preserve the exact command bytes.");
+    assert.equal(executeResults.length, 2, "extension-execute retry must receive the durable operator result.");
+    assert.equal(executeResults[1].equals(executeResults[0]), true, "extension-execute retry must return the same durable response that was lost.");
+    assert.deepEqual((await pool.query(
+      `select
+         (select count(*)::int from runtime_extension_operations where operation_id=$1 and plan_json is not null) operations,
+         (select count(*)::int from runtime_extension_transition_receipts where operation_id=$1 and event_json->>'operationPhase'='completed') receipts,
+         (select count(*)::int from runtime_extension_audit where operation_id=$1 and event_json->>'operationPhase'='completed') audits,
+         (select count(*)::int from runtime_extension_outbox where event_json->>'operationId'=$1 and event_json->>'operationPhase'='completed') outbox`,
+      [disabledSalesOperationId]
+    )).rows, [{ operations: 1, receipts: 1, audits: 1, outbox: 1 }], "Lost plan/execute responses must replay one durable operation and one lifecycle transition.");
+    console.log("P12_ADMINISTRATION_OPERATOR_RESPONSE_LOSS_POSTGRES_MTLS_HTTP=PASS");
     const disabledSalesState = await durableStore.readState(applicationId, environmentName);
     assert.ok(disabledSalesState);
     assert.equal((await fetch(`${applicationProcess.origin}/api/readiness`)).status, 200, "A supported disable keeps the exact compiled generation ready while removing Sales availability.");
@@ -1544,6 +1684,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     console.log("P12_WORKSPACE_PAGE_EXECUTABLE_DEPENDENCY_LIFECYCLE_POSTGRES_HTTP=PASS");
     console.log("P12_9_GENERATED_APP_POSTGRES_HTTP_CHROMIUM_EVIDENCE=PASS");
   } finally {
+    await responseLossRelay?.close().catch(() => {});
     await stop(operatorProcess?.child, "administration operator").catch(() => {});
     await stop(workerProcess?.child).catch(() => {});
     await stop(applicationProcess?.child).catch(() => {});

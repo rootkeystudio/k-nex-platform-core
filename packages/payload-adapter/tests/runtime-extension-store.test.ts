@@ -37,6 +37,68 @@ describe("runner quarantine durable reasons", () => {
   });
 });
 
+describe("PostgresRuntimeExtensionStore idempotency lookup", () => {
+  const input = {
+    applicationId: owner.applicationId,
+    environment: owner.environment,
+    extension: { deliveryClass: owner.deliveryClass, id: owner.extensionId },
+    operation: "install" as const,
+    idempotencyKey: "extension-plan:intent-12345678"
+  };
+  const row = {
+    operation_id: "operation-idempotency-1",
+    application_id: input.applicationId,
+    environment: input.environment,
+    delivery_class: input.extension.deliveryClass,
+    extension_id: input.extension.id,
+    operation_kind: input.operation,
+    idempotency_key: input.idempotencyKey,
+    request_digest: digest("1"),
+    request_json: { ...input, expectedRevision: 0, correlationId: "administration-correlation-1" },
+    authorization_json: { actor: { kind: "trusted-automation", identity: "test" }, decisionId: digest("2") },
+    expected_revision: 0,
+    phase: "planned",
+    lease_owner: null,
+    lease_token: null,
+    lease_expires_at: null,
+    plan_json: null,
+    authority_json: null,
+    result_json: null
+  };
+
+  it("uses the complete operation identity and returns the one durable match", async () => {
+    const query = vi.fn(async () => ({ rows: [row] }));
+    const store = new PostgresRuntimeExtensionStore({ connect: vi.fn(), query }, { now: () => now }, digest("9"), { sharedStaticGenerationRebinder: staticRebinder() });
+
+    await expect(store.readOperationByIdempotency(input)).resolves.toMatchObject({ operationId: row.operation_id, requestDigest: row.request_digest });
+    expect(query).toHaveBeenCalledWith(expect.stringContaining("operation_kind=$5 and idempotency_key=$6"), [input.applicationId, input.environment, input.extension.deliveryClass, input.extension.id, input.operation, input.idempotencyKey]);
+  });
+
+  it("returns no operation for a missing identity and fails closed on an ambiguous identity", async () => {
+    const missing = new PostgresRuntimeExtensionStore({ connect: vi.fn(), query: vi.fn(async () => ({ rows: [] })) }, { now: () => now }, digest("9"), { sharedStaticGenerationRebinder: staticRebinder() });
+    await expect(missing.readOperationByIdempotency(input)).resolves.toBeUndefined();
+
+    const ambiguous = new PostgresRuntimeExtensionStore({ connect: vi.fn(), query: vi.fn(async () => ({ rows: [row, row] })) }, { now: () => now }, digest("9"), { sharedStaticGenerationRebinder: staticRebinder() });
+    await expect(ambiguous.readOperationByIdempotency(input)).rejects.toMatchObject({ code: "STATE_INVALID" });
+  });
+
+  it("claims one exact execute-command digest and exposes only its durable binding", async () => {
+    const executionDigest = digest("e");
+    const query = vi.fn(async (text: string) => text.startsWith("update runtime_extension_operations")
+      ? { rows: [{ execution_request_digest: executionDigest }] }
+      : { rows: [{ execution_request_digest: executionDigest }] });
+    const store = new PostgresRuntimeExtensionStore({ connect: vi.fn(), query }, { now: () => now }, digest("9"), { sharedStaticGenerationRebinder: staticRebinder() });
+    const binding = { operationId: row.operation_id, applicationId: input.applicationId, environment: input.environment };
+
+    await expect(store.claimExecutionRequestDigest({ ...binding, requestDigest: executionDigest })).resolves.toBeUndefined();
+    await expect(store.executionRequestDigest(binding)).resolves.toBe(executionDigest);
+    expect(query).toHaveBeenNthCalledWith(1, expect.stringContaining("execution_request_digest=coalesce(execution_request_digest,$4)"), [binding.operationId, binding.applicationId, binding.environment, executionDigest]);
+
+    const conflict = new PostgresRuntimeExtensionStore({ connect: vi.fn(), query: vi.fn(async () => ({ rows: [{ execution_request_digest: digest("f") }] })) }, { now: () => now }, digest("9"), { sharedStaticGenerationRebinder: staticRebinder() });
+    await expect(conflict.claimExecutionRequestDigest({ ...binding, requestDigest: executionDigest })).rejects.toMatchObject({ code: "IDEMPOTENCY_CONFLICT" });
+  });
+});
+
 function stage(overrides: Record<string, unknown> = {}) {
   return {
     authority,

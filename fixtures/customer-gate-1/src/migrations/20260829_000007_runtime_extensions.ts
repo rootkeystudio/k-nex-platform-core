@@ -63,6 +63,7 @@ export async function up({ db }: MigrateUpArgs): Promise<void> {
       "operation_kind" varchar(32) NOT NULL,
       "idempotency_key" varchar(160) NOT NULL,
       "request_digest" varchar(71) NOT NULL,
+      "execution_request_digest" varchar(71),
       "request_json" jsonb NOT NULL,
       "authorization_json" jsonb NOT NULL,
       "expected_revision" integer NOT NULL,
@@ -80,6 +81,7 @@ export async function up({ db }: MigrateUpArgs): Promise<void> {
       CONSTRAINT "runtime_extension_operations_phase_check" CHECK ("phase" IN ('planning','downloading','verified','staged','waiting-configuration','waiting-approval','warming','source-change-required','source-change-ready','build-attested','zero-downtime-eligible','maintenance-required','unsupported','rollback-window-open','rollback-window-closed','contract-cleanup-eligible','completed','failed')),
       CONSTRAINT "runtime_extension_operations_expected_revision_check" CHECK ("expected_revision" >= 0),
       CONSTRAINT "runtime_extension_operations_request_digest_check" CHECK ("request_digest" ~ '^sha256:[0-9a-f]{64}$'),
+      CONSTRAINT "runtime_extension_operations_execution_request_digest_check" CHECK ("execution_request_digest" IS NULL OR "execution_request_digest" ~ '^sha256:[0-9a-f]{64}$'),
       CONSTRAINT "runtime_extension_operations_json_check" CHECK (jsonb_typeof("request_json")='object' AND jsonb_typeof("authorization_json")='object' AND ("plan_json" IS NULL OR jsonb_typeof("plan_json")='object') AND ("authority_json" IS NULL OR jsonb_typeof("authority_json")='object')),
       CONSTRAINT "runtime_extension_operations_idempotency_key" UNIQUE ("application_id", "environment", "delivery_class", "extension_id", "operation_kind", "idempotency_key")
     );

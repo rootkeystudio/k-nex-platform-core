@@ -68,11 +68,17 @@ const plan = {
   }
 } as const;
 
+function durableRequest(value = command) {
+  const authenticated = { command: value, verifiedMtlsIdentity: identity } as const;
+  const digestValue = `sha256:${createHash("sha256").update(canonicalJson(administrationOperatorRequestDigestInput(authenticated))).digest("hex")}`;
+  return { applicationId: actor.applicationId, environment: actor.environment, extension: value.extension, operation: value.operation, targetVersion: value.version, expectedRevision: value.expected.extensionRevision, idempotencyKey: value.idempotencyKey, correlationId: `administration-${digestValue.slice("sha256:".length, "sha256:".length + 32)}` } as const;
+}
+
 function operation(overrides: Partial<RuntimeExtensionOperation> = {}): RuntimeExtensionOperation {
   return {
     operationId: plan.operationId,
-    request: { applicationId: actor.applicationId, environment: actor.environment, extension: command.extension, operation: command.operation, targetVersion: command.version, expectedRevision: 0, idempotencyKey: command.idempotencyKey, correlationId: "administration-extension-operator" },
-    requestDigest: digest("1"), authorization: { actor: { kind: "trusted-automation", identity: "operator:production" }, decisionId: "operator-decision-1" }, phase: "planning", leaseToken: "lease-token-1", plan,
+    request: durableRequest(),
+    requestDigest: `sha256:${createHash("sha256").update(canonicalJson(durableRequest())).digest("hex")}`, authorization: { actor: { kind: "actor", id: actor.effectiveActor.id, approvalId: "approval:owner" }, decisionId: "operator-decision-1" }, phase: "planning", leaseToken: "lease-token-1", plan,
     ...overrides
   };
 }
@@ -81,21 +87,39 @@ function authenticated(value = command): AdministrationOperatorAuthenticatedComm
   return { command: value, verifiedMtlsIdentity: identity } as AdministrationOperatorAuthenticatedCommand;
 }
 
+function authenticatedDigest(value: AdministrationOperatorAuthenticatedCommand): string {
+  return `sha256:${createHash("sha256").update(canonicalJson(administrationOperatorRequestDigestInput(value))).digest("hex")}`;
+}
+
 function harness(options: Readonly<{
   currentState?: unknown;
   currentInventory?: RuntimeExtensionInventory;
   stored?: RuntimeExtensionOperation;
-  afterActivate?: (replace: (next: RuntimeExtensionOperation) => void) => void;
+  replay?: RuntimeExtensionOperation;
+  executionDigest?: string;
+  afterActivate?: (replace: (next: RuntimeExtensionOperation) => void, replaceInventory: (next: RuntimeExtensionInventory) => void) => void;
 }> = {}) {
   let stored = options.stored ?? operation();
-  const api = { plan: vi.fn(async () => plan), activate: vi.fn(async () => options.afterActivate?.((next) => { stored = next; })), rollback: vi.fn(async () => undefined), disable: vi.fn(async () => undefined), uninstall: vi.fn(async () => undefined) } as unknown as ExtensionOperatorApi;
-  const store = { inventory: vi.fn(async () => options.currentInventory ?? inventory), readOperation: vi.fn(async () => stored) };
+  let currentInventory = options.currentInventory ?? inventory;
+  let replay = options.replay;
+  let executionDigest = options.executionDigest;
+  const api = { plan: vi.fn(async () => plan), activate: vi.fn(async () => options.afterActivate?.((next) => { stored = next; }, (next) => { currentInventory = next; })), rollback: vi.fn(async () => undefined), disable: vi.fn(async () => undefined), uninstall: vi.fn(async () => undefined) } as unknown as ExtensionOperatorApi;
+  const store = {
+    inventory: vi.fn(async () => currentInventory),
+    readOperation: vi.fn(async () => stored),
+    readOperationByIdempotency: vi.fn(async () => replay),
+    claimExecutionRequestDigest: vi.fn(async (input: { requestDigest: string }) => {
+      if (executionDigest !== undefined && executionDigest !== input.requestDigest) throw new TypeError("execution request conflict");
+      executionDigest = input.requestDigest;
+    }),
+    executionRequestDigest: vi.fn(async () => executionDigest)
+  };
   const value = new AdministrationExtensionCommandHandler({
     applicationId: actor.applicationId, environment: actor.environment, operatorIdentity: "operator:production", clock: () => new Date("2026-09-04T12:01:00.000Z"),
     authorizationState: { readState: vi.fn(async () => options.currentState ?? { schemaVersion: 1, applicationId: actor.applicationId, environment: actor.environment, authorizationRevision: 7, lifecycleRevision: 11 }) },
     store: store as never, operatorForActor: vi.fn(() => api)
   });
-  return { value, api, store, setStored: (next: RuntimeExtensionOperation) => { stored = next; } };
+  return { value, api, store, setStored: (next: RuntimeExtensionOperation) => { stored = next; }, setReplay: (next: RuntimeExtensionOperation) => { replay = next; } };
 }
 
 describe("AdministrationExtensionCommandHandler", () => {
@@ -115,15 +139,53 @@ describe("AdministrationExtensionCommandHandler", () => {
       [command.extension.id]: { disposition: "removed", revision: 1, lastOperationId: plan.operationId, lastReceiptId: "receipt-initial-1", stateDigest: digest("d") }
     } } } as const satisfies RuntimeExtensionInventory;
     const receipt = { receiptId: "receipt-extension-1", operationId: plan.operationId, operation: "install", generationId: plan.generationId,
-      revisionBefore: 0, revisionAfter: 1, inventoryRevision: 14, compatibility: { status: "compatible", windowId: "window-extension-1", closesAt: "2026-09-04T13:00:00.000Z", migrationDigest: digest("3"), dataRevision: 1 }, rollback: "available", occurredAt: "2026-09-04T12:01:01.000Z" } as const;
-    const test = harness({ currentInventory: activeInventory, afterActivate: (replace) => replace(operation({ phase: "completed", result: receipt })) });
+      revisionBefore: 1, revisionAfter: 2, inventoryRevision: 15, compatibility: { status: "compatible", windowId: "window-extension-1", closesAt: "2026-09-04T13:00:00.000Z", migrationDigest: digest("3"), dataRevision: 1 }, rollback: "available", occurredAt: "2026-09-04T12:01:01.000Z" } as const;
+    const finalInventory = { ...activeInventory, revision: 15, extensions: { ...activeInventory.extensions, hotApplications: {
+      [command.extension.id]: { ...activeInventory.extensions.hotApplications[command.extension.id], revision: 2, lastReceiptId: receipt.receiptId }
+    } } } as RuntimeExtensionInventory;
+    const test = harness({ currentInventory: activeInventory, afterActivate: (replace, replaceInventory) => {
+      replace(operation({ phase: "completed", result: receipt }));
+      replaceInventory(finalInventory);
+    } });
     const { extension: _extension, version: _version, operation: _operation, ...base } = command;
-    const execute = authenticated({ ...base, kind: "extension-execute", expected: { authorizationRevision: 7, lifecycleRevision: 11, inventoryRevision: 14, extensionRevision: 1 }, operationId: plan.operationId } as const);
+    const execute = authenticated({ ...base, kind: "extension-execute", expected: { authorizationRevision: 7, lifecycleRevision: 11, inventoryRevision: 14, extensionRevision: 1 }, operationId: plan.operationId, idempotencyKey: `execute:${plan.operationId}` } as const);
     const first = await test.value.handle(execute);
     const replay = await test.value.handle(execute);
     expect(first).toEqual(replay);
     expect(test.api.activate).toHaveBeenCalledWith(plan.operationId);
-    expect(test.api.activate).toHaveBeenCalledTimes(2);
+    expect(test.api.activate).toHaveBeenCalledTimes(1);
+    expect(test.store.claimExecutionRequestDigest).toHaveBeenCalledWith(expect.objectContaining({ operationId: plan.operationId, requestDigest: authenticatedDigest(execute) }));
+
+    const changed = authenticated({ ...execute.command, issuedAt: "2026-09-04T12:00:01.000Z" } as never);
+    await expect(test.value.handle(changed)).rejects.toThrow(/durable request/u);
+    expect(test.api.activate).toHaveBeenCalledTimes(1);
+  });
+
+  it("replays one exact committed plan and rejects a changed command under the same idempotency identity", async () => {
+    const persisted = operation();
+    const test = harness();
+    const first = await test.value.handle(authenticated());
+    test.setReplay(persisted);
+    const replay = await test.value.handle(authenticated());
+    expect(replay).toEqual(first);
+    expect(test.api.plan).toHaveBeenCalledTimes(1);
+
+    const changed = { ...command, issuedAt: "2026-09-04T12:00:01.000Z" } as const;
+    await expect(test.value.handle(authenticated(changed))).rejects.toThrow(/does not match/u);
+    expect(test.api.plan).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a completed replay after any unrelated later inventory transition", async () => {
+    const receipt = { receiptId: "receipt-extension-1", operationId: plan.operationId, operation: "install", generationId: plan.generationId,
+      revisionBefore: 1, revisionAfter: 2, inventoryRevision: 15, compatibility: { status: "compatible", windowId: "window-extension-1", closesAt: "2026-09-04T13:00:00.000Z", migrationDigest: digest("3"), dataRevision: 1 }, rollback: "available", occurredAt: "2026-09-04T12:01:01.000Z" } as const;
+    const laterInventory = { ...inventory, revision: 16, extensions: { platformPlugins: {}, themeSkins: {}, hotApplications: {
+      [command.extension.id]: { disposition: "removed", revision: 2, lastOperationId: plan.operationId, lastReceiptId: receipt.receiptId, stateDigest: digest("d") }
+    } } } as RuntimeExtensionInventory;
+    const { extension: _extension, version: _version, operation: _operation, ...base } = command;
+    const execute = authenticated({ ...base, kind: "extension-execute", expected: { authorizationRevision: 7, lifecycleRevision: 11, inventoryRevision: 14, extensionRevision: 1 }, operationId: plan.operationId, idempotencyKey: `execute:${plan.operationId}` } as const);
+    const test = harness({ currentInventory: laterInventory, stored: operation({ phase: "completed", result: receipt }), executionDigest: authenticatedDigest(execute) });
+    await expect(test.value.handle(execute)).rejects.toThrow(/does not match/u);
+    expect(test.api.activate).not.toHaveBeenCalled();
   });
 
   it("rejects a plan that the durable operation did not persist exactly", async () => {
@@ -139,7 +201,7 @@ describe("AdministrationExtensionCommandHandler", () => {
       [command.extension.id]: { disposition: "removed", revision: 1, lastOperationId: plan.operationId, lastReceiptId: "receipt-initial-1", stateDigest: digest("d") }
     } } } as const satisfies RuntimeExtensionInventory;
     const { extension: _extension, version: _version, operation: _operation, ...base } = command;
-    const execute = authenticated({ ...base, kind: "extension-execute", expected: { authorizationRevision: 7, lifecycleRevision: 11, inventoryRevision: 14, extensionRevision: 1 }, operationId: plan.operationId } as const);
+    const execute = authenticated({ ...base, kind: "extension-execute", expected: { authorizationRevision: 7, lifecycleRevision: 11, inventoryRevision: 14, extensionRevision: 1 }, operationId: plan.operationId, idempotencyKey: `execute:${plan.operationId}` } as const);
 
     const partial = harness({ currentInventory: activeInventory });
     await expect(partial.value.handle(execute)).rejects.toThrow();

@@ -27,7 +27,7 @@ Phase 12 turns the platform into a runnable generated customer application. A fi
 
 ## Executable evidence
 
-`pnpm gate:12:focused` builds the affected Phase 12 graph, verifies the exact v1 packed closure, runs 166 unit assertions while enforcing 67 exact named contract/operator/navigation/shell/administration/builder/service/generator/Sales proofs, then runs three real PostgreSQL/HTTP/Chromium process proofs. It machine-maps all 22 contracted attack IDs to evidence that actually passed.
+`pnpm gate:12:focused` builds the affected Phase 12 graph, verifies the exact v1 packed closure, runs 235 unit assertions while enforcing 80 exact named contract/operator/PluginManager/runtime-store/static-inventory/navigation/shell/administration/builder/service/generator/Sales proofs, then runs three real PostgreSQL/HTTP/Chromium process proofs. It machine-maps all 22 contracted attack IDs to evidence that actually passed.
 
 `pnpm gate:12` first runs cumulative Gate 0–11, then the exact focused Gate 12 evidence. Pull requests may run the focused command, but one exact-head cumulative run is required before merge.
 
@@ -35,7 +35,9 @@ Local `pnpm gate:12:focused` returned `GATE_12_PASS` on implementation head `8ea
 
 Gate-selected unit evidence covers authority-bound navigation outbox lease recovery and dead-lettering. The post-review generated PostgreSQL/HTTP/Chromium journey passed with published-only live navigation, durable server-scoped sidebar reload, current-authority folder mutation, duplicate-only replay and changed-payload denial, fixed-System-parent denial, one-winner folder CAS, worker-down polling/outbox recovery, built-in/Sales blocks, and Sales disable/recovery. Its System journey creates a normal role/grant/assignment, publishes a Theme Profile, changes authorized settings with reauthentication, disables/re-enables Sales through a separate TLS 1.3 mTLS operator, and inspects the resulting operation state.
 
-Focused/affected evidence: PASS on implementation head `8eab39b` plus this metadata-only phase-ready commit. The affected Gate 8 packed production boot passes with all nine generated migrations; the three affected Gate 10 PostgreSQL/HTTP/Chromium tests pass on `97a8b2d`. Inherited cumulative baseline: `3ab9f2e6` / run `33879701153`. The replacement is not relabelled as a cumulative Gate 0–12 run.
+The final response-loss closure adds one signed server-owned plan intent, durable exact execute-command digest binding, and completed-replay-before-drift handling. A real TLS 1.3 mTLS relay drops successful plan and execute responses after PostgreSQL commit; the generated app retries byte-identical commands, reuses the same browser intent and operation ID, denies a changed payload under the same key, and records exactly one terminal receipt, audit event, and outbox event.
+
+Focused/affected evidence: `pnpm gate:12:focused` PASS on the final review-fix tree based on `888b6f9`; isolated operator/store/schema tests, PluginManager, static-host reconciliation, packed closure/factory locks, audit-high, and diff checks also PASS. Inherited cumulative baseline: `3ab9f2e6` / run `33879701153`. The replacement is not relabelled as a cumulative Gate 0–12 run.
 
 ## Boundaries retained
 

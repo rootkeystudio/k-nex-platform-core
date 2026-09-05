@@ -49,6 +49,10 @@ export default withPayload(nextConfig, { devBundleServerPackages: false });
 `,
     "README.md": `# ${options.applicationName}
 
+## Administration operator
+
+Before starting this application, deploy the K-Nex administration operator as a separate private service. This repository does not generate or run that deployment-owned authority. Provision a client certificate whose URI SAN is bound to this application and environment, then set the \`K_NEX_ADMINISTRATION_OPERATOR_HOST\`, \`K_NEX_ADMINISTRATION_OPERATOR_PORT\`, \`K_NEX_ADMINISTRATION_OPERATOR_CLIENT_CERT\`, \`K_NEX_ADMINISTRATION_OPERATOR_CLIENT_KEY\`, \`K_NEX_ADMINISTRATION_OPERATOR_CA_CERT\`, \`K_NEX_ADMINISTRATION_OPERATOR_URI_SAN\`, and \`K_NEX_ADMINISTRATION_OPERATOR_IDENTITY\` values in \`.env\`. The operator must be reachable over mutual TLS at \`/v1/commands\` before \`pnpm knex:doctor\` or the web process starts.
+
 ## Local development
 
 Copy \`.env.example\` to \`.env\`, set every value, then run:

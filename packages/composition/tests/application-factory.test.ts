@@ -202,6 +202,10 @@ describe("create-knex-app", () => {
     expect(plan.files["pnpm-workspace.yaml"]).toContain('"@k-nex/module-sales": "file:.k-nex/packages/k-nex-module-sales-');
     expect(packageJson.scripts["knex:db:up"]).toBeUndefined();
     expect(plan.files["README.md"]).not.toContain("knex:db:up");
+    expect(plan.files["README.md"]).toContain("deploy the K-Nex administration operator as a separate private service");
+    expect(plan.files["README.md"]).toContain("does not generate or run that deployment-owned authority");
+    expect(plan.files["README.md"]).toContain("K_NEX_ADMINISTRATION_OPERATOR_CLIENT_CERT");
+    expect(plan.files["README.md"]).toContain("/v1/commands");
     expect(JSON.parse(plan.files["k-nex.app.json"]!).plugins[0].version).toBe(sales.version);
     expect(Object.keys(plan.artifactDigests)).toHaveLength(release.packages.length);
     const packageReleaseManifest = plan.files[".k-nex/package-release-manifest.json"]!;

@@ -34,6 +34,7 @@ describe("production runtime-extension schema migrations", () => {
     for (const fragment of [
       `CREATE TABLE "runtime_extensions"`,
       "runtime_extension_operations_idempotency_key",
+      "runtime_extension_operations_execution_request_digest_check",
       `CREATE TABLE "runtime_extension_artifact_bindings"`,
       `CREATE TABLE "runtime_static_deployments"`,
       `CREATE TABLE "runtime_extension_runner_quarantine_receipts"`,

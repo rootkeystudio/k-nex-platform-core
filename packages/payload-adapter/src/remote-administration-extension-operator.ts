@@ -25,7 +25,7 @@ import {
   type VerifiedGenerationAuthority
 } from "@k-nex/runtime";
 
-import { NodeHttpsAdministrationOperatorClient } from "./administration-operator-client.js";
+import { AdministrationOperatorClientError, NodeHttpsAdministrationOperatorClient } from "./administration-operator-client.js";
 import { type PostgresRuntimeExtensionStore } from "./runtime-extension-store.js";
 
 export type RemoteAdministrationExtensionOperatorErrorCode = "AUTHORITY_MISMATCH" | "REVISION_CONFLICT" | "RESULT_INVALID" | "OPERATOR_REJECTED";
@@ -47,7 +47,7 @@ export interface RemoteAdministrationExtensionOperatorOptions {
   readonly actor: AdministrationActorEnvelope;
   readonly inventory: RuntimeExtensionInventory;
   readonly client: NodeHttpsAdministrationOperatorClient;
-  readonly store: Pick<PostgresRuntimeExtensionStore, "inventory" | "readOperation">;
+  readonly store: Pick<PostgresRuntimeExtensionStore, "inventory" | "readOperation" | "readOperationByIdempotency">;
   readonly readers: RemoteAdministrationExtensionReaders;
   readonly now?: () => Date;
   readonly commandTtlMs?: number;
@@ -63,7 +63,7 @@ export class RemoteAdministrationExtensionOperator implements SystemExtensionOpe
   readonly #actor: AdministrationActorEnvelope;
   readonly #inventory: RuntimeExtensionInventory;
   readonly #client: NodeHttpsAdministrationOperatorClient;
-  readonly #store: Pick<PostgresRuntimeExtensionStore, "inventory" | "readOperation">;
+  readonly #store: Pick<PostgresRuntimeExtensionStore, "inventory" | "readOperation" | "readOperationByIdempotency">;
   readonly #readers: RemoteAdministrationExtensionReaders;
   readonly #now: () => Date;
   readonly #commandTtlMs: number;
@@ -112,9 +112,15 @@ export class RemoteAdministrationExtensionOperator implements SystemExtensionOpe
   async plan(request: ExtensionChangeRequest): Promise<PluginManagerPlan> {
     return this.safe(async () => {
       this.owner(request.applicationId, request.environment);
+      const replay = await this.#store.readOperationByIdempotency(request);
+      if (replay) {
+        this.boundActor(replay);
+        if (!replay.plan || canonicalJson(extensionRequestBinding(replay.request)) !== canonicalJson(extensionRequestBinding(request)) || replay.plan.operationId !== replay.operationId) fail("RESULT_INVALID");
+        return replay.plan;
+      }
       await this.assertCurrentInventory();
       if (request.expectedRevision !== entryRevision(this.#inventory, request.extension)) fail("REVISION_CONFLICT");
-      const response = await this.#client.submit(this.command({
+      const response = await this.submit(this.command({
         kind: "extension-plan",
         extension: request.extension,
         version: request.targetVersion,
@@ -165,8 +171,13 @@ export class RemoteAdministrationExtensionOperator implements SystemExtensionOpe
       const before = await this.boundOperation(operationId);
       await this.assertCurrentInventory();
       const current = inventoryEntry(this.#inventory, before.request.extension);
+      if (before.phase === "completed" && before.result) {
+        this.boundActor(before);
+        assertTerminalReplay(before, this.#inventory);
+        return before.result;
+      }
       if (!before.plan || !allowed.includes(before.request.operation) || !current || before.request.expectedRevision >= current.revision || current.lastOperationId !== operationId) fail("REVISION_CONFLICT");
-      const response = await this.#client.submit(this.command({
+      const response = await this.submit(this.command({
         kind: "extension-execute",
         operationId,
         idempotencyKey: executionIdempotencyKey(operationId),
@@ -205,6 +216,19 @@ export class RemoteAdministrationExtensionOperator implements SystemExtensionOpe
   private async acceptedOperation(response: AdministrationOperatorResponse, expectedId?: string): Promise<RuntimeExtensionOperation> {
     if (response.outcome !== "accepted" || response.authoritativeResult.kind !== "operation" || (expectedId !== undefined && response.authoritativeResult.operationId !== expectedId)) fail("OPERATOR_REJECTED");
     return this.boundOperation(response.authoritativeResult.operationId);
+  }
+
+  private async submit(command: AdministrationOperatorCommand): Promise<AdministrationOperatorResponse> {
+    try { return await this.#client.submit(command); }
+    catch (error) {
+      if (!(error instanceof AdministrationOperatorClientError) || (error.code !== "TIMEOUT" && error.code !== "TRANSPORT_FAILED")) throw error;
+      return this.#client.submit(command);
+    }
+  }
+
+  private boundActor(operation: RuntimeExtensionOperation): void {
+    if (operation.authorization.actor.kind !== "actor" || operation.authorization.actor.id !== this.#actor.effectiveActor.id ||
+      operation.requestDigest !== canonicalDigest(operation.request)) fail("AUTHORITY_MISMATCH");
   }
 
   private async boundOperation(operationId: string): Promise<RuntimeExtensionOperation> {
@@ -270,6 +294,10 @@ function extensionRequestBinding(request: ExtensionChangeRequest) {
   return binding;
 }
 
+function canonicalDigest(value: unknown): string {
+  return `sha256:${createHash("sha256").update(canonicalJson(value)).digest("hex")}`;
+}
+
 async function bindResultDigest(response: AdministrationOperatorResponse, operation: RuntimeExtensionOperation): Promise<void> {
   if (response.resultDigest !== remoteAdministrationExtensionOperationDigest(operation)) fail("RESULT_INVALID");
 }
@@ -287,6 +315,20 @@ function inventoryEntry(inventory: RuntimeExtensionInventory, extension: Extensi
   const entries = extension.deliveryClass === "platform-plugin" ? inventory.extensions.platformPlugins
     : extension.deliveryClass === "hot-application" ? inventory.extensions.hotApplications : inventory.extensions.themeSkins;
   return entries[extension.id];
+}
+
+function assertTerminalReplay(operation: RuntimeExtensionOperation, inventory: RuntimeExtensionInventory): void {
+  const result = operation.result;
+  const current = inventoryEntry(inventory, operation.request.extension);
+  if (!isLifecycleReceipt(result) || result.operationId !== operation.operationId || result.operation !== operation.request.operation || result.revisionBefore !== operation.request.expectedRevision + 1 ||
+    result.revisionAfter <= result.revisionBefore || inventory.revision !== result.inventoryRevision || !current ||
+    current.revision !== result.revisionAfter || current.lastOperationId !== operation.operationId || current.lastReceiptId !== result.receiptId) {
+    fail("REVISION_CONFLICT");
+  }
+}
+
+function isLifecycleReceipt(result: RuntimeExtensionOperation["result"]): result is Exclude<NonNullable<RuntimeExtensionOperation["result"]>, { applicationId: string }> {
+  return result !== undefined && "operationId" in result && "inventoryRevision" in result;
 }
 
 function executionIdempotencyKey(operationId: string): string {

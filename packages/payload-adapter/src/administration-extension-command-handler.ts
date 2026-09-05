@@ -15,7 +15,7 @@ import {
   type AuthorizationState,
   type RuntimeExtensionInventory
 } from "@k-nex/contracts";
-import type { ExtensionOperatorApi, RuntimeExtensionOperation } from "@k-nex/runtime";
+import type { ExtensionChangeRequest, ExtensionOperatorApi, RuntimeExtensionOperation } from "@k-nex/runtime";
 
 import { remoteAdministrationExtensionOperationDigest } from "./remote-administration-extension-operator.js";
 import type { PostgresRuntimeExtensionStore } from "./runtime-extension-store.js";
@@ -26,7 +26,7 @@ export interface AdministrationExtensionCommandHandlerOptions {
   readonly operatorIdentity: string;
   readonly clock: () => Date;
   readonly authorizationState: Readonly<{ readState(applicationId: string, environment: string): Promise<AuthorizationState | undefined> }>;
-  readonly store: Pick<PostgresRuntimeExtensionStore, "inventory" | "readOperation">;
+  readonly store: Pick<PostgresRuntimeExtensionStore, "inventory" | "readOperation" | "readOperationByIdempotency" | "claimExecutionRequestDigest" | "executionRequestDigest">;
   readonly operatorForActor: (actor: AdministrationActorEnvelope) => ExtensionOperatorApi | Promise<ExtensionOperatorApi>;
 }
 
@@ -48,6 +48,20 @@ export class AdministrationExtensionCommandHandler {
     }
 
     const actor = immutableActor(command.actor);
+    if (command.kind === "extension-plan") {
+      const request = planRequest(command, requestDigest(authenticated), this.options.applicationId, this.options.environment);
+      const replay = await this.options.store.readOperationByIdempotency(request);
+      if (replay) return this.response(authenticated, exactPlanReplay(replay, request, actor));
+    } else {
+      const operation = await this.boundOperation(command.operationId);
+      if (operation.phase === "completed" && operation.result) {
+        if (await this.options.store.executionRequestDigest({ operationId: operation.operationId, applicationId: this.options.applicationId, environment: this.options.environment }) !== requestDigest(authenticated)) {
+          throw new TypeError("Administration execution replay does not match its durable request.");
+        }
+        const inventory = await this.options.store.inventory(this.options.applicationId, this.options.environment);
+        return this.response(authenticated, exactExecuteReplay(command, operation, actor, inventory));
+      }
+    }
     const [state, inventory] = await Promise.all([
       this.options.authorizationState.readState(this.options.applicationId, this.options.environment),
       this.options.store.inventory(this.options.applicationId, this.options.environment)
@@ -56,8 +70,12 @@ export class AdministrationExtensionCommandHandler {
     const currentInventory = assertInventory(inventory, this.options.applicationId, this.options.environment, command.expected.inventoryRevision);
 
     const operation = command.kind === "extension-plan"
-      ? await this.plan(command, actor, currentInventory)
-      : await this.execute(command, actor, currentInventory);
+      ? await this.plan(command, actor, currentInventory, planRequest(command, requestDigest(authenticated), this.options.applicationId, this.options.environment))
+      : await this.execute(command, actor, currentInventory, requestDigest(authenticated));
+    return this.response(authenticated, operation);
+  }
+
+  private response(authenticated: AdministrationOperatorAuthenticatedCommand, operation: RuntimeExtensionOperation): AdministrationOperatorResponse {
     return AdministrationOperatorResponseSchema.parse({
       schemaVersion: 1,
       outcome: "accepted",
@@ -71,21 +89,12 @@ export class AdministrationExtensionCommandHandler {
   private async plan(
     command: Extract<AdministrationOperatorAuthenticatedCommand["command"], { kind: "extension-plan" }>,
     actor: AdministrationActorEnvelope,
-    inventory: RuntimeExtensionInventory
+    inventory: RuntimeExtensionInventory,
+    request: ExtensionChangeRequest
   ): Promise<RuntimeExtensionOperation> {
     if (entryRevision(inventory, command.extension) !== command.expected.extensionRevision) {
       throw new TypeError("Extension target revision is stale.");
     }
-    const request = Object.freeze({
-      applicationId: this.options.applicationId,
-      environment: this.options.environment,
-      extension: command.extension,
-      operation: command.operation,
-      targetVersion: command.version,
-      expectedRevision: command.expected.extensionRevision,
-      idempotencyKey: command.idempotencyKey,
-      correlationId: "administration-extension-operator"
-    });
     const plan = await (await this.options.operatorForActor(actor)).plan(request);
     const operation = await this.boundOperation(plan.operationId);
     if (!operation.plan || canonicalJson(operation.request) !== canonicalJson(request) || canonicalJson(operation.plan) !== canonicalJson(plan)) {
@@ -97,7 +106,8 @@ export class AdministrationExtensionCommandHandler {
   private async execute(
     command: Extract<AdministrationOperatorAuthenticatedCommand["command"], { kind: "extension-execute" }>,
     actor: AdministrationActorEnvelope,
-    inventory: RuntimeExtensionInventory
+    inventory: RuntimeExtensionInventory,
+    commandDigest: string
   ): Promise<RuntimeExtensionOperation> {
     const before = await this.boundOperation(command.operationId);
     const request = canonicalJson(before.request);
@@ -107,6 +117,7 @@ export class AdministrationExtensionCommandHandler {
       (impactOnlyStatic ? before.request.expectedRevision !== revision : before.request.expectedRevision >= revision || entry(inventory, before.request.extension)?.lastOperationId !== before.operationId)) {
       throw new TypeError("Extension operation no longer owns the current target.");
     }
+    await this.options.store.claimExecutionRequestDigest({ operationId: before.operationId, applicationId: this.options.applicationId, environment: this.options.environment, requestDigest: commandDigest });
     const operator = await this.options.operatorForActor(actor);
     switch (before.request.operation) {
       case "install":
@@ -176,6 +187,61 @@ function entryRevision(inventory: RuntimeExtensionInventory, extension: RuntimeE
 
 function requestDigest(value: AdministrationOperatorAuthenticatedCommand): string {
   return `sha256:${createHash("sha256").update(canonicalJson(administrationOperatorRequestDigestInput(value))).digest("hex")}`;
+}
+
+function planRequest(
+  command: Extract<AdministrationOperatorAuthenticatedCommand["command"], { kind: "extension-plan" }>,
+  commandDigest: string,
+  applicationId: string,
+  environment: string
+): ExtensionChangeRequest {
+  return Object.freeze({
+    applicationId,
+    environment,
+    extension: command.extension,
+    operation: command.operation,
+    targetVersion: command.version,
+    expectedRevision: command.expected.extensionRevision,
+    idempotencyKey: command.idempotencyKey,
+    correlationId: `administration-${commandDigest.slice("sha256:".length, "sha256:".length + 32)}`
+  });
+}
+
+function boundActor(operation: RuntimeExtensionOperation, actor: AdministrationActorEnvelope): boolean {
+  return operation.authorization.actor.kind === "actor" && operation.authorization.actor.id === actor.effectiveActor.id;
+}
+
+function exactPlanReplay(operation: RuntimeExtensionOperation, request: ExtensionChangeRequest, actor: AdministrationActorEnvelope): RuntimeExtensionOperation {
+  if (!boundActor(operation, actor) || !operation.plan || operation.operationId !== operation.plan.operationId ||
+    canonicalJson(operation.request) !== canonicalJson(request) || operation.requestDigest !== canonicalDigest(operation.request)) throw new TypeError("Administration plan replay does not match its durable operation.");
+  return operation;
+}
+
+function exactExecuteReplay(
+  command: Extract<AdministrationOperatorAuthenticatedCommand["command"], { kind: "extension-execute" }>,
+  operation: RuntimeExtensionOperation,
+  actor: AdministrationActorEnvelope,
+  inventoryInput: RuntimeExtensionInventory
+): RuntimeExtensionOperation {
+  const inventory = RuntimeExtensionInventorySchema.parse(inventoryInput);
+  const result = operation.result;
+  const current = entry(inventory, operation.request.extension);
+  if (!boundActor(operation, actor) || operation.requestDigest !== canonicalDigest(operation.request) || command.idempotencyKey !== `execute:${operation.operationId}`.slice(0, 160) || !isLifecycleReceipt(result) ||
+    result.operationId !== operation.operationId || result.operation !== operation.request.operation || result.revisionBefore !== command.expected.extensionRevision ||
+    result.revisionAfter <= result.revisionBefore || result.inventoryRevision !== command.expected.inventoryRevision + 1 ||
+    inventory.revision !== result.inventoryRevision || !current || current.revision !== result.revisionAfter ||
+    current.lastOperationId !== operation.operationId || current.lastReceiptId !== result.receiptId) {
+    throw new TypeError("Administration execution replay does not match its durable result.");
+  }
+  return operation;
+}
+
+function isLifecycleReceipt(result: RuntimeExtensionOperation["result"]): result is Exclude<NonNullable<RuntimeExtensionOperation["result"]>, { applicationId: string }> {
+  return result !== undefined && "operationId" in result && "inventoryRevision" in result;
+}
+
+function canonicalDigest(value: unknown): string {
+  return `sha256:${createHash("sha256").update(canonicalJson(value)).digest("hex")}`;
 }
 
 function validOwner(applicationId: string, environment: string): boolean {

@@ -16,5 +16,8 @@ Implemented closure:
 2. `AdministrationExtensionCommandHandler` re-enters current PostgreSQL authority and inventory, then delegates to the existing `ExtensionOperatorApi` and durable runtime store.
 3. `PostgresRuntimeExtensionStore.reconcileStaticHostInventory` binds the runtime projection to current static deployment and fencing evidence; it cannot fabricate lifecycle transitions.
 4. The generated app proves role/grant/assignment administration, Theme Profile publication, settings reauthentication, Sales disable/re-enable, and operation inspection through real PostgreSQL, HTTP, Chromium, and a separate mTLS operator process.
+5. Extension plan forms carry one opaque signed server intent bound to the current actor and exact authority/inventory revisions. Exact resubmission resolves the existing durable operation; changed or unrelated state fails closed.
+6. Operator retries reuse the exact command bytes. PostgreSQL binds the first execute-command digest before mutation, and a completed replay is returned only for that exact command, actor, prior revision, terminal receipt, and still-current inventory result.
+7. A TLS 1.3 mTLS response-loss relay proves dropped plan and execute responses, byte-identical retries, signed browser-intent replay, changed-payload denial, and exactly one PostgreSQL operation/receipt/audit/outbox effect.
 
 The web process remains only a current-authority requester and receives no deployment, build, Docker, repository-write, or arbitrary inventory authority.

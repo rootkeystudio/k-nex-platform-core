@@ -16,6 +16,7 @@ import {
 } from "@k-nex/contracts";
 import type {
   ClaimOperationResult,
+  ExtensionChangeRequest,
   ExtensionActivationReceipt,
   ExtensionDispositionReceipt,
   ExtensionEnableReceipt,
@@ -1603,6 +1604,47 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
   async readOperation(id: string): Promise<RuntimeExtensionOperation | undefined> {
     const result = await this.pool.query<OperationRow>(`select * from runtime_extension_operations where operation_id=$1`, [id]);
     return result.rows[0] ? operation(result.rows[0]) : undefined;
+  }
+
+  async readOperationByIdempotency(input: Pick<ExtensionChangeRequest, "applicationId" | "environment" | "extension" | "operation" | "idempotencyKey">): Promise<RuntimeExtensionOperation | undefined> {
+    if (!/^[a-z][a-z0-9-]{2,127}$/u.test(input.applicationId) || !/^[a-z][a-z0-9-]{1,63}$/u.test(input.environment) ||
+      !ExtensionIdentitySchema.safeParse(input.extension).success || !["install", "update", "disable", "rollback", "uninstall"].includes(input.operation) ||
+      !/^[A-Za-z0-9][A-Za-z0-9._:-]{7,159}$/u.test(input.idempotencyKey)) {
+      fail("STATE_INVALID", "Runtime extension operation lookup is invalid.");
+    }
+    const result = await this.pool.query<OperationRow>(
+      `select * from runtime_extension_operations where application_id=$1 and environment=$2 and delivery_class=$3 and extension_id=$4 and operation_kind=$5 and idempotency_key=$6`,
+      [input.applicationId, input.environment, input.extension.deliveryClass, input.extension.id, input.operation, input.idempotencyKey]
+    );
+    if (result.rows.length > 1) fail("STATE_INVALID", "Runtime extension idempotency identity is ambiguous.");
+    return result.rows[0] ? operation(result.rows[0]) : undefined;
+  }
+
+  async claimExecutionRequestDigest(input: Readonly<{ operationId: string; applicationId: string; environment: string; requestDigest: string }>): Promise<void> {
+    if (!/^[a-z][a-z0-9-]{2,127}$/u.test(input.operationId) || !/^[a-z][a-z0-9-]{2,127}$/u.test(input.applicationId) ||
+      !/^[a-z][a-z0-9-]{1,63}$/u.test(input.environment) || !/^sha256:[0-9a-f]{64}$/u.test(input.requestDigest)) {
+      fail("STATE_INVALID", "Runtime extension execution request binding is invalid.");
+    }
+    const result = await this.pool.query<{ execution_request_digest: string }>(
+      `update runtime_extension_operations set execution_request_digest=coalesce(execution_request_digest,$4)
+       where operation_id=$1 and application_id=$2 and environment=$3 returning execution_request_digest`,
+      [input.operationId, input.applicationId, input.environment, input.requestDigest]
+    );
+    if (result.rows.length !== 1 || result.rows[0]?.execution_request_digest !== input.requestDigest) {
+      fail("IDEMPOTENCY_CONFLICT", "Runtime extension execution request does not match its durable binding.");
+    }
+  }
+
+  async executionRequestDigest(input: Readonly<{ operationId: string; applicationId: string; environment: string }>): Promise<string | undefined> {
+    if (!/^[a-z][a-z0-9-]{2,127}$/u.test(input.operationId) || !/^[a-z][a-z0-9-]{2,127}$/u.test(input.applicationId) || !/^[a-z][a-z0-9-]{1,63}$/u.test(input.environment)) {
+      fail("STATE_INVALID", "Runtime extension execution request lookup is invalid.");
+    }
+    const result = await this.pool.query<{ execution_request_digest: string | null }>(
+      `select execution_request_digest from runtime_extension_operations where operation_id=$1 and application_id=$2 and environment=$3`,
+      [input.operationId, input.applicationId, input.environment]
+    );
+    if (result.rows.length > 1) fail("STATE_INVALID", "Runtime extension execution request identity is ambiguous.");
+    return result.rows[0]?.execution_request_digest ?? undefined;
   }
 
   async observeActiveGeneration(applicationId: string, environment: string, extension: Parameters<RuntimeExtensionStore["observeActiveGeneration"]>[2]) {

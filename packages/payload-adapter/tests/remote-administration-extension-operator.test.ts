@@ -1,8 +1,10 @@
+import { createHash } from "node:crypto";
+
 import { describe, expect, it, vi } from "vitest";
 
-import type { AdministrationOperatorCommand, AdministrationOperatorResponse, RuntimeExtensionInventory } from "@k-nex/contracts";
+import { canonicalJson, type AdministrationOperatorCommand, type AdministrationOperatorResponse, type RuntimeExtensionInventory } from "@k-nex/contracts";
 import type { ExtensionChangeRequest, PluginManagerPlan, RuntimeExtensionOperation } from "@k-nex/runtime";
-import type { NodeHttpsAdministrationOperatorClient } from "../src/administration-operator-client.js";
+import { AdministrationOperatorClientError, type NodeHttpsAdministrationOperatorClient } from "../src/administration-operator-client.js";
 import {
   RemoteAdministrationExtensionOperator,
   remoteAdministrationExtensionOperationDigest
@@ -81,11 +83,12 @@ const authority = {
 } as const;
 
 function operation(overrides: Partial<RuntimeExtensionOperation> = {}): RuntimeExtensionOperation {
+  const boundRequest = overrides.request ?? request;
   return {
     operationId: plan.operationId,
-    request,
-    requestDigest: digest("1"),
-    authorization: { actor: { kind: "trusted-automation", identity: "operator:production" }, decisionId: "operator-decision-1" },
+    request: boundRequest,
+    requestDigest: `sha256:${createHash("sha256").update(canonicalJson(boundRequest)).digest("hex")}`,
+    authorization: { actor: { kind: "actor", id: actor.effectiveActor.id, approvalId: "approval:owner" }, decisionId: "operator-decision-1" },
     phase: "staged",
     leaseToken: "lease-token-1",
     plan,
@@ -105,11 +108,12 @@ function accepted(value: RuntimeExtensionOperation, operationId = value.operatio
   };
 }
 
-function harness(options: { snapshotInventory?: RuntimeExtensionInventory; currentInventory?: RuntimeExtensionInventory; stored?: RuntimeExtensionOperation; submit?: (command: AdministrationOperatorCommand) => Promise<AdministrationOperatorResponse> } = {}) {
+function harness(options: { snapshotInventory?: RuntimeExtensionInventory; currentInventory?: RuntimeExtensionInventory; stored?: RuntimeExtensionOperation; replay?: RuntimeExtensionOperation; submit?: (command: AdministrationOperatorCommand) => Promise<AdministrationOperatorResponse> } = {}) {
   let stored = options.stored ?? operation();
   const store = {
     inventory: vi.fn(async () => options.currentInventory ?? inventory),
-    readOperation: vi.fn(async () => stored)
+    readOperation: vi.fn(async () => stored),
+    readOperationByIdempotency: vi.fn(async () => options.replay)
   };
   const submit = vi.fn(options.submit ?? (async () => accepted(stored)));
   const value = new RemoteAdministrationExtensionOperator({
@@ -135,15 +139,27 @@ describe("RemoteAdministrationExtensionOperator", () => {
 
   it("submits execute and returns the exact terminal durable result", async () => {
     const receipt = { receiptId: "receipt-extension-1", operationId: plan.operationId, operation: "install", generationId: plan.generationId,
-      revisionBefore: 0, revisionAfter: 1, inventoryRevision: 14, compatibility: { status: "compatible", windowId: "window-extension-1", closesAt: "2026-09-04T13:00:00.000Z", migrationDigest: digest("3"), dataRevision: 1 }, rollback: "available", occurredAt: "2026-09-04T12:01:01.000Z" } as const;
+      revisionBefore: 1, revisionAfter: 2, inventoryRevision: 15, compatibility: { status: "compatible", windowId: "window-extension-1", closesAt: "2026-09-04T13:00:00.000Z", migrationDigest: digest("3"), dataRevision: 1 }, rollback: "available", occurredAt: "2026-09-04T12:01:01.000Z" } as const;
     let test: ReturnType<typeof harness>;
+    let attempts = 0;
     test = harness({ snapshotInventory: plannedInventory, currentInventory: plannedInventory, submit: async () => {
       const completed = operation({ phase: "completed", result: receipt });
       test.setStored(completed);
+      if (attempts++ === 0) throw new AdministrationOperatorClientError("TRANSPORT_FAILED", "response lost");
       return accepted(completed);
     } });
     await expect(test.value.activate(plan.operationId)).resolves.toEqual(receipt);
     expect(test.submit).toHaveBeenCalledWith(expect.objectContaining({ kind: "extension-execute", operationId: plan.operationId, idempotencyKey: `execute:${plan.operationId}`, expected: expect.objectContaining({ inventoryRevision: 14, extensionRevision: 1 }) }));
+    expect(test.submit).toHaveBeenCalledTimes(2);
+    expect(test.submit.mock.calls[0]![0]).toEqual(test.submit.mock.calls[1]![0]);
+
+    const completed = operation({ phase: "completed", result: receipt });
+    const finalInventory = { ...plannedInventory, revision: 15, extensions: { ...plannedInventory.extensions, hotApplications: {
+      [request.extension.id]: { ...plannedInventory.extensions.hotApplications[request.extension.id], revision: 2, lastReceiptId: receipt.receiptId }
+    } } } as RuntimeExtensionInventory;
+    const httpReplay = harness({ snapshotInventory: finalInventory, currentInventory: finalInventory, stored: completed });
+    await expect(httpReplay.value.activate(plan.operationId)).resolves.toEqual(receipt);
+    expect(httpReplay.submit).not.toHaveBeenCalled();
 
     const stolen = { ...plannedInventory, extensions: { ...plannedInventory.extensions, hotApplications: {
       [request.extension.id]: { ...plannedInventory.extensions.hotApplications[request.extension.id], lastOperationId: "operation-extension-other" }
@@ -151,6 +167,15 @@ describe("RemoteAdministrationExtensionOperator", () => {
     const wrongOwner = harness({ snapshotInventory: stolen, currentInventory: stolen });
     await expect(wrongOwner.value.activate(plan.operationId)).rejects.toMatchObject({ code: "REVISION_CONFLICT" });
     expect(wrongOwner.submit).not.toHaveBeenCalled();
+  });
+
+  it("returns an exact persisted plan after HTTP response loss and rejects a changed payload under the same identity", async () => {
+    const persisted = operation({ request: { ...request, correlationId: "operator-bound-correlation" } });
+    const replay = harness({ stored: persisted, replay: persisted });
+    await expect(replay.value.plan(request)).resolves.toEqual(plan);
+    expect(replay.submit).not.toHaveBeenCalled();
+
+    await expect(replay.value.plan({ ...request, targetVersion: "1.0.1" })).rejects.toMatchObject({ code: "RESULT_INVALID" });
   });
 
   it("validates only persisted prepared authority without writing or calling the operator", async () => {
