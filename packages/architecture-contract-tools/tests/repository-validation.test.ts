@@ -9,6 +9,7 @@ import addFormatsModule from "ajv-formats";
 import { describe, expect, it } from "vitest";
 
 import { validateFixtures } from "../src/fixture-validation.js";
+import { validatePhase13ProductContract } from "../src/phase-13-product-contract-validation.js";
 import { registerPluginContributionOwnershipKeyword } from "../src/plugin-contribution-ownership.js";
 import {
   declaredFixtureSchema,
@@ -30,7 +31,114 @@ import {
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 
+async function phase13Contract(): Promise<Record<string, unknown>> {
+  return JSON.parse(await readFile(resolve(repositoryRoot, "contracts/phase-13-crm-product-contract.v1.json"), "utf8")) as Record<string, unknown>;
+}
+
 describe("P0.4 executable repository validation", () => {
+  it("rejects Phase 13 duplicate ownership, unknown IDs, illegal transitions, ambiguous metrics, and unmapped objects", async () => {
+    const duplicateOwner = structuredClone(await phase13Contract());
+    (duplicateOwner.owners as Array<unknown>).push((duplicateOwner.owners as Array<unknown>)[0]);
+    expect(validatePhase13ProductContract(duplicateOwner).map(({ code }) => code)).toContain("PHASE13_DUPLICATE_OWNERSHIP");
+
+    const unknownJourney = structuredClone(await phase13Contract());
+    ((unknownJourney.journeys as Array<Record<string, unknown>>)[0]!.routeIds as string[])[0] = "sales.route.unknown";
+    expect(validatePhase13ProductContract(unknownJourney).map(({ code }) => code)).toContain("PHASE13_UNKNOWN_ID");
+
+    const illegalTransition = structuredClone(await phase13Contract());
+    ((illegalTransition.lifecycles as Array<Record<string, unknown>>)[0]!.transitions as unknown[]).push(["qualified", "working"]);
+    expect(validatePhase13ProductContract(illegalTransition).map(({ code }) => code)).toContain("PHASE13_ILLEGAL_TRANSITION");
+
+    const ambiguousMetric = structuredClone(await phase13Contract());
+    (ambiguousMetric.metrics as Array<Record<string, unknown>>)[0]!.timezone = "";
+    expect(validatePhase13ProductContract(ambiguousMetric).map(({ code }) => code)).toContain("PHASE13_AMBIGUOUS_METRIC");
+
+    const unmappedObject = structuredClone(await phase13Contract());
+    (unmappedObject.objects as Array<Record<string, unknown>>)[0]!.dailyJourneyIds = [];
+    expect(validatePhase13ProductContract(unmappedObject).map(({ code }) => code)).toContain("PHASE13_OBJECT_UNMAPPED");
+
+    const orphanedLifecycle = structuredClone(await phase13Contract());
+    ((orphanedLifecycle.lifecycles as Array<Record<string, unknown>>)[1]!.alsoAppliesTo as string[]).splice(0, 1);
+    expect(validatePhase13ProductContract(orphanedLifecycle).map(({ code }) => code)).toContain("PHASE13_ILLEGAL_TRANSITION");
+
+    const deletedMatrixRow = structuredClone(await phase13Contract());
+    (deletedMatrixRow.permissions as Record<string, unknown>).objectFieldActionMatrix = (deletedMatrixRow.permissions as Record<string, unknown>).objectFieldActionMatrix as Array<unknown>;
+    ((deletedMatrixRow.permissions as Record<string, unknown>).objectFieldActionMatrix as Array<unknown>).shift();
+    expect(validatePhase13ProductContract(deletedMatrixRow).map(({ code }) => code)).toContain("PHASE13_UNKNOWN_ID");
+
+    const misassignedPermission = structuredClone(await phase13Contract());
+    (((misassignedPermission.permissions as Record<string, unknown>).personaGrants as Array<Record<string, unknown>>)[0]!.permissionIds as string[])[0] = "sales.permission.unknown";
+    expect(validatePhase13ProductContract(misassignedPermission).map(({ code }) => code)).toContain("PHASE13_UNKNOWN_ID");
+
+    const missingRouteAuthority = structuredClone(await phase13Contract());
+    ((missingRouteAuthority.permissions as Record<string, unknown>).routePermissions as unknown[]).pop();
+    expect(validatePhase13ProductContract(missingRouteAuthority).map(({ code }) => code)).toContain("PHASE13_PRODUCT_CONTRACT_INVALID");
+
+    for (const section of ["target", "permissions", "lifecycles", "metrics", "attacks", "nonGoals", "dataSemantics", "retention"]) {
+      const missingSection = structuredClone(await phase13Contract());
+      delete missingSection[section];
+      expect(validatePhase13ProductContract(missingSection).map(({ code }) => code), section).toContain("PHASE13_PRODUCT_CONTRACT_INVALID");
+    }
+
+    const extraSection = structuredClone(await phase13Contract());
+    extraSection.future = {};
+    expect(validatePhase13ProductContract(extraSection).map(({ code }) => code)).toContain("PHASE13_PRODUCT_CONTRACT_INVALID");
+
+    const orphanRoute = structuredClone(await phase13Contract());
+    (orphanRoute.routes as string[]).push("sales.route.orphan");
+    expect(validatePhase13ProductContract(orphanRoute).map(({ code }) => code)).toContain("PHASE13_OBJECT_UNMAPPED");
+
+    const orphanAction = structuredClone(await phase13Contract());
+    (orphanAction.actions as string[]).push("sales.action.orphan");
+    expect(validatePhase13ProductContract(orphanAction).map(({ code }) => code)).toContain("PHASE13_OBJECT_UNMAPPED");
+
+    const duplicateLifecycle = structuredClone(await phase13Contract());
+    (duplicateLifecycle.lifecycles as Array<unknown>).push((duplicateLifecycle.lifecycles as Array<unknown>)[0]);
+    expect(validatePhase13ProductContract(duplicateLifecycle).map(({ code }) => code)).toContain("PHASE13_DUPLICATE_OWNERSHIP");
+
+    const duplicatePersona = structuredClone(await phase13Contract());
+    (duplicatePersona.personas as Array<unknown>).push((duplicatePersona.personas as Array<unknown>)[0]);
+    expect(validatePhase13ProductContract(duplicatePersona).map(({ code }) => code)).toContain("PHASE13_DUPLICATE_OWNERSHIP");
+
+    const duplicateGrant = structuredClone(await phase13Contract());
+    const duplicateGrantPermissions = duplicateGrant.permissions as Record<string, unknown>;
+    (duplicateGrantPermissions.personaGrants as Array<unknown>).push((duplicateGrantPermissions.personaGrants as Array<unknown>)[0]);
+    expect(validatePhase13ProductContract(duplicateGrant).map(({ code }) => code)).toContain("PHASE13_DUPLICATE_OWNERSHIP");
+
+    const missingPredecessor = structuredClone(await phase13Contract());
+    ((missingPredecessor.predecessorInventory as Record<string, unknown>).identities as string[]).pop();
+    expect(validatePhase13ProductContract(missingPredecessor).map(({ code }) => code)).toContain("PHASE13_PRODUCT_CONTRACT_INVALID");
+
+    const unsafeMigration = structuredClone(await phase13Contract());
+    (unsafeMigration.migration as Record<string, unknown>).legacyTaskStatusMap = { open: "open", done: "done" };
+    expect(validatePhase13ProductContract(unsafeMigration).map(({ code }) => code)).toContain("PHASE13_PRODUCT_CONTRACT_INVALID");
+
+    const missingAttackDelivery = structuredClone(await phase13Contract());
+    ((missingAttackDelivery.attacks as Array<Record<string, unknown>>)[0]!).deliveryTasks = [];
+    expect(validatePhase13ProductContract(missingAttackDelivery).map(({ code }) => code)).toContain("PHASE13_PRODUCT_CONTRACT_INVALID");
+
+    const wrongAttackVerification = structuredClone(await phase13Contract());
+    ((wrongAttackVerification.attacks as Array<Record<string, unknown>>)[0]!).verificationTasks = ["P13.9"];
+    expect(validatePhase13ProductContract(wrongAttackVerification).map(({ code }) => code)).toContain("PHASE13_PRODUCT_CONTRACT_INVALID");
+
+    const driftMutations: Array<[string, (contract: Record<string, unknown>) => void]> = [
+      ["predecessor substitution", (contract) => { ((contract.predecessorInventory as Record<string, unknown>).identities as string[])[0] = "sales.substituted"; }],
+      ["dropped retirement", (contract) => { ((((contract.predecessorInventory as Record<string, unknown>).decisionGroups as Array<Record<string, unknown>>)[3]!.ids as string[])).pop(); }],
+      ["added permission", (contract) => { ((contract.permissions as Record<string, unknown>).definitions as string[]).push("sales.extra.read"); }],
+      ["viewer privilege widening", (contract) => { ((((contract.permissions as Record<string, unknown>).personaGrants as Array<Record<string, unknown>>)[3]!.permissionIds as string[])).push("sales.accounts.write"); }],
+      ["sensitive field remap", (contract) => { (((((contract.permissions as Record<string, unknown>).objectFieldActionMatrix as Array<Record<string, unknown>>)[1]!.sensitiveFields as Record<string, unknown>))).email = "sales.contacts.read"; }],
+      ["required owner removal", (contract) => { (((contract.objects as Array<Record<string, unknown>>)[0]!.requiredFields as string[])).splice(1, 1); }],
+      ["lifecycle transition removal", (contract) => { (((contract.lifecycles as Array<Record<string, unknown>>)[0]!.transitions as unknown[])).pop(); }],
+      ["metric formula replacement", (contract) => { (contract.metrics as Array<Record<string, unknown>>)[0]!.formula = "always zero"; }],
+      ["attack task reassignment", (contract) => { (contract.attacks as Array<Record<string, unknown>>)[0]!.deliveryTasks = ["P13.9"]; }]
+    ];
+    for (const [name, mutate] of driftMutations) {
+      const changed = structuredClone(await phase13Contract());
+      mutate(changed);
+      expect(validatePhase13ProductContract(changed).map(({ code }) => code), name).toContain("PHASE13_PRODUCT_CONTRACT_DRIFT");
+    }
+  });
+
   it("accepts the repository through the complete TypeScript validator", async () => {
     expect(await validateRepository(repositoryRoot)).toEqual([]);
   }, 30_000);

@@ -1,21 +1,21 @@
 # Project Status
 
 - **Updated:** 2026-09-05
-- **Phase:** Phase 12 — Runnable Customer Workspace and Dashboard Builder
-- **Active task:** Phase 12 complete; awaiting phase review
-- **State:** Ready for phase review
+- **Phase:** Phase 13 — CRM-First Productization and Pilot Readiness
+- **Active task:** P13.2 — Add CRM core contracts and migrations
+- **State:** Ready to start
 
 ## Last completed
 
-Closed final execute-digest P0 with atomic terminal binding, cross-actor denial, and pre-mutation/post-commit crash recovery; refreshed signed v1 evidence from exact code head.
+P13.1 frozen: normative CRM product/permission/metric registry, ADR-0028, exact Phase 12 predecessor decisions, canonical drift validation, and adversarial mutation coverage accepted by Sol xhigh review.
 
 ## Validation
 
-Focused handler/store tests 39/39 PASS; payload-adapter build PASS; packed v1 closure/factory locks PASS; one real generated PostgreSQL/HTTP/Chromium journey PASS with cross-actor, crash/restart, exact replay, response-loss, audit, receipt, and outbox markers; audit-high PASS; signed release evidence run `33944370651` PASS on `c8fe7f2`; generated-evidence checks PASS; same Sol xhigh reviewer PASS. No cumulative suite rerun.
+Exact Node 24.19 `pnpm phase:13:contract`, architecture-contract-tools TypeScript build, docs validation, 32 focused tests, and `git diff --check` PASS. No cumulative gate run.
 
 ## Next
 
-Project-manager review of PR #33 after exact-head focused PR evidence; implementation agent does not merge.
+Implement P13.2 strict CRM core schemas, exact migrations, isolation/revision fences, and permission matrix without duplicate opportunity/task truth.
 
 ## Blockers
 

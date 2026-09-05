@@ -187,14 +187,24 @@
         "contracts/phase-12-attack-map.v1.json"
       ]
     },
-    "0027": {
-      "level": "design-only",
-      "evidence": [
-        "docs/implementation/phase-12-review-blockers.md",
-        "packages/contracts/src/administration-operator-transport.ts",
-        "packages/contracts/tests/administration-operator-transport.test.ts",
-        "schemas/administration-operator-transport.v1.schema.json"
-      ]
-    }
+  "0027": {
+    "level": "design-only",
+    "evidence": [
+      "docs/implementation/phase-12-review-blockers.md",
+      "packages/contracts/src/administration-operator-transport.ts",
+      "packages/contracts/tests/administration-operator-transport.test.ts",
+      "schemas/administration-operator-transport.v1.schema.json"
+    ]
+  },
+  "0028": {
+    "level": "design-only",
+    "evidence": [
+      "contracts/phase-13-crm-product-contract.v1.json",
+      "docs/adr/0028-crm-first-product-contract.md",
+      "docs/implementation/phase-13-crm-first-productization.md",
+      "packages/architecture-contract-tools/src/phase-13-product-contract-validation.ts",
+      "packages/architecture-contract-tools/tests/repository-validation.test.ts"
+    ]
   }
+}
 }

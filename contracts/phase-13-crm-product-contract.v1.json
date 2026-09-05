@@ -1,0 +1,362 @@
+{
+  "schemaVersion": 1,
+  "phase": 13,
+  "moduleId": "module.sales",
+  "commonFields": ["id", "applicationId", "environment", "createdAt", "createdBy", "updatedAt", "updatedBy", "revision", "audit"],
+  "predecessorInventory": {
+    "identities": [
+      "sales.opportunity.stage.update", "sales.task.create", "sales.task.update", "sales.opportunity-detail", "sales.opportunity-kanban", "sales.opportunity-list", "sales.revenue-metric", "sales.settings-summary", "sales.task-quick-create", "sales.task-table", "sales.detail.opportunity", "sales.form.task-quick-create", "sales.list.opportunities", "sales.metric.total-potential-revenue", "sales.status.pipeline-stage", "sales.table.tasks", "sales.event.opportunity-changed", "sales.event.task-changed", "sales.health.runtime", "sales.job.pipeline-audit", "sales.lifecycle.reference", "sales.localization.en", "sales.migration.initial", "sales.navigation.opportunities", "sales.navigation.overview", "sales.navigation.settings", "sales.navigation.tasks", "sales.page.opportunities", "sales.page.overview", "sales.page.settings", "sales.page.tasks", "sales.navigation.read", "sales.opportunities.name.read", "sales.opportunities.read", "sales.opportunities.stage.read", "sales.opportunities.value.read", "sales.opportunities.write", "sales.settings.read", "sales.settings.write", "sales.tasks.private-note.read", "sales.tasks.read", "sales.tasks.revenue.read", "sales.tasks.status.read", "sales.tasks.title.read", "sales.tasks.write", "sales.policy.opportunities.name.read", "sales.policy.opportunities.read", "sales.policy.opportunities.stage.read", "sales.policy.opportunities.value.read", "sales.policy.opportunities.write", "sales.policy.tasks.private-note.read", "sales.policy.tasks.read", "sales.policy.tasks.revenue.read", "sales.policy.tasks.status.read", "sales.policy.tasks.title.read", "sales.policy.tasks.write", "sales.realtime.opportunities", "sales.realtime.tasks", "sales.template.administrator", "sales.template.manager", "sales.template.representative", "sales.template.viewer", "sales.route.opportunities", "sales.route.overview", "sales.route.settings", "sales.route.tasks", "sales.opportunities.collection", "sales.tasks.collection", "sales.service.domain", "sales.settings.workspace", "sales.opportunities", "sales.tasks", "sales.total-potential-revenue", "sales.testing.conformance", "sales.tools.create-task", "sales.tools.search-tasks"
+    ],
+    "decisionGroups": [
+      {
+        "contractModel": "versioned",
+        "decision": "preserve-id-version-bump",
+        "currentVersion": 1,
+        "targetVersion": 2,
+        "ids": [
+          "sales.opportunity.stage.update", "sales.task.create", "sales.task.update", "sales.opportunity-detail", "sales.opportunity-kanban", "sales.opportunity-list", "sales.settings-summary", "sales.task-quick-create", "sales.detail.opportunity", "sales.form.task-quick-create", "sales.list.opportunities", "sales.status.pipeline-stage", "sales.table.tasks", "sales.event.opportunity-changed", "sales.event.task-changed", "sales.health.runtime", "sales.job.pipeline-audit", "sales.lifecycle.reference", "sales.localization.en", "sales.page.opportunities", "sales.page.overview", "sales.page.settings", "sales.page.tasks", "sales.realtime.opportunities", "sales.realtime.tasks", "sales.template.administrator", "sales.template.manager", "sales.template.representative", "sales.template.viewer", "sales.service.domain", "sales.opportunities", "sales.tasks", "sales.testing.conformance", "sales.tools.create-task", "sales.tools.search-tasks"
+        ]
+      },
+      {
+        "contractModel": "versioned",
+        "decision": "preserve-id-version-bump",
+        "currentVersion": 2,
+        "targetVersion": 3,
+        "ids": [
+          "sales.task-table", "sales.migration.initial"
+        ]
+      },
+      {
+        "contractModel": "static",
+        "decision": "preserve-id-static-replace",
+        "ids": [
+          "sales.navigation.opportunities", "sales.navigation.overview", "sales.navigation.settings", "sales.navigation.tasks", "sales.opportunities.read", "sales.opportunities.write", "sales.settings.read", "sales.settings.write", "sales.tasks.read", "sales.tasks.write", "sales.route.opportunities", "sales.route.overview", "sales.route.settings", "sales.route.tasks", "sales.opportunities.collection", "sales.tasks.collection", "sales.settings.workspace"
+        ]
+      },
+      {
+        "contractModel": "retired",
+        "decision": "retire-fail-closed",
+        "ids": [
+          "sales.total-potential-revenue", "sales.revenue-metric", "sales.metric.total-potential-revenue",
+          "sales.navigation.read", "sales.opportunities.name.read", "sales.opportunities.stage.read", "sales.opportunities.value.read", "sales.tasks.private-note.read", "sales.tasks.revenue.read", "sales.tasks.status.read", "sales.tasks.title.read",
+          "sales.policy.opportunities.name.read", "sales.policy.opportunities.read", "sales.policy.opportunities.stage.read", "sales.policy.opportunities.value.read", "sales.policy.opportunities.write", "sales.policy.tasks.private-note.read", "sales.policy.tasks.read", "sales.policy.tasks.revenue.read", "sales.policy.tasks.status.read", "sales.policy.tasks.title.read", "sales.policy.tasks.write"
+        ]
+      }
+    ],
+    "persistedReferences": [
+      "normalized RBAC grants, role-template adoptions, baselines and digests migrate without authority widening",
+      "sales.settings.workspace values migrate to versioned settings and one pipeline or stop maintenance-required",
+      "customer page documents, publications, templates, blocks, source/action bindings and saved views rebind only after compatibility validation",
+      "retired identities remain diagnostic tombstones and never execute"
+    ]
+  },
+  "target": {
+    "segment": "B2B sales team",
+    "activeSellerMinimum": 3,
+    "activeSellerMaximum": 25,
+    "activePipelineMaximum": 1,
+    "reportingCurrencyCount": 1
+  },
+  "owners": [
+    { "id": "product.sales", "scope": "vocabulary, journeys, object and metric definitions" },
+    { "id": "engineering.sales", "scope": "schema, migrations, data correctness" },
+    { "id": "platform.security", "scope": "permissions, policy and adapter attack evidence" },
+    { "id": "platform.operations", "scope": "deployment, backup, restore and runbook evidence" }
+  ],
+  "personas": [
+    { "id": "sales.representative", "recordScope": "owned-or-assigned-team", "mutationScope": "owned-or-assigned-team" },
+    { "id": "sales.manager", "recordScope": "managed-teams-and-own", "mutationScope": "managed-teams-and-own" },
+    { "id": "sales.administrator", "recordScope": "application-sales-scope", "mutationScope": "application-sales-scope" },
+    { "id": "sales.viewer-auditor", "recordScope": "explicit-application-or-team-scope", "mutationScope": "none" }
+  ],
+  "permissions": {
+    "authorityOwner": "platform.security",
+    "fieldScopes": ["application", "environment", "record", "field", "owner", "team"],
+    "protectedFields": ["id", "applicationId", "environment", "ownerId", "teamId", "createdAt", "createdBy", "updatedAt", "updatedBy", "revision", "audit", "status", "state", "stageId", "archiveStatus", "mergedIntoId", "mergeLineage"],
+    "rule": "persona labels are templates; current record and field policy authorizes every route, action, view, report, export, job, and adapter",
+    "definitions": [
+      "sales.accounts.read", "sales.accounts.write", "sales.accounts.archive",
+      "sales.contacts.read", "sales.contacts.write", "sales.contacts.archive", "sales.contacts.channels.read",
+      "sales.leads.read", "sales.leads.write", "sales.leads.archive", "sales.leads.channels.read", "sales.leads.qualify", "sales.leads.disqualify",
+      "sales.opportunities.read", "sales.opportunities.write", "sales.opportunities.archive", "sales.opportunities.amount.read", "sales.opportunities.stage.update", "sales.opportunities.close",
+      "sales.activities.read", "sales.activities.write", "sales.tasks.read", "sales.tasks.write", "sales.tasks.archive",
+      "sales.notes.read", "sales.notes.write", "sales.notes.body.read", "sales.attachments.read", "sales.attachments.write",
+      "sales.pipelines.read", "sales.pipelines.configure", "sales.saved-views.read", "sales.saved-views.write",
+      "sales.imports.read", "sales.imports.execute", "sales.exports.read", "sales.exports.execute",
+      "sales.notifications.read", "sales.notifications.write", "sales.reminders.read", "sales.reminders.write",
+      "sales.reports.read", "sales.reports.schedule", "sales.communications.email.send", "sales.communications.calendar.sync", "sales.communications.metadata.read",
+      "sales.ownership.assign", "sales.records.merge", "sales.settings.read", "sales.settings.write"
+    ],
+    "personaGrants": [
+      { "personaId": "sales.representative", "recordScope": "owned-or-assigned-team", "permissionIds": ["sales.accounts.read", "sales.accounts.write", "sales.contacts.read", "sales.contacts.write", "sales.contacts.channels.read", "sales.leads.read", "sales.leads.write", "sales.leads.channels.read", "sales.leads.qualify", "sales.leads.disqualify", "sales.opportunities.read", "sales.opportunities.write", "sales.opportunities.stage.update", "sales.activities.read", "sales.activities.write", "sales.tasks.read", "sales.tasks.write", "sales.notes.read", "sales.notes.write", "sales.notes.body.read", "sales.attachments.read", "sales.attachments.write", "sales.pipelines.read", "sales.saved-views.read", "sales.saved-views.write", "sales.notifications.read", "sales.notifications.write", "sales.reminders.read", "sales.reminders.write", "sales.reports.read"] },
+      { "personaId": "sales.manager", "recordScope": "managed-teams-and-own", "permissionIds": ["sales.accounts.read", "sales.accounts.write", "sales.accounts.archive", "sales.contacts.read", "sales.contacts.write", "sales.contacts.archive", "sales.contacts.channels.read", "sales.leads.read", "sales.leads.write", "sales.leads.archive", "sales.leads.channels.read", "sales.leads.qualify", "sales.leads.disqualify", "sales.opportunities.read", "sales.opportunities.write", "sales.opportunities.archive", "sales.opportunities.amount.read", "sales.opportunities.stage.update", "sales.opportunities.close", "sales.activities.read", "sales.activities.write", "sales.tasks.read", "sales.tasks.write", "sales.tasks.archive", "sales.notes.read", "sales.notes.write", "sales.notes.body.read", "sales.attachments.read", "sales.attachments.write", "sales.pipelines.read", "sales.saved-views.read", "sales.saved-views.write", "sales.imports.read", "sales.imports.execute", "sales.exports.read", "sales.exports.execute", "sales.notifications.read", "sales.notifications.write", "sales.reminders.read", "sales.reminders.write", "sales.reports.read", "sales.reports.schedule", "sales.ownership.assign", "sales.records.merge"] },
+      { "personaId": "sales.administrator", "recordScope": "application-sales-scope", "permissionIds": ["sales.accounts.read", "sales.accounts.write", "sales.accounts.archive", "sales.contacts.read", "sales.contacts.write", "sales.contacts.archive", "sales.contacts.channels.read", "sales.leads.read", "sales.leads.write", "sales.leads.archive", "sales.leads.channels.read", "sales.leads.qualify", "sales.leads.disqualify", "sales.opportunities.read", "sales.opportunities.write", "sales.opportunities.archive", "sales.opportunities.amount.read", "sales.opportunities.stage.update", "sales.opportunities.close", "sales.activities.read", "sales.activities.write", "sales.tasks.read", "sales.tasks.write", "sales.tasks.archive", "sales.notes.read", "sales.notes.write", "sales.notes.body.read", "sales.attachments.read", "sales.attachments.write", "sales.pipelines.read", "sales.pipelines.configure", "sales.saved-views.read", "sales.saved-views.write", "sales.imports.read", "sales.imports.execute", "sales.exports.read", "sales.exports.execute", "sales.notifications.read", "sales.notifications.write", "sales.reminders.read", "sales.reminders.write", "sales.reports.read", "sales.reports.schedule", "sales.communications.email.send", "sales.communications.calendar.sync", "sales.communications.metadata.read", "sales.ownership.assign", "sales.records.merge", "sales.settings.read", "sales.settings.write"] },
+      { "personaId": "sales.viewer-auditor", "recordScope": "explicit-application-or-team-scope", "permissionIds": ["sales.accounts.read", "sales.contacts.read", "sales.leads.read", "sales.opportunities.read", "sales.activities.read", "sales.tasks.read", "sales.notes.read", "sales.attachments.read", "sales.pipelines.read", "sales.saved-views.read", "sales.notifications.read", "sales.reminders.read", "sales.reports.read"] }
+    ],
+    "objectFieldActionMatrix": [
+      { "objectId": "sales.object.account", "readPermissionId": "sales.accounts.read", "writePermissionId": "sales.accounts.write", "archivePermissionId": "sales.accounts.archive", "recordPolicyId": "sales.policy.accounts.current", "actionPermissions": { "sales.account.create": "sales.accounts.write", "sales.account.update": "sales.accounts.write", "sales.account.archive": "sales.accounts.archive", "sales.merge.commit": "sales.records.merge" } },
+      { "objectId": "sales.object.contact", "readPermissionId": "sales.contacts.read", "writePermissionId": "sales.contacts.write", "archivePermissionId": "sales.contacts.archive", "recordPolicyId": "sales.policy.contacts.current", "sensitiveFields": { "email": "sales.contacts.channels.read", "phone": "sales.contacts.channels.read" }, "actionPermissions": { "sales.contact.create": "sales.contacts.write", "sales.contact.update": "sales.contacts.write", "sales.contact.archive": "sales.contacts.archive", "sales.merge.commit": "sales.records.merge" } },
+      { "objectId": "sales.object.lead", "readPermissionId": "sales.leads.read", "writePermissionId": "sales.leads.write", "archivePermissionId": "sales.leads.archive", "recordPolicyId": "sales.policy.leads.current", "sensitiveFields": { "email": "sales.leads.channels.read", "phone": "sales.leads.channels.read" }, "actionPermissions": { "sales.lead.create": "sales.leads.write", "sales.lead.update": "sales.leads.write", "sales.lead.qualify": "sales.leads.qualify", "sales.lead.disqualify": "sales.leads.disqualify", "sales.lead.archive": "sales.leads.archive" } },
+      { "objectId": "sales.object.opportunity", "readPermissionId": "sales.opportunities.read", "writePermissionId": "sales.opportunities.write", "archivePermissionId": "sales.opportunities.archive", "recordPolicyId": "sales.policy.opportunities.current", "sensitiveFields": { "amount": "sales.opportunities.amount.read" }, "actionPermissions": { "sales.opportunity.create": "sales.opportunities.write", "sales.opportunity.update": "sales.opportunities.write", "sales.opportunity.stage.update": "sales.opportunities.stage.update", "sales.opportunity.close": "sales.opportunities.close", "sales.opportunity.archive": "sales.opportunities.archive", "sales.report.run": "sales.reports.read" } },
+      { "objectId": "sales.object.pipeline", "readPermissionId": "sales.pipelines.read", "writePermissionId": "sales.pipelines.configure", "recordPolicyId": "sales.policy.pipelines.current", "actionPermissions": { "sales.pipeline.update": "sales.pipelines.configure", "sales.pipeline.archive": "sales.pipelines.configure" } },
+      { "objectId": "sales.object.pipeline-stage", "readPermissionId": "sales.pipelines.read", "writePermissionId": "sales.pipelines.configure", "recordPolicyId": "sales.policy.pipelines.current" },
+      { "objectId": "sales.object.activity", "readPermissionId": "sales.activities.read", "writePermissionId": "sales.activities.write", "recordPolicyId": "sales.policy.activities.current", "actionPermissions": { "sales.activity.create": "sales.activities.write", "sales.activity.complete": "sales.activities.write", "sales.activity.cancel": "sales.activities.write", "sales.email.send": "sales.communications.email.send", "sales.calendar.sync": "sales.communications.calendar.sync" }, "sensitiveFields": { "providerMetadata": "sales.communications.metadata.read" } },
+      { "objectId": "sales.object.task", "readPermissionId": "sales.tasks.read", "writePermissionId": "sales.tasks.write", "archivePermissionId": "sales.tasks.archive", "recordPolicyId": "sales.policy.tasks.current", "actionPermissions": { "sales.task.create": "sales.tasks.write", "sales.task.update": "sales.tasks.write", "sales.task.archive": "sales.tasks.archive" } },
+      { "objectId": "sales.object.note", "readPermissionId": "sales.notes.read", "writePermissionId": "sales.notes.write", "recordPolicyId": "sales.policy.notes.current", "sensitiveFields": { "body": "sales.notes.body.read" }, "actionPermissions": { "sales.note.create": "sales.notes.write" } },
+      { "objectId": "sales.object.attachment-reference", "readPermissionId": "sales.attachments.read", "writePermissionId": "sales.attachments.write", "recordPolicyId": "sales.policy.attachments.current", "actionPermissions": { "sales.attachment.link": "sales.attachments.write", "sales.attachment.remove": "sales.attachments.write" } },
+      { "objectId": "sales.object.saved-view", "readPermissionId": "sales.saved-views.read", "writePermissionId": "sales.saved-views.write", "recordPolicyId": "sales.policy.saved-views.current", "actionPermissions": { "sales.saved-view.create": "sales.saved-views.write", "sales.saved-view.update": "sales.saved-views.write", "sales.saved-view.archive": "sales.saved-views.write" } },
+      { "objectId": "sales.object.import-job", "readPermissionId": "sales.imports.read", "writePermissionId": "sales.imports.execute", "recordPolicyId": "sales.policy.imports.current", "actionPermissions": { "sales.import.dry-run": "sales.imports.execute", "sales.import.commit": "sales.imports.execute", "sales.import.cancel": "sales.imports.execute" } },
+      { "objectId": "sales.object.export-job", "readPermissionId": "sales.exports.read", "writePermissionId": "sales.exports.execute", "recordPolicyId": "sales.policy.exports.current", "actionPermissions": { "sales.export.create": "sales.exports.execute", "sales.export.cancel": "sales.exports.execute" } },
+      { "objectId": "sales.object.notification", "readPermissionId": "sales.notifications.read", "writePermissionId": "sales.notifications.write", "recordPolicyId": "sales.policy.notifications.recipient", "actionPermissions": { "sales.notification.read": "sales.notifications.write", "sales.notification.archive": "sales.notifications.write" } },
+      { "objectId": "sales.object.reminder", "readPermissionId": "sales.reminders.read", "writePermissionId": "sales.reminders.write", "recordPolicyId": "sales.policy.reminders.recipient", "actionPermissions": { "sales.reminder.dismiss": "sales.reminders.write", "sales.reminder.schedule": "sales.reminders.write" } }
+    ],
+    "operationActionPermissions": {
+      "sales.ownership.assign": "sales.ownership.assign",
+      "sales.report.schedule": "sales.reports.schedule",
+      "sales.settings.update": "sales.settings.write",
+      "sales.integration.configure": "sales.settings.write"
+    },
+    "routePermissions": [
+      { "routeId": "sales.route.overview", "permissionId": "sales.reports.read", "policyOwner": "platform.security" },
+      { "routeId": "sales.route.tasks", "permissionId": "sales.tasks.read", "policyOwner": "platform.security" },
+      { "routeId": "sales.route.notifications", "permissionId": "sales.notifications.read", "policyOwner": "platform.security" },
+      { "routeId": "sales.route.leads", "permissionId": "sales.leads.read", "policyOwner": "platform.security" },
+      { "routeId": "sales.route.lead-detail", "permissionId": "sales.leads.read", "policyOwner": "platform.security" },
+      { "routeId": "sales.route.accounts", "permissionId": "sales.accounts.read", "policyOwner": "platform.security" },
+      { "routeId": "sales.route.account-detail", "permissionId": "sales.accounts.read", "policyOwner": "platform.security" },
+      { "routeId": "sales.route.contacts", "permissionId": "sales.contacts.read", "policyOwner": "platform.security" },
+      { "routeId": "sales.route.contact-detail", "permissionId": "sales.contacts.read", "policyOwner": "platform.security" },
+      { "routeId": "sales.route.opportunities", "permissionId": "sales.opportunities.read", "policyOwner": "platform.security" },
+      { "routeId": "sales.route.opportunity-detail", "permissionId": "sales.opportunities.read", "policyOwner": "platform.security" },
+      { "routeId": "sales.route.pipeline-settings", "permissionId": "sales.pipelines.configure", "policyOwner": "platform.security" },
+      { "routeId": "sales.route.saved-views", "permissionId": "sales.saved-views.read", "policyOwner": "platform.security" },
+      { "routeId": "sales.route.imports", "permissionId": "sales.imports.read", "policyOwner": "platform.security" },
+      { "routeId": "sales.route.exports", "permissionId": "sales.exports.read", "policyOwner": "platform.security" },
+      { "routeId": "sales.route.calendar", "permissionId": "sales.activities.read", "policyOwner": "platform.security" },
+      { "routeId": "sales.route.reports", "permissionId": "sales.reports.read", "policyOwner": "platform.security" }
+    ],
+    "policyReferences": ["authorization.v1.schema.json", "current-record-policy", "current-field-policy", "expected-revision", "outbox-invalidation"]
+  },
+  "lifecycles": [
+    {
+      "id": "sales.lifecycle.lead",
+      "objectId": "sales.object.lead",
+      "states": ["new", "working", "qualified", "disqualified"],
+      "terminalStates": ["qualified", "disqualified"],
+      "transitions": [
+        ["new", "working"],
+        ["new", "qualified"],
+        ["new", "disqualified"],
+        ["working", "qualified"],
+        ["working", "disqualified"]
+      ],
+      "transitionMechanisms": { "new->working": "sales.lead.update", "new->qualified": "sales.lead.qualify", "new->disqualified": "sales.lead.disqualify", "working->qualified": "sales.lead.qualify", "working->disqualified": "sales.lead.disqualify" }
+    },
+    {
+      "id": "sales.lifecycle.account-contact",
+      "objectId": "sales.object.account",
+      "alsoAppliesTo": ["sales.object.contact"],
+      "states": ["active", "archived", "merged"],
+      "terminalStates": ["archived", "merged"],
+      "transitions": [["active", "archived"], ["active", "merged"]],
+      "transitionMechanisms": { "active->archived": ["sales.account.archive", "sales.contact.archive"], "active->merged": "sales.merge.commit" }
+    },
+    {
+      "id": "sales.lifecycle.opportunity",
+      "objectId": "sales.object.opportunity",
+      "states": ["qualification", "discovery", "proposal", "negotiation", "won", "lost"],
+      "terminalStates": ["won", "lost"],
+      "transitions": [
+        ["qualification", "discovery"],
+        ["qualification", "lost"],
+        ["discovery", "proposal"],
+        ["discovery", "lost"],
+        ["proposal", "negotiation"],
+        ["proposal", "lost"],
+        ["negotiation", "won"],
+        ["negotiation", "lost"]
+      ],
+      "transitionMechanisms": { "qualification->discovery": "sales.opportunity.stage.update", "qualification->lost": "sales.opportunity.close", "discovery->proposal": "sales.opportunity.stage.update", "discovery->lost": "sales.opportunity.close", "proposal->negotiation": "sales.opportunity.stage.update", "proposal->lost": "sales.opportunity.close", "negotiation->won": "sales.opportunity.close", "negotiation->lost": "sales.opportunity.close" }
+    },
+    {
+      "id": "sales.lifecycle.task",
+      "objectId": "sales.object.task",
+      "states": ["open", "completed", "cancelled"],
+      "terminalStates": ["completed", "cancelled"],
+      "transitions": [["open", "completed"], ["open", "cancelled"]],
+      "transitionMechanisms": { "open->completed": "sales.task.update", "open->cancelled": "sales.task.update" }
+    },
+    {
+      "id": "sales.lifecycle.activity",
+      "objectId": "sales.object.activity",
+      "states": ["scheduled", "completed", "cancelled"],
+      "terminalStates": ["completed", "cancelled"],
+      "transitions": [["scheduled", "completed"], ["scheduled", "cancelled"]],
+      "transitionMechanisms": { "scheduled->completed": "sales.activity.complete", "scheduled->cancelled": "sales.activity.cancel" }
+    },
+    {
+      "id": "sales.lifecycle.reminder",
+      "objectId": "sales.object.reminder",
+      "states": ["scheduled", "delivered", "failed", "dismissed", "cancelled"],
+      "terminalStates": ["failed", "dismissed", "cancelled"],
+      "transitions": [["scheduled", "delivered"], ["scheduled", "failed"], ["scheduled", "cancelled"], ["delivered", "dismissed"]],
+      "transitionMechanisms": { "scheduled->delivered": "host:sales.job.reminder-delivery", "scheduled->failed": "host:sales.job.reminder-delivery", "scheduled->cancelled": "sales.reminder.dismiss", "delivered->dismissed": "sales.reminder.dismiss" }
+    },
+    {
+      "id": "sales.lifecycle.pipeline-stage",
+      "objectId": "sales.object.pipeline-stage",
+      "alsoAppliesTo": ["sales.object.pipeline", "sales.object.saved-view"],
+      "states": ["active", "archived"],
+      "terminalStates": ["archived"],
+      "transitions": [["active", "archived"]],
+      "transitionMechanisms": { "active->archived": ["sales.pipeline.archive", "sales.pipeline.update", "sales.saved-view.archive"] }
+    },
+    {
+      "id": "sales.lifecycle.immutable-record",
+      "objectId": "sales.object.note",
+      "states": ["recorded"],
+      "terminalStates": ["recorded"],
+      "transitions": [],
+      "transitionMechanisms": {}
+    },
+    {
+      "id": "sales.lifecycle.attachment-reference",
+      "objectId": "sales.object.attachment-reference",
+      "states": ["active", "removed"],
+      "terminalStates": ["removed"],
+      "transitions": [["active", "removed"]],
+      "transitionMechanisms": { "active->removed": "sales.attachment.remove" }
+    },
+    {
+      "id": "sales.lifecycle.notification",
+      "objectId": "sales.object.notification",
+      "states": ["unread", "read", "archived"],
+      "terminalStates": ["archived"],
+      "transitions": [["unread", "read"], ["unread", "archived"], ["read", "archived"]],
+      "transitionMechanisms": { "unread->read": "sales.notification.read", "unread->archived": "sales.notification.archive", "read->archived": "sales.notification.archive" }
+    },
+    {
+      "id": "sales.lifecycle.import-job",
+      "objectId": "sales.object.import-job",
+      "states": ["draft", "validated", "queued", "running", "succeeded", "partially-failed", "failed", "cancelled"],
+      "terminalStates": ["succeeded", "partially-failed", "failed", "cancelled"],
+      "transitions": [["draft", "validated"], ["validated", "queued"], ["queued", "running"], ["running", "succeeded"], ["running", "partially-failed"], ["running", "failed"], ["draft", "cancelled"], ["validated", "cancelled"], ["queued", "cancelled"]],
+      "transitionMechanisms": { "draft->validated": "sales.import.dry-run", "validated->queued": "sales.import.commit", "queued->running": "host:sales.job.import", "running->succeeded": "host:sales.job.import", "running->partially-failed": "host:sales.job.import", "running->failed": "host:sales.job.import", "draft->cancelled": "sales.import.cancel", "validated->cancelled": "sales.import.cancel", "queued->cancelled": "sales.import.cancel" }
+    },
+    {
+      "id": "sales.lifecycle.export-job",
+      "objectId": "sales.object.export-job",
+      "states": ["queued", "running", "succeeded", "failed", "cancelled"],
+      "terminalStates": ["succeeded", "failed", "cancelled"],
+      "transitions": [["queued", "running"], ["running", "succeeded"], ["running", "failed"], ["queued", "cancelled"]],
+      "transitionMechanisms": { "queued->running": "host:sales.job.export", "running->succeeded": "host:sales.job.export", "running->failed": "host:sales.job.export", "queued->cancelled": "sales.export.cancel" }
+    }
+  ],
+  "objects": [
+    { "id": "sales.object.account", "owner": "product.sales", "requiredFields": ["name", "ownerId", "status"], "retention": "archive-application-lifetime", "dailyJourneyIds": ["sales.journey.customer-context", "sales.journey.opportunity"] },
+    { "id": "sales.object.contact", "owner": "product.sales", "requiredFields": ["accountId", "displayName", "ownerId", "status"], "retention": "archive-application-lifetime", "dailyJourneyIds": ["sales.journey.customer-context", "sales.journey.opportunity"] },
+    { "id": "sales.object.lead", "owner": "product.sales", "requiredFields": ["displayName", "ownerId", "status", "source", "archiveStatus"], "conditionalRequiredFields": ["decidedAt and qualifiedAt on qualified", "decidedAt and disqualifiedAt on disqualified"], "archiveTransitions": [["active", "archived"]], "retention": "terminal-application-lifetime", "dailyJourneyIds": ["sales.journey.lead"] },
+    { "id": "sales.object.opportunity", "owner": "product.sales", "requiredFields": ["name", "accountId", "ownerId", "pipelineId", "stageId", "archiveStatus"], "conditionalRequiredFields": ["currency iff amount money is present", "closedAt on terminal stage", "lossReason on lost stage"], "stateSource": "stageId only", "archiveTransitions": [["active", "archived"]], "retention": "terminal-application-lifetime", "dailyJourneyIds": ["sales.journey.opportunity", "sales.journey.review"] },
+    { "id": "sales.object.pipeline", "owner": "product.sales", "requiredFields": ["name", "orderedStageIds", "status", "revision"], "retention": "referenced-revisions", "dailyJourneyIds": ["sales.journey.pipeline-config", "sales.journey.opportunity"] },
+    { "id": "sales.object.pipeline-stage", "owner": "product.sales", "requiredFields": ["name", "semantic", "probabilityBasisPoints", "allowedTransitions", "status", "revision"], "retention": "referenced-revisions", "dailyJourneyIds": ["sales.journey.pipeline-config", "sales.journey.opportunity"] },
+    { "id": "sales.object.activity", "owner": "product.sales", "requiredFields": ["type", "subject", "relatedRecordId", "actorId", "teamId", "status"], "conditionalRequiredFields": ["occurredAt for completed interaction", "scheduledAt for scheduled activity"], "retention": "immutable-superseding-application-lifetime", "dailyJourneyIds": ["sales.journey.activity", "sales.journey.communication"] },
+    { "id": "sales.object.note", "owner": "product.sales", "requiredFields": ["body", "authorId", "occurredAt", "relatedRecordId"], "retention": "immutable-superseding-application-lifetime", "dailyJourneyIds": ["sales.journey.activity"] },
+    { "id": "sales.object.task", "owner": "product.sales", "requiredFields": ["title", "ownerId", "status", "archiveStatus"], "optionalFields": ["dueDate", "relatedRecordId"], "archiveTransitions": [["active", "archived"]], "retention": "terminal-application-lifetime", "dailyJourneyIds": ["sales.journey.follow-up"] },
+    { "id": "sales.object.attachment-reference", "owner": "product.sales", "requiredFields": ["storageReference", "filename", "mediaType", "byteSize", "uploaderId", "relatedRecordId", "status"], "retention": "related-record-policy", "dailyJourneyIds": ["sales.journey.activity"] },
+    { "id": "sales.object.saved-view", "owner": "product.sales", "requiredFields": ["name", "ownerId", "targetObjectId", "viewKind", "definition", "status"], "retention": "archive-application-lifetime", "dailyJourneyIds": ["sales.journey.pipeline-config", "sales.journey.review"] },
+    { "id": "sales.object.import-job", "owner": "engineering.sales", "requiredFields": ["actorId", "selectionDigest", "schemaRevision", "state", "counts", "artifactReference"], "retention": "artifact-30-days-receipt-application-lifetime", "dailyJourneyIds": ["sales.journey.data-movement"] },
+    { "id": "sales.object.export-job", "owner": "engineering.sales", "requiredFields": ["actorId", "selectionDigest", "schemaRevision", "state", "counts", "artifactReference"], "retention": "artifact-30-days-receipt-application-lifetime", "dailyJourneyIds": ["sales.journey.data-movement"] },
+    { "id": "sales.object.notification", "owner": "product.sales", "requiredFields": ["recipientId", "referenceId", "state", "deliveredAt"], "retention": "terminal-application-lifetime", "dailyJourneyIds": ["sales.journey.follow-up", "sales.journey.communication"] },
+    { "id": "sales.object.reminder", "owner": "product.sales", "requiredFields": ["recipientId", "referenceId", "state", "scheduledAt"], "retention": "terminal-application-lifetime", "dailyJourneyIds": ["sales.journey.follow-up", "sales.journey.communication"] }
+  ],
+  "routes": [
+    "sales.route.overview", "sales.route.tasks", "sales.route.notifications", "sales.route.leads", "sales.route.lead-detail",
+    "sales.route.accounts", "sales.route.account-detail", "sales.route.contacts", "sales.route.contact-detail",
+    "sales.route.opportunities", "sales.route.opportunity-detail", "sales.route.pipeline-settings", "sales.route.saved-views",
+    "sales.route.imports", "sales.route.exports", "sales.route.calendar", "sales.route.reports"
+  ],
+  "actions": [
+    "sales.task.create", "sales.task.update", "sales.reminder.dismiss", "sales.notification.read", "sales.notification.archive", "sales.lead.create", "sales.lead.update", "sales.lead.qualify", "sales.lead.disqualify",
+    "sales.account.create", "sales.account.update", "sales.account.archive", "sales.contact.create", "sales.contact.update", "sales.contact.archive",
+    "sales.opportunity.create", "sales.opportunity.update", "sales.opportunity.stage.update", "sales.opportunity.close", "sales.opportunity.archive", "sales.lead.archive", "sales.task.archive",
+    "sales.activity.create", "sales.activity.complete", "sales.activity.cancel", "sales.note.create", "sales.attachment.link", "sales.attachment.remove", "sales.pipeline.update", "sales.pipeline.archive", "sales.saved-view.create", "sales.saved-view.update", "sales.saved-view.archive",
+    "sales.import.dry-run", "sales.import.commit", "sales.import.cancel", "sales.export.create", "sales.export.cancel", "sales.merge.commit", "sales.email.send", "sales.calendar.sync", "sales.reminder.schedule", "sales.report.run", "sales.report.schedule", "sales.ownership.assign", "sales.settings.update", "sales.integration.configure"
+  ],
+  "journeys": [
+    { "id": "sales.journey.follow-up", "owner": "product.sales", "objectIds": ["sales.object.task", "sales.object.notification", "sales.object.reminder"], "routeIds": ["sales.route.overview", "sales.route.tasks", "sales.route.notifications"], "actionIds": ["sales.task.create", "sales.task.update", "sales.task.archive", "sales.reminder.dismiss", "sales.notification.read", "sales.notification.archive"] },
+    { "id": "sales.journey.lead", "owner": "product.sales", "objectIds": ["sales.object.lead", "sales.object.account", "sales.object.contact", "sales.object.opportunity"], "routeIds": ["sales.route.leads", "sales.route.lead-detail"], "actionIds": ["sales.lead.create", "sales.lead.update", "sales.lead.qualify", "sales.lead.disqualify", "sales.lead.archive"] },
+    { "id": "sales.journey.customer-context", "owner": "product.sales", "objectIds": ["sales.object.account", "sales.object.contact"], "routeIds": ["sales.route.accounts", "sales.route.account-detail", "sales.route.contacts", "sales.route.contact-detail"], "actionIds": ["sales.account.create", "sales.account.update", "sales.account.archive", "sales.contact.create", "sales.contact.update", "sales.contact.archive", "sales.merge.commit", "sales.ownership.assign"] },
+    { "id": "sales.journey.opportunity", "owner": "product.sales", "objectIds": ["sales.object.account", "sales.object.contact", "sales.object.opportunity", "sales.object.pipeline", "sales.object.pipeline-stage"], "routeIds": ["sales.route.opportunities", "sales.route.opportunity-detail"], "actionIds": ["sales.opportunity.create", "sales.opportunity.update", "sales.opportunity.stage.update", "sales.opportunity.close", "sales.opportunity.archive"] },
+    { "id": "sales.journey.activity", "owner": "product.sales", "objectIds": ["sales.object.activity", "sales.object.note", "sales.object.attachment-reference"], "routeIds": ["sales.route.account-detail", "sales.route.contact-detail", "sales.route.lead-detail", "sales.route.opportunity-detail"], "actionIds": ["sales.activity.create", "sales.activity.complete", "sales.activity.cancel", "sales.note.create", "sales.attachment.link", "sales.attachment.remove"] },
+    { "id": "sales.journey.pipeline-config", "owner": "product.sales", "objectIds": ["sales.object.pipeline", "sales.object.pipeline-stage", "sales.object.saved-view"], "routeIds": ["sales.route.pipeline-settings", "sales.route.saved-views"], "actionIds": ["sales.pipeline.update", "sales.pipeline.archive", "sales.saved-view.create", "sales.saved-view.update", "sales.saved-view.archive", "sales.settings.update"] },
+    { "id": "sales.journey.data-movement", "owner": "engineering.sales", "objectIds": ["sales.object.import-job", "sales.object.export-job"], "routeIds": ["sales.route.imports", "sales.route.exports"], "actionIds": ["sales.import.dry-run", "sales.import.commit", "sales.import.cancel", "sales.export.create", "sales.export.cancel", "sales.merge.commit"] },
+    { "id": "sales.journey.communication", "owner": "platform.security", "objectIds": ["sales.object.activity", "sales.object.notification", "sales.object.reminder"], "routeIds": ["sales.route.calendar", "sales.route.notifications"], "actionIds": ["sales.email.send", "sales.calendar.sync", "sales.reminder.schedule", "sales.integration.configure"] },
+    { "id": "sales.journey.review", "owner": "product.sales", "objectIds": ["sales.object.opportunity", "sales.object.activity", "sales.object.task", "sales.object.saved-view"], "routeIds": ["sales.route.overview", "sales.route.reports"], "actionIds": ["sales.report.run", "sales.report.schedule"] }
+  ],
+  "metrics": [
+    { "id": "sales.metric.pipeline-value-by-stage", "owner": "product.sales", "source": "authorized-open-opportunities", "sourceRevision": "report-input-revision", "filters": "current-authority and selected report filters", "grouping": "current-stage", "formula": "sum(MetricMoney.value) for authorized open opportunities grouped by current stage", "windowField": "asOf", "asOf": "UTC report execution instant", "timezone": "application-reporting-timezone", "currency": "application-reporting-currency", "emptyResult": "zero" },
+    { "id": "sales.metric.weighted-forecast", "owner": "product.sales", "source": "authorized-open-opportunities", "sourceRevision": "report-input-revision", "filters": "current-authority and selected report filters", "grouping": "none", "formula": "exact aggregate sum(MetricMoney.value * probabilityBasisPoints / 10000), then half-up round to reporting currency scale", "windowField": "asOf", "asOf": "UTC report execution instant", "timezone": "application-reporting-timezone", "currency": "application-reporting-currency", "emptyResult": "zero" },
+    { "id": "sales.metric.won-lost-conversion", "owner": "product.sales", "source": "first-terminal-opportunity-transition", "sourceRevision": "report-input-revision", "filters": "current-authority and selected close-date window", "grouping": "none", "formula": "count(first terminal won) / count(first terminal won or lost)", "windowField": "closedAt", "asOf": "UTC report execution instant", "timezone": "application-reporting-timezone", "currency": "not-applicable", "emptyResult": "null" },
+    { "id": "sales.metric.lead-conversion", "owner": "product.sales", "source": "first-lead-decision", "sourceRevision": "report-input-revision", "filters": "current-authority and selected decision-time window", "grouping": "none", "formula": "count(first qualified) / count(first qualified or disqualified)", "windowField": "decidedAt", "asOf": "UTC report execution instant", "timezone": "application-reporting-timezone", "currency": "not-applicable", "emptyResult": "null" },
+    { "id": "sales.metric.activity-by-owner-team", "owner": "product.sales", "source": "immutable-non-superseded-activities", "sourceRevision": "report-input-revision", "filters": "current-authority and selected occurred-time window", "grouping": "activity-actor-and-authorized-team", "formula": "count(immutable non-superseded activities) grouped by actor and authorized team", "windowField": "occurredAt", "asOf": "UTC report execution instant", "timezone": "application-reporting-timezone", "currency": "not-applicable", "emptyResult": "zero" },
+    { "id": "sales.metric.task-aging", "owner": "product.sales", "source": "authorized-open-tasks", "sourceRevision": "report-input-revision", "filters": "current-authority", "grouping": "not-due,due-today,1-7,8-30,31-plus overdue day bucket", "formula": "count(open tasks) grouped by not-due,due-today,1-7,8-30,31-plus overdue day bucket", "windowField": "dueDate", "asOf": "UTC report execution instant", "timezone": "application-reporting-timezone", "currency": "not-applicable", "emptyResult": "zero" },
+    { "id": "sales.metric.sales-cycle-duration", "owner": "product.sales", "source": "first-terminally-closed-opportunities", "sourceRevision": "report-input-revision", "filters": "current-authority and selected close-date window", "grouping": "none", "formula": "floor each non-negative UTC elapsed seconds from createdAt to first terminal closedAt divided by 86400; sort whole-day values; odd median is middle value; even cardinality median is exact arithmetic mean of two middle values", "windowField": "closedAt", "asOf": "UTC report execution instant", "timezone": "application-reporting-timezone", "currency": "not-applicable", "emptyResult": "null" }
+  ],
+  "dataSemantics": {
+    "money": "{ kind: money, value: canonical exact decimal string, currency: ISO-4217-uppercase iff value is present, scale: integer, rounding?: declared mode }; no binary floating point or FX conversion",
+    "calendarDate": "YYYY-MM-DD without timezone conversion",
+    "instant": "UTC instant",
+    "reportingTimezone": "one IANA application timezone used for grouping and display"
+  },
+  "retention": {
+    "defaultDeletion": "soft-archive",
+    "domainRows": "application-lifetime unless later accepted erasure decision",
+    "mergeLineage": "application-lifetime unless later accepted erasure decision",
+    "audit": "application-lifetime unless later accepted erasure decision",
+    "importExportArtifactsDays": 30,
+    "attachmentBytes": "configured-customer-storage-retention"
+  },
+  "migration": {
+    "legacyOpportunityStageMap": { "lead": "qualification", "qualified": "discovery", "won": "won", "lost": "lost" },
+    "legacyTaskStatusMap": { "open": "open", "done": "completed" },
+    "stableIdsRequired": true,
+    "stableTimestampsRequired": true,
+    "dualWriteAllowed": false,
+    "silentDefaultsAllowed": false,
+    "legacyOpportunitySafety": "account and owner use explicit receipt-bound migration identities or maintenance-required; optional contact, amount and expected close remain null; money parses losslessly or migration stops",
+    "legacyTaskSafety": "dueDate and relatedRecord remain optional; missing owner requires recorded configured migration owner or maintenance-required; potentialRevenue is receipt evidence only; privateNote becomes one authorized immutable Note",
+    "persistedReferenceSafety": "RBAC grants, template adoptions, settings, pages, publications, blocks, source/action bindings and saved views migrate atomically or fail closed"
+  },
+  "betaCriteria": {
+    "representativeDataset": { "leads": 100, "accounts": 50, "contacts": 100, "opportunities": 50, "activities": 200, "tasks": 100, "importReplayDuplicateLogicalRecords": 0, "moneyDeltaMinorUnits": 0 },
+    "dogfood": { "consecutiveBusinessDays": 5, "activeHumanUsers": 2, "unresolvedSev1Sev2Incidents": 0, "restoreRtoHours": 4, "backupRpoMinutes": 15 },
+    "authorization": { "unauthorizedRecordOrSensitiveValueExposures": 0, "staleMutationBusinessEffects": 0 },
+    "import": { "acceptedCsvRows": 10000, "replayDuplicateLogicalRecords": 0, "protectedFieldWrites": 0 },
+    "accessibility": { "criticalOrSeriousViolations": 0 },
+    "performance": { "serverP95Milliseconds": 1000, "interactiveP95Milliseconds": 2500, "declaredCiHardwareRequired": true },
+    "reminders": { "healthyOrRecoveredDeliverySeconds": 60, "crossRecipientDeliveries": 0 },
+    "requiredSignoffs": ["product.sales", "engineering.sales", "platform.security", "platform.operations"]
+  },
+  "attacks": [
+    { "id": "P13-ATK-01", "scenario": "cross-application-account-contact-lead-opportunity", "denial": "deny-record-and-field-disclosure", "deliveryTasks": ["P13.2", "P13.3"], "verificationTasks": ["P13.10"] },
+    { "id": "P13-ATK-02", "scenario": "forged-owner-team-pipeline-stage-revision", "denial": "deny-forged-mutation", "deliveryTasks": ["P13.2", "P13.3", "P13.4"], "verificationTasks": ["P13.10"] },
+    { "id": "P13-ATK-03", "scenario": "stale-kanban-transition", "denial": "deny-stale-transition", "deliveryTasks": ["P13.4"], "verificationTasks": ["P13.10"] },
+    { "id": "P13-ATK-04", "scenario": "lead-conversion-replay-or-duplicate-creation", "denial": "return-idempotent-result-without-duplicates", "deliveryTasks": ["P13.3"], "verificationTasks": ["P13.10"] },
+    { "id": "P13-ATK-05", "scenario": "import-formula-oversize-encoding-protected-field", "denial": "reject-unsafe-import", "deliveryTasks": ["P13.5"], "verificationTasks": ["P13.10"] },
+    { "id": "P13-ATK-06", "scenario": "import-crash-retry-duplication", "denial": "preserve-exact-once-logical-outcome", "deliveryTasks": ["P13.5"], "verificationTasks": ["P13.10"] },
+    { "id": "P13-ATK-07", "scenario": "unauthorized-export-report-dashboard", "denial": "deny-without-data-disclosure", "deliveryTasks": ["P13.5", "P13.8"], "verificationTasks": ["P13.10"] },
+    { "id": "P13-ATK-08", "scenario": "dedupe-merge-hidden-field-or-stale-lineage", "denial": "deny-leak-or-stale-merge", "deliveryTasks": ["P13.5"], "verificationTasks": ["P13.10"] },
+    { "id": "P13-ATK-09", "scenario": "provider-token-webhook-secret-or-raw-network", "denial": "deny-secret-exfiltration-and-unbounded-network", "deliveryTasks": ["P13.6"], "verificationTasks": ["P13.10"] },
+    { "id": "P13-ATK-10", "scenario": "forged-replayed-inbound-webhook", "denial": "deny-invalid-webhook", "deliveryTasks": ["P13.6"], "verificationTasks": ["P13.10"] },
+    { "id": "P13-ATK-11", "scenario": "workflow-code-expression-loop-fanout-privilege-escalation", "denial": "deny-unbounded-or-unauthorized-workflow", "deliveryTasks": ["P13.7"], "verificationTasks": ["P13.10"] },
+    { "id": "P13-ATK-12", "scenario": "notification-reminder-cross-user-delivery", "denial": "deny-cross-user-delivery", "deliveryTasks": ["P13.6"], "verificationTasks": ["P13.10"] },
+    { "id": "P13-ATK-13", "scenario": "money-rounding-currency-timezone-ambiguity", "denial": "reject-ambiguous-metric-input", "deliveryTasks": ["P13.2", "P13.8"], "verificationTasks": ["P13.10"] },
+    { "id": "P13-ATK-14", "scenario": "lost-outbox-realtime-invalidation-stale-authority", "denial": "converge-to-current-authority", "deliveryTasks": ["P13.3"], "verificationTasks": ["P13.10"] },
+    { "id": "P13-ATK-15", "scenario": "prior-release-migration-or-restore-mismatch", "denial": "stop-or-maintenance-required", "deliveryTasks": ["P13.2", "P13.9"], "verificationTasks": ["P13.10"] }
+  ],
+  "nonGoals": [
+    "public-cms", "marketing-automation", "telephony", "accounting-erp", "payments", "arbitrary-workflow-language",
+    "arbitrary-query-language", "unrestricted-mailbox-network", "shared-database-saas", "multiple-active-pipelines",
+    "territory-quota-management", "product-catalog-quotes-orders", "autonomous-ai-actions", "second-vertical"
+  ]
+}
