@@ -129,8 +129,23 @@ export function createFixtureStaticProcessIdentityProvider(
 }
 
 export interface FixtureAuthorityContext {
+  readonly applicationId: string;
+  readonly environment: string;
+  readonly actorId: string;
+  readonly ownerId: string;
+  readonly teamId: string;
   /** Actor-isolated cache identity; current RBAC is rechecked before every cache lookup. */
   readonly permissionFingerprint: string;
+}
+export interface FixtureDurableSalesAuthority {
+  readonly context: FixtureAuthorityContext;
+  readonly recordScope: "owned-or-assigned-team" | "managed-teams-and-own" | "application-sales-scope" | "explicit-application-or-team-scope";
+  readonly applicationWide: boolean;
+  readonly mutationAllowed: boolean;
+  readonly authorizedTeamIds: readonly string[];
+  readonly scopeRevision: number;
+  readonly authorizationRevision: number;
+  readonly lifecycleRevision: number;
 }
 
 export type FixtureSalesProfile = "normal" | "done";
@@ -139,6 +154,9 @@ export interface FixtureCurrentAuthority {
   readonly adapter: CurrentAuthorityAdapter<FixtureAuthorityContext>;
   readonly permissions: CurrentAuthorityPermissionProjection<FixtureAuthorityContext>;
   context(request: PayloadRequest, correlationId: string, user?: unknown): FixtureAuthorityContext;
+  resolveDurableSalesAuthority(request: PayloadRequest, correlationId: string): Promise<FixtureDurableSalesAuthority>;
+  revalidateDurableSalesAuthority(request: PayloadRequest, durable: FixtureDurableSalesAuthority): Promise<boolean>;
+  durableSalesAuthority(request: PayloadRequest): FixtureDurableSalesAuthority;
   salesProfile(context: FixtureAuthorityContext): FixtureSalesProfile;
   source(descriptor: DataSourceDescriptor, surface: string): CurrentAuthorityTarget;
   field(descriptor: DataSourceDescriptor, fieldId: string, surface: string): CurrentAuthorityTarget;
@@ -150,6 +168,7 @@ export interface FixtureCurrentAuthority {
     subscription: RealtimeSubscriptionContext<Readonly<Record<string, unknown>>>
   ): Promise<boolean>;
   payload(collection: string, operation: "find" | "create" | "update"): CurrentAuthorityTarget;
+  payloadAction(actionId: string, collection: string, operation: "find" | "create" | "update"): CurrentAuthorityTarget;
   remoteUi(context: FixtureAuthorityContext): FixtureRemoteUiAuthorization;
 }
 
@@ -405,6 +424,7 @@ export function createFixtureCurrentAuthority(
   /** Domain facts stay in the branded context store: the cache accepts JSON-safe context projections only. */
   const salesProfiles = new WeakMap<FixtureAuthorityContext, FixtureSalesProfile>();
   const contexts = new WeakMap<PayloadRequest, Readonly<{ actorId: string; salesProfile: FixtureSalesProfile; context: FixtureAuthorityContext }>>();
+  const durableContexts = new WeakMap<PayloadRequest, FixtureDurableSalesAuthority>();
   const stores = new WeakMap<TrustedAuthorizationSession, PostgresAuthorizationStore>();
   const databases = new WeakMap<TrustedAuthorizationSession, RuntimeExtensionPool>();
   const resolver = {
@@ -432,6 +452,10 @@ export function createFixtureCurrentAuthority(
       return target(permission, permissionId, `realtime-${topic.id}`);
     }
   );
+  const sameDurableAuthority = (left: FixtureDurableSalesAuthority, row: Record<string, unknown> | undefined, revision: Record<string, unknown> | undefined) =>
+    row !== undefined && revision !== undefined && row.record_scope === left.recordScope && row.application_wide === left.applicationWide && row.mutation_allowed === left.mutationAllowed &&
+    Array.isArray(row.authorized_team_ids) && JSON.stringify(row.authorized_team_ids) === JSON.stringify(left.authorizedTeamIds) && row.revision === left.scopeRevision &&
+    revision.authorization_revision === left.authorizationRevision && revision.lifecycle_revision === left.lifecycleRevision;
   const fixture: FixtureCurrentAuthority = {
     adapter,
     permissions,
@@ -453,6 +477,11 @@ export function createFixtureCurrentAuthority(
         effectiveActor: { kind: "user", id: current.id }
       });
       const context = Object.freeze({
+        applicationId: owner.applicationId,
+        environment: owner.environment,
+        actorId: current.id,
+        ownerId: current.id,
+        teamId: `team:${current.id}`,
         permissionFingerprint: `${owner.applicationId}:${owner.environment}:user:${current.id}:sales:${current.salesProfile}`
       });
       const database = pool(request);
@@ -462,6 +491,35 @@ export function createFixtureCurrentAuthority(
       salesProfiles.set(context, current.salesProfile);
       contexts.set(request, Object.freeze({ actorId: current.id, salesProfile: current.salesProfile, context }));
       return context;
+    },
+    async resolveDurableSalesAuthority(request, correlationId) {
+      const current = fixture.context(request, correlationId);
+      const database = pool(request);
+      const [scope, state] = await Promise.all([
+        database.query<Record<string, unknown>>("select record_scope, application_wide, mutation_allowed, authorized_team_ids, revision from sales_current_authority_scopes where application_id=$1 and environment=$2 and principal_id=$3 and state='active'", [owner.applicationId, owner.environment, current.actorId]),
+        database.query<Record<string, unknown>>("select authorization_revision, lifecycle_revision from k_nex_authorization_state where application_id=$1", [owner.applicationId])
+      ]);
+      const row = scope.rows[0]; const revision = state.rows[0];
+      if (scope.rows.length !== 1 || state.rows.length !== 1 || row === undefined || revision === undefined ||
+        !["owned-or-assigned-team", "managed-teams-and-own", "application-sales-scope", "explicit-application-or-team-scope"].includes(String(row.record_scope)) ||
+        typeof row.application_wide !== "boolean" || typeof row.mutation_allowed !== "boolean" || !Array.isArray(row.authorized_team_ids) || row.authorized_team_ids.length > 32 || row.authorized_team_ids.some((teamId) => typeof teamId !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,159}$/u.test(teamId)) || JSON.stringify(row.authorized_team_ids) !== JSON.stringify([...new Set(row.authorized_team_ids)].sort()) ||
+        !Number.isSafeInteger(row.revision) || !Number.isSafeInteger(revision.authorization_revision) || !Number.isSafeInteger(revision.lifecycle_revision)) throw new TypeError("Durable Sales authority is unavailable.");
+      const resolved = Object.freeze({ context: current, recordScope: row.record_scope as FixtureDurableSalesAuthority["recordScope"], applicationWide: row.application_wide, mutationAllowed: row.mutation_allowed, authorizedTeamIds: Object.freeze(row.authorized_team_ids.map(String)), scopeRevision: row.revision as number, authorizationRevision: revision.authorization_revision as number, lifecycleRevision: revision.lifecycle_revision as number });
+      durableContexts.set(request, resolved);
+      return resolved;
+    },
+    async revalidateDurableSalesAuthority(request, durable) {
+      const database = pool(request);
+      const [scope, state] = await Promise.all([
+        database.query<Record<string, unknown>>("select record_scope, application_wide, mutation_allowed, authorized_team_ids, revision from sales_current_authority_scopes where application_id=$1 and environment=$2 and principal_id=$3 and state='active'", [durable.context.applicationId, durable.context.environment, durable.context.actorId]),
+        database.query<Record<string, unknown>>("select authorization_revision, lifecycle_revision from k_nex_authorization_state where application_id=$1", [durable.context.applicationId])
+      ]);
+      return scope.rows.length === 1 && state.rows.length === 1 && sameDurableAuthority(durable, scope.rows[0], state.rows[0]);
+    },
+    durableSalesAuthority(request) {
+      const resolved = durableContexts.get(request);
+      if (resolved === undefined) throw new TypeError("Durable Sales authority is unavailable.");
+      return resolved;
     },
     salesProfile(context) {
       const profile = salesProfiles.get(context);
@@ -492,6 +550,15 @@ export function createFixtureCurrentAuthority(
           : undefined;
       if (permissionId === undefined) throw new TypeError("Payload collection is unavailable.");
       return target(permission, permissionId, `payload-${collection}-${operation}`);
+    },
+    payloadAction(actionId, collection, operation) {
+      const permissionId = actionId === "sales.opportunity.stage.update"
+        ? collection === "sales-opportunities" ? "sales.opportunities.stage.update" : undefined
+        : actionId === "sales.task.create" || actionId === "sales.task.update"
+          ? collection === "sales-tasks" ? "sales.tasks.write" : undefined
+          : undefined;
+      if (permissionId === undefined) throw new TypeError("Action Payload collection is unavailable.");
+      return target(permission, permissionId, `payload-action-${actionId}-${collection}-${operation}`);
     },
     remoteUi(context): FixtureRemoteUiAuthorization {
       const validIdentity = (identity: RemoteUiFrameAuthorityIdentity) =>

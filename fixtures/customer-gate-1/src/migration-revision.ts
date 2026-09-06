@@ -1,9 +1,9 @@
 import type { Payload } from "payload";
 
 export const applicationMigrationRevision = Object.freeze({
-  migrationName: "20260902_000024_catalog_mirror",
-  predecessor: 23,
-  current: 24
+  migrationName: "20260905_000027_crm_core",
+  predecessor: 24,
+  current: 25
 });
 
 export class MigrationRevisionError extends Error {

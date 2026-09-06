@@ -21,7 +21,7 @@ import {
   type WorkspacePageSnapshot
 } from "@k-nex/payload-adapter";
 import { createAuthorizedPuckBuilderProfile } from "@k-nex/builder-puck";
-import { salesOpportunitiesDescriptor, salesOpportunityStageUpdateDescriptor, salesTaskCreateDescriptor, salesTaskUpdateDescriptor, salesTasksDescriptor, salesTotalPotentialRevenueDescriptor } from "@k-nex/module-sales/contracts";
+import { salesOpportunitiesDescriptor, salesOpportunityStageUpdateDescriptor, salesTaskCreateDescriptor, salesTaskUpdateDescriptor, salesTasksDescriptor } from "@k-nex/module-sales/contracts";
 import { salesPuckBlockBridges } from "@k-nex/module-sales/puck";
 import { genericPuckBlockBridges } from "@k-nex/ui-builder-blocks";
 import { genericUiBlockDefinitions } from "@k-nex/ui-builder-blocks/runtime";
@@ -139,10 +139,11 @@ export async function openWorkspaceForm(request: Request, boundary: string) {
 function workspaceSalesServerSource(): string {
   return `import "server-only";
 
-import type { DataSourceBindingResult, DataSourceDefinition, UiDocument, UiNode } from "@k-nex/contracts";
+import { createHash } from "node:crypto";
+
+import { canonicalJson, type DataSourceBindingResult, type DataSourceDefinition, type UiDocument, type UiNode } from "@k-nex/contracts";
 import {
-  CurrentAuthorityActionGatewayPolicy,
-  CurrentAuthorityDataSourcePolicy,
+  ActionGatewayError,
   DataSourceGateway,
   DataSourceGatewayError,
   BoundedQueryBudgetEvaluator,
@@ -155,14 +156,23 @@ import {
   SafeProblemDetailsSerializer,
   TableProjectionRedactor,
   createCurrentAuthorityTarget,
+  type CurrentAuthorityTarget,
   type DataSourceHandler,
   type DataSourcePolicyService,
   type RegisteredDataSource
 } from "@k-nex/runtime";
-import { createPayloadPersistenceCapability, CurrentAuthorityPayloadPersistenceAuthorizer, PayloadRequestAuthenticator } from "@k-nex/payload-adapter";
+import { sql } from "@payloadcms/db-postgres";
+import {
+  activePayloadPostgresTransaction,
+  createPayloadPersistenceCapability,
+  CurrentAuthorityPayloadPersistenceAuthorizer,
+  PayloadRequestAuthenticator,
+  type PayloadPersistenceCapabilityContext
+} from "@k-nex/payload-adapter";
 import type { Payload, PayloadRequest } from "payload";
 
-import { kNexAuthority, type KnexRequestContext } from "./k-nex-authority.js";
+import { currentPayloadAuthentication, kNexAuthority, type KnexRequestContext } from "./k-nex-authority.js";
+import { kNexIdentity } from "./k-nex-identity.js";
 import { kNexSalesRegistry } from "./k-nex-registry.js";
 
 const sourceDefinitions = new Map(kNexSalesRegistry.scopedRegistration.contributions.sources.map((entry) => [entry.id, entry.value as DataSourceDefinition]));
@@ -174,13 +184,13 @@ for (const [id, definition] of sourceDefinitions) {
 }
 const workspaceSalesBudget = new BoundedQueryBudgetEvaluator();
 
-function target(permissionId: string, recordId = "collection") {
+function target(permissionId: string, recordId = "collection", facts: Readonly<Record<string, unknown>> = {}) {
   const descriptor = kNexSalesRegistry.permissionDescriptors.find(({ id }) => id === permissionId);
   if (descriptor === undefined) throw new TypeError("Sales permission is unavailable.");
   const scope = descriptor.scope === "application" ? { kind: "application" as const, resource: descriptor.resource }
     : descriptor.scope === "record" ? { kind: "record" as const, resource: descriptor.resource, recordId }
     : { kind: "field" as const, resource: descriptor.resource, recordId, fieldId: descriptor.resource };
-  return createCurrentAuthorityTarget({ permissionId, scope, facts: { boundary: "workspace-sales" } });
+  return createCurrentAuthorityTarget({ permissionId, scope, facts: { boundary: "workspace-sales", applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment, recordId, ...facts } });
 }
 
 ` + workspaceSalesServerTailSource();
@@ -190,14 +200,14 @@ function workspacePageRuntimeClientSource(): string {
   return `"use client";
 
 import type { DataSourceBindingResult, UiDocument } from "@k-nex/contracts";
-import { salesOpportunitiesDescriptor, salesTasksDescriptor, salesTotalPotentialRevenueDescriptor } from "@k-nex/module-sales/contracts";
+import { salesOpportunitiesDescriptor, salesTasksDescriptor } from "@k-nex/module-sales/contracts";
 import { salesUiBlockDefinitions } from "@k-nex/module-sales/ui";
 import { presentUiRuntimeReact } from "@k-nex/ui-components";
 import { genericUiBlockDefinitions } from "@k-nex/ui-builder-blocks/runtime";
 import { createUiDocumentRuntime, createUiRuntimeRegistry, presentUiRuntimeResult } from "@k-nex/ui-runtime";
 import { useEffect, useMemo, useState } from "react";
 
-const runtime = createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: [...genericUiBlockDefinitions, ...salesUiBlockDefinitions], sources: [salesOpportunitiesDescriptor, salesTasksDescriptor, salesTotalPotentialRevenueDescriptor] }));
+const runtime = createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: [...genericUiBlockDefinitions, ...salesUiBlockDefinitions], sources: [salesOpportunitiesDescriptor, salesTasksDescriptor] }));
 type Watermark = Readonly<{ authorizationRevision: number; lifecycleRevision: number; pageRevision: number; accessRevision: number; publicationPointerRevision: number; publicationRevisionId: string; themePublicationRevision: number; themeActiveRevisionId: string; themeStateDigest: string }>;
 type Projection = Readonly<{ document: UiDocument; permissions: readonly string[]; sourceResults: Readonly<Record<string, DataSourceBindingResult<unknown>>>; themeRevision: string; themeMode: "light" | "dark" | "system"; themeCss: string; watermark: Watermark }>;
 
@@ -255,7 +265,7 @@ export function WorkspacePageRuntime({ pageId, initialProjection }: Readonly<{ p
       setCurrent((current) => ({ ...current, sourceResults: Object.fromEntries(Object.entries(current.sourceResults).map(([nodeId, value]) => {
         const state = value as { state?: string; data?: { rows?: readonly { key: string; values: Record<string, unknown> }[] } };
         if (state.state !== "success" || !Array.isArray(state.data?.rows)) return [nodeId, value];
-        const rows = state.data.rows.map((row) => row.key !== body.data.id ? row : { ...row, values: { ...row.values, stage: { kind: "status", value: body.data.stage }, revision: { kind: "text", value: body.data.revision } } });
+        const rows = state.data.rows.map((row) => row.key !== body.data.id ? row : { ...row, values: { ...row.values, "stage-id": { kind: "status", value: body.data.stage }, revision: { kind: "integer", value: body.data.revision } } });
         return [nodeId, { ...state, data: { ...state.data, rows } }];
       })) }));
       return body.data;
@@ -292,7 +302,7 @@ function workspacePageEditorClientSource(): string {
   return `"use client";
 
 import type { UiDocument } from "@k-nex/contracts";
-import { salesOpportunitiesDescriptor, salesTasksDescriptor, salesTotalPotentialRevenueDescriptor } from "@k-nex/module-sales/contracts";
+import { salesOpportunitiesDescriptor, salesTasksDescriptor } from "@k-nex/module-sales/contracts";
 import { salesPuckBlockBridges } from "@k-nex/module-sales/puck";
 import { presentUiRuntimeReact } from "@k-nex/ui-components";
 import { genericPuckBlockBridges } from "@k-nex/ui-builder-blocks";
@@ -347,7 +357,7 @@ export function WorkspacePageEditor({ pageId, initialProjection }: Readonly<{ pa
   }, [pageId, initialProjection.watermark]);
   const profile = useMemo(() => createAuthorizedPuckBuilderProfile({
     profile: "workspace", publication: "save-layout", blocks: [...genericPuckBlockBridges, ...salesPuckBlockBridges],
-    sources: [salesOpportunitiesDescriptor, salesTasksDescriptor, salesTotalPotentialRevenueDescriptor], authority: initialProjection.authority,
+    sources: [salesOpportunitiesDescriptor, salesTasksDescriptor], authority: initialProjection.authority,
     preview: { surface: "workspace", actor: { authenticated: true, permissions: new Set(initialProjection.permissions) }, present: presentUiRuntimeReact }
   }), [initialProjection.authority, initialProjection.permissions]);
   const session = useMemo(() => new WorkspaceEditorSession({
@@ -397,35 +407,276 @@ export default async function EditWorkspacePage({ params }: Readonly<{ params: P
 }
 
 function workspaceSalesServerTailSource(): string {
-return `async function allowed(payload: Payload, context: KnexRequestContext, permissionId: string, recordId?: string, signal?: AbortSignal) {
+return `type WorkspaceSalesScope = Readonly<{ recordScope: "owned-or-assigned-team" | "managed-teams-and-own" | "application-sales-scope" | "explicit-application-or-team-scope"; applicationWide: boolean; mutationAllowed: boolean; authorizedTeamIds: readonly string[]; revision: number }>;
+const workspaceSalesAuthorityBrand: unique symbol = Symbol("workspace-sales-current-authority");
+type WorkspaceSalesAuthorization = Readonly<{ principal: Readonly<{ kind: "user"; id: string }>; effectiveActor: Readonly<{ kind: "user"; id: string }>; salesScope: WorkspaceSalesScope; authorizationRevision: number; lifecycleRevision: number; [workspaceSalesAuthorityBrand]: true }>;
+
+function authorizationTarget(permissionId: string, recordId: string | undefined, record: Readonly<{ ownerId?: unknown; teamId?: unknown }> | undefined, current: ReturnType<typeof authorization>): CurrentAuthorityTarget | undefined {
+  const actorId = current.effectiveActor.id;
+  const descriptor = kNexSalesRegistry.permissionDescriptors.find(({ id }) => id === permissionId);
+  if (descriptor === undefined) return undefined;
+  const resolvedRecordId = recordId ?? "collection";
+  return target(permissionId, resolvedRecordId, {
+    recordEnvironment: kNexIdentity.environment,
+    ownerId: record?.ownerId ?? actorId,
+    ...(record?.teamId === undefined || record.teamId === null ? {} : { teamId: record.teamId }),
+    applicationWide: current.salesScope.applicationWide,
+    mutationAllowed: current.salesScope.mutationAllowed,
+    authorizedTeamIds: current.salesScope.authorizedTeamIds,
+    recordScope: current.salesScope.recordScope,
+    salesScopeRevision: current.salesScope.revision,
+    collectionScope: recordId === undefined,
+    ...(descriptor.scope === "field" ? { fieldId: descriptor.resource, fieldAllowed: true } : {})
+  });
+}
+
+async function allowed(payload: Payload, context: KnexRequestContext, permissionId: string, recordId?: string, record?: Readonly<{ ownerId?: unknown; teamId?: unknown }>, signal?: AbortSignal, currentAuthorization?: ReturnType<typeof authorization>) {
   if (signal?.aborted) return false;
-  const result = await kNexAuthority(payload).adapter.allows(context, target(permissionId, recordId));
+  const current = currentAuthorization ?? (await actor(payload, context)).authorization;
+  const currentTarget = authorizationTarget(permissionId, recordId, record, current);
+  if (currentTarget === undefined) return false;
+  const result = await kNexAuthority(payload).adapter.allows(context, currentTarget, signal);
   return !signal?.aborted && result;
 }
 
-function authorization(user: unknown) {
+function authorization(user: unknown, salesScope: WorkspaceSalesScope, authority: Readonly<{ authorizationRevision: number; lifecycleRevision: number }>): WorkspaceSalesAuthorization {
   if (typeof user !== "object" || user === null || !("id" in user) || user.id === undefined || user.id === null) throw new TypeError("Sales authentication is unavailable.");
   const id = String(user.id);
-  return { principal: { kind: "user" as const, id }, effectiveActor: { kind: "user" as const, id } };
+  return Object.freeze({ principal: Object.freeze({ kind: "user" as const, id }), effectiveActor: Object.freeze({ kind: "user" as const, id }), salesScope, ...authority, [workspaceSalesAuthorityBrand]: true as const });
+}
+
+function workspaceSalesAuthorization(value: unknown): WorkspaceSalesAuthorization {
+  if (typeof value !== "object" || value === null || !(workspaceSalesAuthorityBrand in value) || value[workspaceSalesAuthorityBrand] !== true ||
+    !("principal" in value) || typeof value.principal !== "object" || value.principal === null || !("id" in value.principal) || typeof value.principal.id !== "string" ||
+    !("effectiveActor" in value) || typeof value.effectiveActor !== "object" || value.effectiveActor === null || !("id" in value.effectiveActor) || value.effectiveActor.id !== value.principal.id ||
+    !("salesScope" in value) || typeof value.salesScope !== "object" || value.salesScope === null ||
+    !("authorizationRevision" in value) || typeof value.authorizationRevision !== "number" || !Number.isSafeInteger(value.authorizationRevision) || value.authorizationRevision < 0 ||
+    !("lifecycleRevision" in value) || typeof value.lifecycleRevision !== "number" || !Number.isSafeInteger(value.lifecycleRevision) || value.lifecycleRevision < 0) throw new TypeError("Sales current-authority context is unavailable.");
+  return value as WorkspaceSalesAuthorization;
+}
+
+function parseSalesScope(row: Readonly<Record<string, unknown>> | undefined): WorkspaceSalesScope {
+  if (row === undefined || !["owned-or-assigned-team", "managed-teams-and-own", "application-sales-scope", "explicit-application-or-team-scope"].includes(String(row.record_scope)) ||
+    typeof row.application_wide !== "boolean" || typeof row.mutation_allowed !== "boolean" || !Array.isArray(row.authorized_team_ids) || row.authorized_team_ids.length > 32 ||
+    row.authorized_team_ids.some((teamId) => typeof teamId !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,159}$/u.test(teamId)) ||
+    JSON.stringify(row.authorized_team_ids) !== JSON.stringify([...new Set(row.authorized_team_ids)].sort()) || !Number.isSafeInteger(row.revision) || (row.revision as number) < 1) throw new TypeError("Sales current-authority scope is unavailable.");
+  const recordScope = row.record_scope as WorkspaceSalesScope["recordScope"];
+  const validMode = recordScope === "application-sales-scope" ? row.application_wide && row.mutation_allowed
+    : recordScope === "explicit-application-or-team-scope" ? !row.mutation_allowed
+      : !row.application_wide && row.mutation_allowed;
+  if (!validMode) throw new TypeError("Sales current-authority scope is invalid.");
+  return Object.freeze({ recordScope, applicationWide: row.application_wide, mutationAllowed: row.mutation_allowed, authorizedTeamIds: Object.freeze(row.authorized_team_ids as string[]), revision: row.revision as number });
+}
+
+async function readSalesScope(payload: Payload, principalId: string): Promise<WorkspaceSalesScope> {
+  const result = await (payload.db.pool as unknown as { query(text: string, values: readonly unknown[]): Promise<{ rows: Record<string, unknown>[] }> }).query(
+    "select record_scope, application_wide, mutation_allowed, authorized_team_ids, revision from sales_current_authority_scopes where application_id=$1 and environment=$2 and principal_id=$3 and state='active'",
+    [kNexIdentity.applicationId, kNexIdentity.environment, principalId]
+  );
+  if (result.rows.length !== 1) throw new TypeError("Sales current-authority scope is unavailable.");
+  return parseSalesScope(result.rows[0]);
+}
+
+async function readSalesAuthority(payload: Payload): Promise<Readonly<{ authorizationRevision: number; lifecycleRevision: number }>> {
+  const result = await (payload.db.pool as unknown as { query(text: string, values: readonly unknown[]): Promise<{ rows: Record<string, unknown>[] }> }).query(
+    "select authorization_revision, lifecycle_revision from k_nex_authorization_state where application_id=$1",
+    [kNexIdentity.applicationId]
+  );
+  const row = result.rows[0];
+  if (result.rows.length !== 1 || !Number.isSafeInteger(row?.authorization_revision) || !Number.isSafeInteger(row?.lifecycle_revision) ||
+    (row.authorization_revision as number) < 0 || (row.lifecycle_revision as number) < 0) throw new TypeError("Sales current-authority revision is unavailable.");
+  return Object.freeze({ authorizationRevision: row.authorization_revision as number, lifecycleRevision: row.lifecycle_revision as number });
 }
 
 async function actor(payload: Payload, context: KnexRequestContext) {
-  const authentication = await payload.auth({ headers: context.headers, canSetHeaders: false });
+  const authentication = await currentPayloadAuthentication(payload, context);
+  const user = authentication.user;
+  if (typeof user !== "object" || user === null || !("id" in user) || user.id === undefined || user.id === null) throw new TypeError("Sales authentication is unavailable.");
   const request = { payload, user: authentication.user ?? null, headers: context.headers } as PayloadRequest;
-  return { authorization: authorization(authentication.user), request };
+  const [salesScope, authority] = await Promise.all([readSalesScope(payload, String(user.id)), readSalesAuthority(payload)]);
+  return { authorization: authorization(user, salesScope, authority), request };
+}
+
+function salesRecordWhere(current: ReturnType<typeof authorization>) {
+  const identity = [{ applicationId: { equals: kNexIdentity.applicationId } }, { environment: { equals: kNexIdentity.environment } }];
+  const team = current.salesScope.authorizedTeamIds.length === 0 ? undefined : { teamId: { in: current.salesScope.authorizedTeamIds } };
+  if (current.salesScope.recordScope === "application-sales-scope" || current.salesScope.recordScope === "explicit-application-or-team-scope" && current.salesScope.applicationWide) return { and: identity };
+  if (current.salesScope.recordScope === "explicit-application-or-team-scope") return { and: [...identity, ...(team === undefined ? [{ id: { equals: "__no-authorized-sales-records__" } }] : [team])] };
+  const ownership = [{ ownerId: { equals: current.effectiveActor.id } }, ...(team === undefined ? [] : [team])];
+  return { and: [...identity, { or: ownership }] };
+}
+
+function salesActionGrant(actionId: string) {
+  if (actionId === "sales.task.create") return Object.freeze({ collection: "sales-tasks", operations: Object.freeze(["create", "update"] as const), permissionId: "sales.tasks.write" });
+  if (actionId === "sales.task.update") return Object.freeze({ collection: "sales-tasks", operations: Object.freeze(["find", "update"] as const), permissionId: "sales.tasks.write" });
+  if (actionId === "sales.opportunity.stage.update") return Object.freeze({ collection: "sales-opportunities", operations: Object.freeze(["find", "update"] as const), permissionId: "sales.opportunities.stage.update" });
+  throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales action persistence is unavailable.");
+}
+
+function postgresRows(value: unknown): readonly unknown[] {
+  if (value === null || typeof value !== "object" || !("rows" in value) || !Array.isArray(value.rows)) throw new Error("Sales scope guard received an invalid Postgres result.");
+  return value.rows;
+}
+
+async function currentSalesAuthorityFence(request: PayloadRequest, current: ReturnType<typeof authorization>): Promise<boolean> {
+  const transaction = await activePayloadPostgresTransaction(request);
+  const rows = postgresRows(await transaction.execute(sql\`
+    SELECT "authorization_revision", "lifecycle_revision" FROM "k_nex_authorization_state"
+    WHERE "application_id" = \${kNexIdentity.applicationId} FOR SHARE
+  \`));
+  if (rows.length !== 1 || rows[0] === null || typeof rows[0] !== "object") return false;
+  const state = rows[0] as Record<string, unknown>;
+  return state.authorization_revision === current.authorizationRevision && state.lifecycle_revision === current.lifecycleRevision;
+}
+
+function actionDigest(value: unknown): \`sha256:\${string}\` {
+  return \`sha256:\${createHash("sha256").update(canonicalJson(value)).digest("hex")}\`;
+}
+
+interface SalesActionIdempotency {
+  readonly request: PayloadRequest;
+  readonly actionId: string;
+  readonly idempotencyKey: string;
+  readonly requestDigest: \`sha256:\${string}\`;
+  replay?: unknown;
+}
+
+function salesActionEventId(current: ReturnType<typeof authorization>, actionId: string, idempotencyKey: string, requestDigest: string): string {
+  return "sales-action-" + createHash("sha256").update(canonicalJson({
+    applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment,
+    effectiveActorId: current.effectiveActor.id, actionId, idempotencyKey, requestDigest
+  })).digest("hex");
+}
+
+function idempotencyRow(value: unknown): Readonly<{ requestDigest: string; result: unknown; resultDigest: string }> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) throw new Error("Sales action idempotency row is invalid.");
+  const row = value as Record<string, unknown>;
+  if (typeof row.request_digest !== "string" || typeof row.result_digest !== "string" || row.result_json === null || typeof row.result_json !== "object" || Array.isArray(row.result_json)) {
+    throw new Error("Sales action idempotency row is invalid.");
+  }
+  return Object.freeze({ requestDigest: row.request_digest, result: row.result_json, resultDigest: row.result_digest });
+}
+
+async function reserveSalesActionIdempotency(input: SalesActionIdempotency, current: ReturnType<typeof authorization>): Promise<unknown | undefined> {
+  const transaction = await activePayloadPostgresTransaction(input.request);
+  const authority = postgresRows(await transaction.execute(sql\`
+    SELECT "authorization_revision", "lifecycle_revision" FROM "k_nex_authorization_state"
+    WHERE "application_id" = \${kNexIdentity.applicationId} FOR SHARE
+  \`));
+  if (authority.length !== 1 || authority[0] === null || typeof authority[0] !== "object") throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales action authority is unavailable.");
+  const revisions = authority[0] as Record<string, unknown>;
+  if (!Number.isSafeInteger(revisions.authorization_revision) || !Number.isSafeInteger(revisions.lifecycle_revision)) throw new Error("Sales action authority revision is invalid.");
+  const pending = Object.freeze({ state: "pending" });
+  const row = idempotencyRow(postgresRows(await transaction.execute(sql\`
+    INSERT INTO "sales_action_idempotency" (
+      "application_id", "environment", "effective_actor_id", "action_id", "idempotency_key", "request_digest", "result_json", "result_digest", "authorization_revision", "lifecycle_revision"
+    ) VALUES (
+      \${kNexIdentity.applicationId}, \${kNexIdentity.environment}, \${current.effectiveActor.id}, \${input.actionId}, \${input.idempotencyKey}, \${input.requestDigest},
+      \${JSON.stringify(pending)}::jsonb, \${actionDigest(pending)}, \${revisions.authorization_revision}, \${revisions.lifecycle_revision}
+    ) ON CONFLICT ("application_id", "environment", "effective_actor_id", "action_id", "idempotency_key")
+      DO UPDATE SET "request_digest" = "sales_action_idempotency"."request_digest"
+    RETURNING "request_digest", "result_json", "result_digest"
+  \`))[0]);
+  if (row.requestDigest !== input.requestDigest) throw new ActionGatewayError("IDEMPOTENCY_CONFLICT", 409, "Sales action idempotency key was reused for different input.");
+  if (row.resultDigest !== actionDigest(row.result)) throw new Error("Sales action idempotency result is invalid.");
+  if ((row.result as { state?: unknown }).state === "pending") return undefined;
+  if ((row.result as { state?: unknown }).state !== "succeeded" || !("data" in (row.result as Record<string, unknown>))) throw new Error("Sales action idempotency result is invalid.");
+  input.replay = (row.result as Record<string, unknown>).data;
+  return input.replay;
+}
+
+async function completeSalesActionIdempotency(input: SalesActionIdempotency, current: ReturnType<typeof authorization>, data: unknown): Promise<void> {
+  const transaction = await activePayloadPostgresTransaction(input.request);
+  const result = Object.freeze({ state: "succeeded", data });
+  const completed = postgresRows(await transaction.execute(sql\`
+    UPDATE "sales_action_idempotency"
+    SET "result_json" = \${JSON.stringify(result)}::jsonb, "result_digest" = \${actionDigest(result)}
+    WHERE "application_id" = \${kNexIdentity.applicationId} AND "environment" = \${kNexIdentity.environment}
+      AND "effective_actor_id" = \${current.effectiveActor.id} AND "action_id" = \${input.actionId}
+      AND "idempotency_key" = \${input.idempotencyKey} AND "request_digest" = \${input.requestDigest}
+      AND "result_json" = '{"state":"pending"}'::jsonb
+    RETURNING "idempotency_key"
+  \`));
+  if (completed.length !== 1) throw new Error("Sales action idempotency finalization was lost.");
+}
+
+async function lockSalesActionTarget(request: PayloadRequest, current: ReturnType<typeof authorization>, input: Readonly<Record<string, unknown>>): Promise<boolean> {
+  const transaction = await activePayloadPostgresTransaction(request);
+  if (!await currentSalesAuthorityFence(request, current)) return false;
+  const actorId = current.effectiveActor.id;
+  const teamScope = current.salesScope.authorizedTeamIds.length === 0 ? sql\`false\` : sql\`"team_id" in \${current.salesScope.authorizedTeamIds}\`;
+  const recordScope = current.salesScope.recordScope === "application-sales-scope" ? sql\`true\`
+    : current.salesScope.recordScope === "explicit-application-or-team-scope" ? sql\`\${current.salesScope.applicationWide} OR \${teamScope}\`
+      : sql\`"owner_id" = \${actorId} OR \${teamScope}\`;
+  if (postgresRows(await transaction.execute(sql\`SELECT "revision" FROM "sales_current_authority_scopes"
+    WHERE "application_id" = \${kNexIdentity.applicationId} AND "environment" = \${kNexIdentity.environment} AND "principal_id" = \${actorId} AND "state" = 'active'
+      AND "revision" = \${current.salesScope.revision} AND "mutation_allowed" = true FOR SHARE\`)).length !== 1) return false;
+  if (typeof input.id !== "string") return true;
+  if (input.collection === "sales-tasks") {
+    return postgresRows(await transaction.execute(sql\`
+      SELECT "id" FROM "sales_tasks"
+      WHERE "id" = \${input.id} AND "application_id" = \${kNexIdentity.applicationId} AND "environment" = \${kNexIdentity.environment}
+        AND (\${recordScope})
+      FOR UPDATE
+    \`)).length === 1;
+  }
+  if (input.collection === "sales-opportunities") {
+    return postgresRows(await transaction.execute(sql\`
+      SELECT "id" FROM "sales_opportunities"
+      WHERE "id" = \${input.id} AND "application_id" = \${kNexIdentity.applicationId} AND "environment" = \${kNexIdentity.environment}
+        AND (\${recordScope})
+      FOR UPDATE
+    \`)).length === 1;
+  }
+  return false;
+}
+
+function salesActionCapability(payload: Payload, context: KnexRequestContext, request: PayloadRequest, actionId: string, current: ReturnType<typeof authorization>) {
+  const grant = salesActionGrant(actionId);
+  return createPayloadPersistenceCapability(request, [{ collection: grant.collection, operations: grant.operations }],
+    new CurrentAuthorityPayloadPersistenceAuthorizer(kNexAuthority(payload).adapter, context, () => {
+      const currentTarget = authorizationTarget(grant.permissionId, undefined, undefined, current);
+      if (currentTarget === undefined) throw new Error("Sales persistence permission is unavailable.");
+      return currentTarget;
+    }), { guard: async (input) => {
+      if (input.collection !== grant.collection || input.id !== undefined && typeof input.id !== "string") return false;
+      const currentTarget = authorizationTarget(grant.permissionId, typeof input.id === "string" ? input.id : undefined, undefined, current);
+      return currentTarget !== undefined && await kNexAuthority(payload).adapter.allows(context, currentTarget) && await lockSalesActionTarget(request, current, input);
+    } });
+}
+
+async function salesActionRecord(capability: PayloadPersistenceCapabilityContext, collection: "sales-tasks" | "sales-opportunities", id: string, current: ReturnType<typeof authorization>) {
+  const scope = salesRecordWhere(current);
+  const result = await capability.payload.find({ collection, depth: 0, limit: 1, pagination: false, overrideAccess: true,
+    select: { ownerId: true, teamId: true }, where: { and: [{ id: { equals: id } }, ...scope.and] } }) as { docs?: unknown };
+  if (!Array.isArray(result.docs) || result.docs.length !== 1 || result.docs[0] === null || typeof result.docs[0] !== "object") {
+    throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales action target is unavailable.");
+  }
+  return result.docs[0] as { ownerId?: unknown; teamId?: unknown };
 }
 
 export async function workspaceSalesPermissions(payload: Payload, context: KnexRequestContext, signal?: AbortSignal) {
-  const results = await Promise.all(kNexSalesRegistry.permissionDescriptors.map(async (descriptor) => [descriptor.id, await allowed(payload, context, descriptor.id, undefined, signal)] as const));
-  return results.filter(([, result]) => result).map(([id]) => id);
+  const current = (await actor(payload, context)).authorization;
+  const targets: CurrentAuthorityTarget[] = [];
+  for (const descriptor of kNexSalesRegistry.permissionDescriptors) {
+    const currentTarget = authorizationTarget(descriptor.id, undefined, undefined, current);
+    if (currentTarget === undefined) return [];
+    targets.push(currentTarget);
+  }
+  const allowed: boolean[] = [];
+  for (let index = 0; index < targets.length; index += 4) {
+    allowed.push(...await Promise.all(targets.slice(index, index + 4).map((currentTarget) => kNexAuthority(payload).adapter.allows(context, currentTarget, signal))));
+  }
+  return Object.freeze(kNexSalesRegistry.permissionDescriptors.flatMap((descriptor, index) => allowed[index] ? [descriptor.id] : []));
 }
 
 const workspaceSalesPolicy: DataSourcePolicyService = {
-  authorize({ descriptor }) {
+  authorize({ descriptor, actor }) {
+    const current = workspaceSalesAuthorization(actor);
     const recordScope = descriptor.id === "sales.opportunities"
-      ? { kind: "sales.opportunities" }
-      : descriptor.id === "sales.tasks" || descriptor.id === "sales.total-potential-revenue"
-        ? { kind: "sales.tasks" }
+      ? { kind: "sales.opportunities", where: salesRecordWhere(current) }
+      : descriptor.id === "sales.tasks"
+        ? { kind: "sales.tasks", where: salesRecordWhere(current) }
         : undefined;
     return Object.freeze({
       sourceAllowed: recordScope !== undefined,
@@ -435,39 +686,41 @@ const workspaceSalesPolicy: DataSourcePolicyService = {
   }
 };
 
-function workspaceSalesGateway(payload: Payload, context: KnexRequestContext): DataSourceGateway {
+const workspaceCurrentSalesPolicy = (permissions: readonly string[]): DataSourcePolicyService => ({
+  async authorize(request) {
+    if (!permissions.includes(request.descriptor.permission)) return { sourceAllowed: false, recordScope: undefined, allowedFields: [] };
+    const domain = await workspaceSalesPolicy.authorize(request);
+    if (!domain.sourceAllowed) return { sourceAllowed: false, recordScope: undefined, allowedFields: [] };
+    const allowedFields: string[] = [];
+    for (const fieldId of domain.allowedFields) {
+      const field = request.descriptor.outputFields?.find(({ id }) => id === fieldId);
+      if (field !== undefined && permissions.includes(field.permission)) allowedFields.push(fieldId);
+    }
+    return Object.freeze({ sourceAllowed: true, recordScope: domain.recordScope, allowedFields: Object.freeze(allowedFields) });
+  }
+});
+
+function workspaceSalesGateway(payload: Payload, context: KnexRequestContext, permissions: readonly string[], current: ReturnType<typeof authorization>): DataSourceGateway {
   return new DataSourceGateway({
     authenticator: new PayloadRequestAuthenticator({
-      actor: (request) => authorization(request.user),
+      actor: () => current,
       authorizationContext: () => context,
       requestContext(request) {
-        return createPayloadPersistenceCapability(request, [
+        const capability = createPayloadPersistenceCapability(request, [
           { collection: "sales-tasks", operations: ["find"] },
           { collection: "sales-opportunities", operations: ["find"] }
-        ], new CurrentAuthorityPayloadPersistenceAuthorizer(kNexAuthority(payload).adapter, context, ({ collection, operation }) => {
+        ], { authorize: ({ collection, operation }) => {
           const permissionId = collection === "sales-tasks" && operation === "find" ? "sales.tasks.read"
             : collection === "sales-opportunities" && operation === "find" ? "sales.opportunities.read"
             : undefined;
-          if (permissionId === undefined) throw new TypeError("Sales persistence operation is unavailable.");
-          return target(permissionId, "payload-" + collection + "-" + operation);
-        }));
+          return permissionId !== undefined && permissions.includes(permissionId);
+        } });
+        return Object.freeze({ ...capability, applicationIdentity: Object.freeze({ applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment }) });
       }
     }),
     catalog: { lookup: (sourceId) => sources.get(sourceId) },
     surfaceAudience: new DescriptorSurfaceAudienceGuard(),
-    authorization: new PolicyAuthorizationEvaluator(new CurrentAuthorityDataSourcePolicy(
-      kNexAuthority(payload).adapter,
-      (request) => request.authorizationContext as KnexRequestContext,
-      {
-        source: (descriptor) => target(descriptor.permission),
-        field: (descriptor, fieldId) => {
-          const field = descriptor.outputFields?.find(({ id }) => id === fieldId);
-          if (field === undefined) throw new TypeError("Registered Sales source field is unavailable.");
-          return target(field.permission);
-        }
-      },
-      workspaceSalesPolicy
-    )),
+    authorization: new PolicyAuthorizationEvaluator(workspaceCurrentSalesPolicy(permissions)),
     budget: workspaceSalesBudget,
     dispatcher: new RegisteredHandlerDispatcher(),
     sourceSchema: new DefinitionSourceSchemaValidator(),
@@ -486,9 +739,9 @@ function sourceNodes(document: UiDocument): readonly UiNode[] {
   return result;
 }
 
-export async function loadWorkspaceSalesSources(payload: Payload, context: KnexRequestContext, document: UiDocument, signal: AbortSignal) {
-  const gateway = workspaceSalesGateway(payload, context);
+export async function loadWorkspaceSalesSources(payload: Payload, context: KnexRequestContext, document: UiDocument, permissions: readonly string[], signal: AbortSignal) {
   const current = await actor(payload, context);
+  const gateway = workspaceSalesGateway(payload, context, permissions, current.authorization);
   const output: Record<string, DataSourceBindingResult<unknown>> = {};
   for (const node of sourceNodes(document)) {
     const binding = node.bindings?.source;
@@ -521,22 +774,62 @@ export async function loadWorkspaceSalesSources(payload: Payload, context: KnexR
     }
     throw new DataSourceGatewayError(response.body.code, response.status, response.body.title, response.body.detail);
   }
+  const finalScope = await readSalesScope(payload, current.authorization.effectiveActor.id);
+  if (finalScope.revision !== current.authorization.salesScope.revision) throw new TypeError("Sales current-authority scope changed during projection.");
   return output;
 }
 
 export async function executeWorkspaceSalesAction(payload: Payload, context: KnexRequestContext, action: Readonly<{ id: string; version: number }>, input: unknown, idempotencyKey: string, signal: AbortSignal) {
   const contribution = kNexSalesRegistry.scopedRegistration.contributions.actions.find((entry) => entry.id === action.id)?.value as { readonly descriptor?: { readonly id?: unknown; readonly version?: unknown } } | undefined;
   if (contribution?.descriptor?.id !== action.id || contribution.descriptor.version !== action.version) throw Object.assign(new Error("Workspace Sales action is unavailable."), { code: "NOT_FOUND" });
+  let persistence: PayloadPersistenceCapabilityContext | undefined;
+  let idempotency: SalesActionIdempotency | undefined;
+  let currentAuthorization: ReturnType<typeof authorization> | undefined;
   const gateway = new RegisteredActionGateway(kNexSalesRegistry.scopedRegistration, {
-    async authenticate() {
+    async authenticate(request) {
       const current = await actor(payload, context);
-      return { actor: current.authorization, request: current.request, authorizationContext: context };
+      persistence = salesActionCapability(payload, context, current.request, action.id, current.authorization);
+      idempotency = { request: current.request, actionId: action.id, idempotencyKey: request.idempotencyKey ?? "", requestDigest: actionDigest({ actionId: action.id, input: request.input }) };
+      currentAuthorization = current.authorization;
+      await persistence.transaction.begin();
+      if (!await persistence.guard({ collection: salesActionGrant(action.id).collection })) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales action scope is unavailable.");
+      return { actor: current.authorization, request: persistence, authorizationContext: context };
     }
-  }, new CurrentAuthorityActionGatewayPolicy(kNexAuthority(payload).adapter, ({ authenticated }) => authenticated.authorizationContext as KnexRequestContext, (definition, value) => {
-    const recordId = typeof value === "object" && value !== null && "id" in value && typeof value.id === "string" ? value.id : undefined;
-    return target(definition.descriptor.permission, recordId);
-  }, { authorize: () => Object.freeze({}) }));
-  return gateway.execute({ correlationId: context.correlationId, rawRequest: { payload }, actionId: action.id, input, idempotencyKey, signal });
+  }, { authorize: async ({ action, input, authenticated }) => {
+    if (input === null || typeof input !== "object" || Array.isArray(input) ||
+      ["applicationId", "environment", "ownerId", "teamId", "createdBy", "updatedBy", "revision", "audit"].some((key) => key in input)) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales action facts are forbidden.");
+    const current = workspaceSalesAuthorization(authenticated.actor);
+    const actorId = current.effectiveActor.id;
+    const resourceId = "id" in input && typeof input.id === "string" ? input.id : undefined;
+    let record: { ownerId?: unknown; teamId?: unknown } | undefined;
+    if (resourceId !== undefined) {
+      const collection = action.descriptor.id === "sales.task.update" ? "sales-tasks" : action.descriptor.id === "sales.opportunity.stage.update" ? "sales-opportunities" : undefined;
+      if (collection === undefined) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales action target is unavailable.");
+      const capability = authenticated.request as PayloadPersistenceCapabilityContext;
+      if (await capability.guard({ collection, id: resourceId }) !== true) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales action target is unavailable.");
+      record = await salesActionRecord(capability, collection, resourceId, current);
+    }
+    if (!await allowed(payload, context, action.descriptor.permission, resourceId, record)) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Current authority does not permit this action.");
+    if (idempotency === undefined || currentAuthorization === undefined || idempotency.idempotencyKey.length === 0) throw new ActionGatewayError("IDEMPOTENCY_KEY_REQUIRED", 400, "Sales action idempotency key is required.");
+    if (!await currentSalesAuthorityFence(idempotency.request, currentAuthorization)) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales action authority changed.");
+    const replay = await reserveSalesActionIdempotency(idempotency, currentAuthorization);
+    return Object.freeze({ actionId: action.descriptor.id, applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment, actorId,
+      ownerId: typeof record?.ownerId === "string" ? record.ownerId : actorId,
+      ...(typeof record?.teamId === "string" ? { teamId: record.teamId } : {}),
+      ...(resourceId === undefined ? {} : { resourceId }),
+      eventId: salesActionEventId(currentAuthorization, action.descriptor.id, idempotency.idempotencyKey, idempotency.requestDigest),
+      ...(replay === undefined ? {} : { idempotencyReplay: replay }) });
+  }});
+  try {
+    const response = await gateway.execute({ correlationId: context.correlationId, rawRequest: Object.freeze({}), actionId: action.id, input, idempotencyKey, signal });
+    if (response.ok && idempotency !== undefined && currentAuthorization !== undefined && idempotency.replay === undefined) await completeSalesActionIdempotency(idempotency, currentAuthorization, response.body.data);
+    if (response.ok) await persistence?.transaction.commit();
+    else await persistence?.transaction.rollback();
+    return response;
+  } catch (error) {
+    await persistence?.transaction.rollback();
+    throw error;
+  }
 }
 `;
 }
@@ -977,7 +1270,7 @@ async function workspaceBuilderProfile(payload: Payload, context: KnexRequestCon
   if (signal.aborted) throw new TypeError("Workspace document validation was revoked.");
   const permissions = new Set(await workspaceSalesPermissions(payload, context, signal));
   if (signal.aborted) throw new TypeError("Workspace document validation was revoked.");
-  const sources = [salesOpportunitiesDescriptor, salesTasksDescriptor, salesTotalPotentialRevenueDescriptor].flatMap((candidate) => {
+  const sources = [salesOpportunitiesDescriptor, salesTasksDescriptor].flatMap((candidate) => {
     const registered = contribution("sources", candidate.id, candidate.version) as typeof candidate | undefined;
     if (registered === undefined || registered.id !== candidate.id || registered.version !== candidate.version || !permissions.has(registered.permission)) return [];
     return [{ ...registered, ...(registered.outputFields === undefined ? {} : { outputFields: registered.outputFields.filter(({ permission }) => permissions.has(permission)) }) }];
@@ -1208,8 +1501,12 @@ export async function loadWorkspacePageViewProjection(payload: Payload, context:
     const detail = session.detail;
     if (detail.page.state !== "published" || detail.impact.state !== "ready" || detail.publication === undefined) throw new TypeError("Workspace page publication is unavailable.");
     const document = detail.publication.revision.document;
-    const [permissions, sourceResults] = await Promise.all([workspaceSalesPermissions(payload, context, session.signal), loadWorkspaceSalesSources(payload, context, document, session.signal)]);
+    const permissions = await workspaceSalesPermissions(payload, context, session.signal);
     if (session.signal.aborted) throw new TypeError("Workspace page projection was invalidated.");
+    const sourceResults = await loadWorkspaceSalesSources(payload, context, document, permissions, session.signal);
+    if (session.signal.aborted) throw new TypeError("Workspace page projection was invalidated.");
+    const currentState = await kNexAuthority(payload).store.readState(scope.applicationId, scope.environment);
+    if (currentState === undefined || currentState.authorizationRevision !== session.watermark.authorizationRevision || currentState.lifecycleRevision !== session.watermark.lifecycleRevision) throw new TypeError("Workspace page projection was invalidated.");
     return Object.freeze({ document, permissions, sourceResults, themeRevision: session.theme.presentation.profileRevisionId, themeMode: session.theme.presentation.mode, themeCss: session.theme.presentation.cssText, watermark: session.watermark });
   } finally { session.close(); }
 }
@@ -1220,7 +1517,7 @@ export async function loadWorkspacePageEditorProjection(payload: Payload, contex
     const detail = session.detail;
     if (detail.workingCopy === undefined) throw new TypeError("Workspace page working copy is unavailable.");
     const permissions = await workspaceSalesPermissions(payload, context, session.signal);
-    const sources = [salesOpportunitiesDescriptor, salesTasksDescriptor, salesTotalPotentialRevenueDescriptor];
+    const sources = [salesOpportunitiesDescriptor, salesTasksDescriptor];
     const actions = [salesTaskCreateDescriptor, salesTaskUpdateDescriptor, salesOpportunityStageUpdateDescriptor];
     const authority = Object.freeze({
       blocks: [...genericPuckBlockBridges, ...salesPuckBlockBridges.filter(({ definition }) => definition.permission === undefined || permissions.includes(definition.permission))].map(({ definition }) => ({ id: definition.id, version: definition.version })),

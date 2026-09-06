@@ -3,19 +3,15 @@ import type {
   AgentToolJsonSchema,
   ActionDescriptor,
   DataSourceDescriptor,
-  MetricScalar,
-  AuthorizationPermissionDescriptor,
-  PermissionPolicyBinding,
   PluginNavigationDescriptor,
   PluginPageTemplateDescriptor,
   PluginRouteDescriptor,
   SystemSettingsDescriptor,
   PluginUiContributionDescriptor,
-  RoleTemplate,
   RuntimeSchema,
   TableRecords
 } from "@k-nex/contracts";
-import { MetricScalarSchema, TableRecordsSchema } from "@k-nex/contracts";
+import { TableRecordsSchema } from "@k-nex/contracts";
 
 const salesSourceLimits = Object.freeze({
   maxSelectedFields: 8,
@@ -26,20 +22,11 @@ const salesSourceLimits = Object.freeze({
   maxResultBytes: 1_048_576,
   maxDepth: 6,
   timeoutMs: 5_000,
-  maxConcurrency: 16,
+  maxConcurrency: 4,
   ratePerMinute: 300,
   burst: 30,
   costClass: "medium" as const,
   maxCost: 100
-});
-
-const salesMetricLimits = Object.freeze({
-  ...salesSourceLimits,
-  maxSelectedFields: 1,
-  maxFilters: 0,
-  maxSorts: 0,
-  costClass: "high" as const,
-  maxCost: 50
 });
 
 export const salesTaskFields: NonNullable<DataSourceDescriptor["outputFields"]> = [
@@ -48,7 +35,7 @@ export const salesTaskFields: NonNullable<DataSourceDescriptor["outputFields"]> 
     kind: "text",
     binding: "required",
     nullable: false,
-    permission: "sales.tasks.title.read",
+    permission: "sales.tasks.read",
     sortable: true,
     filterOperators: ["eq", "contains"]
   },
@@ -57,58 +44,22 @@ export const salesTaskFields: NonNullable<DataSourceDescriptor["outputFields"]> 
     kind: "status",
     binding: "required",
     nullable: false,
-    permission: "sales.tasks.status.read",
+    permission: "sales.tasks.read",
     sortable: true,
     filterOperators: ["eq", "in"]
-  },
-  {
-    id: "potential-revenue",
-    kind: "money",
-    binding: "required",
-    nullable: true,
-    permission: "sales.tasks.revenue.read",
-    sortable: false,
-    filterOperators: []
-  },
-  {
-    id: "private-note",
-    kind: "text",
-    binding: "optional",
-    nullable: true,
-    permission: "sales.tasks.private-note.read",
-    sortable: false,
-    filterOperators: []
   }
 ] as const;
 
-export const salesTotalPotentialRevenueDescriptor: DataSourceDescriptor = {
-  id: "sales.total-potential-revenue",
-  version: 1,
-  ownerPluginId: "module.sales",
-  primaryContract: { id: "metric.scalar", version: 1 },
-  sourceSchema: { id: "sales.total-potential-revenue.output", version: 1 },
-  audience: "authenticated",
-  surfaces: ["workspace"],
-  permission: "sales.tasks.revenue.read",
-  structuralCompatibilityHash: "sha256:44396ab7e33f70f1bb4250494af86105624f2c28b9e7095e8d438fc7fafeb85d",
-  presentationMetadataRevision: 1,
-  title: "Total potential revenue",
-  inputFields: [],
-  paginationModes: [],
-  limits: { ...salesMetricLimits },
-  cacheClass: "actor"
-};
-
 export const salesTasksDescriptor: DataSourceDescriptor = {
   id: "sales.tasks",
-  version: 1,
+  version: 2,
   ownerPluginId: "module.sales",
   primaryContract: { id: "table.records", version: 1 },
-  sourceSchema: { id: "sales.tasks.output", version: 1 },
+  sourceSchema: { id: "sales.tasks.output", version: 2 },
   audience: "authenticated",
   surfaces: ["workspace"],
   permission: "sales.tasks.read",
-  structuralCompatibilityHash: "sha256:520d5f0bd7874a0b9c63fd3974ce355180314fcbd961ca9407a781d9fc768f26",
+  structuralCompatibilityHash: "sha256:a0211668702800a1abd7ad5408847da099a84acc20d0cce098b672d4eea062c3",
   presentationMetadataRevision: 1,
   title: "Sales tasks",
   inputFields: [],
@@ -119,22 +70,22 @@ export const salesTasksDescriptor: DataSourceDescriptor = {
 };
 
 export const salesOpportunityFields: NonNullable<DataSourceDescriptor["outputFields"]> = [
-  { id: "name", kind: "text", binding: "required", nullable: false, permission: "sales.opportunities.name.read", sortable: true, filterOperators: ["eq", "contains"] },
-  { id: "stage", kind: "status", binding: "required", nullable: false, permission: "sales.opportunities.stage.read", sortable: true, filterOperators: ["eq", "in"] },
-  { id: "revision", kind: "text", binding: "optional", nullable: false, permission: "sales.opportunities.stage.read", sortable: false, filterOperators: [] },
-  { id: "value", kind: "money", binding: "optional", nullable: true, permission: "sales.opportunities.value.read", sortable: false, filterOperators: [] }
+  { id: "name", kind: "text", binding: "required", nullable: false, permission: "sales.opportunities.read", sortable: true, filterOperators: ["eq", "contains"] },
+  { id: "stage-id", kind: "status", binding: "required", nullable: false, permission: "sales.opportunities.read", sortable: true, filterOperators: ["eq", "in"] },
+  { id: "revision", kind: "integer", binding: "required", nullable: false, permission: "sales.opportunities.read", sortable: false, filterOperators: [] },
+  { id: "amount", kind: "money", binding: "optional", nullable: true, permission: "sales.opportunities.amount.read", sortable: false, filterOperators: [] }
 ];
 
 export const salesOpportunitiesDescriptor: DataSourceDescriptor = {
   id: "sales.opportunities",
-  version: 1,
+  version: 2,
   ownerPluginId: "module.sales",
   primaryContract: { id: "table.records", version: 1 },
-  sourceSchema: { id: "sales.opportunities.output", version: 1 },
+  sourceSchema: { id: "sales.opportunities.output", version: 2 },
   audience: "authenticated",
   surfaces: ["workspace"],
   permission: "sales.opportunities.read",
-  structuralCompatibilityHash: "sha256:09311605c4c5afaab4ff5f902f88f5c206fc1c7dd5e925f713d72d6a2ddba066",
+  structuralCompatibilityHash: "sha256:49a707b6f512bc0d8cad02c38a506066e6973e09468e1e3c8373c8e1287ade5d",
   presentationMetadataRevision: 1,
   title: "Sales opportunities",
   inputFields: [],
@@ -156,10 +107,7 @@ const salesSearchTasksInputSchema: AgentToolDescriptor["inputSchema"] = {
 const salesCreateTaskInputSchema: AgentToolDescriptor["inputSchema"] = {
   type: "object",
   properties: {
-    title: { type: "string", minLength: 1, maxLength: 256 },
-    status: { type: "string", enum: ["open", "done"] },
-    potentialRevenue: { type: "string", minLength: 1, maxLength: 64 },
-    privateNote: { type: "string", minLength: 1, maxLength: 4_096 }
+    title: { type: "string", minLength: 1, maxLength: 256 }
   },
   required: ["title"],
   additionalProperties: false
@@ -170,9 +118,10 @@ const salesCreateTaskOutputSchema: AgentToolJsonSchema = {
   properties: {
     id: { type: "string", minLength: 1, maxLength: 128 },
     title: { type: "string", minLength: 1, maxLength: 256 },
-    status: { type: "string", enum: ["open", "done"] }
+    status: { type: "string", enum: ["open", "completed", "cancelled"] },
+    revision: { type: "integer", minimum: 1 }
   },
-  required: ["id", "title", "status"],
+  required: ["id", "title", "status", "revision"],
   additionalProperties: false
 };
 
@@ -194,34 +143,31 @@ const salesToolLimits = Object.freeze({
 
 export interface CreateTaskInput {
   readonly title: string;
-  readonly status?: "open" | "done";
-  readonly potentialRevenue?: string;
-  readonly privateNote?: string;
 }
 
 export interface CreateTaskOutput {
   readonly id: string;
   readonly title: string;
-  readonly status: "open" | "done";
+  readonly status: "open" | "completed" | "cancelled";
+  readonly revision: number;
 }
 
-export interface UpdateTaskInput { readonly id: string; readonly title?: string; readonly status?: "open" | "done"; }
-export interface UpdateTaskOutput { readonly id: string; readonly title: string; readonly status: "open" | "done"; }
-export type SalesOpportunityStage = "lead" | "qualified" | "won" | "lost";
+export interface UpdateTaskInput { readonly id: string; readonly expectedRevision: number; readonly expectedStatus: "open"; readonly status: "completed" | "cancelled"; }
+export interface UpdateTaskOutput { readonly id: string; readonly title: string; readonly status: "open" | "completed" | "cancelled"; readonly revision: number; }
+export type SalesOpportunityStage = "qualification" | "discovery" | "proposal" | "negotiation" | "won" | "lost";
 export interface UpdateOpportunityStageInput {
   readonly id: string;
   readonly expectedStage: SalesOpportunityStage;
-  readonly expectedRevision: string;
+  readonly expectedRevision: number;
   readonly stage: SalesOpportunityStage;
 }
 export interface UpdateOpportunityStageOutput {
   readonly id: string;
   readonly name: string;
   readonly stage: SalesOpportunityStage;
-  readonly revision: string;
+  readonly revision: number;
 }
 
-const salesDecimalPattern = /^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/;
 const salesRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 const invalidRuntimeValue = (message: string) => ({ success: false as const, error: new Error(message) });
 
@@ -235,32 +181,20 @@ export const salesEmptyInputRuntimeSchema: RuntimeSchema<Record<string, never>> 
 
 export const salesCreateTaskInputRuntimeSchema: RuntimeSchema<CreateTaskInput> = {
   safeParse(value) {
-    if (!salesRecord(value) || Object.keys(value).some((key) => !["title", "status", "potentialRevenue", "privateNote"].includes(key))) {
+    if (!salesRecord(value) || Object.keys(value).join("\u0000") !== "title") {
       return invalidRuntimeValue("Sales task input must be a closed object.");
     }
     if (typeof value.title !== "string" || value.title.length < 1 || value.title.length > 256) return invalidRuntimeValue("Sales task title is invalid.");
-    if (value.status !== undefined && value.status !== "open" && value.status !== "done") return invalidRuntimeValue("Sales task status is invalid.");
-    if (value.potentialRevenue !== undefined && (typeof value.potentialRevenue !== "string" || value.potentialRevenue.length > 64 || !salesDecimalPattern.test(value.potentialRevenue))) {
-      return invalidRuntimeValue("Sales task revenue is invalid.");
-    }
-    if (value.privateNote !== undefined && (typeof value.privateNote !== "string" || value.privateNote.length < 1 || value.privateNote.length > 4_096)) {
-      return invalidRuntimeValue("Sales task private note is invalid.");
-    }
-    return { success: true as const, data: {
-      title: value.title,
-      ...(value.status === undefined ? {} : { status: value.status }),
-      ...(value.potentialRevenue === undefined ? {} : { potentialRevenue: value.potentialRevenue }),
-      ...(value.privateNote === undefined ? {} : { privateNote: value.privateNote })
-    } };
+    return { success: true as const, data: { title: value.title } };
   }
 };
 
 export const salesCreateTaskOutputRuntimeSchema: RuntimeSchema<CreateTaskOutput> = {
   safeParse(value) {
-    if (!salesRecord(value) || Object.keys(value).sort().join("\u0000") !== "id\u0000status\u0000title" ||
+    if (!salesRecord(value) || Object.keys(value).sort().join("\u0000") !== "id\u0000revision\u0000status\u0000title" ||
       typeof value.id !== "string" || value.id.length < 1 || value.id.length > 128 ||
       typeof value.title !== "string" || value.title.length < 1 || value.title.length > 256 ||
-      value.status !== "open" && value.status !== "done") return invalidRuntimeValue("Sales task action output is invalid.");
+      !["open", "completed", "cancelled"].includes(value.status as string) || !Number.isSafeInteger(value.revision) || (value.revision as number) < 1) return invalidRuntimeValue("Sales task action output is invalid.");
     return { success: true as const, data: value as unknown as CreateTaskOutput };
   }
 };
@@ -269,9 +203,9 @@ function boundedId(value: unknown): value is string { return typeof value === "s
 
 export const salesUpdateTaskInputRuntimeSchema: RuntimeSchema<UpdateTaskInput> = {
   safeParse(value) {
-    if (!salesRecord(value) || !boundedId(value.id) || Object.keys(value).some((key) => !["id", "title", "status"].includes(key)) ||
-      value.title === undefined && value.status === undefined || value.title !== undefined && (typeof value.title !== "string" || value.title.length < 1 || value.title.length > 256) ||
-      value.status !== undefined && value.status !== "open" && value.status !== "done") return invalidRuntimeValue("Sales task update input is invalid.");
+    if (!salesRecord(value) || !boundedId(value.id) || Object.keys(value).sort().join("\u0000") !== "expectedRevision\u0000expectedStatus\u0000id\u0000status" ||
+      !Number.isSafeInteger(value.expectedRevision) || (value.expectedRevision as number) < 1 ||
+      value.expectedStatus !== "open" || !["completed", "cancelled"].includes(value.status as string)) return invalidRuntimeValue("Sales task update input is invalid.");
     return { success: true as const, data: value as unknown as UpdateTaskInput };
   }
 };
@@ -280,9 +214,10 @@ export const salesUpdateTaskOutputRuntimeSchema: RuntimeSchema<UpdateTaskOutput>
 
 export const salesOpportunityStageInputRuntimeSchema: RuntimeSchema<UpdateOpportunityStageInput> = {
   safeParse(value) {
+    const transitions: Readonly<Record<string, string>> = { qualification: "discovery", discovery: "proposal", proposal: "negotiation" };
     if (!salesRecord(value) || Object.keys(value).sort().join("\u0000") !== "expectedRevision\u0000expectedStage\u0000id\u0000stage" || !boundedId(value.id) ||
-      typeof value.expectedRevision !== "string" || !Number.isFinite(Date.parse(value.expectedRevision)) ||
-      ![value.expectedStage, value.stage].every((stage) => ["lead", "qualified", "won", "lost"].includes(stage as string))) {
+      !Number.isSafeInteger(value.expectedRevision) || (value.expectedRevision as number) < 1 ||
+      typeof value.expectedStage !== "string" || typeof value.stage !== "string" || transitions[value.expectedStage] !== value.stage) {
       return invalidRuntimeValue("Sales opportunity stage input is invalid.");
     }
     return { success: true as const, data: value as unknown as UpdateOpportunityStageInput };
@@ -292,22 +227,11 @@ export const salesOpportunityStageInputRuntimeSchema: RuntimeSchema<UpdateOpport
 export const salesOpportunityStageOutputRuntimeSchema: RuntimeSchema<UpdateOpportunityStageOutput> = {
   safeParse(value) {
     if (!salesRecord(value) || Object.keys(value).sort().join("\u0000") !== "id\u0000name\u0000revision\u0000stage" || !boundedId(value.id) ||
-      typeof value.name !== "string" || value.name.length < 1 || value.name.length > 256 || !["lead", "qualified", "won", "lost"].includes(value.stage as string) ||
-      typeof value.revision !== "string" || !Number.isFinite(Date.parse(value.revision))) {
+      typeof value.name !== "string" || value.name.length < 1 || value.name.length > 256 || !["qualification", "discovery", "proposal", "negotiation", "won", "lost"].includes(value.stage as string) ||
+      !Number.isSafeInteger(value.revision) || (value.revision as number) < 1) {
       return invalidRuntimeValue("Sales opportunity stage output is invalid.");
     }
     return { success: true as const, data: value as unknown as UpdateOpportunityStageOutput };
-  }
-};
-
-export const salesTotalPotentialRevenueOutputRuntimeSchema: RuntimeSchema<MetricScalar> = {
-  safeParse(value) {
-    const parsed = MetricScalarSchema.safeParse(value);
-    if (!parsed.success) return parsed;
-    if (Object.keys(parsed.data).join("\u0000") !== "value" || parsed.data.value.kind !== "money" || parsed.data.value.currency !== "USD" || "rounding" in parsed.data.value) {
-      return invalidRuntimeValue("Sales revenue output must be an exact USD money metric.");
-    }
-    return parsed;
   }
 };
 
@@ -319,10 +243,8 @@ function exactSalesTaskCell(fieldId: string, cell: unknown): boolean {
   if (field === undefined) return false;
   if (cell === null) return field.nullable;
   if (!salesRecord(cell) || cell.kind !== field.kind) return false;
-  const expectedKeys = field.kind === "money" ? ["kind", "value", "currency", "scale"] : ["kind", "value"];
-  if (Object.keys(cell).join("\u0000") !== expectedKeys.join("\u0000") || !field.nullable && cell.value === null) return false;
-  if (fieldId === "potential-revenue" && cell.currency !== "USD") return false;
-  return fieldId !== "status" || cell.value === "open" || cell.value === "done";
+  if (Object.keys(cell).join("\u0000") !== "kind\u0000value" || !field.nullable && cell.value === null) return false;
+  return fieldId !== "status" || ["open", "completed", "cancelled"].includes(cell.value as string);
 }
 
 export const salesTasksOutputRuntimeSchema: RuntimeSchema<TableRecords> = {
@@ -343,12 +265,32 @@ export const salesTasksOutputRuntimeSchema: RuntimeSchema<TableRecords> = {
 };
 
 const opportunityFieldIds = new Set(salesOpportunityFields.map((field) => field.id));
+const requiredOpportunityFieldIds = new Set(salesOpportunityFields.filter((field) => field.binding === "required").map((field) => field.id));
+const opportunityStages = Object.freeze(["qualification", "discovery", "proposal", "negotiation", "won", "lost"] as const);
+
+function exactSalesOpportunityCell(fieldId: string, cell: unknown): boolean {
+  const field = salesOpportunityFields.find((candidate) => candidate.id === fieldId);
+  if (field === undefined) return false;
+  if (cell === null) return field.nullable;
+  if (!salesRecord(cell) || cell.kind !== field.kind || !field.nullable && cell.value === null) return false;
+  if (fieldId === "name") return typeof cell.value === "string" && cell.value.length > 0;
+  if (fieldId === "stage-id") return typeof cell.value === "string" && opportunityStages.includes(cell.value as typeof opportunityStages[number]);
+  if (fieldId === "revision") return Number.isSafeInteger(cell.value) && (cell.value as number) >= 1;
+  return typeof cell.value === "string" && /^[A-Z]{3}$/u.test(cell.currency as string) && Number.isSafeInteger(cell.scale) && (cell.scale as number) >= 0 && (cell.scale as number) <= 18;
+}
+
 export const salesOpportunitiesOutputRuntimeSchema: RuntimeSchema<TableRecords> = {
   safeParse(value) {
     const parsed = TableRecordsSchema.safeParse(value);
     if (!parsed.success) return parsed;
-    if (parsed.data.fields.some((field) => !opportunityFieldIds.has(field)) || ["name", "stage"].some((field) => !parsed.data.fields.includes(field))) {
+    const { fields, rows } = parsed.data;
+    if (fields.some((fieldId) => !opportunityFieldIds.has(fieldId)) || [...requiredOpportunityFieldIds].some((fieldId) => !fields.includes(fieldId))) {
       return invalidRuntimeValue("Sales opportunity output fields are invalid.");
+    }
+    for (const row of rows) {
+      if (Object.keys(row.values).join("\u0000") !== fields.join("\u0000") || fields.some((fieldId) => !exactSalesOpportunityCell(fieldId, row.values[fieldId]))) {
+        return invalidRuntimeValue("Sales opportunity row cells do not match the source descriptor.");
+      }
     }
     return parsed;
   }
@@ -356,12 +298,12 @@ export const salesOpportunitiesOutputRuntimeSchema: RuntimeSchema<TableRecords> 
 
 export const salesTaskCreateDescriptor = {
   id: "sales.task.create",
-  version: 1,
+  version: 2,
   ownerPluginId: "module.sales",
   inputSchema: salesCreateTaskInputSchema,
   outputSchema: salesCreateTaskOutputSchema,
   permission: "sales.tasks.write",
-  policy: "sales.tasks.domain",
+  policy: "sales.policy.tasks.current",
   effect: "write" as const,
   idempotency: "required" as const,
   dryRun: false
@@ -369,21 +311,22 @@ export const salesTaskCreateDescriptor = {
 
 export const salesTaskUpdateDescriptor: ActionDescriptor = {
   id: "sales.task.update",
-  version: 1,
+  version: 2,
   ownerPluginId: "module.sales",
   inputSchema: {
     type: "object",
     properties: {
       id: { type: "string", minLength: 1, maxLength: 128 },
-      title: { type: "string", minLength: 1, maxLength: 256 },
-      status: { type: "string", enum: ["open", "done"] }
+      expectedRevision: { type: "integer", minimum: 1 },
+      expectedStatus: { type: "string", enum: ["open"] },
+      status: { type: "string", enum: ["completed", "cancelled"] }
     },
-    required: ["id"],
+    required: ["id", "expectedRevision", "expectedStatus", "status"],
     additionalProperties: false
   },
   outputSchema: salesCreateTaskOutputSchema,
   permission: "sales.tasks.write",
-  policy: "sales.tasks.domain",
+  policy: "sales.policy.tasks.current",
   effect: "write" as const,
   idempotency: "required" as const,
   dryRun: false
@@ -391,15 +334,15 @@ export const salesTaskUpdateDescriptor: ActionDescriptor = {
 
 export const salesOpportunityStageUpdateDescriptor: ActionDescriptor = {
   id: "sales.opportunity.stage.update",
-  version: 1,
+  version: 2,
   ownerPluginId: "module.sales",
   inputSchema: {
     type: "object",
     properties: {
       id: { type: "string", minLength: 1, maxLength: 128 },
-      expectedStage: { type: "string", enum: ["lead", "qualified", "won", "lost"] },
-      expectedRevision: { type: "string", minLength: 20, maxLength: 32 },
-      stage: { type: "string", enum: ["lead", "qualified", "won", "lost"] }
+      expectedStage: { type: "string", enum: ["qualification", "discovery", "proposal"] },
+      expectedRevision: { type: "integer", minimum: 1 },
+      stage: { type: "string", enum: ["discovery", "proposal", "negotiation"] }
     },
     required: ["id", "expectedStage", "expectedRevision", "stage"],
     additionalProperties: false
@@ -409,14 +352,14 @@ export const salesOpportunityStageUpdateDescriptor: ActionDescriptor = {
     properties: {
       id: { type: "string", minLength: 1, maxLength: 128 },
       name: { type: "string", minLength: 1, maxLength: 256 },
-      stage: { type: "string", enum: ["lead", "qualified", "won", "lost"] },
-      revision: { type: "string", minLength: 20, maxLength: 32 }
+      stage: { type: "string", enum: ["qualification", "discovery", "proposal", "negotiation", "won", "lost"] },
+      revision: { type: "integer", minimum: 1 }
     },
     required: ["id", "name", "stage", "revision"],
     additionalProperties: false
   },
-  permission: "sales.opportunities.write",
-  policy: "sales.opportunities.domain",
+  permission: "sales.opportunities.stage.update",
+  policy: "sales.policy.opportunities.current",
   effect: "write" as const,
   idempotency: "required" as const,
   dryRun: false
@@ -424,7 +367,7 @@ export const salesOpportunityStageUpdateDescriptor: ActionDescriptor = {
 
 export const salesSearchTasksDescriptor: AgentToolDescriptor = {
   id: "sales.tools.search-tasks",
-  version: 1,
+  version: 2,
   ownerPluginId: "module.sales",
   title: "Search tasks",
   description: "Search tasks visible to the current actor.",
@@ -434,7 +377,7 @@ export const salesSearchTasksDescriptor: AgentToolDescriptor = {
   audience: "authenticated",
   surfaces: ["workspace"],
   permission: "sales.tasks.read",
-  policy: "sales.tasks.domain",
+  policy: "sales.policy.tasks.current",
   effect: "read-only",
   risk: "low",
   approval: "none",
@@ -447,7 +390,7 @@ export const salesSearchTasksDescriptor: AgentToolDescriptor = {
 
 export const salesCreateTaskToolDescriptor: AgentToolDescriptor = {
   id: "sales.tools.create-task",
-  version: 1,
+  version: 2,
   ownerPluginId: "module.sales",
   title: "Create a Sales task",
   description: "Create exactly one Sales task for the current actor.",
@@ -464,7 +407,7 @@ export const salesCreateTaskToolDescriptor: AgentToolDescriptor = {
   idempotency: "required",
   dryRun: salesTaskCreateDescriptor.dryRun,
   limits: salesToolLimits,
-  redaction: { inputPaths: ["/privateNote"], outputPaths: [] },
+  redaction: { inputPaths: [], outputPaths: [] },
   audit: { category: "sales.task.create", resourcePath: "/id" }
 };
 
@@ -499,7 +442,7 @@ export const salesWorkspaceSettingsDescriptor: SystemSettingsDescriptor = {
     pipelineStages: {
       type: "string-list",
       required: true,
-      default: ["lead", "qualified", "won", "lost"],
+      default: ["qualification", "discovery", "proposal", "negotiation", "won", "lost"],
       description: "Ordered reference pipeline stages."
     }
   },
@@ -514,254 +457,6 @@ export type SalesWorkspaceSettings = Readonly<{
   pipelineStages: readonly string[];
 }>;
 
-function permission(
-  id: string,
-  title: string,
-  description: string,
-  resource: string,
-  operation: AuthorizationPermissionDescriptor["operation"],
-  scope: AuthorizationPermissionDescriptor["scope"]
-): AuthorizationPermissionDescriptor {
-  return {
-    schemaVersion: 1,
-    id,
-    publisher: { kind: "extension", deliveryClass: "platform-plugin", extensionId: "module.sales" },
-    title,
-    description,
-    audience: "authenticated",
-    resource,
-    operation,
-    scope
-  };
-}
-
-export const salesPermissionDescriptors: readonly AuthorizationPermissionDescriptor[] = Object.freeze([
-  permission("sales.navigation.read", "Open Sales workspace", "Open registered Sales workspace routes and navigation.", "sales.navigation", "read", "application"),
-  permission("sales.settings.read", "Read Sales settings", "Read non-secret Sales workspace settings.", "sales.settings", "read", "application"),
-  permission("sales.settings.write", "Change Sales settings", "Change validated Sales workspace settings.", "sales.settings", "write", "application"),
-  permission("sales.tasks.read", "Read Sales tasks", "Read actor-authorized Sales task records.", "sales.tasks", "read", "record"),
-  permission("sales.tasks.title.read", "Read task titles", "Read task title fields.", "sales.tasks.title", "read", "field"),
-  permission("sales.tasks.status.read", "Read task status", "Read task status fields.", "sales.tasks.status", "read", "field"),
-  permission("sales.tasks.revenue.read", "Read task revenue", "Read potential revenue fields.", "sales.tasks.revenue", "read", "field"),
-  permission("sales.tasks.private-note.read", "Read private task notes", "Read private task note fields.", "sales.tasks.private-note", "read", "field"),
-  permission("sales.tasks.write", "Write Sales tasks", "Create and update actor-authorized Sales tasks.", "sales.tasks", "write", "record"),
-  permission("sales.opportunities.read", "Read opportunities", "Read actor-authorized Sales opportunities.", "sales.opportunities", "read", "record"),
-  permission("sales.opportunities.name.read", "Read opportunity names", "Read opportunity name fields.", "sales.opportunities.name", "read", "field"),
-  permission("sales.opportunities.stage.read", "Read opportunity stages", "Read opportunity stage fields.", "sales.opportunities.stage", "read", "field"),
-  permission("sales.opportunities.value.read", "Read opportunity values", "Read opportunity value fields.", "sales.opportunities.value", "read", "field"),
-  permission("sales.opportunities.write", "Change opportunity stages", "Change actor-authorized opportunity stages.", "sales.opportunities", "write", "record")
-]);
-
-const salesPermissionPublisher = {
-  kind: "extension",
-  deliveryClass: "platform-plugin",
-  extensionId: "module.sales"
-} as const;
-
-/** Static bindings for the existing Sales record and field policy seams. */
-export const salesPermissionPolicyBindings: readonly PermissionPolicyBinding[] = Object.freeze([
-  {
-    schemaVersion: 1,
-    id: "sales.policy.tasks.read",
-    publisher: salesPermissionPublisher,
-    permissionId: "sales.tasks.read",
-    policyReference: "sales.tasks.domain",
-    scope: "record",
-    failureMode: "deny",
-    timeoutMs: 1_000
-  },
-  {
-    schemaVersion: 1,
-    id: "sales.policy.tasks.title.read",
-    publisher: salesPermissionPublisher,
-    permissionId: "sales.tasks.title.read",
-    policyReference: "sales.tasks.domain",
-    scope: "field",
-    failureMode: "deny",
-    timeoutMs: 1_000
-  },
-  {
-    schemaVersion: 1,
-    id: "sales.policy.tasks.status.read",
-    publisher: salesPermissionPublisher,
-    permissionId: "sales.tasks.status.read",
-    policyReference: "sales.tasks.domain",
-    scope: "field",
-    failureMode: "deny",
-    timeoutMs: 1_000
-  },
-  {
-    schemaVersion: 1,
-    id: "sales.policy.tasks.revenue.read",
-    publisher: salesPermissionPublisher,
-    permissionId: "sales.tasks.revenue.read",
-    policyReference: "sales.tasks.domain",
-    scope: "field",
-    failureMode: "deny",
-    timeoutMs: 1_000
-  },
-  {
-    schemaVersion: 1,
-    id: "sales.policy.tasks.private-note.read",
-    publisher: salesPermissionPublisher,
-    permissionId: "sales.tasks.private-note.read",
-    policyReference: "sales.tasks.domain",
-    scope: "field",
-    failureMode: "deny",
-    timeoutMs: 1_000
-  },
-  {
-    schemaVersion: 1,
-    id: "sales.policy.tasks.write",
-    publisher: salesPermissionPublisher,
-    permissionId: "sales.tasks.write",
-    policyReference: "sales.tasks.domain",
-    scope: "record",
-    failureMode: "deny",
-    timeoutMs: 1_000
-  },
-  {
-    schemaVersion: 1,
-    id: "sales.policy.opportunities.read",
-    publisher: salesPermissionPublisher,
-    permissionId: "sales.opportunities.read",
-    policyReference: "sales.opportunities.domain",
-    scope: "record",
-    failureMode: "deny",
-    timeoutMs: 1_000
-  },
-  {
-    schemaVersion: 1,
-    id: "sales.policy.opportunities.name.read",
-    publisher: salesPermissionPublisher,
-    permissionId: "sales.opportunities.name.read",
-    policyReference: "sales.opportunities.domain",
-    scope: "field",
-    failureMode: "deny",
-    timeoutMs: 1_000
-  },
-  {
-    schemaVersion: 1,
-    id: "sales.policy.opportunities.stage.read",
-    publisher: salesPermissionPublisher,
-    permissionId: "sales.opportunities.stage.read",
-    policyReference: "sales.opportunities.domain",
-    scope: "field",
-    failureMode: "deny",
-    timeoutMs: 1_000
-  },
-  {
-    schemaVersion: 1,
-    id: "sales.policy.opportunities.value.read",
-    publisher: salesPermissionPublisher,
-    permissionId: "sales.opportunities.value.read",
-    policyReference: "sales.opportunities.domain",
-    scope: "field",
-    failureMode: "deny",
-    timeoutMs: 1_000
-  },
-  {
-    schemaVersion: 1,
-    id: "sales.policy.opportunities.write",
-    publisher: salesPermissionPublisher,
-    permissionId: "sales.opportunities.write",
-    policyReference: "sales.opportunities.domain",
-    scope: "record",
-    failureMode: "deny",
-    timeoutMs: 1_000
-  }
-]);
-
-/** Static Sales role defaults; customer roles and assignments remain platform-owned. */
-export const salesRoleTemplates: readonly RoleTemplate[] = Object.freeze([
-  {
-    schemaVersion: 1,
-    id: "sales.template.viewer",
-    publisher: salesPermissionPublisher,
-    version: 1,
-    instantiation: "manual",
-    title: "Sales Viewer",
-    description: "View core Sales tasks and opportunities.",
-    permissionIds: [
-      "sales.navigation.read",
-      "sales.opportunities.name.read",
-      "sales.opportunities.read",
-      "sales.opportunities.stage.read",
-      "sales.tasks.read",
-      "sales.tasks.status.read",
-      "sales.tasks.title.read"
-    ]
-  },
-  {
-    schemaVersion: 1,
-    id: "sales.template.representative",
-    publisher: salesPermissionPublisher,
-    version: 1,
-    instantiation: "manual",
-    title: "Sales Representative",
-    description: "View core Sales data and manage assigned tasks.",
-    permissionIds: [
-      "sales.navigation.read",
-      "sales.opportunities.name.read",
-      "sales.opportunities.read",
-      "sales.opportunities.stage.read",
-      "sales.tasks.private-note.read",
-      "sales.tasks.read",
-      "sales.tasks.status.read",
-      "sales.tasks.title.read",
-      "sales.tasks.write"
-    ]
-  },
-  {
-    schemaVersion: 1,
-    id: "sales.template.manager",
-    publisher: salesPermissionPublisher,
-    version: 1,
-    instantiation: "manual",
-    title: "Sales Manager",
-    description: "Manage the Sales pipeline and view revenue data.",
-    permissionIds: [
-      "sales.navigation.read",
-      "sales.opportunities.name.read",
-      "sales.opportunities.read",
-      "sales.opportunities.stage.read",
-      "sales.opportunities.value.read",
-      "sales.opportunities.write",
-      "sales.tasks.private-note.read",
-      "sales.tasks.read",
-      "sales.tasks.revenue.read",
-      "sales.tasks.status.read",
-      "sales.tasks.title.read",
-      "sales.tasks.write"
-    ]
-  },
-  {
-    schemaVersion: 1,
-    id: "sales.template.administrator",
-    publisher: salesPermissionPublisher,
-    version: 1,
-    instantiation: "manual",
-    title: "Sales Administrator",
-    description: "Manage all Sales data and workspace settings.",
-    permissionIds: [
-      "sales.navigation.read",
-      "sales.opportunities.name.read",
-      "sales.opportunities.read",
-      "sales.opportunities.stage.read",
-      "sales.opportunities.value.read",
-      "sales.opportunities.write",
-      "sales.settings.read",
-      "sales.settings.write",
-      "sales.tasks.private-note.read",
-      "sales.tasks.read",
-      "sales.tasks.revenue.read",
-      "sales.tasks.status.read",
-      "sales.tasks.title.read",
-      "sales.tasks.write"
-    ]
-  }
-]);
-
 export const salesRouteDescriptors = Object.freeze([
   {
     id: "sales.route.overview",
@@ -770,7 +465,7 @@ export const salesRouteDescriptors = Object.freeze([
     parameters: {},
     surface: "workspace",
     audience: "authenticated",
-    permission: "sales.navigation.read",
+    permission: "sales.reports.read",
     viewId: "sales.page.overview"
   },
   {
@@ -780,7 +475,7 @@ export const salesRouteDescriptors = Object.freeze([
     parameters: {},
     surface: "workspace",
     audience: "authenticated",
-    permission: "sales.navigation.read",
+    permission: "sales.tasks.read",
     viewId: "sales.page.tasks"
   },
   {
@@ -790,7 +485,7 @@ export const salesRouteDescriptors = Object.freeze([
     parameters: {},
     surface: "workspace",
     audience: "authenticated",
-    permission: "sales.navigation.read",
+    permission: "sales.opportunities.read",
     viewId: "sales.page.opportunities"
   },
   {
@@ -800,7 +495,7 @@ export const salesRouteDescriptors = Object.freeze([
     parameters: {},
     surface: "workspace",
     audience: "authenticated",
-    permission: "sales.navigation.read",
+    permission: "sales.settings.read",
     viewId: "sales.page.settings"
   }
 ] satisfies readonly PluginRouteDescriptor[]);
@@ -811,7 +506,7 @@ export const salesNavigationDescriptors = Object.freeze([
     ownerPluginId: "module.sales",
     labelMessageId: "sales.message.navigation-overview",
     route: { routeId: "sales.route.overview", params: {} },
-    permission: "sales.navigation.read",
+    permission: "sales.reports.read",
     order: 10
   },
   {
@@ -819,7 +514,7 @@ export const salesNavigationDescriptors = Object.freeze([
     ownerPluginId: "module.sales",
     labelMessageId: "sales.message.navigation-tasks",
     route: { routeId: "sales.route.tasks", params: {} },
-    permission: "sales.navigation.read",
+    permission: "sales.tasks.read",
     order: 20
   },
   {
@@ -827,7 +522,7 @@ export const salesNavigationDescriptors = Object.freeze([
     ownerPluginId: "module.sales",
     labelMessageId: "sales.message.navigation-opportunities",
     route: { routeId: "sales.route.opportunities", params: {} },
-    permission: "sales.navigation.read",
+    permission: "sales.opportunities.read",
     order: 30
   },
   {
@@ -835,49 +530,50 @@ export const salesNavigationDescriptors = Object.freeze([
     ownerPluginId: "module.sales",
     labelMessageId: "sales.message.navigation-settings",
     route: { routeId: "sales.route.settings", params: {} },
-    permission: "sales.navigation.read",
+    permission: "sales.settings.read",
     order: 40
   }
 ] satisfies readonly PluginNavigationDescriptor[]);
 
 export const salesTaskPageTemplate: PluginPageTemplateDescriptor = {
   id: "sales.page.tasks",
-  version: 1,
+  version: 2,
   ownerPluginId: "module.sales",
   route: { routeId: "sales.route.tasks", params: {} },
   surface: "workspace",
   profile: "workspace",
   permission: "sales.tasks.read",
   publicationPolicy: { ownership: "customer", adoption: "explicit" },
+  migration: { adoptableFromVersions: [1], notesMessageId: "sales.message.template-v2" },
   requirements: {
     capabilities: [],
     sources: [{ id: salesTasksDescriptor.id, version: salesTasksDescriptor.version }],
     actions: [{ id: salesTaskCreateDescriptor.id, version: salesTaskCreateDescriptor.version }],
-    blocks: [{ id: "sales.task-table", version: 2 }, { id: "sales.task-quick-create", version: 1 }]
+    blocks: [{ id: "sales.task-table", version: 3 }, { id: "sales.task-quick-create", version: 2 }]
   },
   document: {
     id: "sales.page.tasks",
-    version: 1,
+    version: 2,
     schemaVersion: 1,
     profile: "workspace",
     regions: {
       main: [{
         id: "sales-tasks",
         type: "sales.task-table",
-        version: 2,
+        version: 3,
         props: { title: "Sales tasks" },
         bindings: {
           source: {
             source: { id: salesTasksDescriptor.id, version: salesTasksDescriptor.version },
             input: {},
             structuralCompatibilityHash: salesTasksDescriptor.structuralCompatibilityHash,
-            selectedFields: ["title", "status", "potential-revenue"]
+            selectedFields: ["title", "status"]
           }
         }
       }, {
         id: "sales-task-create",
         type: "sales.task-quick-create",
-        version: 1,
+        version: 2,
         props: { title: "Create task" },
         bindings: { action: { id: salesTaskCreateDescriptor.id, version: salesTaskCreateDescriptor.version } }
       }]
@@ -886,47 +582,50 @@ export const salesTaskPageTemplate: PluginPageTemplateDescriptor = {
 };
 
 export const salesOverviewPageTemplate: PluginPageTemplateDescriptor = {
-  id: "sales.page.overview", version: 1, ownerPluginId: "module.sales",
+  id: "sales.page.overview", version: 2, ownerPluginId: "module.sales",
   route: { routeId: "sales.route.overview", params: {} }, surface: "workspace", profile: "workspace",
-  permission: "sales.tasks.read", publicationPolicy: { ownership: "customer", adoption: "explicit" },
+  permission: "sales.reports.read", publicationPolicy: { ownership: "customer", adoption: "explicit" },
+  migration: { adoptableFromVersions: [1], notesMessageId: "sales.message.template-v2" },
   requirements: {
-    capabilities: [], sources: [{ id: salesTotalPotentialRevenueDescriptor.id, version: 1 }], actions: [],
-    blocks: [{ id: "sales.revenue-metric", version: 1 }]
+    capabilities: [], sources: [{ id: salesTasksDescriptor.id, version: salesTasksDescriptor.version }], actions: [],
+    blocks: [{ id: "sales.task-table", version: 3 }]
   },
   document: {
-    id: "sales.page.overview", version: 1, schemaVersion: 1, profile: "workspace",
+    id: "sales.page.overview", version: 2, schemaVersion: 1, profile: "workspace",
     regions: { main: [{
-      id: "sales-revenue", type: "sales.revenue-metric", version: 1, props: { title: "Total potential revenue" },
-      bindings: { source: { source: { id: salesTotalPotentialRevenueDescriptor.id, version: 1 }, input: {}, structuralCompatibilityHash: salesTotalPotentialRevenueDescriptor.structuralCompatibilityHash } }
+      id: "sales-follow-up", type: "sales.task-table", version: 3, props: { title: "Follow-up tasks" },
+      bindings: { source: { source: { id: salesTasksDescriptor.id, version: salesTasksDescriptor.version }, input: {}, structuralCompatibilityHash: salesTasksDescriptor.structuralCompatibilityHash, selectedFields: ["title", "status"] } }
     }] }
   }
 };
 
 export const salesOpportunitiesPageTemplate: PluginPageTemplateDescriptor = {
-  id: "sales.page.opportunities", version: 1, ownerPluginId: "module.sales",
+  id: "sales.page.opportunities", version: 2, ownerPluginId: "module.sales",
   route: { routeId: "sales.route.opportunities", params: {} }, surface: "workspace", profile: "workspace",
   permission: "sales.opportunities.read", publicationPolicy: { ownership: "customer", adoption: "explicit" },
+  migration: { adoptableFromVersions: [1], notesMessageId: "sales.message.template-v2" },
   requirements: {
-    capabilities: [], sources: [{ id: salesOpportunitiesDescriptor.id, version: 1 }], actions: [{ id: salesOpportunityStageUpdateDescriptor.id, version: 1 }],
-    blocks: [{ id: "sales.opportunity-list", version: 1 }]
+    capabilities: [], sources: [{ id: salesOpportunitiesDescriptor.id, version: salesOpportunitiesDescriptor.version }], actions: [{ id: salesOpportunityStageUpdateDescriptor.id, version: salesOpportunityStageUpdateDescriptor.version }],
+    blocks: [{ id: "sales.opportunity-list", version: 2 }]
   },
   document: {
-    id: "sales.page.opportunities", version: 1, schemaVersion: 1, profile: "workspace",
+    id: "sales.page.opportunities", version: 2, schemaVersion: 1, profile: "workspace",
     regions: { main: [{
-      id: "sales-opportunities", type: "sales.opportunity-list", version: 1, props: { title: "Opportunities" },
-      bindings: { source: { source: { id: salesOpportunitiesDescriptor.id, version: 1 }, input: {}, structuralCompatibilityHash: salesOpportunitiesDescriptor.structuralCompatibilityHash, selectedFields: ["name", "stage", "revision", "value"] } }
+      id: "sales-opportunities", type: "sales.opportunity-list", version: 2, props: { title: "Opportunities" },
+      bindings: { source: { source: { id: salesOpportunitiesDescriptor.id, version: salesOpportunitiesDescriptor.version }, input: {}, structuralCompatibilityHash: salesOpportunitiesDescriptor.structuralCompatibilityHash, selectedFields: ["name", "stage-id", "revision", "amount"] } }
     }] }
   }
 };
 
 export const salesSettingsPageTemplate: PluginPageTemplateDescriptor = {
-  id: "sales.page.settings", version: 1, ownerPluginId: "module.sales",
+  id: "sales.page.settings", version: 2, ownerPluginId: "module.sales",
   route: { routeId: "sales.route.settings", params: {} }, surface: "workspace", profile: "workspace",
   permission: "sales.settings.read", publicationPolicy: { ownership: "customer", adoption: "explicit" },
-  requirements: { capabilities: [], sources: [], actions: [], blocks: [{ id: "sales.settings-summary", version: 1 }] },
+  migration: { adoptableFromVersions: [1], notesMessageId: "sales.message.template-v2" },
+  requirements: { capabilities: [], sources: [], actions: [], blocks: [{ id: "sales.settings-summary", version: 2 }] },
   document: {
-    id: "sales.page.settings", version: 1, schemaVersion: 1, profile: "workspace",
-    regions: { main: [{ id: "sales-settings", type: "sales.settings-summary", version: 1, props: { title: "Sales settings" } }] }
+    id: "sales.page.settings", version: 2, schemaVersion: 1, profile: "workspace",
+    regions: { main: [{ id: "sales-settings", type: "sales.settings-summary", version: 2, props: { title: "Sales settings" } }] }
   }
 };
 
@@ -954,7 +653,7 @@ const salesTaskUiPolicy: Omit<PluginUiContributionDescriptor, "id" | "version" |
 
 export const salesTaskTableComponentDescriptor: PluginUiContributionDescriptor = {
   id: "sales.table.tasks",
-  version: 1,
+  version: 2,
   ownerPluginId: "module.sales",
   kind: "component",
   ...salesTaskUiPolicy
@@ -962,7 +661,7 @@ export const salesTaskTableComponentDescriptor: PluginUiContributionDescriptor =
 
 export const salesTaskTableBlockDescriptor: PluginUiContributionDescriptor = {
   id: "sales.task-table",
-  version: 2,
+  version: 3,
   ownerPluginId: "module.sales",
   kind: "block",
   ...salesTaskUiPolicy
@@ -976,7 +675,7 @@ function uiContribution(
   actionPolicy?: PluginUiContributionDescriptor["actionPolicy"]
 ): PluginUiContributionDescriptor {
   return {
-    id, version: 1, ownerPluginId: "module.sales", kind,
+    id, version: 2, ownerPluginId: "module.sales", kind,
     propsSchema: salesTaskTablePropsSchema,
     profiles: ["workspace"], surfaces: ["workspace"], audience: "authenticated", permission: permissionId,
     ...(sourcePolicy === undefined ? {} : { sourcePolicy }),
@@ -985,55 +684,53 @@ function uiContribution(
   };
 }
 
-const metricSourcePolicy = { required: true, contracts: [{ id: "metric.scalar" as const, version: 1 as const }], requiredFields: [] };
-const opportunitySourcePolicy = { required: true, contracts: [{ id: "table.records" as const, version: 1 as const }], requiredFields: ["name", "stage", "revision"] };
+const opportunitySourcePolicy = { required: true, contracts: [{ id: "table.records" as const, version: 1 as const }], requiredFields: ["name", "stage-id", "revision"] };
 
-export const salesRevenueMetricComponentDescriptor: PluginUiContributionDescriptor = uiContribution("sales.metric.total-potential-revenue", "component", "sales.tasks.revenue.read", metricSourcePolicy);
-export const salesQuickCreateComponentDescriptor: PluginUiContributionDescriptor = uiContribution("sales.form.task-quick-create", "component", "sales.tasks.write", undefined, { required: true, actions: [{ id: salesTaskCreateDescriptor.id, version: 1 }] });
+export const salesQuickCreateComponentDescriptor: PluginUiContributionDescriptor = uiContribution("sales.form.task-quick-create", "component", "sales.tasks.write", undefined, { required: true, actions: [{ id: salesTaskCreateDescriptor.id, version: salesTaskCreateDescriptor.version }] });
 export const salesOpportunityListComponentDescriptor: PluginUiContributionDescriptor = uiContribution("sales.list.opportunities", "component", "sales.opportunities.read", opportunitySourcePolicy);
-export const salesOpportunityDetailComponentDescriptor: PluginUiContributionDescriptor = uiContribution("sales.detail.opportunity", "component", "sales.opportunities.read", opportunitySourcePolicy, { required: false, actions: [{ id: salesOpportunityStageUpdateDescriptor.id, version: 1 }] });
-export const salesPipelineStatusComponentDescriptor: PluginUiContributionDescriptor = uiContribution("sales.status.pipeline-stage", "component", "sales.opportunities.stage.read");
+export const salesOpportunityDetailComponentDescriptor: PluginUiContributionDescriptor = uiContribution("sales.detail.opportunity", "component", "sales.opportunities.read", opportunitySourcePolicy, { required: false, actions: [{ id: salesOpportunityStageUpdateDescriptor.id, version: salesOpportunityStageUpdateDescriptor.version }] });
+export const salesPipelineStatusComponentDescriptor: PluginUiContributionDescriptor = uiContribution("sales.status.pipeline-stage", "component", "sales.pipelines.read");
 
-export const salesRevenueMetricBlockDescriptor: PluginUiContributionDescriptor = uiContribution("sales.revenue-metric", "block", "sales.tasks.revenue.read", metricSourcePolicy);
-export const salesQuickCreateBlockDescriptor: PluginUiContributionDescriptor = uiContribution("sales.task-quick-create", "block", "sales.tasks.write", undefined, { required: true, actions: [{ id: salesTaskCreateDescriptor.id, version: 1 }] });
+export const salesQuickCreateBlockDescriptor: PluginUiContributionDescriptor = uiContribution("sales.task-quick-create", "block", "sales.tasks.write", undefined, { required: true, actions: [{ id: salesTaskCreateDescriptor.id, version: salesTaskCreateDescriptor.version }] });
 export const salesOpportunityListBlockDescriptor: PluginUiContributionDescriptor = uiContribution("sales.opportunity-list", "block", "sales.opportunities.read", opportunitySourcePolicy);
-export const salesOpportunityDetailBlockDescriptor: PluginUiContributionDescriptor = uiContribution("sales.opportunity-detail", "block", "sales.opportunities.read", opportunitySourcePolicy, { required: false, actions: [{ id: salesOpportunityStageUpdateDescriptor.id, version: 1 }] });
-export const salesOpportunityKanbanBlockDescriptor: PluginUiContributionDescriptor = uiContribution("sales.opportunity-kanban", "block", "sales.opportunities.read", opportunitySourcePolicy, { required: false, actions: [{ id: salesOpportunityStageUpdateDescriptor.id, version: 1 }] });
+export const salesOpportunityDetailBlockDescriptor: PluginUiContributionDescriptor = uiContribution("sales.opportunity-detail", "block", "sales.opportunities.read", opportunitySourcePolicy, { required: false, actions: [{ id: salesOpportunityStageUpdateDescriptor.id, version: salesOpportunityStageUpdateDescriptor.version }] });
+export const salesOpportunityKanbanBlockDescriptor: PluginUiContributionDescriptor = uiContribution("sales.opportunity-kanban", "block", "sales.opportunities.read", opportunitySourcePolicy, { required: false, actions: [{ id: salesOpportunityStageUpdateDescriptor.id, version: salesOpportunityStageUpdateDescriptor.version }] });
 export const salesSettingsSummaryBlockDescriptor: PluginUiContributionDescriptor = uiContribution("sales.settings-summary", "block", "sales.settings.read");
 
 export const salesUiComponentDescriptors: readonly PluginUiContributionDescriptor[] = Object.freeze([
-  salesTaskTableComponentDescriptor, salesRevenueMetricComponentDescriptor, salesQuickCreateComponentDescriptor,
+  salesTaskTableComponentDescriptor, salesQuickCreateComponentDescriptor,
   salesOpportunityListComponentDescriptor, salesOpportunityDetailComponentDescriptor, salesPipelineStatusComponentDescriptor
 ]);
 export const salesUiBlockDescriptors: readonly PluginUiContributionDescriptor[] = Object.freeze([
-  salesTaskTableBlockDescriptor, salesRevenueMetricBlockDescriptor, salesQuickCreateBlockDescriptor,
+  salesTaskTableBlockDescriptor, salesQuickCreateBlockDescriptor,
   salesOpportunityListBlockDescriptor, salesOpportunityDetailBlockDescriptor, salesOpportunityKanbanBlockDescriptor, salesSettingsSummaryBlockDescriptor
 ]);
 
 export const salesEventDescriptors = Object.freeze([
-  { id: "sales.event.task-changed", version: 1, ownerPluginId: "module.sales", eventClass: "durable-integration", sourceId: "sales.tasks" },
-  { id: "sales.event.opportunity-changed", version: 1, ownerPluginId: "module.sales", eventClass: "durable-integration", sourceId: "sales.opportunities" }
+  { id: "sales.event.task-changed", version: 2, ownerPluginId: "module.sales", eventClass: "durable-integration", sourceId: "sales.tasks" },
+  { id: "sales.event.opportunity-changed", version: 2, ownerPluginId: "module.sales", eventClass: "durable-integration", sourceId: "sales.opportunities" }
 ]);
 
 export const salesRealtimeTopicDescriptors = Object.freeze([
-  { id: "sales.realtime.tasks", version: 1, ownerPluginId: "module.sales", eventId: "sales.event.task-changed", sourceId: "sales.tasks", permission: "sales.tasks.read" },
-  { id: "sales.realtime.opportunities", version: 1, ownerPluginId: "module.sales", eventId: "sales.event.opportunity-changed", sourceId: "sales.opportunities", permission: "sales.opportunities.read" }
+  { id: "sales.realtime.tasks", version: 2, ownerPluginId: "module.sales", eventId: "sales.event.task-changed", sourceId: "sales.tasks", permission: "sales.tasks.read" },
+  { id: "sales.realtime.opportunities", version: 2, ownerPluginId: "module.sales", eventId: "sales.event.opportunity-changed", sourceId: "sales.opportunities", permission: "sales.opportunities.read" }
 ]);
 
 export const salesReferenceMetadata = Object.freeze({
-  migration: { id: "sales.migration.initial", version: 2, ownerPluginId: "module.sales", predecessorRevisions: [1] },
-  service: { id: "sales.service.domain", version: 1, ownerPluginId: "module.sales" },
-  job: { id: "sales.job.pipeline-audit", version: 1, ownerPluginId: "module.sales", timeoutMs: 5_000, maxConcurrency: 1, idempotent: true },
+  migration: { id: "sales.migration.initial", version: 3, ownerPluginId: "module.sales", predecessorRevisions: [1, 2] },
+  service: { id: "sales.service.domain", version: 2, ownerPluginId: "module.sales" },
+  job: { id: "sales.job.pipeline-audit", version: 2, ownerPluginId: "module.sales", timeoutMs: 5_000, maxConcurrency: 1, idempotent: true },
   localization: {
-    id: "sales.localization.en", version: 1, ownerPluginId: "module.sales", locale: "en",
+    id: "sales.localization.en", version: 2, ownerPluginId: "module.sales", locale: "en",
     messages: {
       "sales.message.overview": "Overview", "sales.message.tasks": "Tasks",
       "sales.message.opportunities": "Opportunities", "sales.message.settings": "Settings",
       "sales.message.navigation-overview": "Overview", "sales.message.navigation-tasks": "Tasks",
-      "sales.message.navigation-opportunities": "Opportunities", "sales.message.navigation-settings": "Settings"
+      "sales.message.navigation-opportunities": "Opportunities", "sales.message.navigation-settings": "Settings",
+      "sales.message.template-v2": "Adopt CRM core template version 2."
     }
   },
-  health: { id: "sales.health.runtime", version: 1, ownerPluginId: "module.sales", safe: true },
-  lifecycle: { id: "sales.lifecycle.reference", version: 1, ownerPluginId: "module.sales", disable: "supported", reenable: "supported", purge: "supported" },
-  testing: { id: "sales.testing.conformance", version: 1, ownerPluginId: "module.sales", conformancePluginId: "module.sales" }
+  health: { id: "sales.health.runtime", version: 2, ownerPluginId: "module.sales", safe: true },
+  lifecycle: { id: "sales.lifecycle.reference", version: 2, ownerPluginId: "module.sales", disable: "supported", reenable: "supported", purge: "supported" },
+  testing: { id: "sales.testing.conformance", version: 2, ownerPluginId: "module.sales", conformancePluginId: "module.sales" }
 });

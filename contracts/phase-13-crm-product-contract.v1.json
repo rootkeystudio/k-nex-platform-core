@@ -74,6 +74,15 @@
     "fieldScopes": ["application", "environment", "record", "field", "owner", "team"],
     "protectedFields": ["id", "applicationId", "environment", "ownerId", "teamId", "createdAt", "createdBy", "updatedAt", "updatedBy", "revision", "audit", "status", "state", "stageId", "archiveStatus", "mergedIntoId", "mergeLineage"],
     "rule": "persona labels are templates; current record and field policy authorizes every route, action, view, report, export, job, and adapter",
+    "scopeAdministration": {
+      "owner": "platform.security",
+      "endpoint": "fixed-generated-host:/api/k-nex/sales/authority-scopes",
+      "admission": "current sales.settings.write plus active application-sales-scope, application-wide, mutation-allowed caller scope",
+      "target": "upsert/reactivation requires current module.sales platform-plugin grant; revoke persists an explicit tombstone",
+      "consistency": "expected global authorization revision and per-principal scope revision; request is idempotent over application, environment, caller, target, operation, and request digest",
+      "lifecycle": "active scope may be dormant while current RBAC grant is absent and become effective when it returns; revoked scope never auto-reactivates",
+      "evidence": "scope, authorization revision, immutable audit, and canonical authorization outbox commit in one transaction"
+    },
     "definitions": [
       "sales.accounts.read", "sales.accounts.write", "sales.accounts.archive",
       "sales.contacts.read", "sales.contacts.write", "sales.contacts.archive", "sales.contacts.channels.read",
@@ -85,12 +94,12 @@
       "sales.imports.read", "sales.imports.execute", "sales.exports.read", "sales.exports.execute",
       "sales.notifications.read", "sales.notifications.write", "sales.reminders.read", "sales.reminders.write",
       "sales.reports.read", "sales.reports.schedule", "sales.communications.email.send", "sales.communications.calendar.sync", "sales.communications.metadata.read",
-      "sales.ownership.assign", "sales.records.merge", "sales.settings.read", "sales.settings.write"
+      "sales.ownership.write", "sales.records.merge", "sales.settings.read", "sales.settings.write"
     ],
     "personaGrants": [
       { "personaId": "sales.representative", "recordScope": "owned-or-assigned-team", "permissionIds": ["sales.accounts.read", "sales.accounts.write", "sales.contacts.read", "sales.contacts.write", "sales.contacts.channels.read", "sales.leads.read", "sales.leads.write", "sales.leads.channels.read", "sales.leads.qualify", "sales.leads.disqualify", "sales.opportunities.read", "sales.opportunities.write", "sales.opportunities.stage.update", "sales.activities.read", "sales.activities.write", "sales.tasks.read", "sales.tasks.write", "sales.notes.read", "sales.notes.write", "sales.notes.body.read", "sales.attachments.read", "sales.attachments.write", "sales.pipelines.read", "sales.saved-views.read", "sales.saved-views.write", "sales.notifications.read", "sales.notifications.write", "sales.reminders.read", "sales.reminders.write", "sales.reports.read"] },
-      { "personaId": "sales.manager", "recordScope": "managed-teams-and-own", "permissionIds": ["sales.accounts.read", "sales.accounts.write", "sales.accounts.archive", "sales.contacts.read", "sales.contacts.write", "sales.contacts.archive", "sales.contacts.channels.read", "sales.leads.read", "sales.leads.write", "sales.leads.archive", "sales.leads.channels.read", "sales.leads.qualify", "sales.leads.disqualify", "sales.opportunities.read", "sales.opportunities.write", "sales.opportunities.archive", "sales.opportunities.amount.read", "sales.opportunities.stage.update", "sales.opportunities.close", "sales.activities.read", "sales.activities.write", "sales.tasks.read", "sales.tasks.write", "sales.tasks.archive", "sales.notes.read", "sales.notes.write", "sales.notes.body.read", "sales.attachments.read", "sales.attachments.write", "sales.pipelines.read", "sales.saved-views.read", "sales.saved-views.write", "sales.imports.read", "sales.imports.execute", "sales.exports.read", "sales.exports.execute", "sales.notifications.read", "sales.notifications.write", "sales.reminders.read", "sales.reminders.write", "sales.reports.read", "sales.reports.schedule", "sales.ownership.assign", "sales.records.merge"] },
-      { "personaId": "sales.administrator", "recordScope": "application-sales-scope", "permissionIds": ["sales.accounts.read", "sales.accounts.write", "sales.accounts.archive", "sales.contacts.read", "sales.contacts.write", "sales.contacts.archive", "sales.contacts.channels.read", "sales.leads.read", "sales.leads.write", "sales.leads.archive", "sales.leads.channels.read", "sales.leads.qualify", "sales.leads.disqualify", "sales.opportunities.read", "sales.opportunities.write", "sales.opportunities.archive", "sales.opportunities.amount.read", "sales.opportunities.stage.update", "sales.opportunities.close", "sales.activities.read", "sales.activities.write", "sales.tasks.read", "sales.tasks.write", "sales.tasks.archive", "sales.notes.read", "sales.notes.write", "sales.notes.body.read", "sales.attachments.read", "sales.attachments.write", "sales.pipelines.read", "sales.pipelines.configure", "sales.saved-views.read", "sales.saved-views.write", "sales.imports.read", "sales.imports.execute", "sales.exports.read", "sales.exports.execute", "sales.notifications.read", "sales.notifications.write", "sales.reminders.read", "sales.reminders.write", "sales.reports.read", "sales.reports.schedule", "sales.communications.email.send", "sales.communications.calendar.sync", "sales.communications.metadata.read", "sales.ownership.assign", "sales.records.merge", "sales.settings.read", "sales.settings.write"] },
+      { "personaId": "sales.manager", "recordScope": "managed-teams-and-own", "permissionIds": ["sales.accounts.read", "sales.accounts.write", "sales.accounts.archive", "sales.contacts.read", "sales.contacts.write", "sales.contacts.archive", "sales.contacts.channels.read", "sales.leads.read", "sales.leads.write", "sales.leads.archive", "sales.leads.channels.read", "sales.leads.qualify", "sales.leads.disqualify", "sales.opportunities.read", "sales.opportunities.write", "sales.opportunities.archive", "sales.opportunities.amount.read", "sales.opportunities.stage.update", "sales.opportunities.close", "sales.activities.read", "sales.activities.write", "sales.tasks.read", "sales.tasks.write", "sales.tasks.archive", "sales.notes.read", "sales.notes.write", "sales.notes.body.read", "sales.attachments.read", "sales.attachments.write", "sales.pipelines.read", "sales.saved-views.read", "sales.saved-views.write", "sales.imports.read", "sales.imports.execute", "sales.exports.read", "sales.exports.execute", "sales.notifications.read", "sales.notifications.write", "sales.reminders.read", "sales.reminders.write", "sales.reports.read", "sales.reports.schedule", "sales.ownership.write", "sales.records.merge"] },
+      { "personaId": "sales.administrator", "recordScope": "application-sales-scope", "permissionIds": ["sales.accounts.read", "sales.accounts.write", "sales.accounts.archive", "sales.contacts.read", "sales.contacts.write", "sales.contacts.archive", "sales.contacts.channels.read", "sales.leads.read", "sales.leads.write", "sales.leads.archive", "sales.leads.channels.read", "sales.leads.qualify", "sales.leads.disqualify", "sales.opportunities.read", "sales.opportunities.write", "sales.opportunities.archive", "sales.opportunities.amount.read", "sales.opportunities.stage.update", "sales.opportunities.close", "sales.activities.read", "sales.activities.write", "sales.tasks.read", "sales.tasks.write", "sales.tasks.archive", "sales.notes.read", "sales.notes.write", "sales.notes.body.read", "sales.attachments.read", "sales.attachments.write", "sales.pipelines.read", "sales.pipelines.configure", "sales.saved-views.read", "sales.saved-views.write", "sales.imports.read", "sales.imports.execute", "sales.exports.read", "sales.exports.execute", "sales.notifications.read", "sales.notifications.write", "sales.reminders.read", "sales.reminders.write", "sales.reports.read", "sales.reports.schedule", "sales.communications.email.send", "sales.communications.calendar.sync", "sales.communications.metadata.read", "sales.ownership.write", "sales.records.merge", "sales.settings.read", "sales.settings.write"] },
       { "personaId": "sales.viewer-auditor", "recordScope": "explicit-application-or-team-scope", "permissionIds": ["sales.accounts.read", "sales.contacts.read", "sales.leads.read", "sales.opportunities.read", "sales.activities.read", "sales.tasks.read", "sales.notes.read", "sales.attachments.read", "sales.pipelines.read", "sales.saved-views.read", "sales.notifications.read", "sales.reminders.read", "sales.reports.read"] }
     ],
     "objectFieldActionMatrix": [
@@ -111,7 +120,7 @@
       { "objectId": "sales.object.reminder", "readPermissionId": "sales.reminders.read", "writePermissionId": "sales.reminders.write", "recordPolicyId": "sales.policy.reminders.recipient", "actionPermissions": { "sales.reminder.dismiss": "sales.reminders.write", "sales.reminder.schedule": "sales.reminders.write" } }
     ],
     "operationActionPermissions": {
-      "sales.ownership.assign": "sales.ownership.assign",
+      "sales.ownership.assign": "sales.ownership.write",
       "sales.report.schedule": "sales.reports.schedule",
       "sales.settings.update": "sales.settings.write",
       "sales.integration.configure": "sales.settings.write"
@@ -306,7 +315,17 @@
     "money": "{ kind: money, value: canonical exact decimal string, currency: ISO-4217-uppercase iff value is present, scale: integer, rounding?: declared mode }; no binary floating point or FX conversion",
     "calendarDate": "YYYY-MM-DD without timezone conversion",
     "instant": "UTC instant",
-    "reportingTimezone": "one IANA application timezone used for grouping and display"
+    "reportingTimezone": "one IANA application timezone used for grouping and display",
+    "polymorphicRelatedTargets": {
+      "vocabulary": ["sales.account", "sales.contact", "sales.lead", "sales.opportunity", "sales.task"],
+      "sharedIntent": "Activities, Notes, Attachment references, and optional Task links may name only this closed target vocabulary and must resolve in their own application and environment.",
+      "objectSpecificIntent": {
+        "sales.object.activity": "required interaction target",
+        "sales.object.note": "required timeline target",
+        "sales.object.attachment-reference": "required storage-reference target",
+        "sales.object.task": "optional follow-up target"
+      }
+    }
   },
   "retention": {
     "defaultDeletion": "soft-archive",

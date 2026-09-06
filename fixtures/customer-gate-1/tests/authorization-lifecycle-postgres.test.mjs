@@ -5,7 +5,7 @@ import test from "node:test";
 
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import salesManifest from "@k-nex/module-sales-current/manifest" with { type: "json" };
-import { salesRegistration, salesPermissionDescriptors } from "@k-nex/module-sales-current/server";
+import { salesRegistration, salesCrmPermissionDescriptors } from "@k-nex/module-sales-current/server";
 import {
   EffectiveAuthorityResolver,
   adoptRetainedExtensionGrants,
@@ -246,7 +246,7 @@ test("P10.7 projects Sales lifecycle generations and retained-grant adoption thr
     ]).then((rows) => rows.map(({ rows: values }) => values)), customerData.map(({ rows }) => rows));
     const disabledRows = await authorizationRows(pool);
     assert.deepEqual(disabledRows.generations, [{ authorization_generation: 1, runtime_generation_ids: ["sales-gen-one"], state: "current", authorization_revision: 1, lifecycle_revision: 2 }]);
-    assert.equal(disabledRows.snapshots.length, salesPermissionDescriptors.length);
+    assert.equal(disabledRows.snapshots.length, salesCrmPermissionDescriptors.length);
     assert.ok(disabledRows.snapshots.every(({ state, owner_generation }) => state === "inactive-extension-disabled" && owner_generation === 1));
 
     const reenable = lifecycleEvent("install", "active", 3, "sales-gen-reenabled", sourceCommitOne);
@@ -280,7 +280,7 @@ test("P10.7 projects Sales lifecycle generations and retained-grant adoption thr
     );
     const uninstalledRows = await authorizationRows(pool);
     assert.deepEqual(uninstalledRows.generations, [{ authorization_generation: 1, runtime_generation_ids: ["sales-gen-compatible"], state: "retired", authorization_revision: 1, lifecycle_revision: 5 }]);
-    assert.equal(uninstalledRows.snapshots.length, salesPermissionDescriptors.length);
+    assert.equal(uninstalledRows.snapshots.length, salesCrmPermissionDescriptors.length);
     assert.ok(uninstalledRows.snapshots.every(({ state, owner_generation }) => state === "orphaned-after-removal" && owner_generation === 1));
     assert.deepEqual((await runtimeRow(pool)).retained_generation, { authority: "static-build", sourceCommit: sourceCommitTwo, generationId: "sales-gen-compatible" });
 
@@ -296,7 +296,7 @@ test("P10.7 projects Sales lifecycle generations and retained-grant adoption thr
       { authorization_generation: 2, runtime_generation_ids: ["sales-gen-two"], state: "current", authorization_revision: 1, lifecycle_revision: 6 }
     ]);
     const reinstalledSnapshots = (await authorizationRows(pool)).snapshots;
-    assert.equal(reinstalledSnapshots.length, salesPermissionDescriptors.length);
+    assert.equal(reinstalledSnapshots.length, salesCrmPermissionDescriptors.length);
     assert.ok(reinstalledSnapshots.every(({ state, owner_generation }) => state === "orphaned-after-removal" && owner_generation === 1));
     assert.deepEqual((await pool.query("select grant_id, owner_generation::int as owner_generation from k_nex_role_permission_grants where application_id=$1 and grant_id='grant.sales.read'", [applicationId])).rows, [{ grant_id: "grant.sales.read", owner_generation: 1 }]);
 

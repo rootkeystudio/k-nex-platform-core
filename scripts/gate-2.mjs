@@ -3,27 +3,23 @@ import { performance } from "node:perf_hooks";
 
 import { MetricScalarSchema, TableRecordsSchema } from "../packages/contracts/dist/index.js";
 import {
-  salesTasksHandler,
-  salesTotalPotentialRevenueHandler
+  salesOpportunitiesHandler,
+  salesTasksHandler
 } from "../modules/sales/dist/server.js";
 
 const tableDocuments = Array.from({ length: 100 }, (_, index) => ({
   id: `task-${index + 1}`,
   title: `Representative task ${index + 1}`,
-  status: index % 3 === 0 ? "done" : "open",
-  potentialRevenue: `${100 + index}.25`,
-  privateNote: index % 5 === 0 ? "Authorized note" : null
+  status: index % 3 === 0 ? "completed" : "open"
 }));
 
 const tableValue = {
-  fields: ["title", "status", "potential-revenue", "private-note"],
+  fields: ["title", "status"],
   rows: tableDocuments.map((document) => ({
     key: document.id,
     values: {
       title: { kind: "text", value: document.title },
-      status: { kind: "status", value: document.status },
-      "potential-revenue": { kind: "money", value: document.potentialRevenue, currency: "USD", scale: 2 },
-      "private-note": document.privateNote === null ? null : { kind: "text", value: document.privateNote }
+      status: { kind: "status", value: document.status }
     }
   })),
   page: { number: 1, pageSize: 100, hasNext: false }
@@ -35,29 +31,40 @@ const actor = { principal: { kind: "user", id: "benchmark" }, effectiveActor: { 
 
 const tableContext = {
   actor,
-  request: { payload: { find: async () => ({ docs: tableDocuments, page: 1, totalPages: 1, hasNextPage: false }) } },
+  request: {
+    applicationIdentity: { applicationId: "benchmark", environment: "benchmark" },
+    payload: { find: async () => ({ docs: tableDocuments, page: 1, totalPages: 1, hasNextPage: false }) }
+  },
   input: {},
   query: { page: { number: 1, size: 100 }, filters: [], sort: [{ field: "status", direction: "asc" }] },
-  selectedFields: ["title", "status", "potential-revenue", "private-note"],
-  recordScope: { kind: "sales.tasks" },
+  selectedFields: ["title", "status"],
+  recordScope: { kind: "sales.tasks", where: { and: [
+    { applicationId: { equals: "benchmark" } }, { environment: { equals: "benchmark" } }, { ownerId: { equals: "benchmark" } }
+  ] } },
   signal
 };
 
-const aggregateDocuments = Array.from({ length: 1_000 }, (_, index) => ({ id: `aggregate-${index}`, potentialRevenue: `${100 + index}.25` }));
-const metricContext = {
+const opportunityDocuments = Array.from({ length: 100 }, (_, index) => ({
+  id: `opportunity-${index + 1}`,
+  name: `Representative opportunity ${index + 1}`,
+  stageId: index % 5 === 0 ? "won" : "qualification",
+  revision: index + 1,
+  amount: `${100 + index}.25`,
+  currency: "USD"
+}));
+const opportunityContext = {
   ...tableContext,
   request: {
+    applicationIdentity: { applicationId: "benchmark", environment: "benchmark" },
     payload: {
-      find: async ({ page = 1, limit = 100 }) => ({
-        docs: aggregateDocuments.slice((page - 1) * limit, page * limit),
-        page,
-        totalPages: Math.ceil(aggregateDocuments.length / limit),
-        hasNextPage: page * limit < aggregateDocuments.length
-      })
+      find: async () => ({ docs: opportunityDocuments, page: 1, totalPages: 1, hasNextPage: false })
     }
   },
-  query: { filters: [], sort: [] },
-  selectedFields: []
+  query: { page: { number: 1, size: 100 }, filters: [], sort: [] },
+  selectedFields: ["name", "stage-id", "revision", "amount"],
+  recordScope: { kind: "sales.opportunities", where: { and: [
+    { applicationId: { equals: "benchmark" } }, { environment: { equals: "benchmark" } }, { ownerId: { equals: "benchmark" } }
+  ] } }
 };
 
 function percentile(samples, quantile) {
@@ -87,12 +94,12 @@ async function measure(name, dataset, iterations, acceptedP95Ms, operation) {
 
 const benchmark = [
   await measure("metric validation", "metric.scalar@1", 500, 5, () => { MetricScalarSchema.parse(metricValue); }),
-  await measure("table validation", "table.records@1: 100 rows x 4 fields", 200, 30, () => { TableRecordsSchema.parse(tableValue); }),
-  await measure("Sales table query + validation", "100 records x 4 selected fields", 100, 40, async () => {
+  await measure("table validation", "table.records@1: 100 rows x 2 fields", 200, 30, () => { TableRecordsSchema.parse(tableValue); }),
+  await measure("Sales task v2 query + validation", "100 records x 2 selected fields", 100, 40, async () => {
     TableRecordsSchema.parse(await salesTasksHandler(tableContext));
   }),
-  await measure("Sales metric query + validation", "1,000 money records in 10 server pages", 50, 60, async () => {
-    MetricScalarSchema.parse(await salesTotalPotentialRevenueHandler(metricContext));
+  await measure("Sales opportunity v2 query + validation", "100 records x 4 selected fields", 50, 60, async () => {
+    TableRecordsSchema.parse(await salesOpportunitiesHandler(opportunityContext));
   })
 ];
 

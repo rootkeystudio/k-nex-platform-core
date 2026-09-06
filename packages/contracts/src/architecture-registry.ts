@@ -33,7 +33,7 @@ export const architectureRegistry = {
       hotApplications: ["app.sales-assistant"],
       themeSkins: ["skin.neobrutalism"],
       capabilities: ["realtime.gateway", "storage.objects", "builder.engine"],
-      resources: ["sales.tasks", "sales.total-potential-revenue", "logistics.shipment.assign", "page.filters.date-range"]
+      resources: ["sales.tasks", "sales.opportunities", "logistics.shipment.assign", "page.filters.date-range"]
     }
   },
   registration: {

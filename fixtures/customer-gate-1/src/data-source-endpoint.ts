@@ -17,9 +17,10 @@ import {
   type RegistrationResult,
   type RegisteredDataSource
 } from "@k-nex/runtime";
-import { createPayloadPersistenceCapability, CurrentAuthorityPayloadPersistenceAuthorizer, PayloadRequestAuthenticator } from "@k-nex/payload-adapter";
+import { sql } from "@payloadcms/db-postgres";
+import { activePayloadPostgresTransaction, createPayloadPersistenceCapability, CurrentAuthorityPayloadPersistenceAuthorizer, PayloadRequestAuthenticator } from "@k-nex/payload-adapter";
 import type { Endpoint, PayloadRequest } from "payload";
-import type { FixtureAuthorityContext, FixtureCurrentAuthority, FixtureSalesProfile } from "./current-authority.js";
+import type { FixtureAuthorityContext, FixtureCurrentAuthority, FixtureDurableSalesAuthority, FixtureSalesProfile } from "./current-authority.js";
 
 interface QueryBody {
   readonly sourceId?: unknown;
@@ -41,31 +42,54 @@ function catalog(registration: RegistrationResult) {
   return { lookup: (sourceId: string) => sources.get(sourceId) };
 }
 
-function taskStatus(profile: FixtureSalesProfile): "open" | "done" {
-  return profile === "done" ? "done" : "open";
+function taskStatus(profile: FixtureSalesProfile): "open" | "completed" {
+  return profile === "done" ? "completed" : "open";
 }
 
-function opportunityStage(profile: FixtureSalesProfile): "lead" | "won" {
-  return profile === "done" ? "won" : "lead";
+function opportunityStage(profile: FixtureSalesProfile): "qualification" | "won" {
+  return profile === "done" ? "won" : "qualification";
 }
 
-function salesPolicy(authority: FixtureCurrentAuthority): DataSourcePolicyService {
+function ownedScope(context: FixtureAuthorityContext, stateField: "status" | "stageId", state: string) {
+  return {
+    and: [
+      { applicationId: { equals: context.applicationId } },
+      { environment: { equals: context.environment } },
+      { or: [{ ownerId: { equals: context.ownerId } }, { teamId: { equals: context.teamId } }] },
+      { [stateField]: { equals: state } }
+    ]
+  };
+}
+
+function durableScope(current: FixtureDurableSalesAuthority, stateField: "status" | "stageId", state: string) {
+  const identity = [{ applicationId: { equals: current.context.applicationId } }, { environment: { equals: current.context.environment } }];
+  const teams = current.authorizedTeamIds.length === 0 ? undefined : { teamId: { in: current.authorizedTeamIds } };
+  const records = current.recordScope === "application-sales-scope" || current.recordScope === "explicit-application-or-team-scope" && current.applicationWide
+    ? identity : current.recordScope === "explicit-application-or-team-scope"
+      ? [...identity, teams ?? { id: { equals: "__denied__" } }]
+      : [...identity, { or: [{ ownerId: { equals: current.context.actorId } }, ...(teams === undefined ? [] : [teams])] }];
+  return { and: [...records, { [stateField]: { equals: state } }] };
+}
+
+function salesPolicy(authority: FixtureCurrentAuthority, resolve: (value: unknown) => FixtureDurableSalesAuthority): DataSourcePolicyService {
   return {
     authorize({ descriptor, authorizationContext }) {
-      const profile = authority.salesProfile(authorizationContext as FixtureAuthorityContext);
+      const durable = resolve(authorizationContext);
+      const current = durable.context;
+      const profile = authority.salesProfile(current);
     if (descriptor.id === "sales.tasks") return {
       sourceAllowed: true,
-      recordScope: { kind: "sales.tasks", where: { status: { equals: taskStatus(profile) } } },
-      allowedFields: ["title", "status", "potential-revenue", "private-note"]
+      recordScope: { kind: "sales.tasks", where: durableScope(durable, "status", taskStatus(profile)) },
+      allowedFields: ["title", "status"]
     };
     if (descriptor.id === "sales.opportunities") return {
       sourceAllowed: true,
-      recordScope: { kind: "sales.opportunities", where: { stage: { equals: opportunityStage(profile) } } },
-      allowedFields: ["name", "stage", "value"]
+      recordScope: { kind: "sales.opportunities", where: durableScope(durable, "stageId", opportunityStage(profile)) },
+      allowedFields: ["name", "stage-id", "revision", "amount"]
     };
     return {
-      sourceAllowed: descriptor.id === "sales.total-potential-revenue",
-      recordScope: { kind: "sales.tasks", where: { status: { equals: taskStatus(profile) } } },
+      sourceAllowed: false,
+      recordScope: { kind: "sales.denied", where: { id: { equals: "__denied__" } } },
       allowedFields: []
     };
     }
@@ -76,7 +100,35 @@ function context(request: PayloadRequest, correlationId: string, authority: Fixt
   return authority.context(request, correlationId);
 }
 
+function resultRows(value: unknown): readonly Record<string, unknown>[] {
+  if (typeof value !== "object" || value === null || !("rows" in value) || !Array.isArray(value.rows)) throw new Error("Sales source authority fence received an invalid Postgres result.");
+  return value.rows as readonly Record<string, unknown>[];
+}
+
+async function durableFence(request: PayloadRequest, durable: FixtureDurableSalesAuthority): Promise<boolean> {
+  const transaction = await activePayloadPostgresTransaction(request);
+  const state = resultRows(await transaction.execute(sql`SELECT "authorization_revision","lifecycle_revision" FROM "k_nex_authorization_state" WHERE "application_id"=${durable.context.applicationId} FOR SHARE`))[0];
+  const scope = resultRows(await transaction.execute(sql`SELECT "revision" FROM "sales_current_authority_scopes" WHERE "application_id"=${durable.context.applicationId} AND "environment"=${durable.context.environment} AND "principal_id"=${durable.context.actorId} AND "state"='active' FOR SHARE`))[0];
+  return state?.authorization_revision === durable.authorizationRevision && state?.lifecycle_revision === durable.lifecycleRevision && scope?.revision === durable.scopeRevision;
+}
+
 function queryGateway(registration: RegistrationResult, authority: FixtureCurrentAuthority): DataSourceGateway {
+  const authorityContexts = new WeakMap<PayloadRequest, FixtureAuthorityContext>();
+  const durableContexts = new WeakMap<object, FixtureDurableSalesAuthority>();
+  const resolveAuthorityContext = (value: unknown) => {
+    if (typeof value !== "object" || value === null) throw new TypeError("Data-source authority context is invalid.");
+    const current = durableContexts.get(value);
+    if (current === undefined) throw new TypeError("Data-source authority context is unavailable.");
+    return current;
+  };
+  const cacheContext = (request: PayloadRequest) => {
+    const current = authorityContexts.get(request) ?? context(request, request.headers.get("x-correlation-id") ?? "fixture-query", authority);
+    authorityContexts.set(request, current);
+    const durable = authority.durableSalesAuthority(request);
+    const cacheContext = Object.freeze({ permissionFingerprint: `${current.permissionFingerprint}:a${durable.authorizationRevision}:l${durable.lifecycleRevision}:s${durable.scopeRevision}:${durable.recordScope}:${durable.applicationWide}:${durable.authorizedTeamIds.join(",")}` });
+    durableContexts.set(cacheContext, durable);
+    return cacheContext;
+  };
   return new DataSourceGateway({
     authenticator: new PayloadRequestAuthenticator({
       actor(request) {
@@ -92,24 +144,28 @@ function queryGateway(registration: RegistrationResult, authority: FixtureCurren
       },
       authorizationContext(request) {
         if (request.user === null) return Object.freeze({});
-        return context(request, request.headers.get("x-correlation-id") ?? "fixture-query", authority);
+        return cacheContext(request);
       },
       requestContext(request) {
         if (request.user === null) return Object.freeze({});
-        const current = context(request, request.headers.get("x-correlation-id") ?? "fixture-query", authority);
+        const current = authorityContexts.get(request) ?? context(request, request.headers.get("x-correlation-id") ?? "fixture-query", authority);
+        authorityContexts.set(request, current);
+        const durable = authority.durableSalesAuthority(request);
         return createPayloadPersistenceCapability(request, [
           { collection: "sales-tasks", operations: ["find"] },
           { collection: "sales-opportunities", operations: ["find"] }
-        ], new CurrentAuthorityPayloadPersistenceAuthorizer(authority.adapter, current, ({ collection, operation }) => authority.payload(collection, operation)));
+        ], new CurrentAuthorityPayloadPersistenceAuthorizer(authority.adapter, current, ({ collection, operation }) => authority.payload(collection, operation)), {
+          guard: async () => durableFence(request, durable)
+        });
       }
     }),
     catalog: catalog(registration),
     surfaceAudience: new DescriptorSurfaceAudienceGuard(),
     authorization: new PolicyAuthorizationEvaluator(new CurrentAuthorityDataSourcePolicy(
       authority.adapter,
-      (request) => request.authorizationContext as FixtureAuthorityContext,
+      (request) => resolveAuthorityContext(request.authorizationContext).context,
       { source: (descriptor, surface) => authority.source(descriptor, surface), field: (descriptor, fieldId, surface) => authority.field(descriptor, fieldId, surface) },
-      salesPolicy(authority)
+      salesPolicy(authority, resolveAuthorityContext)
     )),
     budget: new BoundedQueryBudgetEvaluator(),
     dispatcher: new RegisteredHandlerDispatcher(),
@@ -147,6 +203,14 @@ export function createDataSourceQueryEndpoint(registration: RegistrationResult, 
         );
         return Response.json(problem, { status: problem.status });
       }
+      let durable: FixtureDurableSalesAuthority | undefined;
+      if (request.user !== null && request.user !== undefined && request.user.collection === "users") {
+        try { durable = await authority.resolveDurableSalesAuthority(request, request.headers.get("x-correlation-id") ?? "fixture-query"); }
+        catch {
+          const problem = problemDetails.serialize(new DataSourceGatewayError("PERMISSION_DENIED", 403, "Sales current authority is unavailable."), request.headers.get("x-correlation-id") ?? "fixture-query");
+          return Response.json(problem, { status: problem.status });
+        }
+      }
       const response = await gateway.query({
         correlationId: request.headers.get("x-correlation-id") ?? "fixture-query",
         rawRequest: request,
@@ -157,6 +221,14 @@ export function createDataSourceQueryEndpoint(registration: RegistrationResult, 
         selectedFields: body.selectedFields,
         signal: request.signal ?? new AbortController().signal
       });
+      if (response.status < 400 && durable !== undefined) {
+        try {
+          if (await authority.revalidateDurableSalesAuthority(request, durable) !== true) throw new Error("Sales authority changed.");
+        } catch {
+          const problem = problemDetails.serialize(new DataSourceGatewayError("PERMISSION_DENIED", 403, "Sales current authority changed."), request.headers.get("x-correlation-id") ?? "fixture-query");
+          return Response.json(problem, { status: problem.status });
+        }
+      }
       return Response.json(response.body, { status: response.status });
     }
   };

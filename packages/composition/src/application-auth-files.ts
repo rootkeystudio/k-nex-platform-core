@@ -80,6 +80,22 @@ import { kNexSalesRegistry } from "./k-nex-registry.js";
 export interface KnexRequestContext { readonly headers: Headers; readonly correlationId: string; }
 
 const runtimes = new WeakMap<Payload, ReturnType<typeof createRuntime>>();
+type CachedPayloadAuthentication = Promise<Awaited<ReturnType<Payload["auth"]>>>;
+const requestAuthentications = new WeakMap<Payload, WeakMap<KnexRequestContext, CachedPayloadAuthentication>>();
+
+export function currentPayloadAuthentication(payload: Payload, context: KnexRequestContext) {
+  let authentications = requestAuthentications.get(payload);
+  if (authentications === undefined) {
+    authentications = new WeakMap();
+    requestAuthentications.set(payload, authentications);
+  }
+  let authentication = authentications.get(context);
+  if (authentication === undefined) {
+    authentication = payload.auth({ headers: context.headers, canSetHeaders: false });
+    authentications.set(context, authentication);
+  }
+  return authentication;
+}
 
 function principal(user: unknown) {
   if (typeof user !== "object" || user === null || !("id" in user) || !("collection" in user) || user.collection !== "users" || user.id === null || user.id === undefined) return undefined;
@@ -147,7 +163,7 @@ function createRuntime(payload: Payload) {
   });
   const resolver = new EffectiveAuthorityResolver({ store, catalogProvider });
   const adapter = new CurrentAuthorityAdapter<KnexRequestContext>({
-    current: async (context) => session((await payload.auth({ headers: context.headers, canSetHeaders: false })).user, context.correlationId)
+    current: async (context) => session((await currentPayloadAuthentication(payload, context)).user, context.correlationId)
   }, resolver);
   return Object.freeze({ adapter, catalogProvider, resolver, store });
 }
@@ -330,7 +346,9 @@ export async function consumeBootstrapToken(client: BootstrapTokenClient, token:
 }
 
 function bootstrapOwnerSource(): string {
-  return `import type { BootstrapReceipt } from "@k-nex/contracts";
+  return `import { createHash } from "node:crypto";
+
+import { AuthorizationDecisionAuditSchema, canonicalJson, type BootstrapReceipt } from "@k-nex/contracts";
 import { bootstrapFirstOwner, currentProtectedPlatformRoleBaselineRelease, protectedRoleBootstrapId } from "@k-nex/runtime";
 
 import { bootKnexApplication } from "./boot.js";
@@ -339,6 +357,12 @@ import { kNexAuthority } from "./k-nex-authority.js";
 import { kNexIdentity } from "./k-nex-identity.js";
 import { kNexSalesRegistry } from "./k-nex-registry.js";
 import { bootstrapApplicationTheme } from "./k-nex-theme-runtime.js";
+
+/** Authorization outbox primary keys are UUIDs; bootstrap IDs remain readable varchar audit IDs. */
+function authorizationOutboxEventId(kind: string, userId: string): string {
+  const digest = createHash("sha256").update(canonicalJson([kNexIdentity.applicationId, kNexIdentity.environment, kind, userId])).digest("hex");
+  return digest.slice(0,8) + "-" + digest.slice(8,12) + "-" + digest.slice(12,16) + "-" + digest.slice(16,20) + "-" + digest.slice(20,32);
+}
 
 function assertResumableOwnerReceipt(receipt: BootstrapReceipt | undefined, userId: string): asserts receipt is BootstrapReceipt {
   const assignmentId = protectedRoleBootstrapId(kNexIdentity.applicationId, "owner-assignment", userId);
@@ -362,14 +386,55 @@ async function ensureInitialSalesOwner(payload: Awaited<ReturnType<typeof bootKn
       for (const descriptor of kNexSalesRegistry.permissionDescriptors) await transaction.write({ kind: "grant", grant: { schemaVersion: 1, id: "customer.initial-sales-administrator." + descriptor.id, applicationId: kNexIdentity.applicationId, roleId: "customer.initial-sales-administrator", permissionId: descriptor.id, owner: kNexSalesRegistry.authorizationGeneration.owner, revision: 0 } });
       await transaction.write({ kind: "assignment", assignment: { schemaVersion: 1, id: "customer.initial-sales-administrator.owner", applicationId: kNexIdentity.applicationId, roleId: "customer.initial-sales-administrator", principal: { kind: "user", id: userId }, state: "active", revision: 0 } });
     });
-    return;
+  } else {
+    const result = await (payload.db.pool as { query(text: string, values: unknown[]): Promise<{ rows: Array<{ assignment_count: number; generation_count: number; grant_count: number }> }> }).query(
+      "select (select count(*)::int from k_nex_role_assignments where application_id=$1 and assignment_id='customer.initial-sales-administrator.owner' and subject_kind='user' and subject_id=$2 and state='active') assignment_count, (select count(*)::int from k_nex_extension_authorization_generations where application_id=$1 and delivery_class='platform-plugin' and extension_id='module.sales' and authorization_generation=1 and state in ('current','retired') and lifecycle_revision<=$3) generation_count, (select count(*)::int from k_nex_role_permission_grants where application_id=$1 and role_id='customer.initial-sales-administrator') grant_count",
+      [kNexIdentity.applicationId, userId, state.lifecycleRevision]
+    );
+    const proof = result.rows[0];
+    if (proof?.assignment_count !== 1 || proof.generation_count !== 1 || proof.grant_count !== kNexSalesRegistry.permissionDescriptors.length) throw new Error("Initial Sales authority is incomplete.");
   }
-  const result = await (payload.db.pool as { query(text: string, values: unknown[]): Promise<{ rows: Array<{ assignment_count: number; generation_count: number; grant_count: number }> }> }).query(
-    "select (select count(*)::int from k_nex_role_assignments where application_id=$1 and assignment_id='customer.initial-sales-administrator.owner' and subject_kind='user' and subject_id=$2 and state='active') assignment_count, (select count(*)::int from k_nex_extension_authorization_generations where application_id=$1 and delivery_class='platform-plugin' and extension_id='module.sales' and authorization_generation=1 and state in ('current','retired') and lifecycle_revision<=$3) generation_count, (select count(*)::int from k_nex_role_permission_grants where application_id=$1 and role_id='customer.initial-sales-administrator') grant_count",
-    [kNexIdentity.applicationId, userId, state.lifecycleRevision]
-  );
-  const proof = result.rows[0];
-  if (proof?.assignment_count !== 1 || proof.generation_count !== 1 || proof.grant_count !== kNexSalesRegistry.permissionDescriptors.length) throw new Error("Initial Sales authority is incomplete.");
+  const pool = payload.db.pool as { connect(): Promise<{ query(text: string, values?: unknown[]): Promise<{ rows: Array<{ authorization_revision?: number; lifecycle_revision?: number; record_scope?: string; application_wide?: boolean; mutation_allowed?: boolean; authorized_team_ids?: unknown; revision?: number }>; rowCount: number | null }>; release(): void }> };
+  const client = await pool.connect();
+  let scope: { record_scope?: string; application_wide?: boolean; mutation_allowed?: boolean; authorized_team_ids?: unknown; revision?: number } | undefined;
+  try {
+    await client.query("begin");
+    const scopeState = (await client.query("select authorization_revision,lifecycle_revision from k_nex_authorization_state where application_id=$1 for update", [kNexIdentity.applicationId])).rows[0];
+    const priorAuthorizationRevision = scopeState?.authorization_revision;
+    const lifecycleRevision = scopeState?.lifecycle_revision;
+    if (!Number.isSafeInteger(priorAuthorizationRevision) || !Number.isSafeInteger(lifecycleRevision)) throw new Error("Authorization state is unavailable.");
+    const expectedAuthorizationRevision = Number(priorAuthorizationRevision);
+    const expectedLifecycleRevision = Number(lifecycleRevision);
+    const inserted = await client.query(
+      "insert into sales_current_authority_scopes (application_id,environment,principal_id,record_scope,application_wide,mutation_allowed,authorized_team_ids,state,revision) values ($1,$2,$3,'application-sales-scope',true,true,'[]'::jsonb,'active',1) on conflict (application_id,environment,principal_id) do nothing returning revision",
+      [kNexIdentity.applicationId, kNexIdentity.environment, userId]
+    );
+    if (inserted.rowCount === 1) {
+      const authorizationRevision = expectedAuthorizationRevision + 1;
+      const updated = await client.query("update k_nex_authorization_state set authorization_revision=$2,updated_at=now() where application_id=$1 and authorization_revision=$3 and lifecycle_revision=$4", [kNexIdentity.applicationId, authorizationRevision, expectedAuthorizationRevision, expectedLifecycleRevision]);
+      if (updated.rowCount !== 1) throw new Error("Initial Sales scope authority changed before commit.");
+      const event = { applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment, scope: "application", authorizationRevision, lifecycleRevision: expectedLifecycleRevision };
+      const auditId = protectedRoleBootstrapId(kNexIdentity.applicationId, "initial-sales-scope-audit", userId);
+      const audit = AuthorizationDecisionAuditSchema.parse({ schemaVersion: 1, auditId,
+        decisionId: protectedRoleBootstrapId(kNexIdentity.applicationId, "initial-sales-scope-decision", userId),
+        correlationId: protectedRoleBootstrapId(kNexIdentity.applicationId, "initial-sales-scope-correlation", userId),
+        applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment, permissionId: "sales.settings.write",
+        owner: kNexSalesRegistry.authorizationGeneration.owner, principal: { kind: "user", id: userId }, effectiveActor: { kind: "user", id: userId },
+        scope: { kind: "application", resource: "sales.authority-scopes" }, operation: "initial-sales-scope", target: userId,
+        authorizationRevision, lifecycleRevision: expectedLifecycleRevision, outcome: "allow", reason: "granted", approval: "not-required", reauthentication: "not-required" });
+      await client.query("insert into k_nex_authorization_audit (audit_id,application_id,environment,permission_id,outcome,reason,authorization_revision,lifecycle_revision,audit_json) values ($1,$2,$3,'sales.settings.write','allow','granted',$4,$5,$6::jsonb)", [auditId, kNexIdentity.applicationId, kNexIdentity.environment, authorizationRevision, expectedLifecycleRevision, JSON.stringify(audit)]);
+      await client.query("insert into k_nex_authorization_outbox (event_id,application_id,environment,authorization_revision,lifecycle_revision,event_json) values ($1,$2,$3,$4,$5,$6::jsonb)", [authorizationOutboxEventId("initial-sales-scope-event", userId), kNexIdentity.applicationId, kNexIdentity.environment, authorizationRevision, expectedLifecycleRevision, JSON.stringify(event)]);
+    } else if (inserted.rowCount !== 0) throw new Error("Initial Sales scope authority is ambiguous.");
+    scope = (await client.query(
+      "select record_scope,application_wide,mutation_allowed,authorized_team_ids,revision from sales_current_authority_scopes where application_id=$1 and environment=$2 and principal_id=$3 for update",
+      [kNexIdentity.applicationId, kNexIdentity.environment, userId]
+    )).rows[0];
+    await client.query("commit");
+  } catch (error) {
+    await client.query("rollback").catch(() => undefined);
+    throw error;
+  } finally { client.release(); }
+  if (scope?.record_scope !== "application-sales-scope" || scope.application_wide !== true || scope.mutation_allowed !== true || JSON.stringify(scope.authorized_team_ids) !== "[]" || scope.revision !== 1) throw new Error("Initial Sales scope authority is incomplete.");
 }
 
 const email = process.env.K_NEX_OWNER_EMAIL;
@@ -619,17 +684,16 @@ function sidebarPreferences(payload: Payload) {
   return new PostgresWorkspaceSidebarPreferenceStore(payload.db.pool as RuntimeExtensionPool);
 }
 
-async function currentSalesNavigation(payload: Payload, context: ReturnType<typeof kNexRequestContext>, salesGenerationCurrent: boolean): Promise<readonly RegisteredNavigation[]> {
+async function currentSalesNavigation(payload: Payload, context: ReturnType<typeof kNexRequestContext>, salesGenerationCurrent: boolean, permissions: ReadonlySet<string>): Promise<readonly RegisteredNavigation[]> {
   if (!salesGenerationCurrent) return [];
   const routes = kNexSalesRegistry.scopedRegistration.contributions.routes.map(({ value }) => value as RegisteredRoute);
   const templates = kNexSalesRegistry.scopedRegistration.contributions.pageTemplates.map(({ value }) => value as RegisteredTemplate);
-  const permissions = new Set(await workspaceSalesPermissions(payload, context));
   return (await Promise.all(kNexSalesRegistry.scopedRegistration.contributions.navigation.map(async ({ value }) => {
     const descriptor = value as RegisteredNavigation;
     const route = routes.find((candidate) => candidate.id === descriptor.route.routeId);
     const template = templates.find((candidate) => candidate.id === route?.viewId);
     if (route?.ownerPluginId !== "module.sales" || template?.ownerPluginId !== "module.sales" || template.route.routeId !== route.id) return undefined;
-    return await authorizeNavigationPermission(payload, context, route.permission) && permissions.has(template.permission) ? descriptor : undefined;
+    return permissions.has(route.permission) && permissions.has(template.permission) ? descriptor : undefined;
   }))).filter((descriptor): descriptor is RegisteredNavigation => descriptor !== undefined);
 }
 
@@ -643,7 +707,8 @@ export async function resolveCurrentWorkspaceNavigation(payload: Payload, header
   const applicationTheme = await resolveApplicationTheme(payload);
   const context = kNexRequestContext(headers, "workspace-navigation");
   const salesGenerationCurrent = salesAuthority !== undefined;
-  const salesNavigation = await currentSalesNavigation(payload, context, salesGenerationCurrent);
+  const salesPermissions = new Set(salesGenerationCurrent ? await workspaceSalesPermissions(payload, context) : []);
+  const salesNavigation = await currentSalesNavigation(payload, context, salesGenerationCurrent, salesPermissions);
   const workspace = kNexWorkspacePages(payload);
   const canReadPages = await authorizeNavigationPermission(payload, context, "system.workspace-pages.read");
   const sidebar = await sidebarPreferences(payload).read({ applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment, userId });
@@ -667,7 +732,7 @@ export async function resolveCurrentWorkspaceNavigation(payload: Payload, header
     customerFolders: folderItems.map(({ node }) => node),
     pages,
     preferences: { sidebar, favoritePageIds: [], recentPageIds: [] },
-    authorize: (permissionId) => authorizeNavigationPermission(payload, context, permissionId),
+    authorize: (permissionId) => permissionId.startsWith("sales.") ? Promise.resolve(salesPermissions.has(permissionId)) : authorizeNavigationPermission(payload, context, permissionId),
     pageAccess: async (pageId) => visiblePageIds.has(pageId)
   });
   const watermark = "sha256:" + createHash("sha256").update(canonicalJson({
@@ -695,7 +760,7 @@ import { createHash } from "node:crypto";
 import { canonicalJson, type DataSourceBindingResult, type UiDocument } from "@k-nex/contracts";
 import type { Payload } from "payload";
 
-import { authorizeNavigationPermission, currentSalesGeneration as currentSalesAuthorityGeneration, type KnexRequestContext } from "./k-nex-authority.js";
+import { currentSalesGeneration as currentSalesAuthorityGeneration, type KnexRequestContext } from "./k-nex-authority.js";
 import { kNexIdentity } from "./k-nex-identity.js";
 import { kNexSalesRegistry } from "./k-nex-registry.js";
 import { executeWorkspaceSalesAction, loadWorkspaceSalesSources, workspaceSalesPermissions } from "./k-nex-sales-workspace.js";
@@ -726,18 +791,16 @@ function registeredAction(actionId: string): RegisteredAction {
 export async function loadRegisteredSalesRoute(payload: Payload, context: KnexRequestContext, routeId: string) {
   const initialState = (await currentSalesAuthorityGeneration(payload)).state;
   const { route, template } = routeTemplate(routeId);
-  const [routeAllowed, permissions] = await Promise.all([
-    authorizeNavigationPermission(payload, context, route.permission), workspaceSalesPermissions(payload, context)
-  ]);
-  if (!routeAllowed || !permissions.includes(template.permission)) {
+  const permissions = await workspaceSalesPermissions(payload, context);
+  if (!permissions.includes(route.permission) || !permissions.includes(template.permission)) {
     throw new TypeError("Sales route is denied.");
   }
-  const sourceResults = await loadWorkspaceSalesSources(payload, context, template.document, new AbortController().signal);
-  const [finalState, finalRouteAllowed, finalPermissions] = await Promise.all([
-    currentSalesAuthorityGeneration(payload).then((current) => current.state), authorizeNavigationPermission(payload, context, route.permission), workspaceSalesPermissions(payload, context)
+  const sourceResults = await loadWorkspaceSalesSources(payload, context, template.document, permissions, new AbortController().signal);
+  const [finalState, finalPermissions] = await Promise.all([
+    currentSalesAuthorityGeneration(payload).then((current) => current.state), workspaceSalesPermissions(payload, context)
   ]);
   if (finalState.authorizationRevision !== initialState.authorizationRevision || finalState.lifecycleRevision !== initialState.lifecycleRevision ||
-    !finalRouteAllowed || !finalPermissions.includes(template.permission) || canonicalJson(finalPermissions) !== canonicalJson(permissions)) {
+    !finalPermissions.includes(route.permission) || !finalPermissions.includes(template.permission) || canonicalJson(finalPermissions) !== canonicalJson(permissions)) {
     throw new TypeError("Sales route authority changed.");
   }
   const watermark = "sha256:" + createHash("sha256").update(canonicalJson({
@@ -758,13 +821,13 @@ function salesRouteRuntimeClientSource(): string {
   return `"use client";
 
 import { DataSourceBindingResultSchema, UiDocumentSchema, type DataSourceBindingResult, type UiDocument } from "@k-nex/contracts";
-import { salesOpportunitiesDescriptor, salesTasksDescriptor, salesTotalPotentialRevenueDescriptor } from "@k-nex/module-sales/contracts";
+import { salesOpportunitiesDescriptor, salesTasksDescriptor } from "@k-nex/module-sales/contracts";
 import { salesUiBlockDefinitions } from "@k-nex/module-sales/ui";
 import { presentUiRuntimeReact } from "@k-nex/ui-components";
 import { createUiDocumentRuntime, createUiRuntimeRegistry, presentUiRuntimeResult } from "@k-nex/ui-runtime";
 import { useEffect, useMemo, useState } from "react";
 
-const runtime = createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: salesUiBlockDefinitions, sources: [salesOpportunitiesDescriptor, salesTasksDescriptor, salesTotalPotentialRevenueDescriptor] }));
+const runtime = createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: salesUiBlockDefinitions, sources: [salesOpportunitiesDescriptor, salesTasksDescriptor] }));
 type Projection = Readonly<{ document: UiDocument; permissions: readonly string[]; sourceResults: Readonly<Record<string, DataSourceBindingResult<unknown>>>; watermark: string }>;
 
 function projection(value: unknown): Projection | undefined {
@@ -872,6 +935,101 @@ export async function POST(request: Request, { params }: Readonly<{ params: Prom
 }
 `;
 }
+
+function salesScopeAdministrationSource(): string {
+  return `import { createHash } from "node:crypto";
+
+import { AuthorizationDecisionAuditSchema, canonicalJson } from "@k-nex/contracts";
+import { authorizeRequest, currentPayloadAuthentication, type KnexRequestContext } from "./k-nex-authority.js";
+import { kNexIdentity } from "./k-nex-identity.js";
+import { kNexSalesRegistry } from "./k-nex-registry.js";
+import type { Payload } from "payload";
+
+type Scope = "application-sales-scope" | "explicit-application-or-team-scope" | "owned-or-assigned-team" | "managed-teams-and-own";
+type ScopeState = "active" | "revoked";
+type Change = Readonly<{ expectedAuthorizationRevision: number; expectedLifecycleRevision: number; expectedScopeRevision: number | null; principalId: string; operation: "upsert" | "revoke"; idempotencyKey: string; recordScope?: Scope; applicationWide?: boolean; mutationAllowed?: boolean; authorizedTeamIds?: readonly string[] }>;
+const scopeValues = new Set<Scope>(["application-sales-scope","explicit-application-or-team-scope","owned-or-assigned-team","managed-teams-and-own"]);
+const identity = /^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,159}$/u;
+const idempotencyKey = /^[A-Za-z0-9][A-Za-z0-9._:-]{7,159}$/u;
+
+function fail(message: string): never { throw new TypeError(message); }
+function denied(message: string): never { throw Object.assign(new Error(message), { code: "ACCESS_DENIED" }); }
+function conflict(message: string): never { throw Object.assign(new Error(message), { code: "REVISION_CONFLICT" }); }
+function exact(value: unknown, keys: readonly string[]): Record<string, unknown> { if (typeof value !== "object" || value === null || Array.isArray(value) || Object.keys(value).sort().join("\\0") !== [...keys].sort().join("\\0")) fail("Sales scope change is invalid."); return value as Record<string, unknown>; }
+function integer(value: unknown): number { if (!Number.isSafeInteger(value) || (value as number) < 0 || (value as number) > 1_000_000_000) fail("Sales scope revision is invalid."); return value as number; }
+function digest(value: unknown): string { return "sha256:" + createHash("sha256").update(canonicalJson(value)).digest("hex"); }
+function eventId(value: string): string { const compact = value.slice(7); return compact.slice(0,8) + "-" + compact.slice(8,12) + "-" + compact.slice(12,16) + "-" + compact.slice(16,20) + "-" + compact.slice(20,32); }
+function validScope(change: Change): boolean {
+  if (change.operation !== "upsert") return true;
+  if (!scopeValues.has(change.recordScope!) || typeof change.applicationWide !== "boolean" || typeof change.mutationAllowed !== "boolean" || !Array.isArray(change.authorizedTeamIds) || change.authorizedTeamIds.length > 32 || change.authorizedTeamIds.some((id) => typeof id !== "string" || !identity.test(id)) || JSON.stringify(change.authorizedTeamIds) !== JSON.stringify([...new Set(change.authorizedTeamIds)].sort())) return false;
+  if (change.recordScope === "application-sales-scope") return change.applicationWide && change.mutationAllowed && change.authorizedTeamIds.length === 0;
+  if (change.recordScope === "explicit-application-or-team-scope") return !change.mutationAllowed && (!change.applicationWide || change.authorizedTeamIds.length === 0);
+  return !change.applicationWide && change.mutationAllowed;
+}
+
+export async function changeSalesAuthorityScope(payload: Payload, context: KnexRequestContext, input: unknown) {
+  const user = (await currentPayloadAuthentication(payload, context)).user;
+  if (typeof user !== "object" || user === null || !("id" in user) || user.id === null || user.id === undefined) denied("Sales scope administration is forbidden.");
+  if (typeof input !== "object" || input === null || Array.isArray(input)) fail("Sales scope change is invalid.");
+  const operation = (input as Record<string, unknown>).operation;
+  if (operation !== "upsert" && operation !== "revoke") fail("Sales scope change is invalid.");
+  const value = exact(input, operation === "upsert" ? ["authorizedTeamIds","applicationWide","expectedAuthorizationRevision","expectedLifecycleRevision","expectedScopeRevision","idempotencyKey","mutationAllowed","operation","principalId","recordScope"] : ["expectedAuthorizationRevision","expectedLifecycleRevision","expectedScopeRevision","idempotencyKey","operation","principalId"]);
+  if (typeof value.principalId !== "string" || !identity.test(value.principalId) || typeof value.idempotencyKey !== "string" || !idempotencyKey.test(value.idempotencyKey)) fail("Sales scope change is invalid.");
+  const expectedScopeRevision = value.expectedScopeRevision === null ? null : integer(value.expectedScopeRevision);
+  const change: Change = { expectedAuthorizationRevision: integer(value.expectedAuthorizationRevision), expectedLifecycleRevision: integer(value.expectedLifecycleRevision), expectedScopeRevision, principalId: value.principalId, operation, idempotencyKey: value.idempotencyKey,
+    ...(operation === "upsert" ? { recordScope: value.recordScope as Scope, applicationWide: value.applicationWide as boolean, mutationAllowed: value.mutationAllowed as boolean, authorizedTeamIds: value.authorizedTeamIds as readonly string[] } : {}) };
+  if (!validScope(change)) fail("Sales scope facts are invalid.");
+  const requestDigest = digest(change);
+  const actorId = String(user.id);
+  const pool = payload.db.pool as unknown as { connect(): Promise<{ query(text: string, values?: readonly unknown[]): Promise<{ rows: Record<string, unknown>[]; rowCount: number | null }>; release(): void }> }; const client = await pool.connect();
+  try { await client.query("begin");
+    const state = (await client.query("select authorization_revision,lifecycle_revision from k_nex_authorization_state where application_id=$1 for update", [kNexIdentity.applicationId])).rows[0];
+    if (state === undefined || !Number.isSafeInteger(state.authorization_revision) || !Number.isSafeInteger(state.lifecycle_revision)) fail("Sales scope authority is unavailable.");
+    // Evaluate full current policy only after this transaction fences authorization/lifecycle changes.
+    if (!await authorizeRequest(payload, context, "sales.settings.write", "sales.settings")) denied("Sales scope administration is forbidden.");
+    const admin = (await client.query("select record_scope,application_wide,mutation_allowed,state from sales_current_authority_scopes where application_id=$1 and environment=$2 and principal_id=$3 for update", [kNexIdentity.applicationId,kNexIdentity.environment,actorId])).rows[0];
+    if (admin?.record_scope !== "application-sales-scope" || admin.application_wide !== true || admin.mutation_allowed !== true || admin.state !== "active") denied("Sales scope administration is forbidden.");
+    const callerGrant = await client.query("select 1 from k_nex_role_assignments a join k_nex_role_permission_grants g on g.application_id=a.application_id and g.role_id=a.role_id join k_nex_extension_authorization_generations x on x.application_id=g.application_id and x.delivery_class=g.owner_delivery_class and x.extension_id=g.owner_extension_id and x.authorization_generation=g.owner_generation where a.application_id=$1 and a.subject_kind='user' and a.subject_id=$2 and a.state='active' and g.permission_id='sales.settings.write' and g.owner_delivery_class='platform-plugin' and g.owner_extension_id='module.sales' and x.delivery_class='platform-plugin' and x.extension_id='module.sales' and x.state='current' limit 1", [kNexIdentity.applicationId,actorId]);
+    if (callerGrant.rowCount !== 1) denied("Sales scope administration is forbidden.");
+    const existing = (await client.query("select request_digest,response_json,target_state from sales_scope_administration_operations where application_id=$1 and environment=$2 and actor_id=$3 and principal_id=$4 and operation=$5 and idempotency_key=$6 for update", [kNexIdentity.applicationId,kNexIdentity.environment,actorId,change.principalId,change.operation,change.idempotencyKey])).rows[0];
+    const current = (await client.query("select revision,state from sales_current_authority_scopes where application_id=$1 and environment=$2 and principal_id=$3 for update", [kNexIdentity.applicationId,kNexIdentity.environment,change.principalId])).rows[0];
+    const targetGrant = await client.query("select 1 from k_nex_role_assignments a join k_nex_role_permission_grants g on g.application_id=a.application_id and g.role_id=a.role_id join k_nex_extension_authorization_generations x on x.application_id=g.application_id and x.delivery_class=g.owner_delivery_class and x.extension_id=g.owner_extension_id and x.authorization_generation=g.owner_generation where a.application_id=$1 and a.subject_kind='user' and a.subject_id=$2 and a.state='active' and g.permission_id like 'sales.%' and g.owner_delivery_class='platform-plugin' and g.owner_extension_id='module.sales' and x.delivery_class='platform-plugin' and x.extension_id='module.sales' and x.state='current' limit 1", [kNexIdentity.applicationId,change.principalId]);
+    if (existing !== undefined) {
+      if (existing.request_digest !== requestDigest || existing.response_json === null || typeof existing.response_json !== "object" || Array.isArray(existing.response_json)) conflict("Sales scope idempotency key was reused for different input.");
+      if (change.operation === "upsert" && targetGrant.rowCount !== 1 || change.operation === "revoke" && (current?.state !== "revoked" || existing.target_state !== "revoked")) denied("Sales scope replay authority is unavailable.");
+      await client.query("commit"); return existing.response_json;
+    }
+    if (state.authorization_revision !== change.expectedAuthorizationRevision || state.lifecycle_revision !== change.expectedLifecycleRevision || (current?.revision ?? null) !== change.expectedScopeRevision) conflict("Sales scope revision conflict.");
+    if (operation === "upsert" && targetGrant.rowCount !== 1) fail("Sales scope target has no current authority.");
+    const next = Number(state.authorization_revision) + 1;
+    const targetState: ScopeState = operation === "revoke" ? "revoked" : "active";
+    const scope = operation === "revoke"
+      ? await client.query("update sales_current_authority_scopes set state='revoked',revision=revision+1,updated_at=now() where application_id=$1 and environment=$2 and principal_id=$3 and revision=$4 returning revision", [kNexIdentity.applicationId,kNexIdentity.environment,change.principalId,current?.revision])
+      : await client.query("insert into sales_current_authority_scopes (application_id,environment,principal_id,record_scope,application_wide,mutation_allowed,authorized_team_ids,state,revision) values ($1,$2,$3,$4,$5,$6,$7::jsonb,'active',1) on conflict (application_id,environment,principal_id) do update set record_scope=excluded.record_scope,application_wide=excluded.application_wide,mutation_allowed=excluded.mutation_allowed,authorized_team_ids=excluded.authorized_team_ids,state='active',revision=sales_current_authority_scopes.revision+1,updated_at=now() where sales_current_authority_scopes.revision=$8 returning revision", [kNexIdentity.applicationId,kNexIdentity.environment,change.principalId,change.recordScope,change.applicationWide,change.mutationAllowed,JSON.stringify(change.authorizedTeamIds),current?.revision]);
+    const scopeRevision = scope.rows[0]?.revision;
+    if (scope.rowCount !== 1 || !Number.isSafeInteger(scopeRevision)) conflict("Sales scope revision conflict.");
+    const changed = await client.query("update k_nex_authorization_state set authorization_revision=$2,updated_at=now() where application_id=$1 and authorization_revision=$3 and lifecycle_revision=$4", [kNexIdentity.applicationId,next,state.authorization_revision,state.lifecycle_revision]);
+    if (changed.rowCount !== 1) conflict("Sales scope revision conflict.");
+    const event = { applicationId:kNexIdentity.applicationId, environment:kNexIdentity.environment, scope:"application", authorizationRevision:next, lifecycleRevision:state.lifecycle_revision };
+    const operationDigest = digest([kNexIdentity.applicationId,kNexIdentity.environment,actorId,change.principalId,change.operation,requestDigest,next]);
+    const response = { authorizationRevision:next, lifecycleRevision:state.lifecycle_revision, scopeRevision, state:targetState };
+    const auditId = "p13-2-sales-scope-" + operationDigest.slice(7);
+    const audit = AuthorizationDecisionAuditSchema.parse({ schemaVersion:1, auditId,
+      decisionId:"p13-2-sales-scope-decision-" + operationDigest.slice(7), correlationId:"p13-2-sales-scope-correlation-" + operationDigest.slice(7),
+      applicationId:event.applicationId, environment:event.environment, permissionId:"sales.settings.write", owner:kNexSalesRegistry.authorizationGeneration.owner,
+      principal:{ kind:"user", id:actorId }, effectiveActor:{ kind:"user", id:actorId }, scope:{ kind:"application", resource:"sales.authority-scopes" },
+      operation:"sales-scope-administration", target:change.principalId, authorizationRevision:event.authorizationRevision, lifecycleRevision:event.lifecycleRevision,
+      outcome:"allow", reason:"granted", approval:"not-required", reauthentication:"not-required" });
+    await client.query("insert into k_nex_authorization_audit (audit_id,application_id,environment,permission_id,outcome,reason,authorization_revision,lifecycle_revision,audit_json) values ($1,$2,$3,'sales.settings.write','allow','granted',$4,$5,$6::jsonb)", [auditId,event.applicationId,event.environment,event.authorizationRevision,event.lifecycleRevision,JSON.stringify(audit)]);
+    await client.query("insert into k_nex_authorization_outbox (event_id,application_id,environment,authorization_revision,lifecycle_revision,event_json) values ($1,$2,$3,$4,$5,$6::jsonb)", [eventId(operationDigest),event.applicationId,event.environment,event.authorizationRevision,event.lifecycleRevision,JSON.stringify(event)]);
+    await client.query("insert into sales_scope_administration_operations (application_id,environment,actor_id,principal_id,operation,idempotency_key,request_digest,response_json,target_state,authorization_revision,lifecycle_revision,scope_revision) values ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11,$12)", [event.applicationId,event.environment,actorId,change.principalId,change.operation,change.idempotencyKey,requestDigest,JSON.stringify(response),targetState,next,state.lifecycle_revision,scopeRevision]);
+    await client.query("commit"); return response;
+  } catch (error) { await client.query("rollback").catch(() => undefined); throw error; } finally { client.release(); }
+}
+`;
+}
+
+function salesScopeAdministrationRouteSource(): string { return `import { changeSalesAuthorityScope } from "../../../../../k-nex-sales-scope-administration.js";\nimport { openWorkspaceJson, workspaceMutationError } from "../../../../../k-nex-workspace-page-http.js";\nexport const dynamic = "force-dynamic";\nexport async function POST(request: Request) { try { const { payload, context, body } = await openWorkspaceJson(request, "sales-scope-administration"); return Response.json(await changeSalesAuthorityScope(payload, context, body), { headers: { "cache-control": "no-store" } }); } catch (error) { return workspaceMutationError(error); } }\n`; }
 
 function navigationRevisionRouteSource(): string {
   return `import { bootKnexApplication } from "../../../../../boot.js";
@@ -1050,7 +1208,8 @@ const expectedMigrationNames = Object.freeze([
   "20260902_000023_system_administration",
   "20260903_000026_workspace_pages",
   "20260903_000027_event_outbox",
-  "20260904_000028_workspace_sidebar_preferences"
+  "20260904_000028_workspace_sidebar_preferences",
+  "20260905_000027_crm_core"
 ]);
 const expectedRouteSources = Object.freeze([
   "src/app/(auth)/forbidden/page.tsx",
@@ -1085,6 +1244,7 @@ const expectedRouteSources = Object.freeze([
   "src/app/api/k-nex/navigation/revision/route.ts",
   "src/app/api/k-nex/navigation/sidebar/route.ts",
   "src/app/api/k-nex/sales/actions/[actionId]/route.ts",
+  "src/app/api/k-nex/sales/authority-scopes/route.ts",
   "src/app/api/k-nex/sales/routes/[routeId]/route.ts",
   "src/app/api/k-nex/workspace-folders/[folderId]/route.ts",
   "src/app/api/k-nex/workspace-folders/route.ts",
@@ -1252,8 +1412,9 @@ function reconcileSource(root: string) {
     !same(salesInventory[0].contributions, expectedContributions) ||
     Object.values(kNexSalesRegistry.scopedRegistration.contributions as Readonly<Record<string, readonly { pluginId: string }[]>>).flat().some((entry) => entry.pluginId !== salesManifest.id) ||
     Object.values(kNexSalesRegistry.scopedRegistration.bindings as Readonly<Record<string, readonly { pluginId: string }[]>>).flat().some((entry) => entry.pluginId !== salesManifest.id)) fail("Sales static registration identity mismatch.");
-  if (!same(kNexSalesRegistry.collections.map(({ slug }) => slug).sort(), ["sales-opportunities", "sales-tasks"]) ||
-    kNexSalesRegistry.readiness.currentRevision !== 2 || !same(kNexSalesRegistry.readiness.predecessorRevisions, [1])) fail("Sales registry readiness mismatch.");
+  if (!same(kNexSalesRegistry.collectionSlugs, ["sales-accounts", "sales-contacts", "sales-leads", "sales-pipelines", "sales-pipeline-stages", "sales-activities", "sales-opportunities", "sales-tasks", "sales-notes", "sales-attachment-references"]) ||
+    !same(kNexSalesRegistry.collections.map(({ slug }) => slug), kNexSalesRegistry.collectionSlugs) ||
+    kNexSalesRegistry.readiness.currentRevision !== 3 || !same(kNexSalesRegistry.readiness.predecessorRevisions, [1, 2])) fail("Sales registry readiness mismatch.");
   if (typeof createAuthorizedPuckBuilderProfile !== "function" || typeof resolveSelectedThemeProfile !== "function" ||
     kNexThemePresentation.themeId !== "theme.${theme}" || kNexThemePresentation.themeVersion !== themeRelease.version ||
     kNexThemePresentation.profileRevisionId !== "workspace.theme.initial") fail("Imported builder or theme registry mismatch.");
@@ -1262,21 +1423,33 @@ function reconcileSource(root: string) {
 }
 
 async function assertSalesSchema(pool: RuntimeExtensionPool): Promise<void> {
-  const columns = await pool.query<{ table_name: string; column_name: string; udt_name: string; is_nullable: string }>(
-    "select table_name,column_name,udt_name,is_nullable from information_schema.columns where table_schema='public' and table_name=any($1::text[]) order by table_name,ordinal_position",
-    [["sales_opportunities", "sales_tasks"]]
+  const required = {
+    sales_accounts: ["name", "status", "merged_into_id", "merge_lineage"],
+    sales_contacts: ["account_id", "display_name", "given_name", "email", "phone", "status", "merged_into_id", "merge_lineage"],
+    sales_leads: ["display_name", "source", "email", "phone", "status", "archive_status", "decided_at", "qualified_at", "disqualified_at", "qualified_account_id", "qualified_contact_id", "qualified_opportunity_id"],
+    sales_pipelines: ["name", "ordered_stage_ids", "is_active", "status"],
+    sales_pipeline_stages: ["pipeline_id", "stage_id", "name", "semantic", "position", "probability_basis_points", "allowed_transitions", "status"],
+    sales_activities: ["type", "subject", "actor_id", "scheduled_at", "occurred_at", "related_record_id", "related_record_type", "supersedes_activity_id", "provider_metadata", "status"],
+    sales_opportunities: ["name", "account_id", "primary_contact_id", "pipeline_id", "stage_id", "amount", "currency", "expected_close_date", "closed_at", "loss_reason", "archive_status"],
+    sales_tasks: ["title", "due_date", "related_record_id", "related_record_type", "status", "archive_status"],
+    sales_notes: ["body", "author_id", "occurred_at", "related_record_id", "related_record_type", "replaces_note_id", "status"],
+    sales_attachment_references: ["storage_reference", "filename", "media_type", "byte_size", "uploader_id", "related_record_id", "related_record_type", "status"]
+  } as const;
+  const tables = Object.keys(required);
+  const columns = await pool.query<{ table_name: string; column_name: string }>(
+    "select table_name,column_name from information_schema.columns where table_schema='public' and table_name=any($1::text[]) order by table_name,ordinal_position",
+    [tables]
   );
-  const actualColumns = columns.rows.map((row) => [row.table_name, row.column_name, row.udt_name, row.is_nullable].join(":"));
-  const expectedColumns = [
-    "sales_opportunities:id:int4:NO", "sales_opportunities:name:varchar:NO", "sales_opportunities:stage:enum_sales_opportunities_stage:NO", "sales_opportunities:value:varchar:YES", "sales_opportunities:updated_at:timestamptz:NO", "sales_opportunities:created_at:timestamptz:NO",
-    "sales_tasks:id:int4:NO", "sales_tasks:title:varchar:NO", "sales_tasks:status:enum_sales_tasks_status:NO", "sales_tasks:potential_revenue:varchar:YES", "sales_tasks:private_note:varchar:YES", "sales_tasks:updated_at:timestamptz:NO", "sales_tasks:created_at:timestamptz:NO"
-  ];
-  if (!same(actualColumns, expectedColumns)) fail("Sales table schema mismatch.");
-  const enums = await pool.query<{ typname: string; enumlabel: string }>(
-    "select t.typname,e.enumlabel from pg_type t join pg_enum e on e.enumtypid=t.oid join pg_namespace n on n.oid=t.typnamespace where n.nspname='public' and t.typname=any($1::text[]) order by t.typname,e.enumsortorder",
-    [["enum_sales_opportunities_stage", "enum_sales_tasks_status"]]
-  );
-  if (!same(enums.rows.map((row) => row.typname + ":" + row.enumlabel), ["enum_sales_opportunities_stage:lead", "enum_sales_opportunities_stage:qualified", "enum_sales_opportunities_stage:won", "enum_sales_opportunities_stage:lost", "enum_sales_tasks_status:open", "enum_sales_tasks_status:done"])) fail("Sales enum schema mismatch.");
+  const actual = new Map<string, Set<string>>();
+  for (const row of columns.rows) actual.set(row.table_name, (actual.get(row.table_name) ?? new Set()).add(row.column_name));
+  const common = ["id", "application_id", "environment", "owner_id", "team_id", "created_by", "updated_by", "revision", "audit", "created_at", "updated_at"];
+  if (tables.some((table) => {
+    const fields = actual.get(table);
+    return fields === undefined || [...common, ...required[table as keyof typeof required]].some((field) => !fields.has(field));
+  })) fail("Sales table schema mismatch.");
+  const legacy = actual.get("sales_opportunities");
+  const legacyTasks = actual.get("sales_tasks");
+  if (legacy?.has("stage") || legacy?.has("value") || legacyTasks?.has("potential_revenue") || legacyTasks?.has("private_note")) fail("Sales legacy schema was not retired.");
 }
 
 export async function reconcileKnexReadiness(payload: Payload) {
@@ -1403,6 +1576,7 @@ export function applicationAuthFiles(options: ApplicationAuthFilesOptions): Read
     "src/app/api/k-nex/navigation/revision/route.ts": navigationRevisionRouteSource(),
     "src/app/api/k-nex/navigation/sidebar/route.ts": navigationSidebarPreferenceRouteSource(),
     "src/app/api/k-nex/sales/actions/[actionId]/route.ts": salesActionRouteSource(),
+    "src/app/api/k-nex/sales/authority-scopes/route.ts": salesScopeAdministrationRouteSource(),
     "src/app/api/k-nex/sales/routes/[routeId]/route.ts": salesRouteProjectionRouteSource(),
     "src/app/api/readiness/route.ts": readinessRouteSource(),
     "src/app/components/login-form.tsx": loginFormSource(),
@@ -1418,6 +1592,7 @@ export function applicationAuthFiles(options: ApplicationAuthFilesOptions): Read
     "src/k-nex-readiness.ts": readinessSource(options.theme),
     "src/k-nex-theme-runtime.ts": themeRuntimeSource(options.theme),
     "src/k-nex-sales-routes.ts": salesRouteRuntimeSource(),
+    "src/k-nex-sales-scope-administration.ts": salesScopeAdministrationSource(),
     "src/k-nex-worker.ts": workerSource(),
     "src/k-nex-users.ts": usersSource(),
     "src/k-nex-workspace-navigation.ts": workspaceNavigationSource()

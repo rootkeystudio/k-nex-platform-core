@@ -29,16 +29,60 @@ try {
     principal: { kind: "user", id: String(req.user.id) },
     effectiveActor: { kind: "user", id: String(req.user.id) }
   };
+  const salesScope = {
+    applicationId: "customer-gate-1",
+    environment: "production",
+    ownerId: actor.effectiveActor.id,
+    teamId: `team:${actor.effectiveActor.id}`,
+    createdBy: actor.effectiveActor.id,
+    updatedBy: actor.effectiveActor.id,
+    revision: 1,
+    audit: []
+  };
+  const authorization = (actionId, resourceId) => ({
+    actionId,
+    applicationId: salesScope.applicationId,
+    environment: salesScope.environment,
+    actorId: actor.effectiveActor.id,
+    ownerId: salesScope.ownerId,
+    teamId: salesScope.teamId,
+    ...(resourceId === undefined ? {} : { resourceId })
+  });
   const signal = new AbortController().signal;
   const task = await binding("actions", "sales.task.create")({
-    actor, request: req, authorizationContext: {}, input: { title: "P6 durable Sales task" },
+    actor, request: req, authorizationContext: authorization("sales.task.create"), input: { title: "P6 durable Sales task" },
     idempotencyKey: "p6-sales-task-event", signal
   });
-  const opportunity = await payload.create({
-    collection: "sales-opportunities", data: { name: "P6 durable opportunity", stage: "lead", value: "100" }, overrideAccess: true
+  const account = await payload.create({
+    collection: "sales-accounts", data: { ...salesScope, name: "P6 durable account", status: "active" }, overrideAccess: true
   });
+  const pipeline = await payload.create({
+    collection: "sales-pipelines", data: { ...salesScope, name: "P6 durable pipeline", status: "active", orderedStageIds: [] }, overrideAccess: true
+  });
+  await payload.create({
+    collection: "sales-pipeline-stages", data: {
+      ...salesScope, pipelineId: pipeline.id, stageId: "qualification", name: "Qualification", semantic: "qualification",
+      position: 0, probabilityBasisPoints: 0, allowedTransitions: ["discovery"], status: "active"
+    }, overrideAccess: true
+  });
+  await payload.create({
+    collection: "sales-pipeline-stages", data: {
+      ...salesScope, pipelineId: pipeline.id, stageId: "discovery", name: "Discovery", semantic: "discovery",
+      position: 1, probabilityBasisPoints: 0, allowedTransitions: [], status: "active"
+    }, overrideAccess: true
+  });
+  const opportunity = await payload.create({
+    collection: "sales-opportunities", data: {
+      ...salesScope, name: "P6 durable opportunity", accountId: account.id, pipelineId: pipeline.id,
+      stageId: "qualification", amount: "100", currency: "USD", archiveStatus: "active"
+    }, overrideAccess: true
+  });
+  const pool = payload.db?.pool;
+  assert.ok(pool && typeof pool === "object" && "query" in pool);
+  await pool.query("update sales_opportunities set audit=jsonb_build_array(jsonb_build_object('kind','phase-13-legacy-upgrade','receiptDigest',$2::text,'legacyStage','lead')) where id=$1", [opportunity.id, `sha256:${"0".repeat(64)}`]);
   await binding("actions", "sales.opportunity.stage.update")({
-    actor, request: req, authorizationContext: {}, input: { id: String(opportunity.id), expectedStage: "lead", expectedRevision: opportunity.updatedAt, stage: "qualified" },
+    actor, request: req, authorizationContext: authorization("sales.opportunity.stage.update", String(opportunity.id)),
+    input: { id: String(opportunity.id), expectedStage: "qualification", expectedRevision: opportunity.revision, stage: "discovery" },
     idempotencyKey: "p6-sales-opportunity-event", signal
   });
 
@@ -59,8 +103,8 @@ try {
   ]);
   const schemaHooks = composedApplication.registration.contributions.schema.flatMap(({ value }) => value.collection?.hooks?.afterChange ?? []);
   for (const event of composedApplication.registration.bindings.events) assert.equal(schemaHooks.includes(event.value), true);
-  assert.deepEqual(await binding("jobs", "sales.job.pipeline-audit")({ opportunities: [{ stage: "lead" }, { stage: "won" }], signal }), {
-    pluginId: "module.sales", jobId: "sales.job.pipeline-audit", stageCounts: { lead: 1, qualified: 0, won: 1, lost: 0 }
+  assert.deepEqual(await binding("jobs", "sales.job.pipeline-audit")({ opportunities: [{ stage: "qualification" }, { stage: "won" }], signal }), {
+    pluginId: "module.sales", jobId: "sales.job.pipeline-audit", stageCounts: { qualification: 1, discovery: 0, proposal: 0, negotiation: 0, won: 1, lost: 0 }
   });
   process.stdout.write("P6_SALES_EVENT_REALTIME_PASS\n");
 } finally {

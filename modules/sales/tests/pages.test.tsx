@@ -16,25 +16,25 @@ import {
 } from "../src/pages.js";
 
 const taskRecords = {
-  fields: ["title", "status", "potential-revenue"],
-  rows: [{ key: "task-1", values: { title: { kind: "text" as const, value: "Call customer" }, status: { kind: "status" as const, value: "open" }, "potential-revenue": { kind: "money" as const, value: "20", currency: "USD", scale: 2 } } }],
+  fields: ["title", "status"],
+  rows: [{ key: "task-1", values: { title: { kind: "text" as const, value: "Call customer" }, status: { kind: "status" as const, value: "open" } } }],
   page: { number: 1, pageSize: 25, hasNext: false }
 };
 const opportunityRecords = {
-  fields: ["name", "stage", "revision", "value"],
-  rows: [{ key: "opp-1", values: { name: { kind: "text" as const, value: "Platform rollout" }, stage: { kind: "status" as const, value: "qualified" }, revision: { kind: "text" as const, value: "2026-09-03T00:00:00.000Z" }, value: { kind: "money" as const, value: "1200", currency: "USD", scale: 2 } } }],
+  fields: ["name", "stage-id", "revision", "amount"],
+  rows: [{ key: "opp-1", values: { name: { kind: "text" as const, value: "Platform rollout" }, "stage-id": { kind: "status" as const, value: "discovery" }, revision: { kind: "integer" as const, value: 7 }, amount: { kind: "money" as const, value: "1200", currency: "USD", scale: 2 } } }],
   page: { number: 1, pageSize: 25, hasNext: false }
 };
 
 describe("P7.7 Sales default pages", () => {
   it("renders registered overview, tasks, opportunities, and settings templates with K-Nex components", () => {
-    const overview = renderToStaticMarkup(<SalesOverviewPage revenueState={{ state: "success", data: { value: { kind: "money", value: "1220", currency: "USD", scale: 2 } } }} />);
+    const overview = renderToStaticMarkup(<SalesOverviewPage />);
     const createTask = createSalesTaskQuickCreateController({ query: vi.fn(), mutate: vi.fn() } as unknown as BrowserDataTransport, "task-page").initial();
     const tasks = renderToStaticMarkup(<SalesTasksPage requestState={{ state: "success", data: taskRecords }} createTask={createTask} onCreateTaskChange={() => undefined} onCreateTask={() => undefined} />);
     const opportunities = renderToStaticMarkup(<SalesOpportunitiesPage requestState={{ state: "success", data: opportunityRecords }} />);
-    const settings = renderToStaticMarkup(<SalesSettingsPage settings={{ defaultTaskPageSize: 25, showPotentialRevenue: true, defaultPage: "tasks", pipelineStages: ["lead", "won"] }} />);
+    const settings = renderToStaticMarkup(<SalesSettingsPage settings={{ defaultTaskPageSize: 25, showPotentialRevenue: true, defaultPage: "tasks", pipelineStages: ["qualification", "won"] }} />);
     expect(overview).toContain('data-page-template-id="sales.page.overview"');
-    expect(overview).toContain('data-k-nex-component="metric"');
+    expect(overview).toContain("Current pipeline summary.");
     expect(tasks).toContain('data-page-template-id="sales.page.tasks"');
     expect(tasks).toContain('data-k-nex-component="data-table"');
     expect(tasks).toContain('aria-label="Create task"');
@@ -51,12 +51,12 @@ describe("P7.7 Sales default pages", () => {
     const actions: string[] = [];
     const transport: BrowserDataTransport = {
       query: async () => ({ ok: false, problem: { code: "UNUSED", status: 500 } }),
-      mutate: async (request) => { actions.push(request.action.id); return request.action.id === "sales.task.create" ? { ok: true, data: { id: "task-1", title: "Follow up", status: "open" } } : { ok: true, data: { id: "opp-1", name: "Platform rollout", stage: "won", revision: "2026-09-03T00:01:00.000Z" } }; }
+      mutate: async (request) => { actions.push(request.action.id); return request.action.id === "sales.task.create" ? { ok: true, data: { id: "task-1", title: "Follow up", status: "open", revision: 1 } } : { ok: true, data: { id: "opp-1", name: "Platform rollout", stage: "proposal", revision: 8 } }; }
     };
     const task = createSalesTaskQuickCreateController(transport, "create-1");
     await task.submit(task.change(task.initial(), "title", "Follow up"), new AbortController().signal);
-    const opportunity = createSalesOpportunityStageController(transport, { id: "opp-1", expectedStage: "qualified", expectedRevision: "2026-09-03T00:00:00.000Z", stage: "qualified" }, "stage-1");
-    await opportunity.submit(opportunity.change(opportunity.initial(), "stage", "won"), new AbortController().signal);
+    const opportunity = createSalesOpportunityStageController(transport, { id: "opp-1", expectedStage: "discovery", expectedRevision: 7, stage: "discovery" }, "stage-1");
+    await opportunity.submit(opportunity.change(opportunity.initial(), "stage", "proposal"), new AbortController().signal);
     expect(actions).toEqual(["sales.task.create", "sales.opportunity.stage.update"]);
   });
 
@@ -77,12 +77,12 @@ describe("P7.7 Sales default pages", () => {
     const record = source.state === "success" ? source.data.rows[0]! : undefined;
     const name = record?.values.name;
     const options = record === undefined || name?.kind !== "text" ? [] : [{ id: record.key, label: name.value }];
-    const controller = createSalesOpportunityStageController(transport, { id: "opp-1", expectedStage: "qualified", expectedRevision: "2026-09-03T00:00:00.000Z", stage: "qualified" }, "edit-1");
+    const controller = createSalesOpportunityStageController(transport, { id: "opp-1", expectedStage: "discovery", expectedRevision: 7, stage: "discovery" }, "edit-1");
     const markup = renderToStaticMarkup(<SalesOpportunityEditForm opportunity={controller.initial()} opportunityOptions={options} onOpportunityChange={() => undefined} onOpportunitySubmit={() => undefined} />);
 
     expect(markup).toContain('aria-label="Edit opportunity"');
     expect(markup).toContain('<option value="opp-1" selected="">Platform rollout</option>');
-    expect(markup).toContain('<option value="qualified" selected="">Qualified</option>');
+    expect(markup).toContain('<option value="discovery" selected="">Discovery</option>');
     expect(markup).toContain("Save opportunity");
   });
 });

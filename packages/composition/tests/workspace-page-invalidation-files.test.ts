@@ -4,7 +4,7 @@ import { applicationAuthFiles } from "../src/application-auth-files.js";
 import { workspacePageApplicationFiles } from "../src/workspace-page-application-files.js";
 
 describe("generated workspace invalidation runtime", () => {
-  it("keeps a navigation-only user from Sales Settings by matching direct route admission predicates", () => {
+  it("uses record-aware current Sales permissions for route and template admission", () => {
     const files = applicationAuthFiles({ applicationId: "customer-alpha", applicationName: "Customer Alpha", theme: "minimal" });
     const navigation = files["src/k-nex-workspace-navigation.ts"]!;
     const routes = files["src/k-nex-sales-routes.ts"]!;
@@ -18,11 +18,12 @@ describe("generated workspace invalidation runtime", () => {
     expect(navigation).toContain("kNexSalesRegistry.scopedRegistration.contributions.navigation.map(async ({ value }) => {");
     expect(navigation).toContain("const template = templates.find((candidate) => candidate.id === route?.viewId);");
     expect(navigation).toContain('route?.ownerPluginId !== "module.sales" || template?.ownerPluginId !== "module.sales" || template.route.routeId !== route.id');
-    expect(navigation).toContain("authorizeNavigationPermission(payload, context, route.permission)");
-    expect(navigation).toContain("const permissions = new Set(await workspaceSalesPermissions(payload, context));");
+    expect(navigation).toContain("const salesPermissions = new Set(salesGenerationCurrent ? await workspaceSalesPermissions(payload, context) : []);");
+    expect(navigation).toContain("permissions.has(route.permission)");
     expect(navigation).toContain("permissions.has(template.permission)");
+    expect(navigation).toContain('permissionId.startsWith("sales.") ? Promise.resolve(salesPermissions.has(permissionId))');
     expect(navigation).toContain("navigation: salesNavigation");
-    expect(routes).toContain("if (!routeAllowed || !permissions.includes(template.permission)) {");
+    expect(routes).toContain("if (!permissions.includes(route.permission) || !permissions.includes(template.permission)) {");
     expect(navigation).toContain("...kNexSalesRegistry.navigationSection");
     expect(navigation).toContain("if (!salesGenerationCurrent) return [];");
     expect(files["src/app/(workspace)/sales/[[...path]]/page.tsx"]).toBeUndefined();
@@ -56,10 +57,12 @@ describe("generated workspace invalidation runtime", () => {
     expect(files["src/app/(workspace)/sales/[...path]/page.tsx"]).toBeUndefined();
     expect(runtime).toContain("kNexSalesRegistry.scopedRegistration.contributions.pageTemplates");
     expect(runtime).toContain("currentSalesAuthorityGeneration(payload)");
-    expect(runtime).toContain("authorizeNavigationPermission(payload, context, route.permission)");
+    expect(runtime).toContain("permissions.includes(route.permission)");
     expect(runtime).toContain("permissions.includes(template.permission)");
-    expect(runtime).toContain("loadWorkspaceSalesSources(payload, context, template.document");
+    expect(runtime).toContain("const permissions = await workspaceSalesPermissions(payload, context);");
+    expect(runtime).toContain("loadWorkspaceSalesSources(payload, context, template.document, permissions, new AbortController().signal)");
     expect(runtime).toContain("finalState.authorizationRevision !== initialState.authorizationRevision");
+    expect(runtime).toContain("canonicalJson(finalPermissions) !== canonicalJson(permissions)");
     expect(runtime).toContain("permissions: finalPermissions, sourceResults, watermark");
     expect(runtime).toContain("executeWorkspaceSalesAction(payload, context, registeredAction(actionId)");
     expect(runtime).not.toContain("openWorkspacePageSession");

@@ -102,7 +102,7 @@
       ],
       "resources": [
         "sales.tasks",
-        "sales.total-potential-revenue",
+        "sales.opportunities",
         "logistics.shipment.assign",
         "page.filters.date-range"
       ],

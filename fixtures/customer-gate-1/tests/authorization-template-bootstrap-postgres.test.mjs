@@ -5,7 +5,7 @@ import test from "node:test";
 
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import salesManifest from "@k-nex/module-sales-current/manifest" with { type: "json" };
-import { salesPermissionDescriptors, salesRegistration } from "@k-nex/module-sales-current/server";
+import { salesCrmPermissionDescriptors, salesRegistration } from "@k-nex/module-sales-current/server";
 import {
   bootstrapFirstOwner,
   compareInstantiatedRoleTemplate,
@@ -95,7 +95,7 @@ function salesCatalog() {
 }
 
 function testSalesTemplate(template, descriptorIds, templateOwner = owner) {
-  const descriptors = salesPermissionDescriptors.filter(({ id }) => descriptorIds.includes(id));
+  const descriptors = salesCrmPermissionDescriptors.filter(({ id }) => descriptorIds.includes(id));
   const manifest = {
     apiVersion: 1, id: "module.sales", kind: "module", displayName: "Sales test template", version: "1.0.0", package: "@k-nex/module-sales",
     compatibility: { core: ">=1.0.0 <2.0.0", payload: ">=3.0.0 <4.0.0", node: ">=24.0.0 <25.0.0", payloadDatabaseAdapters: ["postgres"] },

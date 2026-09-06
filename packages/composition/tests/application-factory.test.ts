@@ -105,6 +105,8 @@ describe("create-knex-app", () => {
     expect(first.files["src/payload.config.ts"]).toContain("prodMigrations: migrations");
     expect(first.files["src/payload.config.ts"]).toContain('kNexApplicationId: "customer-alpha"');
     expect(first.files["src/boot.ts"]).toContain("bootKnexApplication");
+    expect(first.files["src/boot.ts"]).toContain('import { salesCoreCollectionSlugs } from "@k-nex/module-sales/server"');
+    expect(first.files["src/boot.ts"]).toContain('const requiredCollections = [...salesCoreCollectionSlugs, "users"]');
     const generatedMigrationNames = [...first.files["src/migrations/index.ts"]!.matchAll(/name: "([^"]+)"/gu)].map(([, name]) => name);
     expect(generatedMigrationNames).toEqual([
       "20260827_000001_sales_baseline",
@@ -115,11 +117,18 @@ describe("create-knex-app", () => {
       "20260902_000023_system_administration",
       "20260903_000026_workspace_pages",
       "20260903_000027_event_outbox",
-      "20260904_000028_workspace_sidebar_preferences"
+      "20260904_000028_workspace_sidebar_preferences",
+      "20260905_000027_crm_core"
     ]);
     expect(first.files["tsconfig.json"]).toContain('"moduleResolution": "bundler"');
     expect(first.files["tsconfig.scripts.json"]).toContain('"module": "NodeNext"');
     expect(first.files["src/k-nex-registry.ts"]).toContain("salesRegistration");
+    expect(first.files["src/k-nex-registry.ts"]).toContain("salesCoreCollections");
+    expect(first.files["src/k-nex-registry.ts"]).toContain("salesCoreCollectionSlugs");
+    expect(first.files["src/k-nex-registry.ts"]).toContain("collections: Object.freeze([...salesCoreCollections])");
+    expect(first.files["src/k-nex-registry.ts"]).toContain("collectionSlugs: salesCoreCollectionSlugs");
+    expect(first.files["src/k-nex-registry.ts"]).not.toContain("salesTasksCollection");
+    expect(first.files["src/k-nex-registry.ts"]).not.toContain("salesOpportunitiesCollection");
     expect(first.files["src/k-nex-registry.ts"]).toContain("staticRelease: Object.freeze");
     expect(first.files["src/k-nex-registry.ts"]).toContain('runtimeGenerationId: "sales-generation-1"');
     expect(first.files["src/k-nex-authority.ts"]).toContain("lifecycleOverride: Object.freeze({ enabled: !unavailable, ready: !unavailable })");
@@ -157,6 +166,9 @@ describe("create-knex-app", () => {
     expect(first.files["src/migrations/20260902_000023_system_administration.ts"]).toContain("[...kNexSystemAdministrationSchemaMigrations].reverse()");
     expect(first.files["src/migrations/20260903_000026_workspace_pages.ts"]).toContain("kNexWorkspacePageSchemaMigration");
     expect(first.files["src/migrations/20260903_000027_event_outbox.ts"]).toContain("kNexEventOutboxSchemaMigration");
+    expect(first.files["src/migrations/20260905_000027_crm_core.ts"]).toContain("maintenance-required: P13.2 CRM core rollback");
+    expect(first.files["src/migrations/20260905_000027_crm_core.ts"]).toContain('CREATE TABLE "sales_accounts"');
+    expect(first.files["src/migrations/20260905_000027_crm_core.ts"]).toBe(readFileSync(new URL("../../../fixtures/customer-gate-1/src/migrations/20260905_000027_crm_core.ts", import.meta.url), "utf8"));
     expect(first.files["src/app/api/k-nex/inventory/route.ts"]).toContain("system.extensions.read");
     expect(Object.values(first.files).every((source) => !source.includes("fixtures/customer-gate-1"))).toBe(true);
     const packageJson = JSON.parse(first.files["package.json"]!);

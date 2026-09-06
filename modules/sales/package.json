@@ -10,6 +10,14 @@
       "types": "./dist/contracts.d.ts",
       "default": "./dist/contracts.js"
     },
+    "./crm-authority": {
+      "types": "./dist/crm-authority.d.ts",
+      "default": "./dist/crm-authority.js"
+    },
+    "./crm-core": {
+      "types": "./dist/crm-core.d.ts",
+      "default": "./dist/crm-core.js"
+    },
     "./server": {
       "types": "./dist/server.d.ts",
       "default": "./dist/server.js"

@@ -24,6 +24,7 @@ import * as migration_20260902_000023_system_settings from "./20260902_000023_sy
 import * as migration_20260902_000024_catalog_mirror from "./20260902_000024_catalog_mirror.js";
 import * as migration_20260902_000025_system_operations from "./20260902_000025_system_operations.js";
 import * as migration_20260903_000026_workspace_pages from "./20260903_000026_workspace_pages.js";
+import * as migration_20260905_000027_crm_core from "./20260905_000027_crm_core.js";
 
 import type { CustomerPayloadMigration } from "@k-nex/payload-adapter";
 
@@ -157,5 +158,10 @@ export const migrations: CustomerPayloadMigration[] = [
     up: migration_20260903_000026_workspace_pages.up,
     down: migration_20260903_000026_workspace_pages.down,
     name: "20260903_000026_workspace_pages"
+  },
+  {
+    up: migration_20260905_000027_crm_core.up,
+    down: migration_20260905_000027_crm_core.down,
+    name: "20260905_000027_crm_core"
   }
 ];

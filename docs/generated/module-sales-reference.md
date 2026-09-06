@@ -4,15 +4,15 @@
 
 - Plugin: `module.sales`
 - Package: `@k-nex/module-sales@1.0.0`
-- Entrypoints: `./browser`, `./contracts`, `./manifest`, `./migrations`, `./pages`, `./payload-baseline-down.sql`, `./payload-baseline-up.sql`, `./puck`, `./server`, `./testing`, `./ui`
+- Entrypoints: `./browser`, `./contracts`, `./crm-authority`, `./crm-core`, `./manifest`, `./migrations`, `./pages`, `./payload-baseline-down.sql`, `./payload-baseline-up.sql`, `./puck`, `./server`, `./testing`, `./ui`
 
 ## Contributions
 
 | Category | IDs |
 |---|---|
 | actions | sales.opportunity.stage.update, sales.task.create, sales.task.update |
-| blocks | sales.opportunity-detail, sales.opportunity-kanban, sales.opportunity-list, sales.revenue-metric, sales.settings-summary, sales.task-quick-create, sales.task-table |
-| components | sales.detail.opportunity, sales.form.task-quick-create, sales.list.opportunities, sales.metric.total-potential-revenue, sales.status.pipeline-stage, sales.table.tasks |
+| blocks | sales.opportunity-detail, sales.opportunity-kanban, sales.opportunity-list, sales.settings-summary, sales.task-quick-create, sales.task-table |
+| components | sales.detail.opportunity, sales.form.task-quick-create, sales.list.opportunities, sales.status.pipeline-stage, sales.table.tasks |
 | events | sales.event.opportunity-changed, sales.event.task-changed |
 | healthAudit | sales.health.runtime |
 | jobs | sales.job.pipeline-audit |
@@ -21,15 +21,15 @@
 | migrations | sales.migration.initial |
 | navigation | sales.navigation.opportunities, sales.navigation.overview, sales.navigation.settings, sales.navigation.tasks |
 | pageTemplates | sales.page.opportunities, sales.page.overview, sales.page.settings, sales.page.tasks |
-| permissions | sales.navigation.read, sales.opportunities.name.read, sales.opportunities.read, sales.opportunities.stage.read, sales.opportunities.value.read, sales.opportunities.write, sales.settings.read, sales.settings.write, sales.tasks.private-note.read, sales.tasks.read, sales.tasks.revenue.read, sales.tasks.status.read, sales.tasks.title.read, sales.tasks.write |
-| policyBindings | sales.policy.opportunities.name.read, sales.policy.opportunities.read, sales.policy.opportunities.stage.read, sales.policy.opportunities.value.read, sales.policy.opportunities.write, sales.policy.tasks.private-note.read, sales.policy.tasks.read, sales.policy.tasks.revenue.read, sales.policy.tasks.status.read, sales.policy.tasks.title.read, sales.policy.tasks.write |
+| permissions | sales.accounts.archive, sales.accounts.read, sales.accounts.write, sales.activities.read, sales.activities.write, sales.attachments.read, sales.attachments.write, sales.communications.calendar.sync, sales.communications.email.send, sales.communications.metadata.read, sales.contacts.archive, sales.contacts.channels.read, sales.contacts.read, sales.contacts.write, sales.exports.execute, sales.exports.read, sales.imports.execute, sales.imports.read, sales.leads.archive, sales.leads.channels.read, sales.leads.disqualify, sales.leads.qualify, sales.leads.read, sales.leads.write, sales.notes.body.read, sales.notes.read, sales.notes.write, sales.notifications.read, sales.notifications.write, sales.opportunities.amount.read, sales.opportunities.archive, sales.opportunities.close, sales.opportunities.read, sales.opportunities.stage.update, sales.opportunities.write, sales.ownership.write, sales.pipelines.configure, sales.pipelines.read, sales.records.merge, sales.reminders.read, sales.reminders.write, sales.reports.read, sales.reports.schedule, sales.saved-views.read, sales.saved-views.write, sales.settings.read, sales.settings.write, sales.tasks.archive, sales.tasks.read, sales.tasks.write |
+| policyBindings | sales.accounts.archive.policy, sales.accounts.read.policy, sales.accounts.write.policy, sales.activities.read.policy, sales.activities.write.policy, sales.attachments.read.policy, sales.attachments.write.policy, sales.communications.calendar.sync.policy, sales.communications.email.send.policy, sales.communications.metadata.read.policy, sales.contacts.archive.policy, sales.contacts.channels.read.policy, sales.contacts.read.policy, sales.contacts.write.policy, sales.exports.execute.policy, sales.exports.read.policy, sales.imports.execute.policy, sales.imports.read.policy, sales.leads.archive.policy, sales.leads.channels.read.policy, sales.leads.disqualify.policy, sales.leads.qualify.policy, sales.leads.read.policy, sales.leads.write.policy, sales.notes.body.read.policy, sales.notes.read.policy, sales.notes.write.policy, sales.notifications.read.policy, sales.notifications.write.policy, sales.opportunities.amount.read.policy, sales.opportunities.archive.policy, sales.opportunities.close.policy, sales.opportunities.read.policy, sales.opportunities.stage.update.policy, sales.opportunities.write.policy, sales.ownership.write.policy, sales.pipelines.configure.policy, sales.pipelines.read.policy, sales.records.merge.policy, sales.reminders.read.policy, sales.reminders.write.policy, sales.reports.read.policy, sales.saved-views.read.policy, sales.saved-views.write.policy, sales.tasks.archive.policy, sales.tasks.read.policy, sales.tasks.write.policy |
 | realtimeTopics | sales.realtime.opportunities, sales.realtime.tasks |
 | roleTemplates | sales.template.administrator, sales.template.manager, sales.template.representative, sales.template.viewer |
 | routes | sales.route.opportunities, sales.route.overview, sales.route.settings, sales.route.tasks |
-| schema | sales.opportunities.collection, sales.tasks.collection |
+| schema | sales.accounts.collection, sales.activities.collection, sales.attachment-references.collection, sales.contacts.collection, sales.leads.collection, sales.notes.collection, sales.opportunities.collection, sales.pipeline-stages.collection, sales.pipelines.collection, sales.tasks.collection |
 | services | sales.service.domain |
 | settings | sales.settings.workspace |
-| sources | sales.opportunities, sales.tasks, sales.total-potential-revenue |
+| sources | sales.opportunities, sales.tasks |
 | testingMetadata | sales.testing.conformance |
 | tools | sales.tools.create-task, sales.tools.search-tasks |
 

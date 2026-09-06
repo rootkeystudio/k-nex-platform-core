@@ -63,6 +63,16 @@ describe("Payload data-source authentication adapter", () => {
     expect(result.request).not.toHaveProperty("payload.config");
   });
 
+  it("projects only the host application identity needed by closed source scopes", () => {
+    const configured = {
+      ...rawRequest,
+      payload: { ...payload, config: { custom: { kNexApplicationId: "customer-alpha", kNexEnvironment: "production", privateValue: "unavailable" } } }
+    } as unknown as PayloadRequest;
+    const context = createPayloadPersistenceCapability(configured, [{ collection: "sales-tasks", operations: ["find"] }], { authorize: () => true });
+    expect(context.applicationIdentity).toEqual({ applicationId: "customer-alpha", environment: "production" });
+    expect(context).not.toHaveProperty("payload.config");
+  });
+
   it("maps an unauthenticated Payload request to an explicit public actor", () => {
     const result = authenticator().authenticate({ ...gatewayRequest, rawRequest: { ...rawRequest, user: null } });
     expect(result.actor).toEqual({

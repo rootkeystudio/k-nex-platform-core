@@ -4,8 +4,7 @@ import {
   salesOpportunitiesDescriptor,
   salesOpportunityStageUpdateDescriptor,
   salesTaskCreateDescriptor,
-  salesTasksDescriptor,
-  salesTotalPotentialRevenueDescriptor
+  salesTasksDescriptor
 } from "./contracts.js";
 import { salesUiBlockDefinitions } from "./ui.js";
 
@@ -18,7 +17,6 @@ export const salesTaskTablePuckAuthoring = Object.freeze({
 
 const labels: Readonly<Record<string, string>> = Object.freeze({
   "sales.task-table": "Sales task table",
-  "sales.revenue-metric": "Sales revenue metric",
   "sales.task-quick-create": "Sales task quick-create",
   "sales.opportunity-list": "Sales opportunity list",
   "sales.opportunity-detail": "Sales opportunity detail",
@@ -27,12 +25,11 @@ const labels: Readonly<Record<string, string>> = Object.freeze({
 });
 
 function defaultBindings(id: string) {
-  if (id === "sales.revenue-metric") return { source: { source: { id: salesTotalPotentialRevenueDescriptor.id, version: 1 }, input: {}, structuralCompatibilityHash: salesTotalPotentialRevenueDescriptor.structuralCompatibilityHash } };
-  if (id === "sales.task-table") return { source: { source: { id: salesTasksDescriptor.id, version: 1 }, input: {}, structuralCompatibilityHash: salesTasksDescriptor.structuralCompatibilityHash, selectedFields: ["title", "status", "potential-revenue"] } };
-  if (id === "sales.task-quick-create") return { action: { id: salesTaskCreateDescriptor.id, version: 1 } };
+  if (id === "sales.task-table") return { source: { source: { id: salesTasksDescriptor.id, version: salesTasksDescriptor.version }, input: {}, structuralCompatibilityHash: salesTasksDescriptor.structuralCompatibilityHash, selectedFields: ["title", "status"] } };
+  if (id === "sales.task-quick-create") return { action: { id: salesTaskCreateDescriptor.id, version: salesTaskCreateDescriptor.version } };
   if (id.includes("opportunity")) return {
-    source: { source: { id: salesOpportunitiesDescriptor.id, version: 1 }, input: {}, structuralCompatibilityHash: salesOpportunitiesDescriptor.structuralCompatibilityHash, selectedFields: ["name", "stage", "revision", "value"] },
-    ...(id === "sales.opportunity-kanban" || id === "sales.opportunity-detail" ? { action: { id: salesOpportunityStageUpdateDescriptor.id, version: 1 } } : {})
+    source: { source: { id: salesOpportunitiesDescriptor.id, version: salesOpportunitiesDescriptor.version }, input: {}, structuralCompatibilityHash: salesOpportunitiesDescriptor.structuralCompatibilityHash, selectedFields: ["name", "stage-id", "revision", "amount"] },
+    ...(id === "sales.opportunity-kanban" || id === "sales.opportunity-detail" ? { action: { id: salesOpportunityStageUpdateDescriptor.id, version: salesOpportunityStageUpdateDescriptor.version } } : {})
   };
   return undefined;
 }

@@ -178,8 +178,8 @@ test("proves customer-owned migrations and revision-aware Postgres boot", { time
       runner_quarantine_receipts: "runtime_extension_runner_quarantine_receipts",
       catalog_mirror_state: "k_nex_catalog_mirror_state",
       system_operations_state: "k_nex_system_operations_state",
-      predecessor_revision: 23,
-      revision: 24
+      predecessor_revision: 24,
+      revision: 25
     }]);
 
     const outboxSchema = await runFixtureProcess("tests/outbox-schema.mjs", connectionString);
@@ -205,13 +205,19 @@ test("proves customer-owned migrations and revision-aware Postgres boot", { time
     assert.equal(currentBoot.code, 0, `${currentBoot.stdout}\n${currentBoot.stderr}`);
     assert.match(currentBoot.stdout, /^READY$/m);
     const current = await query(connectionString, "select count(*)::int as count from payload_migrations");
-    assert.equal(current.rows[0].count, 26);
+    assert.equal(current.rows[0].count, 27);
 
     const authenticated = await runFixtureProcess("tests/authenticated-runtime.mjs", connectionString, {
       BOOT_KEY: "gate1-authenticated-runtime"
     });
     assert.equal(authenticated.code, 0, `${authenticated.stdout}\n${authenticated.stderr}`);
     assert.match(authenticated.stdout, /^P1_8_PASS$/m);
+
+    const actionReplayAfterRestart = await runFixtureProcess("tests/action-replay-after-restart.mjs", connectionString, {
+      BOOT_KEY: "gate1-action-replay-after-restart"
+    });
+    assert.equal(actionReplayAfterRestart.code, 0, `${actionReplayAfterRestart.stdout}\n${actionReplayAfterRestart.stderr}`);
+    assert.match(actionReplayAfterRestart.stdout, /^P13_ACTION_RESTART_REPLAY_PASS$/m);
 
     const salesLifecycle = await runFixtureProcess("tests/sales-lifecycle.mjs", connectionString, {
       BOOT_KEY: "gate6-sales-lifecycle"

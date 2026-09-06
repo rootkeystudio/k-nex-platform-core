@@ -17,8 +17,7 @@ import {
   salesTaskUpdateDescriptor,
   salesTaskTableBlockDescriptor,
   salesTaskTableComponentDescriptor,
-  salesTasksDescriptor,
-  salesTotalPotentialRevenueDescriptor
+  salesTasksDescriptor
 } from "./contracts.js";
 import { salesOpportunitiesTableDefinition, salesTasksTableDefinition } from "./pages.js";
 
@@ -63,13 +62,11 @@ interface ActionFormProps {
 
 function SalesTaskActionForm({ label, enabled, onSubmit }: ActionFormProps) {
   const [title, setTitle] = useState("");
-  const [status, setStatus] = useState("open");
   return createElement(Form, {
     label,
-    onSubmit: () => enabled && title.trim().length > 0 ? onSubmit({ title, status }) : undefined,
+    onSubmit: () => enabled && title.trim().length > 0 ? onSubmit({ title }) : undefined,
     children: [
       createElement(TextInput, { key: "title", name: "title", label: "Title", value: title, required: true, onChange: setTitle }),
-      createElement(Select, { key: "status", name: "status", label: "Status", value: status, options: [{ id: "open", label: "Open" }, { id: "done", label: "Done" }], onChange: setStatus }),
       createElement(FormActions, { key: "actions", children: createElement("button", { type: "submit", disabled: !enabled || title.trim().length === 0 }, "Create task") })
     ]
   });
@@ -145,17 +142,18 @@ function tableItems(value: unknown, fields: readonly string[]) {
 function queryElement(kind: ReturnType<typeof rendererKind>, input: UiBlockRenderInput, title: string): unknown {
   const children = (value: unknown) => {
     if (kind === "metric") return componentElement(Metric, { label: title, metric: value as MetricScalar });
-    if (kind === "data-list") return componentElement(DataList, { label: title, items: tableItems(value, ["name", "stage", "value"]) });
-    return componentElement(Section, { label: title, children: componentElement(KeyValueList, { label: title, items: tableItems(value, ["name", "stage", "value"]).map(({ id, label, value: itemValue }) => ({ id, key: label, value: itemValue })) }) });
+    if (kind === "data-list") return componentElement(DataList, { label: title, items: tableItems(value, ["name", "stage-id", "amount"]) });
+    return componentElement(Section, { label: title, children: componentElement(KeyValueList, { label: title, items: tableItems(value, ["name", "stage-id", "amount"]).map(({ id, label, value: itemValue }) => ({ id, key: label, value: itemValue })) }) });
   };
   return componentElement(QueryBoundary, { state: queryRequestState(input.sourceResult), children });
 }
 
-const opportunityStages = ["lead", "qualified", "won", "lost"] as const;
+const opportunityStages = ["qualification", "discovery", "proposal", "negotiation", "won", "lost"] as const;
+const opportunityTransitionTarget = Object.freeze({ qualification: "discovery", discovery: "proposal", proposal: "negotiation" } as const);
 
 function SalesOpportunityKanban({ table, title, input }: { readonly table: TableRecords; readonly title: string; readonly input: UiBlockRenderInput }) {
   const [announcement, setAnnouncement] = useState("");
-  const move = async (id: string, name: string, expectedStage: string, expectedRevision: string, stage: typeof opportunityStages[number]) => {
+  const move = async (id: string, name: string, expectedStage: string, expectedRevision: number, stage: typeof opportunityStages[number]) => {
     if (input.action === undefined || input.dispatchAction === undefined || !opportunityStages.includes(expectedStage as typeof opportunityStages[number])) return;
     try {
       await input.dispatchAction({ action: input.action, input: { id, expectedStage, expectedRevision, stage }, nodeId: input.node.id });
@@ -168,13 +166,15 @@ function SalesOpportunityKanban({ table, title, input }: { readonly table: Table
     createElement("h2", { key: "title" }, title),
     createElement("div", { key: "columns", "data-slot": "kanban-columns" }, opportunityStages.map((stage) => createElement("section", { key: stage, "aria-label": `${stage} opportunities` }, [
       createElement("h3", { key: "heading" }, stage[0]!.toUpperCase() + stage.slice(1)),
-      createElement("ul", { key: "cards" }, table.rows.filter((row) => cellText(row.values.stage) === stage).map((row) => {
+      createElement("ul", { key: "cards" }, table.rows.filter((row) => cellText(row.values["stage-id"]) === stage).map((row) => {
         const name = cellText(row.values.name);
-        const revision = cellText(row.values.revision);
+        const revision = Number(cellText(row.values.revision));
         return createElement("li", { key: row.key, "data-opportunity-id": row.key }, [
           createElement("strong", { key: "name" }, name),
-          input.action === undefined || input.dispatchAction === undefined ? null : createElement("div", { key: "moves", "aria-label": `Move ${name}` }, opportunityStages.filter((target) => target !== stage).map((target) =>
-            createElement("button", { key: target, type: "button", onClick: () => move(row.key, name, stage, revision, target) }, `Move to ${target}`)))
+          input.action === undefined || input.dispatchAction === undefined || !(stage in opportunityTransitionTarget) ? null : createElement("div", { key: "moves", "aria-label": `Move ${name}` }, (() => {
+            const target = opportunityTransitionTarget[stage as keyof typeof opportunityTransitionTarget];
+            return createElement("button", { key: target, type: "button", onClick: () => move(row.key, name, stage, revision, target) }, `Move to ${target}`);
+          })())
         ]);
       }))
     ]))),
@@ -259,7 +259,7 @@ export const salesUiBlockDefinitions = Object.freeze(salesUiBlockDescriptors.map
 export const salesWorkspaceUiContract = Object.freeze({
   pluginId: "module.sales" as const,
   surface: "workspace" as const,
-  sourceIds: Object.freeze([salesOpportunitiesDescriptor.id, salesTasksDescriptor.id, salesTotalPotentialRevenueDescriptor.id].sort()),
+  sourceIds: Object.freeze([salesOpportunitiesDescriptor.id, salesTasksDescriptor.id].sort()),
   actionIds: Object.freeze([salesOpportunityStageUpdateDescriptor.id, salesTaskCreateDescriptor.id, salesTaskUpdateDescriptor.id].sort()),
   routeIds: Object.freeze(salesRouteDescriptors.map(({ id }) => id)),
   pageTemplateIds: Object.freeze(salesPageTemplates.map(({ id }) => id).sort()),

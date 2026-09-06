@@ -8,8 +8,7 @@ import { createUiDocumentRuntime, createUiRuntimeRegistry, presentUiRuntimeResul
 
 import {
   salesOpportunitiesDescriptor,
-  salesTasksDescriptor,
-  salesTotalPotentialRevenueDescriptor
+  salesTasksDescriptor
 } from "../dist/contracts.js";
 import {
   salesTaskTableBlock,
@@ -21,21 +20,21 @@ import { salesTaskTablePuckAuthoring, salesPuckBlockBridges } from "../dist/puck
 
 const document = {
   id: "sales.page.tasks",
-  version: 1,
+  version: 2,
   schemaVersion: 1,
   profile: "workspace",
   regions: {
     main: [{
       id: "sales-tasks",
       type: "sales.task-table",
-      version: 2,
+      version: 3,
       props: { title: "Sales tasks" },
       bindings: {
         source: {
-          source: { id: "sales.tasks", version: 1 },
+          source: { id: "sales.tasks", version: 2 },
           input: {},
           structuralCompatibilityHash: salesTasksDescriptor.structuralCompatibilityHash,
-          selectedFields: ["title", "status", "potential-revenue"]
+          selectedFields: ["title", "status"]
         }
       }
     }]
@@ -44,36 +43,31 @@ const document = {
 const actor = {
   authenticated: true,
   permissions: new Set([
-    "sales.tasks.read", "sales.tasks.title.read", "sales.tasks.status.read", "sales.tasks.revenue.read",
-    "sales.tasks.write", "sales.opportunities.read", "sales.opportunities.name.read", "sales.opportunities.stage.read",
-    "sales.opportunities.value.read", "sales.settings.read"
+    "sales.tasks.read", "sales.tasks.write", "sales.opportunities.read", "sales.opportunities.amount.read", "sales.pipelines.read", "sales.settings.read"
   ])
 };
 const sourceResults = { "sales-tasks": { state: "empty" } };
 
 const tableData = {
-  fields: ["title", "status", "potential-revenue"],
+  fields: ["title", "status"],
   rows: [{ key: "task-1", values: {
     title: { kind: "text", value: "Follow up" },
-    status: { kind: "status", value: "open" },
-    "potential-revenue": { kind: "money", value: "100", currency: "USD", scale: 2 }
+    status: { kind: "status", value: "open" }
   } }],
   page: { number: 1, pageSize: 25, hasNext: false }
 };
 const opportunityData = {
-  fields: ["name", "stage", "revision", "value"],
+  fields: ["name", "stage-id", "revision", "amount"],
   rows: [{ key: "opportunity-1", values: {
     name: { kind: "text", value: "Acme" },
-    stage: { kind: "status", value: "qualified" },
-    revision: { kind: "text", value: "2026-09-03T00:00:00.000Z" },
-    value: { kind: "money", value: "200", currency: "USD", scale: 2 }
+    "stage-id": { kind: "status", value: "discovery" },
+    revision: { kind: "integer", value: 7 },
+    amount: { kind: "money", value: "200", currency: "USD", scale: 2 }
   } }],
   page: { number: 1, pageSize: 25, hasNext: false }
 };
 
 function sourceFor(definition) {
-  const contract = definition.descriptor.sourcePolicy?.contracts[0]?.id;
-  if (contract === "metric.scalar") return salesTotalPotentialRevenueDescriptor;
   if (definition.id.includes("opportunity")) return salesOpportunitiesDescriptor;
   return salesTasksDescriptor;
 }
@@ -87,8 +81,8 @@ function nodeFor(bridge) {
     source: { id: source.id, version: source.version },
     input: {},
     structuralCompatibilityHash: source.structuralCompatibilityHash,
-    ...(source.id === salesTasksDescriptor.id ? { selectedFields: ["title", "status", "potential-revenue"] } : {}),
-    ...(source.id === salesOpportunitiesDescriptor.id ? { selectedFields: ["name", "stage", "revision", "value"] } : {})
+    ...(source.id === salesTasksDescriptor.id ? { selectedFields: ["title", "status"] } : {}),
+    ...(source.id === salesOpportunitiesDescriptor.id ? { selectedFields: ["name", "stage-id", "revision", "amount"] } : {})
   };
   const bindings = sourceBinding === undefined && action === undefined ? undefined : {
     ...(sourceBinding === undefined ? {} : { source: sourceBinding }),
@@ -106,9 +100,7 @@ function nodeFor(bridge) {
 function sourceResultFor(bridge) {
   const source = bridge.definition.sourcePolicy === undefined ? undefined : sourceFor(bridge.definition);
   if (source === undefined) return undefined;
-  return source.primaryContract.id === "metric.scalar"
-    ? { state: "success", data: { value: { kind: "number", value: 42 } } }
-    : { state: "success", data: source.id === salesTasksDescriptor.id ? tableData : opportunityData };
+  return { state: "success", data: source.id === salesTasksDescriptor.id ? tableData : opportunityData };
 }
 
 test("Sales task table uses the same renderer outside Puck and through its authoring bridge", () => {
@@ -118,7 +110,7 @@ test("Sales task table uses the same renderer outside Puck and through its autho
   const bridge = reconcilePuckBlockContribution(salesTaskTableBlock, salesTaskTablePuckAuthoring);
   const adapter = createPuckBuilderAdapter({ blocks: [bridge], preview: { surface: "workspace", actor, sources: [salesTasksDescriptor], sourceResults, present: presentUiRuntimeReact } });
   const puckData = adapter.toPuckData(document);
-  const component = adapter.config.components["sales.task-table__v2"];
+  const component = adapter.config.components["sales.task-table__v3"];
   const editor = component.render(puckData.content[0].props);
 
   const productionMarkup = renderToStaticMarkup(production);
@@ -133,7 +125,7 @@ test("every Sales UI contribution renders outside the editor and every block rec
     node: { id: "reference", type: "sales.reference", version: 1, props: { title: "Reference" } },
     props: { title: "Reference" }, surface: "workspace", actor,
     sourceResult: { state: "empty" },
-    action: { id: "sales.task.create", version: 1 }
+    action: { id: "sales.task.create", version: 2 }
   };
   const kinds = new Set();
   for (const definition of [...salesUiComponentDefinitions, ...salesUiBlockDefinitions]) {
@@ -143,7 +135,7 @@ test("every Sales UI contribution renders outside the editor and every block rec
     assert.equal(definition.descriptor.requiredStates.length, 4);
     assert.deepEqual(definition.actionPolicy, definition.descriptor.actionPolicy);
   }
-  assert.deepEqual([...kinds].sort(), ["data-list", "data-table", "detail", "form", "kanban", "metric", "settings-summary", "status"]);
+  assert.deepEqual([...kinds].sort(), ["data-list", "data-table", "detail", "form", "kanban", "settings-summary", "status"]);
   const assertEquivalentRender = (actual, expected) => {
     assert.deepEqual({ ...actual, element: undefined }, { ...expected, element: undefined });
     assert.equal(renderToStaticMarkup(actual.element), renderToStaticMarkup(expected.element));
@@ -162,7 +154,7 @@ test("every Sales UI contribution renders outside the editor and every block rec
 
 test("every Sales Puck block preserves source/action authority and DOM role parity", () => {
   const blocks = salesUiBlockDefinitions.map((definition) => salesPuckBlockBridges.find((bridge) => bridge.definition.id === definition.id));
-  const runtime = createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: salesUiBlockDefinitions, sources: [salesTasksDescriptor, salesOpportunitiesDescriptor, salesTotalPotentialRevenueDescriptor] }));
+  const runtime = createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: salesUiBlockDefinitions, sources: [salesTasksDescriptor, salesOpportunitiesDescriptor] }));
 
   for (const bridge of blocks) {
     assert.notEqual(bridge, undefined);
@@ -182,7 +174,7 @@ test("every Sales Puck block preserves source/action authority and DOM role pari
       preview: {
         surface: "workspace",
         actor,
-        sources: [salesTasksDescriptor, salesOpportunitiesDescriptor, salesTotalPotentialRevenueDescriptor],
+        sources: [salesTasksDescriptor, salesOpportunitiesDescriptor],
         present: presentUiRuntimeReact,
         ...(result === undefined ? {} : { sourceResults: { reference: result } })
       }
@@ -203,7 +195,7 @@ test("every Sales Puck block preserves source/action authority and DOM role pari
     if (bridge.definition.id.includes("quick-create")) {
       assert.match(productionMarkup, /<form\b/);
       assert.match(productionMarkup, /name="title"/);
-      assert.match(productionMarkup, /name="status"/);
+      assert.doesNotMatch(productionMarkup, /name="status"/);
       assert.match(productionMarkup, />Create task<\/button>/);
       assert.match(productionMarkup, /disabled=""/);
     }
@@ -221,11 +213,12 @@ test("Sales Kanban exposes native pointer and keyboard stage controls only with 
   const rendered = definition.render({
     node: nodeFor(salesPuckBlockBridges.find(({ definition }) => definition.id === "sales.opportunity-kanban")),
     props: { title: "Pipeline" }, surface: "workspace", actor, sourceResult: { state: "success", data: opportunityData },
-    action: { id: "sales.opportunity.stage.update", version: 1 }, dispatchAction: async () => undefined
+    action: { id: "sales.opportunity.stage.update", version: 2 }, dispatchAction: async () => undefined
   });
   const markup = renderToStaticMarkup(rendered.element);
-  assert.match(markup, /<button[^>]*>Move to lead<\/button>/);
-  assert.match(markup, /<button[^>]*>Move to won<\/button>/);
+  assert.match(markup, /<button[^>]*>Move to proposal<\/button>/);
+  assert.doesNotMatch(markup, /Move to qualification/);
+  assert.doesNotMatch(markup, /Move to won/);
   assert.match(markup, /role="status" aria-live="polite"/);
 });
 
@@ -242,10 +235,10 @@ test("Sales UI contributions expose labelled semantic regions", () => {
 });
 
 test("Sales public UI inventory reconciles every canonical source action route page component and block", () => {
-  assert.deepEqual(salesWorkspaceUiContract.sourceIds, ["sales.opportunities", "sales.tasks", "sales.total-potential-revenue"]);
+  assert.deepEqual(salesWorkspaceUiContract.sourceIds, ["sales.opportunities", "sales.tasks"]);
   assert.deepEqual(salesWorkspaceUiContract.actionIds, ["sales.opportunity.stage.update", "sales.task.create", "sales.task.update"]);
   assert.deepEqual(salesWorkspaceUiContract.pageTemplateIds, ["sales.page.opportunities", "sales.page.overview", "sales.page.settings", "sales.page.tasks"]);
   assert.equal(salesWorkspaceUiContract.routeIds.length, 4);
-  assert.equal(salesWorkspaceUiContract.componentIds.length, 6);
-  assert.equal(salesWorkspaceUiContract.blockIds.length, 7);
+  assert.equal(salesWorkspaceUiContract.componentIds.length, 5);
+  assert.equal(salesWorkspaceUiContract.blockIds.length, 6);
 });

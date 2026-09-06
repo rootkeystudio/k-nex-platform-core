@@ -5,9 +5,9 @@
 Modules expose deliberate authenticated projections to reusable UI without exposing Payload collections, database APIs, internal stores, arbitrary URLs, SQL, or executable expressions.
 
 ```text
-sales.total-potential-revenue → metric.scalar@1
 sales.tasks                   → table.records@1
-sales.opportunities-by-stage  → series.category@1
+sales.opportunities           → table.records@1
+sales.pipeline-by-stage       → series.category@1
 sales.revenue-over-time       → series.time@1
 ```
 

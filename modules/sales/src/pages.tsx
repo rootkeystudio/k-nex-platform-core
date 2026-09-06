@@ -14,11 +14,10 @@ import {
   type DataTableViewState
 } from "@k-nex/ui-data/data-table-controller";
 import { KeyValueList } from "@k-nex/ui-data/presentation";
-import { Metric, QueryBoundary } from "@k-nex/ui-data/metric";
 import { Form, FormActions, Select, TextInput, createFormController, type ChoiceOption, type FormSnapshot } from "@k-nex/ui-forms";
 import { DashboardPage, IndexPage, SettingsPage } from "@k-nex/ui-pages";
 import type { BrowserDataTransport, BrowserMutationContext, BrowserRequestState } from "@k-nex/ui-runtime";
-import type { MetricScalar, TableRow } from "@k-nex/contracts";
+import type { TableRow } from "@k-nex/contracts";
 
 import {
   salesCreateTaskMutation,
@@ -45,32 +44,31 @@ export const salesTasksTableDefinition = defineDataTable({
   query: salesTasksQuery,
   columns: [
     { id: "title", label: "Title", size: 280 },
-    { id: "status", label: "Status" },
-    { id: "potential-revenue", label: "Potential revenue" }
+    { id: "status", label: "Status" }
   ],
   paginationModes: ["offset"],
   defaultPageSize: 25,
   searchField: "title",
-  facets: { status: ["open", "done"] },
-  rowActions: [{ id: salesUpdateTaskMutation.action.id, action: salesUpdateTaskMutation.action, mutation: salesUpdateTaskMutation, input: (rowKey: string) => ({ id: rowKey, status: "done" }), label: "Complete" }],
-  bulkActions: [{ id: salesUpdateTaskMutation.action.id, action: salesUpdateTaskMutation.action, mutation: salesUpdateTaskMutation, input: (rowKey: string) => ({ id: rowKey, status: "done" }), label: "Complete" }]
+  facets: { status: ["open", "completed", "cancelled"] },
+  rowActions: [],
+  bulkActions: []
 });
 
 export const salesOpportunitiesTableDefinition = defineDataTable({
   id: "sales.opportunities-index",
   descriptor: salesOpportunitiesDescriptor,
   query: salesOpportunitiesQuery,
-  columns: [{ id: "name", label: "Name", size: 280 }, { id: "stage", label: "Stage" }, { id: "value", label: "Value" }],
+  columns: [{ id: "name", label: "Name", size: 280 }, { id: "stage-id", label: "Stage" }, { id: "revision", label: "Revision" }, { id: "amount", label: "Amount" }],
   paginationModes: ["offset"],
   defaultPageSize: 25,
   searchField: "name",
-  facets: { stage: ["lead", "qualified", "won", "lost"] },
+  facets: { "stage-id": ["qualification", "discovery", "proposal", "negotiation", "won", "lost"] },
   rowActions: []
 });
 
 export function createSalesTaskQuickCreateController(transport: BrowserDataTransport, idempotencyKey: string) {
   return createFormController<CreateTaskInput, unknown>({
-    initialValues: { title: "", status: "open" },
+    initialValues: { title: "" },
     validate: (values) => values.title.trim().length === 0 ? { title: "Title is required." } : {},
     submit: (values, signal) => salesCreateTaskMutation.execute(transport, values, { signal, idempotencyKey })
   });
@@ -85,8 +83,10 @@ export function createSalesOpportunityStageController(transport: BrowserDataTran
 }
 
 const opportunityStages: readonly ChoiceOption[] = [
-  { id: "lead", label: "Lead" },
-  { id: "qualified", label: "Qualified" },
+  { id: "qualification", label: "Qualification" },
+  { id: "discovery", label: "Discovery" },
+  { id: "proposal", label: "Proposal" },
+  { id: "negotiation", label: "Negotiation" },
   { id: "won", label: "Won" },
   { id: "lost", label: "Lost" }
 ];
@@ -107,10 +107,9 @@ export function SalesOpportunityEditForm({ opportunity, opportunityOptions, onOp
 
 const crumbs = (current: string, href: string) => [{ id: "sales", label: "Sales", href: "/sales" }, { id: "current", label: current, href, current: true }];
 
-export interface SalesOverviewPageProps { readonly revenueState: BrowserRequestState<MetricScalar>; readonly onRetry?: () => void; }
-export function SalesOverviewPage({ revenueState, onRetry }: SalesOverviewPageProps): ReactElement {
+export function SalesOverviewPage(): ReactElement {
   return <DashboardPage templateId={salesOverviewPageTemplate.id} title="Sales overview" description="Current pipeline summary." breadcrumbs={crumbs("Overview", "/sales")}>
-    <QueryBoundary state={revenueState} {...(onRetry === undefined ? {} : { onRetry })}>{(metric) => <Metric label="Total potential revenue" metric={metric} />}</QueryBoundary>
+    <></>
   </DashboardPage>;
 }
 
@@ -133,7 +132,7 @@ export interface SalesTasksPageProps {
   readonly loadMoreLoading?: boolean;
 }
 export function SalesTasksPage({ requestState, viewState = createDataTableState(salesTasksTableDefinition), createTask, onViewStateChange, onCreateTaskChange, onCreateTask, mutationExecutor, actionAuthorization, actionActorFingerprint, actionContext, onActionResult, onSourceInvalidated, onRefetch, renderDetail, onLoadMore, loadMoreLoading }: SalesTasksPageProps): ReactElement {
-  return <IndexPage templateId={salesTaskPageTemplate.id} title="Sales tasks" description="Authorized tasks and follow-up work." breadcrumbs={crumbs("Tasks", "/sales/tasks")} aside={<Card><Form label="Create task" pending={createTask.submitting} onSubmit={onCreateTask}><TextInput name="title" label="Title" value={createTask.values.title} {...(createTask.fieldErrors.title === undefined ? {} : { error: createTask.fieldErrors.title })} required onChange={(value) => onCreateTaskChange("title", value)} /><Select name="status" label="Status" value={createTask.values.status ?? "open"} options={[{ id: "open", label: "Open" }, { id: "done", label: "Done" }]} onChange={(value) => onCreateTaskChange("status", value as "open" | "done")} /><FormActions><Button type="submit" isDisabled={createTask.submitting}>Create task</Button></FormActions></Form></Card>}>
+  return <IndexPage templateId={salesTaskPageTemplate.id} title="Sales tasks" description="Authorized tasks and follow-up work." breadcrumbs={crumbs("Tasks", "/sales/tasks")} aside={<Card><Form label="Create task" pending={createTask.submitting} onSubmit={onCreateTask}><TextInput name="title" label="Title" value={createTask.values.title} {...(createTask.fieldErrors.title === undefined ? {} : { error: createTask.fieldErrors.title })} required onChange={(value) => onCreateTaskChange("title", value)} /><FormActions><Button type="submit" isDisabled={createTask.submitting}>Create task</Button></FormActions></Form></Card>}>
     <DataTable definition={salesTasksTableDefinition} viewState={viewState} requestState={requestState} {...(onViewStateChange === undefined ? {} : { onViewStateChange })} {...(mutationExecutor === undefined ? {} : { mutationExecutor })} {...(actionAuthorization === undefined ? {} : { actionAuthorization })} {...(actionActorFingerprint === undefined ? {} : { actionActorFingerprint })} {...(actionContext === undefined ? {} : { actionContext })} {...(onActionResult === undefined ? {} : { onActionResult })} {...(onSourceInvalidated === undefined ? {} : { onSourceInvalidated })} {...(onRefetch === undefined ? {} : { onRefetch })} {...(renderDetail === undefined ? {} : { renderDetail })} {...(onLoadMore === undefined ? {} : { onLoadMore })} {...(loadMoreLoading === undefined ? {} : { loadMoreLoading })} />
   </IndexPage>;
 }

@@ -113,6 +113,14 @@ describe("P0.4 executable repository validation", () => {
     (unsafeMigration.migration as Record<string, unknown>).legacyTaskStatusMap = { open: "open", done: "done" };
     expect(validatePhase13ProductContract(unsafeMigration).map(({ code }) => code)).toContain("PHASE13_PRODUCT_CONTRACT_INVALID");
 
+    const unsafeScopeAdministration = structuredClone(await phase13Contract());
+    ((unsafeScopeAdministration.permissions as Record<string, unknown>).scopeAdministration as Record<string, unknown>).lifecycle = "revoked scopes may auto-reactivate";
+    expect(validatePhase13ProductContract(unsafeScopeAdministration).map(({ code }) => code)).toContain("PHASE13_PRODUCT_CONTRACT_INVALID");
+
+    const unsafeRelatedVocabulary = structuredClone(await phase13Contract());
+    ((((unsafeRelatedVocabulary.dataSemantics as Record<string, unknown>).polymorphicRelatedTargets as Record<string, unknown>).vocabulary as string[])).pop();
+    expect(validatePhase13ProductContract(unsafeRelatedVocabulary).map(({ code }) => code)).toContain("PHASE13_PRODUCT_CONTRACT_INVALID");
+
     const missingAttackDelivery = structuredClone(await phase13Contract());
     ((missingAttackDelivery.attacks as Array<Record<string, unknown>>)[0]!).deliveryTasks = [];
     expect(validatePhase13ProductContract(missingAttackDelivery).map(({ code }) => code)).toContain("PHASE13_PRODUCT_CONTRACT_INVALID");

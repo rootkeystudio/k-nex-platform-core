@@ -39,7 +39,7 @@ async function sourceRequest(payload, key, token) {
       body: JSON.stringify({
         sourceId: "sales.tasks", surface: "workspace", input: {},
         query: { page: { number: 1, size: 25 }, filters: [], sort: [] },
-        selectedFields: ["title", "status", "potential-revenue"]
+        selectedFields: ["title", "status"]
       })
     })
   });
@@ -91,7 +91,7 @@ await store.transaction({
     label: "Fixture Sales reader",
     revision: 0
   } });
-  for (const permissionId of ["sales.tasks.read", "sales.tasks.title.read", "sales.tasks.status.read", "sales.tasks.revenue.read"]) {
+  for (const permissionId of ["sales.tasks.read"]) {
     await transaction.write({ kind: "grant", grant: {
       schemaVersion: 1,
       id: `fixture.sales-reader.${permissionId}`,
@@ -116,7 +116,24 @@ if (existingRuntime.rowCount === 0) await pool.query(
   "insert into runtime_extensions (application_id, environment, delivery_class, extension_id, revision, disposition, active_generation_id, active_generation) values ($1,$2,$3,$4,1,'active',$5,$6::jsonb)",
   ["customer-gate-1", "production", "platform-plugin", "module.sales", "static-module-sales-1", JSON.stringify(staticAuthorizationBuild)]
 );
-await enabled.payload.create({ collection: "sales-tasks", data: { title: "Lifecycle retained task", status: "open", potentialRevenue: "42" } });
+await pool.query(`insert into sales_current_authority_scopes
+  (application_id,environment,principal_id,record_scope,application_wide,mutation_allowed,authorized_team_ids,state,revision)
+  values ($1,'production',$2,'owned-or-assigned-team',false,true,'[]'::jsonb,'active',1)
+  on conflict (application_id,environment,principal_id) do update set
+    record_scope=excluded.record_scope, application_wide=excluded.application_wide, mutation_allowed=excluded.mutation_allowed,
+    authorized_team_ids=excluded.authorized_team_ids, state='active', revision=sales_current_authority_scopes.revision+1`,
+  ["customer-gate-1", String(user.id)]
+);
+await enabled.payload.create({ collection: "sales-tasks", data: {
+  applicationId: "customer-gate-1",
+  environment: "production",
+  ownerId: String(user.id),
+  teamId: `team:${user.id}`,
+  createdBy: String(user.id),
+  updatedBy: String(user.id),
+  title: "Lifecycle retained task",
+  status: "open"
+} });
 const enabledLogin = await login(enabled.payload);
 assert.equal((await sourceRequest(enabled.payload, enabled.key, enabledLogin.token)).status, 200);
 assert.equal(enabled.application.salesAvailability.isAvailable("actions", "sales.task.create"), true);

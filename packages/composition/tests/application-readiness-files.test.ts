@@ -31,7 +31,7 @@ describe("generated application readiness", () => {
       "Generated route source inventory mismatch.",
       "Generated migration inventory mismatch.",
       "Sales table schema mismatch.",
-      "Sales enum schema mismatch.",
+      "Sales legacy schema was not retired.",
       "Administration operator configuration is missing.",
       "Administration operator credential is unreadable.",
       "Administration operator configuration is invalid.",
@@ -40,6 +40,10 @@ describe("generated application readiness", () => {
       "Bootstrap owner assignment mismatch.",
       "Sales authorization generation mismatch."
     ]) expect(readiness).toContain(guard);
+    expect(readiness).toContain('"sales-accounts"');
+    expect(readiness).toContain('"sales-attachment-references"');
+    expect(readiness).toContain("currentRevision !== 3");
+    expect(readiness).toContain("predecessorRevisions, [1, 2]");
     expect(readiness).toContain("ApplicationManifestSchema.parse");
     expect(readiness).toContain("PackageReleaseManifestSchema.parse");
     expect(readiness).toContain("assertMigrationReadiness");

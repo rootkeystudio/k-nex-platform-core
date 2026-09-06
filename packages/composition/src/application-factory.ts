@@ -5,6 +5,7 @@ import { gunzipSync } from "node:zlib";
 
 import { ApplicationManifestSchema, canonicalJson, type ApplicationManifest, type PackageReleaseManifestAuthority, type VerifiedPackageReleaseManifest } from "@k-nex/contracts";
 import { applicationAuthFiles } from "./application-auth-files.js";
+import { crmCoreMigrationSource as canonicalCrmCoreMigrationSource } from "./crm-core-migration-template.js";
 import { runnableApplicationFiles } from "./runnable-application-files.js";
 import { systemAccessApplicationFiles } from "./system-access-application-files.js";
 import { systemExtensionApplicationFiles } from "./system-extension-application-files.js";
@@ -99,7 +100,7 @@ function registrySource(theme: SalesPresetTheme, applicationId: string, salesInt
   const themeExport = theme === "minimal" ? "resolveMinimalThemeProfile" : "resolveNeobrutalismThemeProfile";
   return `import { PluginManifestSchema } from "@k-nex/contracts";
 import manifestJson from "@k-nex/module-sales/manifest" with { type: "json" };
-import { salesNavigationDescriptors, salesOpportunitiesCollection, salesPermissionDescriptors, salesPermissionPolicyBindings, salesPermissionPolicyExecutors, salesReferenceMetadata, salesRegistration, salesRouteDescriptors, salesTasksCollection } from "@k-nex/module-sales/server";
+import { salesCoreCollections, salesCoreCollectionSlugs, salesCrmPermissionDescriptors, salesCrmPermissionPolicyBindings, salesNavigationDescriptors, salesPermissionPolicyExecutors, salesReferenceMetadata, salesRegistration, salesRouteDescriptors } from "@k-nex/module-sales/server";
 import { salesMigrationReadiness, salesUpgradeMigrations } from "@k-nex/module-sales/migrations";
 import { createPlatformPluginLifecycleState, executeRegistration, reconcilePlatformPluginAvailability, scopePlatformPluginRegistration } from "@k-nex/runtime";
 import { ${themeExport} } from "@k-nex/theme-${theme}";
@@ -121,11 +122,12 @@ export const kNexSalesRegistry = Object.freeze({
   scopedRegistration,
   staticRelease: Object.freeze({ package: Object.freeze({ name: salesManifest.package, version: salesManifest.version, integrity: ${JSON.stringify(salesIntegrity)} }), release: ${JSON.stringify(release)}, runtimeGenerationId: "sales-generation-1", authorizationGeneration: 1 }),
   authorizationGeneration: Object.freeze({ schemaVersion: 1 as const, applicationId: ${JSON.stringify(applicationId)}, owner: { kind: "extension" as const, deliveryClass: "platform-plugin" as const, extensionId: "module.sales", generation: 1 }, runtimeGenerationIds: ["sales-generation-1"], state: "current" as const, authorizationRevision: 2, lifecycleRevision: 1 }),
-  permissionDescriptors: salesPermissionDescriptors,
-  policyBindings: salesPermissionPolicyBindings,
+  permissionDescriptors: salesCrmPermissionDescriptors,
+  policyBindings: salesCrmPermissionPolicyBindings,
   policyExecutors: salesPermissionPolicyExecutors,
   navigationSection: Object.freeze({ id: "sales.navigation.root", pluginId: "module.sales", label: "Sales", icon: "sales" as const, order: 100, active: true, acceptsCustomerChildren: true, routes: salesRouteDescriptors, navigation: salesNavigationDescriptors, messages: salesReferenceMetadata.localization.messages }),
-  collections: Object.freeze([salesTasksCollection, salesOpportunitiesCollection]),
+  collections: Object.freeze([...salesCoreCollections]),
+  collectionSlugs: salesCoreCollectionSlugs,
   migrations: salesUpgradeMigrations,
   readiness: salesMigrationReadiness
 });
@@ -161,21 +163,23 @@ if (!databaseUrl) throw new Error("DATABASE_URL is required.");
 export default buildConfig({
   db: postgresAdapter({ pool: { connectionString: databaseUrl }, prodMigrations: migrations, push: false }),
   collections: [usersCollection, ...kNexSalesRegistry.collections],
-  custom: { kNexApplicationId: "${applicationId}" },
+  custom: { kNexApplicationId: "${applicationId}", kNexEnvironment: process.env.K_NEX_ENVIRONMENT },
   secret: payloadSecret
 });
 `;
 }
 
 function bootSource(): string {
-  return `import { getPayload } from "payload";
+  return `import { salesCoreCollectionSlugs } from "@k-nex/module-sales/server";
+import { getPayload } from "payload";
 
 import config from "./payload.config.js";
 
 export async function bootKnexApplication(key = "k-nex-application") {
   const payload = await getPayload({ config, key: "k-nex-application" });
   const collections = Object.keys(payload.collections).sort();
-  if (!collections.includes("sales-opportunities") || !collections.includes("sales-tasks") || !collections.includes("users")) {
+  const requiredCollections = [...salesCoreCollectionSlugs, "users"];
+  if (requiredCollections.some((collection) => !collections.includes(collection))) {
     throw new Error("K-Nex application collections did not register.");
   }
   return payload;
@@ -199,6 +203,10 @@ export async function down({ db }: MigrateDownArgs): Promise<void> {
   await db.execute(sql.raw(source("@k-nex/module-sales/payload-baseline-down.sql")));
 }
 `;
+}
+
+function crmCoreMigrationSource(): string {
+  return canonicalCrmCoreMigrationSource.trimStart();
 }
 
 function bootstrapMigrationSource(applicationId: string, platformRelease: string): string {
@@ -343,7 +351,8 @@ export function planCreateKnexApplication(options: CreateKnexApplicationOptions)
     "src/migrations/20260903_000026_workspace_pages.ts": `import { kNexWorkspacePageSchemaMigration } from "@k-nex/payload-adapter";\n\nexport const up = kNexWorkspacePageSchemaMigration.up;\nexport const down = kNexWorkspacePageSchemaMigration.down;\n`,
     "src/migrations/20260903_000027_event_outbox.ts": `import { kNexEventOutboxSchemaMigration } from "@k-nex/payload-adapter";\n\nexport const up = kNexEventOutboxSchemaMigration.up;\nexport const down = kNexEventOutboxSchemaMigration.down;\n`,
     "src/migrations/20260904_000028_workspace_sidebar_preferences.ts": `import { kNexWorkspaceSidebarPreferenceSchemaMigration } from "@k-nex/payload-adapter";\n\nexport const up = kNexWorkspaceSidebarPreferenceSchemaMigration.up;\nexport const down = kNexWorkspaceSidebarPreferenceSchemaMigration.down;\n`,
-    "src/migrations/index.ts": `import * as baseline from "./20260827_000001_sales_baseline.js";\nimport * as bootstrap from "./20260827_000002_knex_bootstrap.js";\nimport * as runtimeExtensions from "./20260829_000007_runtime_extensions.js";\nimport * as authorization from "./20260901_000019_authorization.js";\nimport * as staticLifecycleAdmission from "./20260901_000022_static_lifecycle_admission.js";\nimport * as systemAdministration from "./20260902_000023_system_administration.js";\nimport * as workspacePages from "./20260903_000026_workspace_pages.js";\nimport * as eventOutbox from "./20260903_000027_event_outbox.js";\nimport * as workspaceSidebarPreferences from "./20260904_000028_workspace_sidebar_preferences.js";\n\nexport const migrations = [\n  { name: "20260827_000001_sales_baseline", up: baseline.up, down: baseline.down },\n  { name: "20260827_000002_knex_bootstrap", up: bootstrap.up, down: bootstrap.down },\n  { name: "20260829_000007_runtime_extensions", up: runtimeExtensions.up, down: runtimeExtensions.down },\n  { name: "20260901_000019_authorization", up: authorization.up, down: authorization.down },\n  { name: "20260901_000022_static_lifecycle_admission", up: staticLifecycleAdmission.up, down: staticLifecycleAdmission.down },\n  { name: "20260902_000023_system_administration", up: systemAdministration.up, down: systemAdministration.down },\n  { name: "20260903_000026_workspace_pages", up: workspacePages.up, down: workspacePages.down },\n  { name: "20260903_000027_event_outbox", up: eventOutbox.up, down: eventOutbox.down },\n  { name: "20260904_000028_workspace_sidebar_preferences", up: workspaceSidebarPreferences.up, down: workspaceSidebarPreferences.down }\n];\n`,
+    "src/migrations/20260905_000027_crm_core.ts": crmCoreMigrationSource(),
+    "src/migrations/index.ts": `import * as baseline from "./20260827_000001_sales_baseline.js";\nimport * as bootstrap from "./20260827_000002_knex_bootstrap.js";\nimport * as runtimeExtensions from "./20260829_000007_runtime_extensions.js";\nimport * as authorization from "./20260901_000019_authorization.js";\nimport * as staticLifecycleAdmission from "./20260901_000022_static_lifecycle_admission.js";\nimport * as systemAdministration from "./20260902_000023_system_administration.js";\nimport * as workspacePages from "./20260903_000026_workspace_pages.js";\nimport * as eventOutbox from "./20260903_000027_event_outbox.js";\nimport * as workspaceSidebarPreferences from "./20260904_000028_workspace_sidebar_preferences.js";\nimport * as crmCore from "./20260905_000027_crm_core.js";\n\nexport const migrations = [\n  { name: "20260827_000001_sales_baseline", up: baseline.up, down: baseline.down },\n  { name: "20260827_000002_knex_bootstrap", up: bootstrap.up, down: bootstrap.down },\n  { name: "20260829_000007_runtime_extensions", up: runtimeExtensions.up, down: runtimeExtensions.down },\n  { name: "20260901_000019_authorization", up: authorization.up, down: authorization.down },\n  { name: "20260901_000022_static_lifecycle_admission", up: staticLifecycleAdmission.up, down: staticLifecycleAdmission.down },\n  { name: "20260902_000023_system_administration", up: systemAdministration.up, down: systemAdministration.down },\n  { name: "20260903_000026_workspace_pages", up: workspacePages.up, down: workspacePages.down },\n  { name: "20260903_000027_event_outbox", up: eventOutbox.up, down: eventOutbox.down },\n  { name: "20260904_000028_workspace_sidebar_preferences", up: workspaceSidebarPreferences.up, down: workspaceSidebarPreferences.down },\n  { name: "20260905_000027_crm_core", up: crmCore.up, down: crmCore.down }\n];\n`,
     "src/payload.config.ts": payloadConfigSource(options.applicationId),
   };
   if (releaseManifest !== undefined) files[".k-nex/package-release-manifest.json"] = releaseManifest;

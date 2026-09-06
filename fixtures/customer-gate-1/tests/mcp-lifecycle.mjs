@@ -165,8 +165,8 @@ try {
     : validText.split("\n").find((line) => line.startsWith("data: "))?.slice(6);
   assert.ok(validData);
   assert.deepEqual(JSON.parse(validData).result.tools.map(({ name }) => name), [
-    "k-nex-sales-tools-create-task-v1",
-    "k-nex-sales-tools-search-tasks-v1"
+    "k-nex-sales-tools-create-task-v2",
+    "k-nex-sales-tools-search-tasks-v2"
   ]);
 
   const apiKeyRequest = await createPayloadRequest({

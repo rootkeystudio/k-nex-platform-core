@@ -16,6 +16,8 @@ export interface PayloadPersistenceCapabilityContext {
   };
   readonly locale: PayloadRequest["locale"];
   readonly transactionID: PayloadRequest["transactionID"];
+  /** Minimal trusted host identity; request config and ambient credentials remain unavailable. */
+  readonly applicationIdentity?: Readonly<{ applicationId: string; environment: string }>;
   readonly transaction: PayloadPersistenceTransaction;
   guard(input: Readonly<Record<string, unknown>>): Promise<boolean>;
 }
@@ -65,6 +67,13 @@ function permitted(grants: readonly PayloadPersistenceGrant[], operation: Payloa
   return grant;
 }
 
+function applicationIdentity(request: PayloadRequest): PayloadPersistenceCapabilityContext["applicationIdentity"] {
+  const custom = request.payload.config?.custom as { readonly kNexApplicationId?: unknown; readonly kNexEnvironment?: unknown } | undefined;
+  if (typeof custom?.kNexApplicationId !== "string" || custom.kNexApplicationId.length === 0 ||
+    typeof custom.kNexEnvironment !== "string" || custom.kNexEnvironment.length === 0) return undefined;
+  return Object.freeze({ applicationId: custom.kNexApplicationId, environment: custom.kNexEnvironment });
+}
+
 export function createPayloadPersistenceCapability(
   request: PayloadRequest,
   grants: readonly PayloadPersistenceGrant[],
@@ -112,6 +121,7 @@ export function createPayloadPersistenceCapability(
       settled = true;
     }
   });
+  const hostIdentity = applicationIdentity(request);
   return Object.freeze({
     payload: Object.freeze({
       find: (options: Readonly<Record<string, unknown>>) => invoke("find", options),
@@ -119,6 +129,7 @@ export function createPayloadPersistenceCapability(
       update: (options: Readonly<Record<string, unknown>>) => invoke("update", options)
     }),
     locale: request.locale,
+    ...(hostIdentity === undefined ? {} : { applicationIdentity: hostIdentity }),
     get transactionID() { return request.transactionID; },
     transaction,
     async guard(input: Readonly<Record<string, unknown>>) {

@@ -6,7 +6,6 @@ import {
   salesOpportunitiesQuery,
   salesOpportunityStageMutation,
   salesTasksQuery,
-  salesTotalPotentialRevenueQuery,
   salesUpdateTaskMutation,
   salesWorkspacePresentation
 } from "../dist/browser.js";
@@ -19,13 +18,12 @@ const context = {
 };
 
 test("Sales browser factories use stable platform query/action metadata", async () => {
-  assert.deepEqual(salesTasksQuery.source, { id: "sales.tasks", version: 1 });
-  assert.deepEqual(salesTasksQuery.selectedFields, ["title", "status", "potential-revenue", "private-note"]);
-  assert.deepEqual(salesTotalPotentialRevenueQuery.invalidation.sources, ["sales.total-potential-revenue"]);
-  assert.deepEqual(salesCreateTaskMutation.invalidation.sources, ["sales.tasks", "sales.total-potential-revenue"]);
-  assert.deepEqual(salesOpportunitiesQuery.source, { id: "sales.opportunities", version: 1 });
+  assert.deepEqual(salesTasksQuery.source, { id: "sales.tasks", version: 2 });
+  assert.deepEqual(salesTasksQuery.selectedFields, ["title", "status"]);
+  assert.deepEqual(salesCreateTaskMutation.invalidation.sources, ["sales.tasks"]);
+  assert.deepEqual(salesOpportunitiesQuery.source, { id: "sales.opportunities", version: 2 });
   assert.deepEqual(salesOpportunityStageMutation.invalidation.sources, ["sales.opportunities"]);
-  assert.deepEqual(salesUpdateTaskMutation.invalidation.sources, ["sales.tasks", "sales.total-potential-revenue"]);
+  assert.deepEqual(salesUpdateTaskMutation.invalidation.sources, ["sales.tasks"]);
 
   const identity = await salesTasksQuery.identity({}, context);
   assert.match(identity.key, /^sha256:[0-9a-f]{64}$/);
@@ -37,12 +35,12 @@ test("Sales workspace settings drive default routing and source presentation", (
     defaultTaskPageSize: 50,
     showPotentialRevenue: false,
     defaultPage: "opportunities",
-    pipelineStages: ["lead", "qualified", "won", "lost"]
+    pipelineStages: ["qualification", "discovery", "proposal", "negotiation", "won", "lost"]
   }), {
     routeId: "sales.route.opportunities",
     taskPageSize: 50,
     showPotentialRevenue: false,
-    pipelineStages: ["lead", "qualified", "won", "lost"]
+    pipelineStages: ["qualification", "discovery", "proposal", "negotiation", "won", "lost"]
   });
 });
 
@@ -51,17 +49,17 @@ test("Sales browser factories execute only through injected platform transport",
   const transport = {
     async query(request) {
       calls.push(["query", request.source.id]);
-      return { ok: true, data: { fields: ["title", "status", "potential-revenue"], rows: [], page: { number: 1, pageSize: 25, hasNext: false } } };
+      return { ok: true, data: { fields: ["title", "status"], rows: [], page: { number: 1, pageSize: 25, hasNext: false } } };
     },
     async mutate(request) {
       calls.push(["mutate", request.action.id]);
-      return { ok: true, data: { id: "task-1", title: request.input.title, status: "open" } };
+      return { ok: true, data: { id: "task-1", title: request.input.title, status: "open", revision: 1 } };
     }
   };
   assert.deepEqual(await salesTasksQuery.execute(transport, {}, context), { state: "empty" });
   assert.deepEqual(await salesCreateTaskMutation.execute(transport, { title: "Follow up" }, { signal, idempotencyKey: "task-1" }), {
     state: "success",
-    data: { id: "task-1", title: "Follow up", status: "open" }
+    data: { id: "task-1", title: "Follow up", status: "open", revision: 1 }
   });
   assert.deepEqual(calls, [["query", "sales.tasks"], ["mutate", "sales.task.create"]]);
 });
