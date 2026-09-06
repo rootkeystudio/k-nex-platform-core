@@ -54,5 +54,6 @@ Evidence maturity is atomic per ADR. A phase may provide task-level evidence wit
 | [0024](./0024-system-settings-and-extension-operations.md) | System settings and extension operations | accepted | design-only |
 | [0025](./0025-runnable-workspace-shell-pages-and-builder.md) | Runnable workspace shell, customer pages, and builder | accepted | design-only |
 | [0027](./0027-generated-administration-operator-transport.md) | Generated administration operator transport | accepted | design-only |
+| [0028](./0028-coordinated-platform-release-train-and-customer-application-upgrades.md) | Coordinated platform release trains and safe customer application upgrades | accepted | design-only |
 
 An accepted design-only ADR directs implementation but is not a production-readiness claim. Consequential changes update the decision register, evidence registry, machine-readable contracts, fixtures, tests, and lower-authority prose atomically.
