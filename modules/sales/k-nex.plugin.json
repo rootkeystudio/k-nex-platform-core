@@ -83,35 +83,45 @@
     },
     "sources": {
       "sales.tasks": "required",
-      "sales.opportunities": "required"
+      "sales.opportunities": "required",
+      "sales.accounts": "required", "sales.account.detail": "required",
+      "sales.contacts": "required", "sales.contact.detail": "required",
+      "sales.leads": "required", "sales.lead.detail": "required", "sales.opportunity.detail": "required", "sales.timeline": "required"
     },
     "actions": {
-      "sales.task.create": "required", "sales.task.update": "required", "sales.opportunity.stage.update": "required"
+      "sales.task.create": "required", "sales.task.update": "required", "sales.opportunity.stage.update": "required",
+      "sales.account.create": "required", "sales.account.update": "required", "sales.account.archive": "required",
+      "sales.contact.create": "required", "sales.contact.update": "required", "sales.contact.archive": "required",
+      "sales.lead.create": "required", "sales.lead.update": "required", "sales.lead.qualify": "required", "sales.lead.disqualify": "required", "sales.lead.archive": "required",
+      "sales.opportunity.create": "required", "sales.opportunity.update": "required", "sales.opportunity.close": "required", "sales.opportunity.archive": "required",
+      "sales.activity.create": "required", "sales.activity.complete": "required", "sales.activity.cancel": "required", "sales.note.create": "required", "sales.attachment.link": "required", "sales.attachment.remove": "required", "sales.ownership.assign": "required"
     },
     "tools": {
       "sales.tools.create-task": "required", "sales.tools.search-tasks": "required"
     },
     "routes": {
       "sales.route.overview": "required",
-      "sales.route.tasks": "required", "sales.route.opportunities": "required", "sales.route.settings": "required"
+      "sales.route.tasks": "required", "sales.route.opportunities": "required", "sales.route.settings": "required",
+      "sales.route.accounts": "required", "sales.route.account-detail": "required", "sales.route.contacts": "required", "sales.route.contact-detail": "required", "sales.route.leads": "required", "sales.route.lead-detail": "required", "sales.route.opportunity-detail": "required"
     },
     "pageTemplates": {
-      "sales.page.overview": "required", "sales.page.tasks": "required", "sales.page.opportunities": "required", "sales.page.settings": "required"
+      "sales.page.overview": "required", "sales.page.tasks": "required", "sales.page.opportunities": "required", "sales.page.settings": "required",
+      "sales.page.accounts": "required", "sales.page.account-detail": "required", "sales.page.contacts": "required", "sales.page.contact-detail": "required", "sales.page.leads": "required", "sales.page.lead-detail": "required", "sales.page.opportunity-detail": "required"
     },
     "navigation": {
-      "sales.navigation.overview": "required", "sales.navigation.tasks": "required", "sales.navigation.opportunities": "required", "sales.navigation.settings": "required"
+      "sales.navigation.overview": "required", "sales.navigation.tasks": "required", "sales.navigation.opportunities": "required", "sales.navigation.settings": "required", "sales.navigation.accounts": "required", "sales.navigation.contacts": "required", "sales.navigation.leads": "required"
     },
     "components": {
-      "sales.table.tasks": "required", "sales.form.task-quick-create": "required", "sales.list.opportunities": "required", "sales.detail.opportunity": "required", "sales.status.pipeline-stage": "required"
+      "sales.table.tasks": "required", "sales.form.task-quick-create": "required", "sales.list.opportunities": "required", "sales.detail.opportunity": "required", "sales.status.pipeline-stage": "required", "sales.list.accounts": "required", "sales.detail.account": "required", "sales.list.contacts": "required", "sales.detail.contact": "required", "sales.list.leads": "required", "sales.detail.lead": "required"
     },
     "blocks": {
-      "sales.task-table": "required", "sales.task-quick-create": "required", "sales.opportunity-list": "required", "sales.opportunity-detail": "required", "sales.opportunity-kanban": "required", "sales.settings-summary": "required"
+      "sales.task-table": "required", "sales.task-quick-create": "required", "sales.opportunity-list": "required", "sales.opportunity-detail": "required", "sales.opportunity-kanban": "required", "sales.settings-summary": "required", "sales.account-list": "required", "sales.account-detail": "required", "sales.contact-list": "required", "sales.contact-detail": "required", "sales.lead-list": "required", "sales.lead-detail": "required"
     },
     "events": {
-      "sales.event.task-changed": "required", "sales.event.opportunity-changed": "required"
+      "sales.event.task-changed": "required", "sales.event.opportunity-changed": "required", "sales.event.account-changed": "required", "sales.event.contact-changed": "required", "sales.event.lead-changed": "required", "sales.event.timeline-changed": "required"
     },
     "realtimeTopics": {
-      "sales.realtime.tasks": "required", "sales.realtime.opportunities": "required"
+      "sales.realtime.tasks": "required", "sales.realtime.opportunities": "required", "sales.realtime.accounts": "required", "sales.realtime.contacts": "required", "sales.realtime.leads": "required", "sales.realtime.timeline": "required"
     },
     "jobs": {
       "sales.job.pipeline-audit": "required"

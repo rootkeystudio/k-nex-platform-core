@@ -19,7 +19,7 @@ installStaticAuthorizationEnvironment();
 async function boot(enabled, suffix) {
   const application = createGate1Application({ databaseUrl, migrations, payloadSecret, salesEnabled: enabled });
   const key = `${baseKey}-${suffix}`;
-  const payload = await bootGate1Application({ config: buildConfig(application.config), key });
+  const payload = await bootGate1Application({ authority: application.authority, config: buildConfig(application.config), key });
   return { application, key, payload };
 }
 

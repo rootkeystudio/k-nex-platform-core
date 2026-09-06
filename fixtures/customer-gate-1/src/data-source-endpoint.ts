@@ -71,6 +71,16 @@ function durableScope(current: FixtureDurableSalesAuthority, stateField: "status
   return { and: [...records, { [stateField]: { equals: state } }] };
 }
 
+function durableCrmScope(current: FixtureDurableSalesAuthority) {
+  const identity = [{ applicationId: { equals: current.context.applicationId } }, { environment: { equals: current.context.environment } }];
+  const teams = current.authorizedTeamIds.length === 0 ? undefined : { teamId: { in: current.authorizedTeamIds } };
+  const records = current.recordScope === "application-sales-scope" || current.recordScope === "explicit-application-or-team-scope" && current.applicationWide
+    ? identity : current.recordScope === "explicit-application-or-team-scope"
+      ? [...identity, teams ?? { id: { equals: "__denied__" } }]
+      : [...identity, { or: [{ ownerId: { equals: current.context.actorId } }, ...(teams === undefined ? [] : [teams])] }];
+  return { and: records };
+}
+
 function salesPolicy(authority: FixtureCurrentAuthority, resolve: (value: unknown) => FixtureDurableSalesAuthority): DataSourcePolicyService {
   return {
     authorize({ descriptor, authorizationContext }) {
@@ -87,6 +97,13 @@ function salesPolicy(authority: FixtureCurrentAuthority, resolve: (value: unknow
       recordScope: { kind: "sales.opportunities", where: durableScope(durable, "stageId", opportunityStage(profile)) },
       allowedFields: ["name", "stage-id", "revision", "amount"]
     };
+    const crm = descriptor.id === "sales.accounts" || descriptor.id === "sales.account.detail" ? { kind: descriptor.id, fields: ["name", "owner-id", "team-id", "status", "revision"] }
+      : descriptor.id === "sales.contacts" || descriptor.id === "sales.contact.detail" ? { kind: descriptor.id, fields: ["display-name", "owner-id", "team-id", "account-id", "status", "revision", "email", "phone"] }
+        : descriptor.id === "sales.leads" ? { kind: descriptor.id, fields: ["display-name", "owner-id", "team-id", "status", "archive-status", "revision", "email", "phone"] }
+          : descriptor.id === "sales.lead.detail" ? { kind: descriptor.id, fields: ["display-name", "source", "owner-id", "team-id", "status", "archive-status", "revision", "email", "phone", "decided-at", "qualified-at", "disqualified-at", "qualified-account-id", "qualified-contact-id", "qualified-opportunity-id"] }
+            : descriptor.id === "sales.opportunity.detail" ? { kind: descriptor.id, fields: ["name", "owner-id", "team-id", "account-id", "primary-contact-id", "pipeline-id", "stage-id", "archive-status", "expected-close-date", "revision", "amount"] }
+            : descriptor.id === "sales.timeline" ? { kind: "sales.timeline", fields: ["kind", "subject", "status", "occurred-at", "revision", "body"] } : undefined;
+    if (crm !== undefined) return { sourceAllowed: true, recordScope: { kind: crm.kind, where: durableCrmScope(durable) }, allowedFields: crm.fields };
     return {
       sourceAllowed: false,
       recordScope: { kind: "sales.denied", where: { id: { equals: "__denied__" } } },
@@ -153,7 +170,13 @@ function queryGateway(registration: RegistrationResult, authority: FixtureCurren
         const durable = authority.durableSalesAuthority(request);
         return createPayloadPersistenceCapability(request, [
           { collection: "sales-tasks", operations: ["find"] },
-          { collection: "sales-opportunities", operations: ["find"] }
+          { collection: "sales-opportunities", operations: ["find"] },
+          { collection: "sales-accounts", operations: ["find"] },
+          { collection: "sales-contacts", operations: ["find"] },
+          { collection: "sales-leads", operations: ["find"] },
+          { collection: "sales-activities", operations: ["find"] },
+          { collection: "sales-notes", operations: ["find"] },
+          { collection: "sales-attachment-references", operations: ["find"] }
         ], new CurrentAuthorityPayloadPersistenceAuthorizer(authority.adapter, current, ({ collection, operation }) => authority.payload(collection, operation)), {
           guard: async () => durableFence(request, durable)
         });

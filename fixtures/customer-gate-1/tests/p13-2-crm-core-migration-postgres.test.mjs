@@ -139,7 +139,7 @@ async function insertBetaSettingsScope(client) {
   `);
 }
 
-async function insertWorkspaceReference(client, { retired = false } = {}) {
+async function insertWorkspaceReference(client, { retired = false, opportunityV2Proof } = {}) {
   const source = retired ? { id: "sales.total-potential-revenue", version: 1 } : { id: "sales.tasks", version: 1 };
   const document = {
     schemaVersion: 1, id: "customer.sales-board", version: 1, profile: "workspace",
@@ -149,10 +149,10 @@ async function insertWorkspaceReference(client, { retired = false } = {}) {
     } }] }
   };
   const oldDependencyDigest = digest([{ kind: "block", id: "sales.task-table", version: 2 }, { kind: "source", id: source.id, version: 1 }]);
-  const page = { schemaVersion: 1, identity: { applicationId: "customer-alpha", environment: "production", pageId: "customer.sales-board", documentId: "customer.sales-document" }, dependencyDigest: oldDependencyDigest };
-  const working = { schemaVersion: 1, identity: page.identity, revision: 1, document };
+  const page = { schemaVersion: 1, identity: { applicationId: "customer-alpha", environment: "production", pageId: "customer.sales-board", documentId: "customer.sales-document" }, dependencyDigest: oldDependencyDigest, ...(opportunityV2Proof === undefined ? {} : { opportunityV2Proof }) };
+  const working = { schemaVersion: 1, identity: page.identity, revision: 1, document, ...(opportunityV2Proof === undefined ? {} : { opportunityV2Proof }) };
   const historicalRevision = { schemaVersion: 1, revisionId: "publication-1", identity: page.identity, documentRevision: 1, document, page,
-    dependencies: { entries: [{ kind: "block", id: "sales.task-table", version: 2 }, { kind: "source", id: source.id, version: 1 }], digest: oldDependencyDigest } };
+    dependencies: { entries: [{ kind: "block", id: "sales.task-table", version: 2 }, { kind: "source", id: source.id, version: 1 }], digest: oldDependencyDigest }, ...(opportunityV2Proof === undefined ? {} : { opportunityV2Proof }) };
   const liveRevision = { ...historicalRevision, revisionId: "publication-2", documentRevision: 2 };
   await client.query(`insert into k_nex_workspace_pages
     (application_id,environment,page_id,document_id,state,page_revision,working_copy_revision,access_revision,published_revision_id,dependency_digest,page_json,created_at,updated_at)
@@ -319,10 +319,15 @@ test("P13.2 CRM core migration proves clean install, exact upgrade, fail-closed 
       values ('customer-alpha','production','user:owner','team:sales','user:owner','user:owner','scheduled','call','Cross application','user:actor','2026-03-01T10:00:00Z','7003','sales.account')`), /Sales related-record scope is invalid/u);
     await assert.rejects(client.query(`update sales_accounts set status='merged',merged_into_id='7003',merge_lineage='{"kind":"dedupe"}'::jsonb where id=7001`), /Sales merge lineage scope is invalid/u);
     await client.query(`update sales_accounts set status='merged',merged_into_id='7002',merge_lineage='{"kind":"dedupe"}'::jsonb where id=7001;
+      insert into sales_opportunities (id,application_id,environment,owner_id,created_by,updated_by,name,account_id,primary_contact_id,pipeline_id,stage_id)
+      values (7102,'customer-alpha','production','user:owner','user:owner','user:owner','Qualified opportunity',7002,7101,(select id from sales_pipelines where application_id='customer-alpha' and environment='production' and is_active),'qualification');
       insert into sales_leads (application_id,environment,owner_id,created_by,updated_by,status,display_name,source,decided_at,qualified_at,qualified_account_id,qualified_contact_id,qualified_opportunity_id)
-      values ('customer-alpha','production','user:owner','user:owner','user:owner','qualified','Qualified lead','event','2026-03-01T10:00:00Z','2026-03-01T10:00:00Z','7002','7101','51')`);
+      values ('customer-alpha','production','user:owner','user:owner','user:owner','qualified','Qualified lead','event','2026-03-01T10:00:00Z','2026-03-01T10:00:00Z','7002','7101','7102')`);
     await assert.rejects(client.query(`insert into sales_leads (application_id,environment,owner_id,created_by,updated_by,status,display_name,source,decided_at,qualified_at,qualified_account_id,qualified_contact_id,qualified_opportunity_id)
       values ('customer-alpha','production','user:owner','user:owner','user:owner','qualified','Foreign lead','event','2026-03-01T10:00:00Z','2026-03-01T10:00:00Z','7003','7101','51')`), /Sales lead qualification scope is invalid/u);
+    await assert.rejects(client.query(`insert into sales_contacts (application_id,environment,owner_id,created_by,updated_by,account_id,display_name) values ('customer-alpha','production','user:owner','user:owner','user:owner',7001,'Merged parent contact')`), /Sales account parent is not active/u);
+    await client.query(`insert into sales_accounts (id,application_id,environment,owner_id,created_by,updated_by,status,name) values (7004,'customer-alpha','production','user:owner','user:owner','user:owner','archived','Archived parent')`);
+    await assert.rejects(client.query(`insert into sales_opportunities (application_id,environment,owner_id,created_by,updated_by,name,account_id,pipeline_id,stage_id) values ('customer-alpha','production','user:owner','user:owner','user:owner','Archived parent opportunity',7004,(select id from sales_pipelines where application_id='customer-alpha' and environment='production' and is_active),'qualification')`), /Sales account parent is not active/u);
     const receipt = (await client.query("select task_count,opportunity_count,note_count,legacy_decimal_evidence,rollback_classification from sales_crm_migration_receipts")).rows[0];
     assert.deepEqual(receipt, { task_count: 1, opportunity_count: 2, note_count: 1, legacy_decimal_evidence: [{ taskId: 41, value: "12.340" }], rollback_classification: "maintenance-required" });
     const removed = await client.query("select column_name from information_schema.columns where table_schema='public' and ((table_name='sales_tasks' and column_name in ('potential_revenue','private_note')) or (table_name='sales_opportunities' and column_name in ('stage','value')))");
@@ -409,10 +414,21 @@ test("P13.2 CRM core migration proves clean install, exact upgrade, fail-closed 
 
     await resetPredecessor(client);
     await workspacePagesUp({ db });
-    await insertWorkspaceReference(client);
+    const opportunityV2Proof = [
+      { templateId: "sales.page.opportunities", templateVersion: 2 },
+      { componentId: "sales.detail.opportunity", componentVersion: 2 },
+      { blockId: "sales.opportunity-list", blockVersion: 2 },
+      { blockId: "sales.opportunity-detail", blockVersion: 2 }
+    ];
+    await insertWorkspaceReference(client, { opportunityV2Proof });
     await up({ db });
     assert.deepEqual((await client.query("select (select count(*)::int from sales_accounts) as accounts, (select count(*)::int from sales_pipelines) as pipelines, (select count(*)::int from sales_crm_migration_receipts) as receipts")).rows,
       [{ accounts: 0, pipelines: 0, receipts: 0 }], "Page-only migration rebinds executable references without inventing CRM rows.");
+    for (const value of [
+      (await client.query("select page_json as value from k_nex_workspace_pages")).rows[0].value,
+      (await client.query("select working_copy_json as value from k_nex_workspace_working_copies")).rows[0].value,
+      ...(await client.query("select revision_json as value from k_nex_workspace_published_revisions order by document_revision")).rows.map(({ value }) => value)
+    ]) assert.deepEqual(value.opportunityV2Proof, opportunityV2Proof.map((entry) => Object.fromEntries(Object.entries(entry).map(([key, item]) => [key, key.endsWith("Version") ? 3 : item]))), "Accepted c9bde24 opportunity v2 references rebind atomically to v3.");
 
     await resetPredecessor(client);
     await client.query("insert into sales_tasks (title) values ('Needs explicit binding')");

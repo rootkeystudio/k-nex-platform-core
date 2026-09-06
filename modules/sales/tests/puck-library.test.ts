@@ -5,23 +5,29 @@ import { canonicalJson } from "@k-nex/contracts";
 import { createPuckBuilderProfileRegistry } from "@k-nex/builder-puck";
 import { createUiDocumentRuntime, createUiRuntimeRegistry, type BrowserDataTransport } from "@k-nex/ui-runtime";
 import { createGenericPuckBlockBridges } from "@k-nex/ui-builder-blocks";
-import { salesCreateTaskMutation } from "../src/browser.js";
-import { salesPageTemplates, salesOpportunitiesDescriptor, salesOpportunityStageUpdateDescriptor, salesTaskCreateDescriptor, salesTaskUpdateDescriptor, salesTasksDescriptor } from "../src/contracts.js";
+import { salesCreateTaskMutation, salesWorkflowMutations } from "../src/browser.js";
+import { salesAccountDetailDescriptor, salesAccountsDescriptor, salesContactDetailDescriptor, salesContactsDescriptor, salesLeadDetailDescriptor, salesLeadsDescriptor, salesOpportunityDetailDescriptor, salesPageTemplates, salesOpportunitiesDescriptor, salesOpportunityStageUpdateDescriptor, salesTaskCreateDescriptor, salesTaskUpdateDescriptor, salesTasksDescriptor } from "../src/contracts.js";
 import { salesPuckBlockBridges } from "../src/puck.js";
 
-const sources = [salesTasksDescriptor, salesOpportunitiesDescriptor];
+const sources = [salesTasksDescriptor, salesOpportunitiesDescriptor, salesOpportunityDetailDescriptor, salesAccountsDescriptor, salesAccountDetailDescriptor, salesContactsDescriptor, salesContactDetailDescriptor, salesLeadsDescriptor, salesLeadDetailDescriptor];
+
 const profile = {
   id: "workspace" as const,
   blocks: salesPuckBlockBridges.map(({ definition }) => ({ id: definition.id, version: definition.version })),
   sources: sources.map(({ id, version }) => ({ id, version })),
-  actions: [salesTaskCreateDescriptor, salesTaskUpdateDescriptor, salesOpportunityStageUpdateDescriptor].map(({ id, version }) => ({ id, version })),
+  actions: [salesTaskCreateDescriptor, salesTaskUpdateDescriptor, salesOpportunityStageUpdateDescriptor, ...salesWorkflowMutations.map(({ action }) => action)].map(({ id, version }) => ({ id, version })),
   publication: "save-layout" as const
 };
 
 describe("Sales Puck block library", () => {
   it("round-trips every default page under the workspace profile policy", () => {
+    expect(salesPuckBlockBridges.some(({ definition }) => definition.id === "sales.timeline-list")).toBe(false);
+    for (const id of ["sales.account-list", "sales.account-detail", "sales.contact-list", "sales.contact-detail", "sales.lead-list", "sales.lead-detail", "sales.opportunity-list", "sales.opportunity-detail"]) {
+      expect(salesPuckBlockBridges.some(({ definition }) => definition.id === id)).toBe(false);
+    }
     const resolved = createPuckBuilderProfileRegistry({ blocks: salesPuckBlockBridges, sources, profiles: [profile] }).resolve("workspace")!;
-    for (const template of salesPageTemplates) {
+    const authorable = new Set(salesPuckBlockBridges.map(({ definition }) => definition.id));
+    for (const template of salesPageTemplates.filter(({ document }) => Object.values(document.regions).flat().every(({ type }) => authorable.has(type)))) {
       expect(resolved.validateDocument(template.document).id).toBe(template.id);
       expect(canonicalJson(resolved.adapter.fromPuckData(resolved.adapter.toPuckData(template.document)))).toBe(canonicalJson(template.document));
     }
@@ -43,7 +49,7 @@ describe("Sales Puck block library", () => {
     const inserted = { ...data, content: [{ type: "sales.opportunity-kanban__v2", props: { id: "kanban", ...component.defaultProps } }] };
     const document = resolved.adapter.fromPuckData(inserted);
     expect(document.regions.main[0]?.bindings).toEqual({
-      source: { source: { id: salesOpportunitiesDescriptor.id, version: salesOpportunitiesDescriptor.version }, input: {}, structuralCompatibilityHash: salesOpportunitiesDescriptor.structuralCompatibilityHash, selectedFields: ["name", "stage-id", "revision", "amount"] },
+      source: { source: { id: salesOpportunitiesDescriptor.id, version: salesOpportunitiesDescriptor.version }, input: {}, structuralCompatibilityHash: salesOpportunitiesDescriptor.structuralCompatibilityHash, selectedFields: ["name", "stage-id", "revision"] },
       action: { id: salesOpportunityStageUpdateDescriptor.id, version: salesOpportunityStageUpdateDescriptor.version }
     });
     expect(resolved.validateDocument(document).regions.main[0]?.type).toBe("sales.opportunity-kanban");

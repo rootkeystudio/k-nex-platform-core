@@ -9,10 +9,16 @@ overrides:
 
 pnpmfileChecksum: sha256-O7pLklGxgU7hyI38u84E7u908yOLMQJzD1NyXVAxEcc=
 
+patchedDependencies:
+  '@payloadcms/db-postgres@3.88.0': 0889c7c61e08478410dfcb1112415677fa9f50267901ee15c99e3deb1c9edf2f
+
 importers:
 
   .:
     devDependencies:
+      axe-core:
+        specifier: 4.13.0
+        version: 4.13.0
       playwright:
         specifier: 1.61.0
         version: 1.61.0
@@ -60,7 +66,7 @@ importers:
         version: link:../../packages/ui-runtime
       '@payloadcms/db-postgres':
         specifier: 3.88.0
-        version: 3.88.0(payload@3.88.0(graphql@16.14.2)(typescript@6.0.3))
+        version: 3.88.0(patch_hash=0889c7c61e08478410dfcb1112415677fa9f50267901ee15c99e3deb1c9edf2f)(payload@3.88.0(graphql@16.14.2)(typescript@6.0.3))
       '@payloadcms/next':
         specifier: 3.88.0
         version: 3.88.0(@types/react@19.2.18)(graphql@16.14.2)(monaco-editor@0.56.0)(next@16.3.1(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4))(payload@3.88.0(graphql@16.14.2)(typescript@6.0.3))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(typescript@6.0.3)
@@ -322,7 +328,7 @@ importers:
         version: link:../runtime
       '@payloadcms/db-postgres':
         specifier: 3.88.0
-        version: 3.88.0(payload@3.88.0(graphql@16.14.2)(typescript@6.0.3))
+        version: 3.88.0(patch_hash=0889c7c61e08478410dfcb1112415677fa9f50267901ee15c99e3deb1c9edf2f)(payload@3.88.0(graphql@16.14.2)(typescript@6.0.3))
       '@payloadcms/plugin-mcp':
         specifier: 3.88.0
         version: 3.88.0(next@16.3.1(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4))(payload@3.88.0(graphql@16.14.2)(typescript@6.0.3))
@@ -357,7 +363,7 @@ importers:
         version: link:../theme-minimal
       '@payloadcms/db-postgres':
         specifier: 3.88.0
-        version: 3.88.0(payload@3.88.0(graphql@16.14.2)(typescript@6.0.3))
+        version: 3.88.0(patch_hash=0889c7c61e08478410dfcb1112415677fa9f50267901ee15c99e3deb1c9edf2f)(payload@3.88.0(graphql@16.14.2)(typescript@6.0.3))
       '@testcontainers/postgresql':
         specifier: 12.1.0
         version: 12.1.0
@@ -2858,6 +2864,10 @@ packages:
   atomic-sleep@1.0.0:
     resolution: {integrity: sha512-kNOjDqAh7px0XWNI+4QbzoiR/nTkHAWNud2uvnJquD1/x5a7EQZMJT0AczqK0Qn67oY/TTQ1LbUKajZpp3I9tQ==}
     engines: {node: '>=8.0.0'}
+
+  axe-core@4.13.0:
+    resolution: {integrity: sha512-UzGt8zg7Ny8djbYMhxl2zuEevVa7r2gJjYY5Lwr1xM7+XU2nd6CkIWFTVcCIbAP63vSz71NaVyyuSk9lHKcy0A==}
+    engines: {node: '>=4'}
 
   b4a@1.8.1:
     resolution: {integrity: sha512-aiqre1Nr0B/6DgE2N5vwTc+2/oQZ4Wh1t4NznYY4E00y8LCt6NqdRv81so00oo27D8MVKTpUa/MwUUtBLXCoDw==}
@@ -5987,7 +5997,7 @@ snapshots:
 
   '@oxc-project/types@0.147.0': {}
 
-  '@payloadcms/db-postgres@3.88.0(payload@3.88.0(graphql@16.14.2)(typescript@6.0.3))':
+  '@payloadcms/db-postgres@3.88.0(patch_hash=0889c7c61e08478410dfcb1112415677fa9f50267901ee15c99e3deb1c9edf2f)(payload@3.88.0(graphql@16.14.2)(typescript@6.0.3))':
     dependencies:
       '@payloadcms/drizzle': 3.88.0(@types/pg@8.20.0)(payload@3.88.0(graphql@16.14.2)(typescript@6.0.3))(pg@8.20.0)
       '@types/pg': 8.20.0
@@ -6944,6 +6954,8 @@ snapshots:
   async@3.2.6: {}
 
   atomic-sleep@1.0.0: {}
+
+  axe-core@4.13.0: {}
 
   b4a@1.8.1: {}
 

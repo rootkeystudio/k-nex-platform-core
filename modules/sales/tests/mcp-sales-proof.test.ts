@@ -102,7 +102,7 @@ describe("P2A.8 Sales tool proof", () => {
       principal: { kind: "user" as const, id: "user-1" },
       effectiveActor: { kind: "user" as const, id: "user-1" }
     };
-    const tasks: Array<{ id: string; title: string; status: "open" | "completed" | "cancelled"; revision: number }> = [{ id: "task-1", title: "Seed follow-up", status: "open", revision: 1 }];
+    const tasks: Array<{ id: string; title: string; status: "open" | "completed" | "cancelled"; revision: number }> = [{ id: "1", title: "Seed follow-up", status: "open", revision: 1 }];
     let creates = 0;
     const payloadRequest = {
       user: { id: "user-1", collection: "users" },
@@ -116,7 +116,7 @@ describe("P2A.8 Sales tool proof", () => {
         },
         create: async (options: { data: { title: string; status: "open" | "completed" | "cancelled"; revision: number } }) => {
           creates += 1;
-          const task = { id: `task-${tasks.length + 1}`, title: options.data.title, status: options.data.status, revision: options.data.revision };
+          const task = { id: String(tasks.length + 1), title: options.data.title, status: options.data.status, revision: options.data.revision };
           tasks.push(task);
           return task;
         },
@@ -384,7 +384,7 @@ describe("P2A.8 Sales tool proof", () => {
     expect(JSON.stringify(proof.read)).not.toContain("seed-secret");
     expect(proof.forbidden).toMatchObject({ ok: false, status: 404, body: { code: "TOOL_NOT_FOUND" } });
     expect(proof.prepared).toMatchObject({ ok: true, body: { status: "required" } });
-    expect(proof.write).toMatchObject({ ok: true, body: { data: { id: "task-2", title: "Approved follow-up", status: "open", revision: 1 } } });
+    expect(proof.write).toMatchObject({ ok: true, body: { data: { id: "2", title: "Approved follow-up", status: "open", revision: 1 } } });
     expect(proof.replay).toEqual(proof.write);
     expect(proof.changedReplay).toMatchObject({ ok: false, status: 409, body: { code: "IDEMPOTENCY_KEY_REUSED" } });
     expect(creates).toBe(1);
@@ -400,12 +400,12 @@ describe("P2A.8 Sales tool proof", () => {
       signal: new AbortController().signal
     });
     const firstCursorPage = await cursorRequest({ cursor: { size: 1 }, filters: [], sort: [] });
-    expect(firstCursorPage).toMatchObject({ ok: true, body: { data: { rows: [{ key: "task-1" }], page: { number: 1, pageSize: 1, hasNext: true } } } });
+    expect(firstCursorPage).toMatchObject({ ok: true, body: { data: { rows: [{ key: "1" }], page: { number: 1, pageSize: 1, hasNext: true } } } });
     if (!firstCursorPage.ok) throw new Error("First authenticated Sales cursor page failed.");
     const nextCursor = (firstCursorPage.body.data as { page: { nextCursor?: string } }).page.nextCursor;
     expect(nextCursor).toMatch(/^[A-Za-z0-9_-]+$/);
     const secondCursorPage = await cursorRequest({ cursor: { size: 1, after: nextCursor }, filters: [], sort: [] });
-    expect(secondCursorPage).toMatchObject({ ok: true, body: { data: { rows: [{ key: "task-2" }], page: { number: 2, pageSize: 1, hasNext: false } } } });
+    expect(secondCursorPage).toMatchObject({ ok: true, body: { data: { rows: [{ key: "2" }], page: { number: 2, pageSize: 1, hasNext: false } } } });
     const changedQueryReplay = await cursorRequest({ cursor: { size: 2, after: nextCursor }, filters: [], sort: [] });
     expect(changedQueryReplay).toMatchObject({ ok: false, status: 400, body: { code: "INVALID_CURSOR" } });
     const malformedCursorReplay = await cursorRequest({ cursor: { size: 1, after: "not-a-sales-cursor" }, filters: [], sort: [] });

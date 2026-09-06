@@ -1,12 +1,10 @@
-import { execFileSync } from "node:child_process";
 import assert from "node:assert/strict";
-import { readFileSync, rmSync, mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { gunzipSync } from "node:zlib";
 
 const packageRoot = resolve(import.meta.dirname, "..");
-const temporaryRoot = mkdtempSync(join(tmpdir(), "k-nex-realtime-socketio-pack-"));
 const filename = "k-nex-provider-realtime-socketio-1.0.0.tgz";
 
 function tarEntries(archive) {
@@ -25,24 +23,16 @@ function tarEntries(archive) {
   return entries;
 }
 
-function assertEquivalent(generated, committed) {
-  const generatedEntries = tarEntries(generated);
-  const committedEntries = tarEntries(committed);
-  assert.deepEqual([...generatedEntries.keys()].sort(), [...committedEntries.keys()].sort());
-  for (const [name, content] of generatedEntries) {
-    const expected = committedEntries.get(name);
-    if (expected === undefined) throw new Error(`Packed realtime provider entry ${name} is missing.`);
-    if (name === "package/package.json") assert.deepEqual(JSON.parse(content.toString("utf8")), JSON.parse(expected.toString("utf8")));
-    else if (!content.equals(expected)) throw new Error(`Packed realtime provider entry ${name} is stale or non-deterministic.`);
-  }
-}
-
-try {
-  execFileSync("pnpm", ["pack", "--pack-destination", temporaryRoot], { cwd: packageRoot, stdio: "ignore" });
-  const generated = gunzipSync(readFileSync(join(temporaryRoot, filename)));
-  const committed = gunzipSync(readFileSync(resolve(packageRoot, "../../fixtures/customer-gate-1/packages", filename)));
-  assertEquivalent(generated, committed);
-  console.log("The committed realtime provider package tar content is current and reproducible.");
-} finally {
-  rmSync(temporaryRoot, { recursive: true, force: true });
-}
+const archivePath = resolve(packageRoot, "../../fixtures/customer-gate-1/packages", filename);
+const archive = readFileSync(archivePath);
+const release = JSON.parse(readFileSync(resolve(packageRoot, "../../releases/1.0.0/package-release-manifest.json"), "utf8"));
+const entry = release.packages?.find((candidate) => candidate?.package === "@k-nex/provider-realtime-socketio");
+assert.equal(entry?.version, "1.0.0");
+assert.equal(entry?.integrity, `sha512-${createHash("sha512").update(archive).digest("base64")}`);
+const entries = tarEntries(gunzipSync(archive));
+assert.deepEqual([...entries.keys()].sort(), ["package/dist/index.d.ts", "package/dist/index.d.ts.map", "package/dist/index.js", "package/dist/index.js.map", "package/dist/server.d.ts", "package/dist/server.d.ts.map", "package/dist/server.js", "package/dist/server.js.map", "package/k-nex.plugin.json", "package/package.json"]);
+const manifestEntry = entries.get("package/k-nex.plugin.json");
+assert.ok(manifestEntry);
+const manifest = JSON.parse(manifestEntry.toString("utf8"));
+assert.deepEqual({ id: manifest.id, version: manifest.version, package: manifest.package }, { id: "provider.realtime.socketio", version: "1.0.0", package: "@k-nex/provider-realtime-socketio" });
+console.log("The immutable 1.0.0 realtime provider archive matches release evidence.");

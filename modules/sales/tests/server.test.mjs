@@ -21,8 +21,10 @@ import salesManifest from "../k-nex.plugin.json" with { type: "json" };
 
 import {
   salesCreateTaskToolDescriptor,
+  salesCreateTaskOutputRuntimeSchema,
   salesEventDescriptors,
   salesNavigationDescriptors,
+  salesOpportunityFields,
   salesOpportunitiesDescriptor,
   salesOpportunitiesOutputRuntimeSchema,
   salesRealtimeTopicDescriptors,
@@ -30,7 +32,11 @@ import {
   salesSearchTasksDescriptor,
   salesTaskCreateDescriptor,
   salesTaskUpdateDescriptor,
+  salesUpdateTaskInputRuntimeSchema,
+  salesUpdateTaskOutputRuntimeSchema,
   salesOpportunityStageUpdateDescriptor,
+  salesOpportunityStageInputRuntimeSchema,
+  salesOpportunityStageOutputRuntimeSchema,
   salesPageTemplates,
   salesReferenceMetadata,
   salesUiBlockDescriptors,
@@ -45,6 +51,7 @@ import {
   createSalesRealtimeRelay,
   salesDefaultSettings,
   salesOpportunitiesHandler,
+  salesLeadDetailHandler,
   salesPipelineAuditJob,
   salesOpportunityStageUpdateHandler,
   salesRegistration,
@@ -55,14 +62,91 @@ import {
   salesTasksHandler,
   salesCrmActionDescriptors,
   salesCrmRouteDescriptors,
-  salesPermissionPolicyExecutors
+  salesWorkflowActionDefinitions,
+  salesWorkflowActionHandler,
+  salesPermissionPolicyExecutors,
+  projectSalesStateHistory,
+  salesEventAfterChange
 } from "../dist/server.js";
+
+test("qualified Lead detail projects only bounded lineage cells", async () => {
+  let select;
+  const result = await salesLeadDetailHandler(handlerContext({
+    input: { id: "7" },
+    selectedFields: ["display-name", "qualified-account-id", "qualified-contact-id", "qualified-opportunity-id"],
+    recordScope: salesScope("sales.lead.detail"),
+    request: { payload: { find: async (request) => {
+      select = request.select;
+      return { docs: [{ id: 7, displayName: "Qualified lead", qualifiedAccountId: "8", qualifiedContactId: "9", qualifiedOpportunityId: "10" }], hasNextPage: false };
+    } } }
+  }));
+  assert.deepEqual(select, { id: true, displayName: true, qualifiedAccountId: true, qualifiedContactId: true, qualifiedOpportunityId: true });
+  assert.deepEqual(result.rows[0], { key: "7", values: {
+    "display-name": { kind: "text", value: "Qualified lead" },
+    "qualified-account-id": { kind: "integer", value: 8 },
+    "qualified-contact-id": { kind: "integer", value: 9 },
+    "qualified-opportunity-id": { kind: "integer", value: 10 }
+  } });
+});
 import {
   salesCrmPermissionDescriptors,
   salesCrmObjectFieldActionMatrix,
   salesCrmPermissionPolicyBindings,
   salesCrmRoleTemplates
 } from "../dist/crm-authority.js";
+
+test("Sales CRM action outputs are exact and action-specific", () => {
+  const definition = (id) => salesWorkflowActionDefinitions.find((candidate) => candidate.descriptor.id === id);
+  assert.equal(definition("sales.account.create").outputSchema.safeParse({ id: "1", revision: 1, status: "active" }).success, true);
+  assert.equal(definition("sales.account.create").outputSchema.safeParse({ id: "1", revision: 1, status: "active", secret: "leak" }).success, false);
+  assert.equal(definition("sales.account.create").outputSchema.safeParse({ id: "1", revision: 1, status: "qualified" }).success, false);
+  assert.equal(definition("sales.account.create").outputSchema.safeParse({ id: "not-an-id", revision: 1, status: "active" }).success, false);
+  assert.equal(definition("sales.lead.qualify").outputSchema.safeParse({ id: "1", revision: 2, status: "qualified", accountId: "2", contactId: "3", opportunityId: "4" }).success, true);
+  assert.equal(definition("sales.lead.qualify").outputSchema.safeParse({ id: "1", revision: 2, status: "qualified", accountId: "2", contactId: "3" }).success, false);
+});
+
+test("lead qualification accepts only exact ordered host linked-record admissions", async () => {
+  const input = { id: "1", expectedRevision: 1, accountMode: "link", accountId: "2", contactMode: "link", contactId: "3", opportunityName: "Qualified opportunity", pipelineId: "4" };
+  const account = { recordType: "sales.account", recordId: "2", applicationId: "customer-gate-1", environment: "production" };
+  const contact = { recordType: "sales.contact", recordId: "3", applicationId: "customer-gate-1", environment: "production" };
+  const base = { actionId: "sales.lead.qualify", resourceId: "1", applicationId: "customer-gate-1", environment: "production", actorId: "user-1", ownerId: "user-1", teamId: "team:user-1", eventId: "qualification-admission-test" };
+  const request = { payload: { find: async () => { throw new Error("admission reached storage"); }, create: async () => { throw new Error("admission reached storage"); }, update: async () => { throw new Error("admission reached storage"); } } };
+  for (const linkedRecordAdmissions of [undefined, [account], [contact, account], [account, account], [account, contact, contact], [{ ...account, recordId: "9" }], [{ ...account, environment: "staging" }, contact], [{ ...account, extra: true }, contact]]) {
+    await assert.rejects(salesWorkflowActionHandler({ actor: handlerContext().actor, request, authorizationContext: { ...base, ...(linkedRecordAdmissions === undefined ? {} : { linkedRecordAdmissions }) }, input, idempotencyKey: "qualification-admission", signal: new AbortController().signal }), /Sales linked-record admission is invalid/u);
+  }
+  const createInput = { id: "1", expectedRevision: 1, accountMode: "create", accountName: "Created", contactMode: "create", contactName: "Created", opportunityName: "Qualified opportunity", pipelineId: "4" };
+  await assert.rejects(salesWorkflowActionHandler({ actor: handlerContext().actor, request, authorizationContext: { ...base, linkedRecordAdmissions: [] }, input: createInput, idempotencyKey: "qualification-create-admission", signal: new AbortController().signal }), /Sales linked-record admission is invalid/u);
+});
+
+test("committed v2 task and opportunity actions preserve opaque 128-byte IDs", async () => {
+  const id = `legacy-${"x".repeat(121)}`;
+  assert.equal(id.length, 128);
+  const taskOutput = { id, title: "Legacy task", status: "open", revision: 1 };
+  const taskUpdate = { id, expectedRevision: 1, expectedStatus: "open", status: "completed" };
+  const opportunityInput = { id, expectedStage: "qualification", expectedRevision: 1, stage: "discovery" };
+  const opportunityOutput = { id, name: "Legacy opportunity", stage: "discovery", revision: 2 };
+  assert.equal(salesCreateTaskOutputRuntimeSchema.safeParse(taskOutput).success, true);
+  assert.equal(salesUpdateTaskInputRuntimeSchema.safeParse(taskUpdate).success, true);
+  assert.equal(salesUpdateTaskOutputRuntimeSchema.safeParse({ ...taskOutput, status: "completed", revision: 2 }).success, true);
+  assert.equal(salesOpportunityStageInputRuntimeSchema.safeParse(opportunityInput).success, true);
+  assert.equal(salesOpportunityStageOutputRuntimeSchema.safeParse(opportunityOutput).success, true);
+  const opaqueIdSchema = { type: "string", minLength: 1, maxLength: 128 };
+  assert.deepEqual(salesTaskCreateDescriptor.outputSchema.properties.id, opaqueIdSchema);
+  assert.deepEqual(salesTaskUpdateDescriptor.inputSchema.properties.id, opaqueIdSchema);
+  assert.deepEqual(salesTaskUpdateDescriptor.outputSchema.properties.id, opaqueIdSchema);
+  assert.deepEqual(salesOpportunityStageUpdateDescriptor.inputSchema.properties.id, opaqueIdSchema);
+  assert.deepEqual(salesOpportunityStageUpdateDescriptor.outputSchema.properties.id, opaqueIdSchema);
+  const overlong = `${id}x`;
+  assert.equal(salesCreateTaskOutputRuntimeSchema.safeParse({ ...taskOutput, id: overlong }).success, false);
+  assert.equal(salesUpdateTaskInputRuntimeSchema.safeParse({ ...taskUpdate, id: overlong }).success, false);
+  assert.equal(salesOpportunityStageInputRuntimeSchema.safeParse({ ...opportunityInput, id: overlong }).success, false);
+
+  const actor = handlerContext().actor;
+  const request = { payload: { find: async () => { throw new Error("replay found"); }, create: async () => { throw new Error("replay created"); }, update: async () => { throw new Error("replay updated"); } } };
+  const authorization = (actionId, replay) => ({ actionId, resourceId: id, applicationId: "customer-gate-1", environment: "production", actorId: "user-1", ownerId: "user-1", idempotencyReplay: replay });
+  assert.deepEqual(await salesTaskUpdateHandler({ actor, request, authorizationContext: authorization("sales.task.update", { ...taskOutput, status: "completed", revision: 2 }), input: taskUpdate, idempotencyKey: "legacy-task-replay", signal: new AbortController().signal }), { ...taskOutput, status: "completed", revision: 2 });
+  assert.deepEqual(await salesOpportunityStageUpdateHandler({ actor, request, authorizationContext: authorization("sales.opportunity.stage.update", opportunityOutput), input: opportunityInput, idempotencyKey: "legacy-opportunity-replay", signal: new AbortController().signal }), opportunityOutput);
+});
 
 function handlerContext(overrides = {}) {
   const base = {
@@ -129,6 +213,14 @@ test("Sales registers active v2 sources and frozen P13.2 authority", () => {
   assert.equal(salesTasksDefinition.descriptor.primaryContract.id, "table.records");
   assert.deepEqual(salesTasksDescriptor.outputFields.map(({ id }) => id), ["title", "status"]);
   assert.deepEqual(salesOpportunitiesDescriptor.outputFields.map(({ id }) => id), ["name", "stage-id", "revision", "amount"]);
+  assert.deepEqual(salesOpportunitiesDescriptor, {
+    id: "sales.opportunities", version: 2, ownerPluginId: "module.sales",
+    primaryContract: { id: "table.records", version: 1 }, sourceSchema: { id: "sales.opportunities.output", version: 2 },
+    audience: "authenticated", surfaces: ["workspace"], permission: "sales.opportunities.read",
+    structuralCompatibilityHash: "sha256:49a707b6f512bc0d8cad02c38a506066e6973e09468e1e3c8373c8e1287ade5d",
+    presentationMetadataRevision: 1, title: "Sales opportunities", inputFields: [], outputFields: salesOpportunityFields,
+    paginationModes: ["offset"], limits: { maxSelectedFields: 8, maxPageSize: 100, maxFilters: 8, maxSorts: 2, maxBodyBytes: 32_768, maxResultBytes: 1_048_576, maxDepth: 6, timeoutMs: 5_000, maxConcurrency: 4, ratePerMinute: 300, burst: 30, costClass: "medium", maxCost: 100 }, cacheClass: "actor"
+  });
   const permissionIds = new Set(salesCrmPermissionDescriptors.map(({ id }) => id));
   for (const descriptor of [salesTasksDescriptor, salesOpportunitiesDescriptor]) {
     assert.equal(permissionIds.has(descriptor.permission), true, `${descriptor.id} must reference a declared permission`);
@@ -144,8 +236,8 @@ test("Sales registers active v2 sources and frozen P13.2 authority", () => {
     register: (kind, id) => contributions.push([kind, id]),
     bindRenderer: (kind, id) => bindings.push([kind, id])
   });
-  assert.deepEqual(contributions.filter(([kind]) => kind === "sources").map(([, id]) => id).sort(), ["sales.opportunities", "sales.tasks"]);
-  assert.deepEqual(contributions.filter(([kind]) => kind === "actions").map(([, id]) => id).sort(), ["sales.opportunity.stage.update", "sales.task.create", "sales.task.update"]);
+  assert.deepEqual(contributions.filter(([kind]) => kind === "sources").map(([, id]) => id).sort(), ["sales.account.detail", "sales.accounts", "sales.contact.detail", "sales.contacts", "sales.lead.detail", "sales.leads", "sales.opportunities", "sales.opportunity.detail", "sales.tasks", "sales.timeline"]);
+  assert.deepEqual(contributions.filter(([kind]) => kind === "actions").map(([, id]) => id).sort(), salesManifest.contributions.actions && Object.keys(salesManifest.contributions.actions).sort());
   assert.deepEqual(contributions.filter(([kind]) => kind === "tools").map(([, id]) => id).sort(), ["sales.tools.create-task", "sales.tools.search-tasks"]);
   assert.deepEqual(contributions.filter(([kind]) => kind === "permissions").map(([, id]) => id).sort(), salesCrmPermissionDescriptors.map(({ id }) => id).sort());
   assert.deepEqual(contributions.filter(([kind]) => kind === "policyBindings").map(([, id]) => id).sort(), salesCrmPermissionPolicyBindings.map(({ id }) => id).sort());
@@ -156,8 +248,8 @@ test("Sales registers active v2 sources and frozen P13.2 authority", () => {
   assert.deepEqual(contributions.filter(([kind]) => kind === "pageTemplates").map(([, id]) => id), salesPageTemplates.map(({ id }) => id));
   assert.deepEqual(contributions.filter(([kind]) => kind === "components").map(([, id]) => id), salesUiComponentDescriptors.map(({ id }) => id));
   assert.deepEqual(contributions.filter(([kind]) => kind === "blocks").map(([, id]) => id), salesUiBlockDescriptors.map(({ id }) => id));
-  assert.deepEqual(bindings.filter(([kind]) => kind === "sources").map(([, id]) => id).sort(), ["sales.opportunities", "sales.tasks"]);
-  assert.deepEqual(bindings.filter(([kind]) => kind === "actions").map(([, id]) => id).sort(), ["sales.opportunity.stage.update", "sales.task.create", "sales.task.update"]);
+  assert.deepEqual(bindings.filter(([kind]) => kind === "sources").map(([, id]) => id).sort(), ["sales.account.detail", "sales.accounts", "sales.contact.detail", "sales.contacts", "sales.lead.detail", "sales.leads", "sales.opportunities", "sales.opportunity.detail", "sales.tasks", "sales.timeline"]);
+  assert.deepEqual(bindings.filter(([kind]) => kind === "actions").map(([, id]) => id).sort(), salesManifest.contributions.actions && Object.keys(salesManifest.contributions.actions).sort());
   assert.deepEqual(bindings.filter(([kind]) => kind === "components").map(([, id]) => id), salesUiComponentDescriptors.map(({ id }) => id));
   assert.deepEqual(bindings.filter(([kind]) => kind === "blocks").map(([, id]) => id), salesUiBlockDescriptors.map(({ id }) => id));
 });
@@ -228,12 +320,12 @@ test("Sales current record policies enforce exact persona scope modes", () => {
     permissionId: "sales.tasks.read",
     applicationId: "customer-gate-1",
     effectiveActor: { id: "user-1" },
-    scope: { kind: "record", recordId: "task-1" },
+    scope: { kind: "record", recordId: "1" },
     facts: {
       applicationId: "customer-gate-1",
       environment: "production",
       recordEnvironment: "production",
-      recordId: "task-1",
+      recordId: "1",
       ownerId: "user-1",
       recordScope: "owned-or-assigned-team",
       applicationWide: false,
@@ -264,7 +356,7 @@ test("Sales current record policies enforce exact persona scope modes", () => {
   assert.equal(fieldExecutor.evaluate({
     ...input,
     permissionId: "sales.opportunities.amount.read",
-    scope: { kind: "field", recordId: "task-1", fieldId: "amount" },
+    scope: { kind: "field", recordId: "1", fieldId: "amount" },
     facts: { ...input.facts, fieldId: "amount", fieldAllowed: false }
   }).outcome, "deny");
 });
@@ -290,10 +382,10 @@ test("Sales registers source/action-backed tools with strict write policy", () =
 
 test("Sales declares event-to-realtime invalidation mappings", () => {
   assert.deepEqual(salesEventDescriptors.map(({ id }) => id).sort(), [
-    "sales.event.opportunity-changed", "sales.event.task-changed"
+    "sales.event.account-changed", "sales.event.contact-changed", "sales.event.lead-changed", "sales.event.opportunity-changed", "sales.event.task-changed", "sales.event.timeline-changed"
   ]);
   const eventIds = new Set(salesEventDescriptors.map(({ id }) => id));
-  const sourceIds = new Set([salesOpportunitiesDescriptor.id, salesTasksDescriptor.id]);
+  const sourceIds = new Set(salesManifest.contributions.sources && Object.keys(salesManifest.contributions.sources));
   const permissionIds = new Set(salesCrmPermissionDescriptors.map(({ id }) => id));
   for (const event of salesEventDescriptors) {
     assert.equal(event.eventClass, "durable-integration");
@@ -304,6 +396,9 @@ test("Sales declares event-to-realtime invalidation mappings", () => {
     assert.equal(sourceIds.has(topic.sourceId), true);
     assert.equal(permissionIds.has(topic.permission), true);
   }
+  assert.deepEqual(salesRealtimeTopicDescriptors.find(({ id }) => id === "sales.realtime.timeline"), {
+    id: "sales.realtime.timeline", version: 1, ownerPluginId: "module.sales", eventId: "sales.event.timeline-changed", sourceId: "sales.timeline", permission: "sales.activities.read"
+  });
 });
 
 test("the Sales create action finalizes resource-bound audit evidence in its transaction", async () => {
@@ -313,11 +408,11 @@ test("the Sales create action finalizes resource-bound audit evidence in its tra
       find: async () => ({ docs: [], hasNextPage: false }),
       create: async (options) => {
         calls.push(options);
-        return { id: "task-7", title: options.data.title, status: options.data.status, revision: options.data.revision };
+        return { id: "7", title: options.data.title, status: options.data.status, revision: options.data.revision };
       },
       update: async (options) => {
         calls.push(options);
-        return { id: "task-7", title: "Call customer", status: "open", revision: 1 };
+        return { id: "7", title: "Call customer", status: "open", revision: 1 };
       }
     },
     locale: "en-US",
@@ -328,10 +423,10 @@ test("the Sales create action finalizes resource-bound audit evidence in its tra
     request,
     authorizationContext: { actionId: "sales.task.create", applicationId: "customer-gate-1", environment: "production", actorId: "user-1", ownerId: "user-2", teamId: "team-1" },
     input: { title: "Call customer" },
-    idempotencyKey: "create-task-1",
+    idempotencyKey: "create-1",
     signal: new AbortController().signal
   });
-  assert.deepEqual(result, { id: "task-7", title: "Call customer", status: "open", revision: 1 });
+  assert.deepEqual(result, { id: "7", title: "Call customer", status: "open", revision: 1 });
   assert.equal(calls.length, 2);
   assert.equal(calls[0].collection, "sales-tasks");
   assert.equal(calls[0].overrideAccess, true);
@@ -346,10 +441,10 @@ test("the Sales create action finalizes resource-bound audit evidence in its tra
   assert.deepEqual(calls[0].context, {});
   assert.equal(calls[1].collection, "sales-tasks");
   assertActionAudit(calls[1].data.audit[0], {
-    actionId: "sales.task.create", resourceId: "task-7", applicationId: "customer-gate-1", environment: "production",
-    fromState: "absent", toState: "open", actorId: "user-1", revision: 1, idempotencyKey: "create-task-1"
+    actionId: "sales.task.create", resourceId: "7", applicationId: "customer-gate-1", environment: "production",
+    fromState: "absent", toState: "open", actorId: "user-1", revision: 1, idempotencyKey: "create-1"
   });
-  assert.deepEqual({ eventId: calls[1].context.kNexSalesEvent.eventId, type: calls[1].context.kNexSalesEvent.type }, { eventId: "create-task-1", type: "sales.event.task-changed" });
+  assert.deepEqual({ eventId: calls[1].context.kNexSalesEvent.eventId, type: calls[1].context.kNexSalesEvent.type }, { eventId: "create-1", type: "sales.event.task-changed" });
   assert.deepEqual(calls[1].context.kNexSalesEvent.transition, calls[1].data.audit[0]);
 });
 
@@ -364,19 +459,44 @@ test("Sales durable events project task and opportunity invalidations through th
     actor: { kind: "system", id: "outbox.processor" }, checkpoint: null, event,
     idempotencyKey: event.id, saveCheckpoint: async () => undefined
   });
-  await run({ ...base, id: "task-event-1", type: "sales.event.task-changed", payload: { resourceId: "task-1", actionId: "sales.task.update", environment: "production", fromState: "open", toState: "completed", revision: 2, idempotencyKey: "task-event-1", operation: "update" } });
-  await run({ ...base, id: "opportunity-event-1", type: "sales.event.opportunity-changed", payload: { resourceId: "opp-1", actionId: "sales.opportunity.stage.update", environment: "production", fromState: "discovery", toState: "proposal", revision: 8, idempotencyKey: "opportunity-event-1", operation: "update" } });
+  await run({ ...base, id: "task-event-1", type: "sales.event.task-changed", payload: { resourceId: "1", actionId: "sales.task.update", environment: "production", fromState: "open", toState: "completed", revision: 2, idempotencyKey: "task-event-1", operation: "update" } });
+  await run({ ...base, id: "opportunity-event-1", type: "sales.event.opportunity-changed", payload: { resourceId: "2", actionId: "sales.opportunity.stage.update", environment: "production", fromState: "discovery", toState: "proposal", revision: 8, idempotencyKey: "opportunity-event-1", operation: "update" } });
   assert.deepEqual(publications.map(({ channel, message }) => ({ topicId: channel.topicId, message })), [
-    { topicId: "sales.realtime.tasks", message: { sourceId: "sales.tasks", resourceId: "task-1", actionId: "sales.task.update", environment: "production", fromState: "open", toState: "completed", revision: 2, idempotencyKey: "task-event-1", operation: "update" } },
-    { topicId: "sales.realtime.opportunities", message: { sourceId: "sales.opportunities", resourceId: "opp-1", actionId: "sales.opportunity.stage.update", environment: "production", fromState: "discovery", toState: "proposal", revision: 8, idempotencyKey: "opportunity-event-1", operation: "update" } }
+    { topicId: "sales.realtime.tasks", message: { topic: "sales.realtime.tasks", source: "sales.tasks", event: "sales.event.task-changed", correlation: "correlation-1", dedupe: "task-event-1" } },
+    { topicId: "sales.realtime.opportunities", message: { topic: "sales.realtime.opportunities", source: "sales.opportunities", event: "sales.event.opportunity-changed", correlation: "correlation-1", dedupe: "opportunity-event-1" } }
   ]);
+  assert.equal(JSON.stringify(publications).includes("resourceId"), false);
+  assert.equal(JSON.stringify(publications).includes("fromState"), false);
+});
+
+test("Sales durable event hook binds the exact final audit transition and closed event contract", async () => {
+  const transition = { actionId: "sales.task.update", resourceId: "1", applicationId: "customer-gate-1", environment: "production", fromState: "open", toState: "completed", occurredAt: "2026-09-06T00:00:00.000Z", actorId: "user-1", revision: 2, idempotencyKey: "event-1" };
+  const baseEvent = { eventId: "event-1", type: "sales.event.task-changed", stateField: "status", transition };
+  const baseDoc = { id: 1, applicationId: "customer-gate-1", environment: "production", status: "completed", revision: 2, audit: [{ ...transition, revision: 1, idempotencyKey: "event-0" }, transition] };
+  const run = async ({ event = baseEvent, doc = baseDoc, operation = "update", applicationId = "customer-gate-1" } = {}) => {
+    const writes = [];
+    const req = { headers: new Headers(), transactionID: "tx", payload: { config: { custom: { kNexApplicationId: applicationId } }, db: { sessions: { tx: { db: { execute: async (query) => { writes.push(query); return { rows: [] }; } } } } } } };
+    await salesEventAfterChange({ collection: { slug: "sales-tasks" }, context: { kNexSalesEvent: event }, doc, operation, req });
+    return writes;
+  };
+  assert.equal((await run()).length, 1);
+  for (const candidate of [
+    { event: { ...baseEvent, eventId: "event-other" } },
+    { event: { ...baseEvent, type: "sales.event.opportunity-changed" } },
+    { event: { ...baseEvent, stateField: "stageId" } },
+    { event: { ...baseEvent, transition: { ...transition, actionId: "sales.task.unknown" } } },
+    { event: { ...baseEvent, transition: { ...transition, actorId: "user-other" } } },
+    { doc: { ...baseDoc, audit: [...baseDoc.audit.slice(0, -1), { ...transition, fromState: "cancelled" }] } },
+    { operation: "create" },
+    { applicationId: "customer-other" }
+  ]) await assert.rejects(run(candidate), /does not match/);
 });
 
 test("Sales output schemas enforce canonical task shapes", () => {
   const validTable = {
     fields: ["title", "status"],
     rows: [{
-      key: "task-1",
+      key: "1",
       values: {
         title: { kind: "text", value: "Follow-up" },
         status: { kind: "status", value: "open" }
@@ -414,14 +534,14 @@ test("the task source applies bounded projection, allowlisted operations, and pa
       payload: {
         find: async (options) => {
           call = options;
-          return { docs: [{ id: "task-1", title: "Follow-up", status: "open" }], page: 2, totalPages: 3, hasNextPage: true };
+          return { docs: [{ id: "1", title: "Follow-up", status: "open" }], page: 2, totalPages: 3, hasNextPage: true };
         }
       }
     }
   }));
   assert.deepEqual(result, {
     fields: ["title", "status"],
-    rows: [{ key: "task-1", values: {
+    rows: [{ key: "1", values: {
       title: { kind: "text", value: "Follow-up" },
       status: { kind: "status", value: "open" }
     } }],
@@ -541,18 +661,18 @@ test("the opportunities source returns bounded canonical rows", async () => {
     request: { payload: { find: async (options) => {
       assert.equal(options.collection, "sales-opportunities");
       assert.equal(options.select.currency, true);
-      return { docs: [{ id: "opp-1", name: "Platform rollout", stageId: "discovery", amount: "1200.50", currency: "EUR", revision: 7 }], hasNextPage: false };
+      return { docs: [{ id: "2", name: "Platform rollout", stageId: "discovery", archiveStatus: "active", amount: "1200.50", currency: "EUR", revision: 7 }], hasNextPage: false };
     } } },
     selectedFields: ["name", "stage-id", "revision", "amount"],
     recordScope: salesScope("sales.opportunities")
   }));
   assert.deepEqual(result.rows[0], {
-    key: "opp-1",
+    key: "2",
     values: {
       name: { kind: "text", value: "Platform rollout" },
       "stage-id": { kind: "status", value: "discovery" },
       revision: { kind: "integer", value: 7 },
-      amount: { kind: "money", value: "1200.5", currency: "EUR", scale: 2 }
+      amount: { kind: "money", value: "1200.50", currency: "EUR", scale: 2 }
     }
   });
 });
@@ -560,7 +680,7 @@ test("the opportunities source returns bounded canonical rows", async () => {
 test("Sales opportunity output accepts only exact canonical selected cells", () => {
   const valid = {
     fields: ["name", "stage-id", "revision", "amount"],
-    rows: [{ key: "opp-1", values: {
+    rows: [{ key: "2", values: {
       name: { kind: "text", value: "Platform rollout" },
       "stage-id": { kind: "status", value: "discovery" },
       revision: { kind: "integer", value: 7 },
@@ -583,10 +703,10 @@ test("Sales opportunity output accepts only exact canonical selected cells", () 
 
 test("Sales opportunity money preserves stored currency and rejects malformed amount pairs", async () => {
   const source = (document) => salesOpportunitiesHandler(handlerContext({
-    request: { payload: { find: async () => ({ docs: [{ id: "opp-1", name: "Platform rollout", stageId: "discovery", revision: 1, ...document }], hasNextPage: false }) } },
+    request: { payload: { find: async () => ({ docs: [{ id: "2", name: "Platform rollout", stageId: "discovery", revision: 1, ...document }], hasNextPage: false }) } },
     selectedFields: ["amount"], recordScope: salesScope("sales.opportunities")
   }));
-  assert.deepEqual((await source({ amount: "0.00", currency: "EUR" })).rows[0].values.amount, { kind: "money", value: "0", currency: "EUR", scale: 2 });
+  assert.deepEqual((await source({ amount: "0.00", currency: "EUR" })).rows[0].values.amount, { kind: "money", value: "0.00", currency: "EUR", scale: 2 });
   for (const document of [
     { amount: "12.3x", currency: "EUR" }, { amount: "12.3", currency: "eur" },
     { amount: 12.3, currency: "EUR" }, { amount: null, currency: "EUR" }, { amount: "12.3", currency: null }
@@ -613,16 +733,16 @@ test("Sales mutation lifecycles reject invalid, stale, replayed, and foreign-sco
   };
   const base = {
     actor: handlerContext().actor, request, idempotencyKey: "replay-1", signal: new AbortController().signal,
-    authorizationContext: { actionId: "sales.task.update", resourceId: "task-1", applicationId: "customer-gate-1", environment: "production", actorId: "user-1", ownerId: "user-1", teamId: "team-1" }
+    authorizationContext: { actionId: "sales.task.update", resourceId: "1", applicationId: "customer-gate-1", environment: "production", actorId: "user-1", ownerId: "user-1", teamId: "team-1" }
   };
-  await assert.rejects(salesTaskUpdateHandler({ ...base, input: { id: "task-1", expectedRevision: 1, expectedStatus: "completed", status: "cancelled" } }));
-  await assert.rejects(salesTaskUpdateHandler({ ...base, input: { id: "task-1", expectedRevision: 1, expectedStatus: "open", status: "open" } }));
-  await assert.rejects(salesTaskUpdateHandler({ ...base, input: { id: "task-1", expectedRevision: 1, expectedStatus: "open", status: "completed" } }), (error) => error?.code === "STALE_RECORD");
-  await assert.rejects(salesTaskUpdateHandler({ ...base, authorizationContext: { ...base.authorizationContext, ownerId: "user-2", teamId: "team-2" }, input: { id: "task-1", expectedRevision: 1, expectedStatus: "open", status: "cancelled" } }), (error) => error?.code === "STALE_RECORD");
+  await assert.rejects(salesTaskUpdateHandler({ ...base, input: { id: "1", expectedRevision: 1, expectedStatus: "completed", status: "cancelled" } }));
+  await assert.rejects(salesTaskUpdateHandler({ ...base, input: { id: "1", expectedRevision: 1, expectedStatus: "open", status: "open" } }));
+  await assert.rejects(salesTaskUpdateHandler({ ...base, input: { id: "1", expectedRevision: 1, expectedStatus: "open", status: "completed" } }), (error) => error?.code === "STALE_RECORD");
+  await assert.rejects(salesTaskUpdateHandler({ ...base, authorizationContext: { ...base.authorizationContext, ownerId: "user-2", teamId: "team-2" }, input: { id: "1", expectedRevision: 1, expectedStatus: "open", status: "cancelled" } }), (error) => error?.code === "STALE_RECORD");
   await assert.rejects(salesTaskCreateHandler({ ...base, authorizationContext: { ...base.authorizationContext, actionId: "sales.task.create", resourceId: undefined }, input: { title: "Blocked", status: "completed" } }));
-  await assert.rejects(salesOpportunityStageUpdateHandler({ ...base, authorizationContext: { ...base.authorizationContext, actionId: "sales.opportunity.stage.update", resourceId: "opp-1" }, input: { id: "opp-1", expectedStage: "negotiation", expectedRevision: 1, stage: "won" } }));
+  await assert.rejects(salesOpportunityStageUpdateHandler({ ...base, authorizationContext: { ...base.authorizationContext, actionId: "sales.opportunity.stage.update", resourceId: "2" }, input: { id: "2", expectedStage: "negotiation", expectedRevision: 1, stage: "won" } }));
   assert.deepEqual(readWheres.at(-1).and, [
-    { id: { equals: "task-1" } }, { applicationId: { equals: "customer-gate-1" } }, { environment: { equals: "production" } },
+    { id: { equals: "1" } }, { applicationId: { equals: "customer-gate-1" } }, { environment: { equals: "production" } },
     { ownerId: { equals: "user-2" } }, { teamId: { equals: "team-2" } }, { status: { equals: "open" } }, { revision: { equals: 1 } }
   ]);
   assert.equal(creates, 0);
@@ -631,16 +751,16 @@ test("Sales mutation lifecycles reject invalid, stale, replayed, and foreign-sco
 
 test("Sales rejects malformed or unbounded prior audit history before a write", async () => {
   let updates = 0;
-  const authorizationContext = { actionId: "sales.task.update", resourceId: "task-1", applicationId: "customer-gate-1", environment: "production", actorId: "user-1", ownerId: "user-1" };
-  const transition = { actionId: "sales.task.update", resourceId: "task-1", applicationId: "customer-gate-1", environment: "production", fromState: "open", toState: "completed", occurredAt: "2026-09-06T00:00:00.000Z", actorId: "user-1", revision: 2, idempotencyKey: "prior-close-1" };
+  const authorizationContext = { actionId: "sales.task.update", resourceId: "1", applicationId: "customer-gate-1", environment: "production", actorId: "user-1", ownerId: "user-1" };
+  const transition = { actionId: "sales.task.update", resourceId: "1", applicationId: "customer-gate-1", environment: "production", fromState: "open", toState: "completed", occurredAt: "2026-09-06T00:00:00.000Z", actorId: "user-1", revision: 2, idempotencyKey: "prior-close-1" };
   for (const audit of [[{ notAnAudit: true }], [{ kind: "p13-2-generated-app-seed" }], [{ kind: "phase-13-legacy-upgrade", receiptDigest: "not-a-digest" }], [{ ...transition, actionId: "unknown" }], [transition, { ...transition, revision: 4, idempotencyKey: "prior-close-2" }], Array.from({ length: 101 }, () => ({ kind: "legacy" }))]) {
     const request = { payload: {
-      find: async () => ({ docs: [{ id: "task-1", audit }] }), create: async () => ({}),
+      find: async () => ({ docs: [{ id: "1", audit }] }), create: async () => ({}),
       update: async () => { updates += 1; return { docs: [], errors: [] }; }
     } };
     await assert.rejects(salesTaskUpdateHandler({
       actor: handlerContext().actor, request, authorizationContext,
-      input: { id: "task-1", expectedRevision: 1, expectedStatus: "open", status: "completed" },
+      input: { id: "1", expectedRevision: 1, expectedStatus: "open", status: "completed" },
       idempotencyKey: `audit-${updates + 1}`, signal: new AbortController().signal
     }), (error) => error?.code === "STALE_RECORD");
   }
@@ -649,34 +769,58 @@ test("Sales rejects malformed or unbounded prior audit history before a write", 
 
 test("Sales audit origin and current-row binding are collection-specific", async () => {
   let updates = 0;
-  const authorizationContext = { actionId: "sales.task.update", resourceId: "task-1", applicationId: "customer-gate-1", environment: "production", actorId: "user-1", ownerId: "user-1" };
-  const taskCreate = { actionId: "sales.task.create", resourceId: "task-1", applicationId: "customer-gate-1", environment: "production", fromState: "absent", toState: "open", occurredAt: "2026-09-06T00:00:00.000Z", actorId: "user-1", revision: 1, idempotencyKey: "create-1" };
+  const authorizationContext = { actionId: "sales.task.update", resourceId: "1", applicationId: "customer-gate-1", environment: "production", actorId: "user-1", ownerId: "user-1" };
+  const taskCreate = { actionId: "sales.task.create", resourceId: "1", applicationId: "customer-gate-1", environment: "production", fromState: "absent", toState: "open", occurredAt: "2026-09-06T00:00:00.000Z", actorId: "user-1", revision: 1, idempotencyKey: "create-1" };
   const opportunityTransition = { ...taskCreate, actionId: "sales.opportunity.stage.update", fromState: "qualification", toState: "discovery", revision: 2 };
   for (const document of [
-    { id: "task-1", revision: 1, audit: [] },
-    { id: "task-1", revision: 2, audit: [{ kind: "phase-13-legacy-upgrade", receiptDigest: `sha256:${"0".repeat(64)}` }] },
-    { id: "task-1", revision: 2, audit: [opportunityTransition] },
-    { id: "task-1", revision: 1, audit: [{ ...taskCreate, resourceId: "other-task" }] },
-    { id: "task-1", revision: 2, audit: [taskCreate] }
+    { id: "1", revision: 1, audit: [] },
+    { id: "1", revision: 2, audit: [{ kind: "phase-13-legacy-upgrade", receiptDigest: `sha256:${"0".repeat(64)}` }] },
+    { id: "1", revision: 2, audit: [opportunityTransition] },
+    { id: "1", revision: 1, audit: [{ ...taskCreate, resourceId: "3" }] },
+    { id: "1", revision: 2, audit: [taskCreate] }
   ]) {
     const request = { payload: { find: async () => ({ docs: [document] }), create: async () => ({}), update: async () => { updates += 1; return { docs: [], errors: [] }; } } };
     await assert.rejects(salesTaskUpdateHandler({ actor: handlerContext().actor, request, authorizationContext,
-      input: { id: "task-1", expectedRevision: document.revision, expectedStatus: "open", status: "completed" }, idempotencyKey: `strict-${document.revision}`, signal: new AbortController().signal
+      input: { id: "1", expectedRevision: document.revision, expectedStatus: "open", status: "completed" }, idempotencyKey: `strict-${document.revision}`, signal: new AbortController().signal
     }), (error) => error?.code === "STALE_RECORD" && error?.status === 409);
   }
   const migration = { kind: "phase-13-legacy-upgrade", receiptDigest: `sha256:${"0".repeat(64)}`, legacyStage: "lead" };
-  const firstStage = { actionId: "sales.opportunity.stage.update", resourceId: "opp-1", applicationId: "customer-gate-1", environment: "production", fromState: "qualification", toState: "discovery", occurredAt: "2026-09-06T00:00:00.000Z", actorId: "user-1", revision: 2, idempotencyKey: "stage-1" };
+  const firstStage = { actionId: "sales.opportunity.stage.update", resourceId: "2", applicationId: "customer-gate-1", environment: "production", fromState: "qualification", toState: "discovery", occurredAt: "2026-09-06T00:00:00.000Z", actorId: "user-1", revision: 2, idempotencyKey: "stage-1" };
   const repeatedStage = { ...firstStage, revision: 3, idempotencyKey: "stage-2" };
-  const opportunityRequest = { payload: { find: async () => ({ docs: [{ id: "opp-1", revision: 3, audit: [migration, firstStage, repeatedStage] }] }), create: async () => ({}), update: async () => { updates += 1; return { docs: [], errors: [] }; } } };
+  const opportunityRequest = { payload: { find: async () => ({ docs: [{ id: "2", revision: 3, audit: [migration, firstStage, repeatedStage] }] }), create: async () => ({}), update: async () => { updates += 1; return { docs: [], errors: [] }; } } };
   await assert.rejects(salesOpportunityStageUpdateHandler({ actor: handlerContext().actor, request: opportunityRequest,
-    authorizationContext: { ...authorizationContext, actionId: "sales.opportunity.stage.update", resourceId: "opp-1" },
-    input: { id: "opp-1", expectedRevision: 3, expectedStage: "discovery", stage: "proposal" }, idempotencyKey: "strict-opp", signal: new AbortController().signal
+    authorizationContext: { ...authorizationContext, actionId: "sales.opportunity.stage.update", resourceId: "2" },
+    input: { id: "2", expectedRevision: 3, expectedStage: "discovery", stage: "proposal" }, idempotencyKey: "strict-opp", signal: new AbortController().signal
   }), (error) => error?.code === "STALE_RECORD" && error?.status === 409);
   assert.equal(updates, 0);
 });
 
+test("Sales state history validates the private mixed-axis chain and exposes only safe transitions", () => {
+  const base = { resourceId: "1", applicationId: "customer-gate-1", environment: "production", occurredAt: "2026-09-06T00:00:00.000Z", actorId: "user-1" };
+  const audit = [
+    { ...base, actionId: "sales.account.create", fromState: "absent", toState: "active", revision: 1, idempotencyKey: "account-create-1", ownershipGenesis: { ownerId: "user-1", teamId: "team:user-1" } },
+    { ...base, actionId: "sales.ownership.assign", fromState: "active", toState: "active", revision: 2, idempotencyKey: "ownership-assign-1", ownership: { oldOwnerId: "user-1", newOwnerId: "user-2", oldTeamId: "team:user-1", newTeamId: "team:user-2" } },
+    { ...base, actionId: "sales.ownership.assign", fromState: "active", toState: "active", revision: 3, idempotencyKey: "ownership-assign-2", ownership: { oldOwnerId: "user-2", newOwnerId: "user-3", oldTeamId: "team:user-2", newTeamId: "team:user-3" } },
+    { ...base, actionId: "sales.account.update", fromState: "active", toState: "active", revision: 4, idempotencyKey: "account-update-1" },
+    { ...base, actionId: "sales.account.archive", fromState: "active", toState: "archived", revision: 5, idempotencyKey: "account-archive-1" }
+  ];
+  assert.deepEqual(projectSalesStateHistory({ audit, collection: "sales-accounts", id: "1", applicationId: "customer-gate-1", environment: "production", revision: 5, ownerId: "user-3", teamId: "team:user-3", currentState: "archived", currentStateField: "status" }), [
+    { actionId: "sales.account.archive", stateField: "status", fromState: "active", toState: "archived", revision: 5, occurredAt: base.occurredAt },
+    { actionId: "sales.account.update", stateField: "status", fromState: "active", toState: "active", revision: 4, occurredAt: base.occurredAt },
+    { actionId: "sales.account.create", stateField: "status", fromState: "absent", toState: "active", revision: 1, occurredAt: base.occurredAt }
+  ]);
+  assert.throws(() => projectSalesStateHistory({ audit: audit.slice(0, 1), collection: "sales-accounts", id: "1", applicationId: "customer-gate-1", environment: "production", revision: 1, ownerId: "user-9", teamId: "team:user-1", currentState: "active", currentStateField: "status" }), (error) => error?.code === "STALE_RECORD");
+  const malformedFirstAssignment = structuredClone(audit);
+  malformedFirstAssignment[1].ownership.oldOwnerId = "user-9";
+  assert.throws(() => projectSalesStateHistory({ audit: malformedFirstAssignment, collection: "sales-accounts", id: "1", applicationId: "customer-gate-1", environment: "production", revision: 5, ownerId: "user-3", teamId: "team:user-3", currentState: "archived", currentStateField: "status" }), (error) => error?.code === "STALE_RECORD");
+  const malformed = structuredClone(audit);
+  malformed[2].ownership.oldOwnerId = "user-9";
+  assert.throws(() => projectSalesStateHistory({ audit: malformed, collection: "sales-accounts", id: "1", applicationId: "customer-gate-1", environment: "production", revision: 5, ownerId: "user-3", teamId: "team:user-3", currentState: "archived", currentStateField: "status" }), (error) => error?.code === "STALE_RECORD");
+  assert.throws(() => projectSalesStateHistory({ audit, collection: "sales-accounts", id: "1", applicationId: "customer-gate-1", environment: "production", revision: 5, ownerId: "user-4", teamId: "team:user-3", currentState: "archived", currentStateField: "status" }), (error) => error?.code === "STALE_RECORD");
+});
+
 test("Sales task CAS admits one close and rejects its replay without another write", async () => {
-  const state = { id: "task-1", title: "Follow-up", status: "open", revision: 1, audit: [{ actionId: "sales.task.create", resourceId: "task-1", applicationId: "customer-gate-1", environment: "production", fromState: "absent", toState: "open", occurredAt: "2026-09-06T00:00:00.000Z", actorId: "user-1", revision: 1, idempotencyKey: "create-1" }] };
+  const state = { id: "1", title: "Follow-up", status: "open", revision: 1, audit: [{ actionId: "sales.task.create", resourceId: "1", applicationId: "customer-gate-1", environment: "production", fromState: "absent", toState: "open", occurredAt: "2026-09-06T00:00:00.000Z", actorId: "user-1", revision: 1, idempotencyKey: "create-1" }] };
   let updates = 0;
   const request = {
     payload: {
@@ -694,39 +838,35 @@ test("Sales task CAS admits one close and rejects its replay without another wri
       }
     }
   };
-  const input = { id: "task-1", expectedRevision: 1, expectedStatus: "open", status: "completed" };
-  const base = { actor: handlerContext().actor, request, authorizationContext: { actionId: "sales.task.update", resourceId: "task-1", applicationId: "customer-gate-1", environment: "production", actorId: "user-1", ownerId: "user-1", teamId: "team-1" }, input, idempotencyKey: "close-1", signal: new AbortController().signal };
+  const input = { id: "1", expectedRevision: 1, expectedStatus: "open", status: "completed" };
+  const base = { actor: handlerContext().actor, request, authorizationContext: { actionId: "sales.task.update", resourceId: "1", applicationId: "customer-gate-1", environment: "production", actorId: "user-1", ownerId: "user-1", teamId: "team-1" }, input, idempotencyKey: "close-1", signal: new AbortController().signal };
   await salesTaskUpdateHandler(base);
   await assert.rejects(salesTaskUpdateHandler(base), (error) => error?.code === "STALE_RECORD");
   assert.equal(updates, 1);
   assertActionAudit(state.audit[1], {
-    actionId: "sales.task.update", resourceId: "task-1", applicationId: "customer-gate-1", environment: "production",
+    actionId: "sales.task.update", resourceId: "1", applicationId: "customer-gate-1", environment: "production",
     fromState: "open", toState: "completed", actorId: "user-1", revision: 2, idempotencyKey: "close-1"
   });
 });
 
 test("Sales opportunity stage history appends one complete audit entry per accepted transition", async () => {
-  const state = { id: "opp-1", name: "Platform rollout", stageId: "qualification", revision: 1, audit: [{ kind: "phase-13-legacy-upgrade", receiptDigest: `sha256:${"0".repeat(64)}`, legacyStage: "lead" }] };
+  const state = { id: "2", name: "Platform rollout", ownerId: "user-1", stageId: "qualification", archiveStatus: "active", revision: 1, audit: [{ kind: "phase-13-legacy-upgrade", receiptDigest: `sha256:${"0".repeat(64)}`, legacyStage: "lead", ownershipGenesis: { ownerId: "user-1", teamId: null } }] };
   const request = {
     payload: {
       create: async () => ({}),
-      find: async (options) => {
-        const equals = (field) => options.where.and.find((entry) => entry[field] !== undefined)?.[field].equals;
-        return equals("id") === state.id && equals("stageId") === state.stageId && equals("revision") === state.revision
-          ? { docs: [structuredClone(state)] } : { docs: [] };
-      },
+      find: async () => ({ docs: [structuredClone(state)] }),
       update: async (options) => {
         Object.assign(state, { stageId: options.data.stageId, revision: options.data.revision, audit: options.data.audit });
         return { docs: [structuredClone(state)], errors: [] };
       }
     }
   };
-  const authorizationContext = { actionId: "sales.opportunity.stage.update", resourceId: "opp-1", applicationId: "customer-gate-1", environment: "production", actorId: "user-1", ownerId: "user-1" };
+  const authorizationContext = { actionId: "sales.opportunity.stage.update", resourceId: "2", applicationId: "customer-gate-1", environment: "production", actorId: "user-1", ownerId: "user-1" };
   const stages = ["discovery", "proposal", "negotiation"];
   for (const stage of stages) {
     const result = await salesOpportunityStageUpdateHandler({
       actor: handlerContext().actor, request, authorizationContext,
-      input: { id: "opp-1", expectedStage: state.stageId, expectedRevision: state.revision, stage },
+      input: { id: "2", expectedStage: state.stageId, expectedRevision: state.revision, stage },
       idempotencyKey: `opp-${stage}-1`, signal: new AbortController().signal
     });
     assert.equal(result.stage, stage);
@@ -734,50 +874,69 @@ test("Sales opportunity stage history appends one complete audit entry per accep
   assert.equal(state.audit.length, stages.length + 1);
   for (const [index, entry] of state.audit.slice(1).entries()) {
     assertActionAudit(entry, {
-      actionId: "sales.opportunity.stage.update", resourceId: "opp-1", applicationId: "customer-gate-1", environment: "production",
+      actionId: "sales.opportunity.stage.update", resourceId: "2", applicationId: "customer-gate-1", environment: "production",
       fromState: index === 0 ? "qualification" : stages[index - 1], toState: stages[index], actorId: "user-1", revision: index + 2,
       idempotencyKey: `opp-${stages[index]}-1`
     });
   }
 });
 
+test("Sales opportunity stage update rejects archived records before audit or mutation", async () => {
+  let updates = 0;
+  const audit = [{ kind: "phase-13-legacy-upgrade", receiptDigest: `sha256:${"0".repeat(64)}`, legacyStage: "lead", ownershipGenesis: { ownerId: "user-1", teamId: null } }];
+  const document = { id: "2", name: "Archived", ownerId: "user-1", stageId: "qualification", archiveStatus: "archived", revision: 1, audit };
+  const request = { payload: {
+    find: async () => ({ docs: [structuredClone(document)] }), create: async () => ({}),
+    update: async () => { updates += 1; return { docs: [], errors: [] }; }
+  } };
+  await assert.rejects(salesOpportunityStageUpdateHandler({
+    actor: handlerContext().actor, request,
+    authorizationContext: { actionId: "sales.opportunity.stage.update", resourceId: "2", applicationId: "customer-gate-1", environment: "production", actorId: "user-1", ownerId: "user-1" },
+    input: { id: "2", expectedStage: "qualification", expectedRevision: 1, stage: "discovery" },
+    idempotencyKey: "archived-stage-1", signal: new AbortController().signal
+  }), (error) => error?.code === "STALE_RECORD" && error?.status === 409);
+  assert.equal(updates, 0);
+  assert.deepEqual(document.audit, audit);
+});
+
 test("Sales update actions use actor-scoped Payload updates exactly once", async () => {
   const calls = [];
-  const taskAudit = { actionId: "sales.task.create", resourceId: "task-1", applicationId: "customer-gate-1", environment: "production", fromState: "absent", toState: "open", occurredAt: "2026-09-06T00:00:00.000Z", actorId: "user-1", revision: 1, idempotencyKey: "task-create-1" };
-  const opportunityAudit = { kind: "phase-13-legacy-upgrade", receiptDigest: `sha256:${"0".repeat(64)}`, legacyStage: "qualified" };
+  const taskAudit = { actionId: "sales.task.create", resourceId: "1", applicationId: "customer-gate-1", environment: "production", fromState: "absent", toState: "open", occurredAt: "2026-09-06T00:00:00.000Z", actorId: "user-1", revision: 1, idempotencyKey: "task-create-1" };
+  const opportunityAudit = { kind: "phase-13-legacy-upgrade", receiptDigest: `sha256:${"0".repeat(64)}`, legacyStage: "qualified", ownershipGenesis: { ownerId: "user-1", teamId: null } };
   const request = {
     payload: {
-      find: async (options) => ({ docs: [{ id: options.collection === "sales-tasks" ? "task-1" : "opp-1", revision: 1, audit: [options.collection === "sales-tasks" ? taskAudit : opportunityAudit] }] }), create: async () => ({}),
+      find: async (options) => ({ docs: [options.collection === "sales-tasks"
+        ? { id: "1", status: "open", revision: 1, audit: [taskAudit] }
+        : { id: "2", ownerId: "user-1", stageId: "discovery", archiveStatus: "active", revision: 1, audit: [opportunityAudit] }] }), create: async () => ({}),
       update: async (options) => {
         calls.push(options);
         return options.collection === "sales-tasks"
-          ? { docs: [{ id: "task-1", title: "Existing", status: options.data.status, revision: options.data.revision }], errors: [] }
-          : { docs: [{ id: "opp-1", name: "Platform rollout", stageId: options.data.stageId, revision: options.data.revision }], errors: [] };
+          ? { docs: [{ id: "1", title: "Existing", status: options.data.status, revision: options.data.revision }], errors: [] }
+          : { docs: [{ id: "2", name: "Platform rollout", stageId: options.data.stageId, revision: options.data.revision }], errors: [] };
       }
     }
   };
   const auth = (actionId, resourceId) => ({ actionId, resourceId, applicationId: "customer-gate-1", environment: "production", actorId: "user-1", ownerId: "user-1" });
   const base = { actor: handlerContext().actor, request, idempotencyKey: "update-1", signal: new AbortController().signal };
-  assert.deepEqual(await salesTaskUpdateHandler({ ...base, authorizationContext: auth("sales.task.update", "task-1"), input: { id: "task-1", expectedRevision: 1, expectedStatus: "open", status: "completed" } }), { id: "task-1", title: "Existing", status: "completed", revision: 2 });
-  assert.deepEqual(await salesOpportunityStageUpdateHandler({ ...base, authorizationContext: auth("sales.opportunity.stage.update", "opp-1"), input: { id: "opp-1", expectedStage: "discovery", expectedRevision: 1, stage: "proposal" } }), { id: "opp-1", name: "Platform rollout", stage: "proposal", revision: 2 });
+  assert.deepEqual(await salesTaskUpdateHandler({ ...base, authorizationContext: auth("sales.task.update", "1"), input: { id: "1", expectedRevision: 1, expectedStatus: "open", status: "completed" } }), { id: "1", title: "Existing", status: "completed", revision: 2 });
+  assert.deepEqual(await salesOpportunityStageUpdateHandler({ ...base, authorizationContext: auth("sales.opportunity.stage.update", "2"), input: { id: "2", expectedStage: "discovery", expectedRevision: 1, stage: "proposal" } }), { id: "2", name: "Platform rollout", stage: "proposal", revision: 2 });
   assert.equal(calls.length, 2);
   assert.equal(calls.every((call) => call.overrideAccess === true && call.user.id === "user-1"), true);
   assert.deepEqual(calls[1].where, { and: [
-    { id: { equals: "opp-1" } },
+    { id: { equals: "2" } },
     { applicationId: { equals: "customer-gate-1" } },
     { environment: { equals: "production" } },
     { ownerId: { equals: "user-1" } },
-    { stageId: { equals: "discovery" } },
     { revision: { equals: 1 } }
   ] });
   assert.deepEqual(calls[0].data.audit.slice(0, 1), [taskAudit]);
   assertActionAudit(calls[0].data.audit[1], {
-    actionId: "sales.task.update", resourceId: "task-1", applicationId: "customer-gate-1", environment: "production",
+    actionId: "sales.task.update", resourceId: "1", applicationId: "customer-gate-1", environment: "production",
     fromState: "open", toState: "completed", actorId: "user-1", revision: 2, idempotencyKey: "update-1"
   });
   assert.deepEqual(calls[1].data.audit.slice(0, 1), [opportunityAudit]);
   assertActionAudit(calls[1].data.audit[1], {
-    actionId: "sales.opportunity.stage.update", resourceId: "opp-1", applicationId: "customer-gate-1", environment: "production",
+    actionId: "sales.opportunity.stage.update", resourceId: "2", applicationId: "customer-gate-1", environment: "production",
     fromState: "discovery", toState: "proposal", actorId: "user-1", revision: 2, idempotencyKey: "update-1"
   });
 });
@@ -787,9 +946,9 @@ test("Sales rejects a stale opportunity card without a blind update", async () =
   const request = { payload: { find: async () => ({ docs: [] }), create: async () => ({}), update: async () => { updates += 1; return { docs: [], errors: [] }; } } };
   await assert.rejects(salesOpportunityStageUpdateHandler({
     actor: handlerContext().actor, request,
-    authorizationContext: { actionId: "sales.opportunity.stage.update", resourceId: "opp-1", applicationId: "customer-gate-1", environment: "production", actorId: "user-1", ownerId: "user-1" },
+    authorizationContext: { actionId: "sales.opportunity.stage.update", resourceId: "2", applicationId: "customer-gate-1", environment: "production", actorId: "user-1", ownerId: "user-1" },
     idempotencyKey: "stale-1", signal: new AbortController().signal,
-    input: { id: "opp-1", expectedStage: "qualification", expectedRevision: 1, stage: "discovery" }
+    input: { id: "2", expectedStage: "qualification", expectedRevision: 1, stage: "discovery" }
   }), (error) => error?.code === "STALE_RECORD" && error?.status === 409);
   assert.equal(updates, 0);
 });

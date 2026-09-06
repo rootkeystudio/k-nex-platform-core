@@ -107,4 +107,20 @@ describe("authorization outbox", () => {
     expect(worker.started).toBe(false);
     expect(scheduled).toHaveLength(0);
   });
+
+  it("joins already-admitted work after stop without admitting another dispatch", async () => {
+    let complete!: () => void;
+    const dispatchNext = vi.fn(() => new Promise<{ status: "idle" }>((resolve) => { complete = () => resolve({ status: "idle" }); }));
+    const worker = new AuthorizationOutboxWorker({ dispatchNext } as never, { publish: vi.fn() }, { intervalMs: 10 });
+    worker.start();
+    await vi.waitFor(() => expect(dispatchNext).toHaveBeenCalledTimes(1));
+    worker.stop();
+    let joined = false;
+    const idle = worker.idle().then(() => { joined = true; });
+    await Promise.resolve();
+    expect(joined).toBe(false);
+    complete();
+    await idle;
+    expect(dispatchNext).toHaveBeenCalledTimes(1);
+  });
 });

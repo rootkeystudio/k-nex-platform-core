@@ -25,6 +25,8 @@ describe("generated application readiness", () => {
       "Package archive integrity mismatch for ",
       "Package lock digest mismatch.",
       "Sales application manifest mismatch.",
+      "provider.realtime.socketio",
+      "payloadPostgresPatch",
       "Puck builder manifest mismatch.",
       "Theme manifest mismatch.",
       "Sales static registration identity mismatch.",

@@ -40,7 +40,7 @@ export interface SocketIoMemoryGatewayOptions {
   readonly httpServer: HttpServer;
   readonly security: SocketIoMemorySecurityOptions;
   readonly topics: RealtimeTopicRegistry;
-  authenticate(credentials: Readonly<Record<string, unknown>>, context: RealtimeAuthorizationDeadline): Promise<SocketIoAuthenticatedSession | null>;
+  authenticate(credentials: Readonly<Record<string, unknown>>, context: RealtimeAuthorizationDeadline, headers: Readonly<Record<string, string | undefined>>): Promise<SocketIoAuthenticatedSession | null>;
   isSessionActive(session: SocketIoAuthenticatedSession, context: RealtimeAuthorizationDeadline): Promise<boolean>;
 }
 
@@ -52,6 +52,8 @@ export interface RealtimeAuthorizationDeadline {
 export interface SocketIoAuthenticatedSession {
   readonly actor: RealtimeActor;
   readonly id: string;
+  /** Host-only cleanup for credentials retained during an active socket session. */
+  dispose?(): void;
 }
 
 export interface SocketIoMemoryGatewayHealth {
@@ -155,8 +157,14 @@ function actor(value: RealtimeActor | null): RealtimeActor | null {
 
 function authenticatedSession(value: SocketIoAuthenticatedSession | null): SocketIoAuthenticatedSession | null {
   if (!value || typeof value.id !== "string" || value.id.length < 1 || value.id.length > 256 || /[\u0000-\u001F\u007F-\u009F]/.test(value.id)) return null;
+  if (value.actor === null || typeof value.actor !== "object" || Array.isArray(value.actor) || Object.keys(value.actor).sort().join("\0") !== "id\0type") return null;
   const authenticatedActor = actor(value.actor);
-  return authenticatedActor ? Object.freeze({ actor: authenticatedActor, id: value.id }) : null;
+  if (value.dispose !== undefined && typeof value.dispose !== "function") return null;
+  if (!authenticatedActor) return null;
+  // The authenticated actor object is a host-private session capability.
+  // Preserve its identity so host adapters can bind per-session credentials.
+  Object.freeze(value.actor);
+  return Object.freeze({ actor: value.actor, id: value.id, ...(value.dispose === undefined ? {} : { dispose: value.dispose }) });
 }
 
 function byteLength(value: unknown): number {
@@ -243,12 +251,29 @@ export function createSocketIoMemoryGateway(options: SocketIoMemoryGatewayOption
       transportAbort.abort();
       release();
     });
+    let authenticated: SocketIoAuthenticatedSession | null | undefined;
+    let disposeRequested = false;
+    let disposed = false;
+    const dispose = (): void => {
+      disposeRequested = true;
+      if (disposed || authenticated === undefined) return;
+      disposed = true;
+      authenticated?.dispose?.();
+    };
     const authentication = await withDeadline(
       limits.authenticationTimeoutMs,
-      (context) => options.authenticate(Object.freeze({ ...socket.handshake.auth }), context),
+      async (context) => {
+        authenticated = await options.authenticate(Object.freeze({ ...socket.handshake.auth }), context, Object.freeze({
+        cookie: socket.handshake.headers.cookie,
+        origin: socket.handshake.headers.origin
+        }));
+        if (disposeRequested || transportAbort.signal.aborted || closing || context.signal.aborted) dispose();
+        return authenticated;
+      },
       transportAbort.signal
     );
     if (authentication.status !== "fulfilled") {
+      dispose();
       release();
       counters.authenticationDenied += 1;
       next(new Error("AUTHENTICATION_REQUIRED"));
@@ -256,12 +281,13 @@ export function createSocketIoMemoryGateway(options: SocketIoMemoryGatewayOption
     }
     const outcome = authenticatedSession(authentication.value);
     if (!outcome || transportAbort.signal.aborted) {
+      dispose();
       release();
       counters.authenticationDenied += 1;
       next(new Error("AUTHENTICATION_REQUIRED"));
       return;
     }
-    socket.data["kNexSession"] = outcome;
+    socket.data["kNexSession"] = Object.freeze({ ...outcome, ...(outcome.dispose === undefined ? {} : { dispose }) });
     next();
   });
 
@@ -305,6 +331,7 @@ export function createSocketIoMemoryGateway(options: SocketIoMemoryGatewayOption
     sessions.set(socket.id, session);
     socket.once("disconnect", () => {
       session.abort.abort();
+      session.identity.dispose?.();
       connections = Math.max(0, connections - 1);
       (socket.data["kNexReleaseConnectionSlot"] as (() => void) | undefined)?.();
       sessions.delete(socket.id);
@@ -350,6 +377,17 @@ export function createSocketIoMemoryGateway(options: SocketIoMemoryGatewayOption
           return;
         }
         const params = parse(topic, subscription.params);
+        const active = await withDeadline(
+          limits.revalidationTimeoutMs,
+          (context) => options.isSessionActive(session.identity, context),
+          session.abort.signal
+        );
+        if (active.status !== "fulfilled" || !active.value) {
+          counters.authenticationDenied += 1;
+          acknowledge(Object.freeze({ ok: false, code: "FORBIDDEN" }));
+          session.socket.disconnect(true);
+          return;
+        }
         const roomId = room(topic.id, params);
         if (!session.subscriptions.has(roomId) && session.subscriptions.size >= limits.maxSubscriptionsPerConnection) {
           counters.subscriptionDenied += 1;

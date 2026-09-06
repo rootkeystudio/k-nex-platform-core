@@ -308,6 +308,8 @@ Acceptance:
 
 Implement authorized list/detail/create/edit/archive/convert/qualify/win/loss journeys with ownership and timeline.
 
+P13.3 pins one temporary, provenance-bound runtime dependency repair: `@payloadcms/db-postgres@3.88.0` receives only upstream `payloadcms/payload#17831` commit `134c89b7955d0dcde9137643ab86873ff542dbd4` (`#15674`, `#16256`), whose canonical patch SHA-256 is `0889c7c61e08478410dfcb1112415677fa9f50267901ee15c99e3deb1c9edf2f`. It releases the connectivity probe client after its reconnect listener is attached, so graceful `pool.end()` can drain. The root and every generated standalone application carry byte-identical patch bytes and exact `patchedDependencies` identity; factory-lock and plan digests bind them. Remove it only after an approved pinned Payload release contains this exact repair and the same shutdown/restart tests pass without it.
+
 Acceptance:
 
 - owner/manager/representative/viewer matrix;

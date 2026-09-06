@@ -20,6 +20,7 @@ const application = createGate1Application({
 });
 
 await bootGate1Application({
+  authority: application.authority,
   config: buildConfig(application.config),
   key: "gate1-failed-migration"
 });

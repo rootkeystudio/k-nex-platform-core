@@ -82,6 +82,11 @@ export interface KnexRequestContext { readonly headers: Headers; readonly correl
 const runtimes = new WeakMap<Payload, ReturnType<typeof createRuntime>>();
 type CachedPayloadAuthentication = Promise<Awaited<ReturnType<Payload["auth"]>>>;
 const requestAuthentications = new WeakMap<Payload, WeakMap<KnexRequestContext, CachedPayloadAuthentication>>();
+const shutdowns = new WeakMap<Payload, Promise<void>>();
+export type KnexShutdownProgress = Readonly<
+  { stage: "authority-drain" | "payload-destroy" | "complete" } |
+  { stage: "pool-end"; pool: Readonly<{ totalCount: number; idleCount: number; waitingCount: number }> }
+>;
 
 export function currentPayloadAuthentication(payload: Payload, context: KnexRequestContext) {
   let authentications = requestAuthentications.get(payload);
@@ -170,8 +175,46 @@ function createRuntime(payload: Payload) {
 
 export function kNexAuthority(payload: Payload) {
   let runtime = runtimes.get(payload);
+  if (shutdowns.has(payload)) throw new Error("K-Nex authority runtime is closed.");
   if (runtime === undefined) { runtime = createRuntime(payload); runtimes.set(payload, runtime); }
   return runtime;
+}
+
+/** Peeks only: shutdown must never create a fresh authority runtime. */
+export async function drainKnexAuthority(payload: Payload): Promise<void> {
+  const runtime = runtimes.get(payload);
+  if (runtime !== undefined) await runtime.adapter.drain();
+  requestAuthentications.delete(payload);
+}
+
+/** Leaves a drained runtime tombstone so late callers cannot reopen admission. */
+export async function shutdownKnexApplication(payload: Payload, progress?: (value: KnexShutdownProgress) => void): Promise<void> {
+  const existing = shutdowns.get(payload);
+  if (existing !== undefined) return existing;
+  const pool = payload.db.pool as unknown as { end?: () => Promise<void>; totalCount?: number; idleCount?: number; waitingCount?: number };
+  const boundedPoolCount = (value: unknown): number => Number.isSafeInteger(value) && Number(value) >= 0 && Number(value) <= 1_000_000 ? Number(value) : 0;
+  let resolve!: () => void;
+  let reject!: (reason: unknown) => void;
+  const shutdown = new Promise<void>((nextResolve, nextReject) => { resolve = nextResolve; reject = nextReject; });
+  shutdowns.set(payload, shutdown);
+  void (async () => {
+    if (typeof pool.end !== "function") { reject(new TypeError("K-Nex Payload Postgres pool cannot close.")); return; }
+    progress?.(Object.freeze({ stage: "authority-drain" }));
+    try { await drainKnexAuthority(payload); }
+    catch (error) { reject(error); return; }
+    let destroyError: unknown;
+    progress?.(Object.freeze({ stage: "payload-destroy" }));
+    try { await payload.destroy(); } catch (error) { destroyError = error; }
+    let endError: unknown;
+    progress?.(Object.freeze({ stage: "pool-end", pool: Object.freeze({ totalCount: boundedPoolCount(pool.totalCount), idleCount: boundedPoolCount(pool.idleCount), waitingCount: boundedPoolCount(pool.waitingCount) }) }));
+    try { await pool.end(); } catch (error) { endError = error; }
+    if (destroyError !== undefined && endError !== undefined) { reject(new AggregateError([destroyError, endError], "K-Nex shutdown failed.")); return; }
+    if (destroyError !== undefined) { reject(destroyError); return; }
+    if (endError !== undefined) { reject(endError); return; }
+    progress?.(Object.freeze({ stage: "complete" }));
+    resolve();
+  })();
+  return shutdown;
 }
 
 export async function currentSalesGeneration(payload: Payload) {
@@ -353,7 +396,7 @@ import { bootstrapFirstOwner, currentProtectedPlatformRoleBaselineRelease, prote
 
 import { bootKnexApplication } from "./boot.js";
 import { acquireBootstrapLock, assertIssuedBootstrapToken, consumeBootstrapToken, readBootstrapToken, releaseBootstrapLock } from "./k-nex-bootstrap-token.js";
-import { kNexAuthority } from "./k-nex-authority.js";
+import { kNexAuthority, shutdownKnexApplication } from "./k-nex-authority.js";
 import { kNexIdentity } from "./k-nex-identity.js";
 import { kNexSalesRegistry } from "./k-nex-registry.js";
 import { bootstrapApplicationTheme } from "./k-nex-theme-runtime.js";
@@ -470,7 +513,7 @@ try {
   console.log(\`K_NEX_OWNER_BOOTSTRAP_PASS \${outcome.id}\`);
 } finally {
   try { if (bootstrapLock !== undefined) await releaseBootstrapLock(bootstrapLock); }
-  finally { await payload.destroy(); }
+  finally { await shutdownKnexApplication(payload); }
 }
 process.exit(0);
 `;
@@ -479,12 +522,67 @@ process.exit(0);
 function issueTokenSource(): string {
   return `import { bootKnexApplication } from "./boot.js";
 import { issueBootstrapToken } from "./k-nex-bootstrap-token.js";
+import { shutdownKnexApplication } from "./k-nex-authority.js";
 
 const payload = await bootKnexApplication("bootstrap-token-issuer");
 try {
   await issueBootstrapToken(payload, process.argv.slice(2));
   console.log("K_NEX_BOOTSTRAP_TOKEN_ISSUED");
-} finally { await payload.destroy(); }
+} finally { await shutdownKnexApplication(payload); }
+process.exit(0);
+`;
+}
+
+function issueAttachmentUploadReceiptSource(): string {
+  return `import { bootKnexApplication } from "./boot.js";
+import { shutdownKnexApplication } from "./k-nex-authority.js";
+import { kNexIdentity } from "./k-nex-identity.js";
+
+type ReceiptInput = Readonly<{ storageRef: string; uploaderActorId: string; filename: string; mediaType: string; byteSize: number; revision: number }>;
+
+function fail(message: string): never { throw new Error("Attachment upload receipt: " + message); }
+function readArguments(args: readonly string[]): ReceiptInput {
+  const values = new Map<string, string>();
+  const names = new Set(["--storage-ref", "--uploader-actor-id", "--filename", "--media-type", "--byte-size", "--revision"]);
+  for (let index = 0; index < args.length; index += 2) {
+    const name = args[index]; const value = args[index + 1];
+    if (typeof name !== "string" || !names.has(name) || typeof value !== "string" || values.has(name)) fail("arguments are invalid");
+    values.set(name, value);
+  }
+  if (values.size < 5 || !["--storage-ref", "--uploader-actor-id", "--filename", "--media-type", "--byte-size"].every((name) => values.has(name))) fail("required arguments are missing");
+  const storageRef = values.get("--storage-ref")!; const uploaderActorId = values.get("--uploader-actor-id")!;
+  const filename = values.get("--filename")!; const mediaType = values.get("--media-type")!;
+  const byteSize = Number(values.get("--byte-size")); const revision = values.has("--revision") ? Number(values.get("--revision")) : 1;
+  if (!/^[A-Za-z0-9][A-Za-z0-9._/-]{0,511}$/u.test(storageRef) || !/^[A-Za-z0-9:_./-]{1,160}$/u.test(uploaderActorId) ||
+    filename.length === 0 || filename.length > 256 || /[\\u0000-\\u001f\\u007f]/u.test(filename) || mediaType.length === 0 || mediaType.length > 128 || /[\\u0000-\\u001f\\u007f]/u.test(mediaType) ||
+    !Number.isSafeInteger(byteSize) || byteSize < 0 || byteSize > 1_073_741_824 || !Number.isSafeInteger(revision) || revision < 1 || revision > 1_000_000_000) fail("receipt facts are invalid");
+  return Object.freeze({ storageRef, uploaderActorId, filename, mediaType, byteSize, revision });
+}
+
+const input = readArguments(process.argv.slice(2));
+const payload = await bootKnexApplication("attachment-upload-receipt-issuer");
+const pool = payload.db.pool as unknown as { connect(): Promise<{ query(text: string, values?: readonly unknown[]): Promise<{ rows: readonly Record<string, unknown>[]; rowCount: number | null }>; release(): void }> };
+const client = await pool.connect();
+try {
+  await client.query("begin");
+  await client.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [JSON.stringify([kNexIdentity.applicationId, kNexIdentity.environment, "attachment-upload", input.storageRef])]);
+  const inserted = await client.query(
+    "insert into k_nex_sales_attachment_upload_admissions (application_id,environment,storage_ref,uploader_actor_id,filename,media_type,byte_size,state,revision) values ($1,$2,$3,$4,$5,$6,$7,'ready',$8) on conflict do nothing returning storage_ref",
+    [kNexIdentity.applicationId, kNexIdentity.environment, input.storageRef, input.uploaderActorId, input.filename, input.mediaType, input.byteSize, input.revision]
+  );
+  if (inserted.rowCount === 0) {
+    const existing = (await client.query("select uploader_actor_id,filename,media_type,byte_size,state,revision from k_nex_sales_attachment_upload_admissions where application_id=$1 and environment=$2 and storage_ref=$3 for update", [kNexIdentity.applicationId, kNexIdentity.environment, input.storageRef])).rows[0];
+    if (existing === undefined || existing.uploader_actor_id !== input.uploaderActorId || existing.filename !== input.filename || existing.media_type !== input.mediaType || existing.byte_size !== input.byteSize || existing.state !== "ready" || existing.revision !== input.revision) fail("storage reference is already bound to different receipt facts");
+  }
+  await client.query("commit");
+  console.log("K_NEX_ATTACHMENT_UPLOAD_RECEIPT_ISSUED");
+} catch (error) {
+  await client.query("rollback").catch(() => undefined);
+  throw error;
+} finally {
+  client.release();
+  await shutdownKnexApplication(payload);
+}
 process.exit(0);
 `;
 }
@@ -758,6 +856,8 @@ function salesRouteRuntimeSource(): string {
 import { createHash } from "node:crypto";
 
 import { canonicalJson, type DataSourceBindingResult, type UiDocument } from "@k-nex/contracts";
+import { salesTimelineDescriptor } from "@k-nex/module-sales/contracts";
+import { projectSalesStateHistory, type SalesStateHistoryEntry } from "@k-nex/module-sales/server";
 import type { Payload } from "payload";
 
 import { currentSalesGeneration as currentSalesAuthorityGeneration, type KnexRequestContext } from "./k-nex-authority.js";
@@ -765,9 +865,29 @@ import { kNexIdentity } from "./k-nex-identity.js";
 import { kNexSalesRegistry } from "./k-nex-registry.js";
 import { executeWorkspaceSalesAction, loadWorkspaceSalesSources, workspaceSalesPermissions } from "./k-nex-sales-workspace.js";
 
-type RegisteredRoute = Readonly<{ id: string; ownerPluginId: string; permission: string; viewId: string }>;
+type RegisteredRoute = Readonly<{ id: string; ownerPluginId: string; permission: string; viewId: string; parameters: Readonly<Record<string, Readonly<{ type: "string" }>>> }>;
 type RegisteredTemplate = Readonly<{ id: string; ownerPluginId: string; route: Readonly<{ routeId: string }>; permission: string; document: UiDocument }>;
 type RegisteredAction = Readonly<{ id: string; version: number }>;
+type SalesRouteParams = Readonly<{ id: string }>;
+type SalesRoutePagination = Readonly<{ listPage?: number; timelinePage?: number }>;
+
+function routePage(value: number | undefined, maximum: number): number {
+  const page = value ?? 1;
+  if (!Number.isSafeInteger(page) || page < 1 || page > maximum) throw new TypeError("Sales route page is invalid.");
+  return page;
+}
+
+function routeParams(route: RegisteredRoute, value?: SalesRouteParams): Readonly<Record<string, string>> {
+  const expected = Object.keys(route.parameters).sort();
+  if (expected.length === 0) {
+    if (value !== undefined) throw new TypeError("Sales route parameters are invalid.");
+    return Object.freeze({});
+  }
+  if (expected.join("\\0") !== "id" || value === undefined || Object.keys(value).sort().join("\\0") !== "id" || typeof value.id !== "string" || !/^(?:[1-9][0-9]{0,8}|1[0-9]{9}|20[0-9]{8}|21[0-3][0-9]{7}|214[0-6][0-9]{6}|2147[0-3][0-9]{5}|21474[0-7][0-9]{4}|214748[0-2][0-9]{3}|2147483[0-5][0-9]{2}|21474836[0-3][0-9]|214748364[0-7])$/u.test(value.id)) {
+    throw new TypeError("Sales route parameters are invalid.");
+  }
+  return Object.freeze({ id: value.id });
+}
 
 function routeTemplate(routeId: string): Readonly<{ route: RegisteredRoute; template: RegisteredTemplate }> {
   const route = kNexSalesRegistry.scopedRegistration.contributions.routes.find((entry) => entry.id === routeId)?.value as RegisteredRoute | undefined;
@@ -788,14 +908,87 @@ function registeredAction(actionId: string): RegisteredAction {
   return action.descriptor;
 }
 
-export async function loadRegisteredSalesRoute(payload: Payload, context: KnexRequestContext, routeId: string) {
+function fixedDetailTimelineType(routeId: string): "sales.account" | "sales.contact" | "sales.lead" | "sales.opportunity" | undefined {
+  return routeId === "sales.route.account-detail" ? "sales.account" : routeId === "sales.route.contact-detail" ? "sales.contact"
+    : routeId === "sales.route.lead-detail" ? "sales.lead" : routeId === "sales.route.opportunity-detail" ? "sales.opportunity" : undefined;
+}
+
+function fixedDetailState(routeId: string): Readonly<{ collection: "sales-accounts" | "sales-contacts" | "sales-leads" | "sales-opportunities"; field: "status" | "stageId" }> | undefined {
+  return routeId === "sales.route.account-detail" ? { collection: "sales-accounts", field: "status" }
+    : routeId === "sales.route.contact-detail" ? { collection: "sales-contacts", field: "status" }
+      : routeId === "sales.route.lead-detail" ? { collection: "sales-leads", field: "status" }
+        : routeId === "sales.route.opportunity-detail" ? { collection: "sales-opportunities", field: "stageId" } : undefined;
+}
+
+function sourceResultRecord(result: DataSourceBindingResult<unknown> | undefined, id: string): Readonly<{ key: string; values: Readonly<Record<string, unknown>> }> | undefined {
+  if (result === undefined || !["success", "stale", "refetching"].includes(result.state) || !("data" in result) || result.data === null || typeof result.data !== "object" || Array.isArray(result.data)) return undefined;
+  const rows = (result.data as { readonly rows?: unknown }).rows;
+  if (!Array.isArray(rows) || rows.length !== 1 || rows[0] === null || typeof rows[0] !== "object" || Array.isArray(rows[0])) return undefined;
+  const row = rows[0] as { readonly key?: unknown; readonly values?: unknown };
+  return row.key === id && row.values !== null && typeof row.values === "object" && !Array.isArray(row.values) ? row as Readonly<{ key: string; values: Readonly<Record<string, unknown>> }> : undefined;
+}
+
+function sourceResultRecordRevision(result: DataSourceBindingResult<unknown> | undefined, id: string): number | undefined {
+  const row = sourceResultRecord(result, id);
+  if (row === undefined) return undefined;
+  const revision = (row.values as { readonly revision?: unknown }).revision;
+  return revision !== null && typeof revision === "object" && !Array.isArray(revision) && (revision as { readonly kind?: unknown }).kind === "integer" && Number.isSafeInteger((revision as { readonly value?: unknown }).value) ? (revision as { readonly value: number }).value : undefined;
+}
+
+async function fixedDetailStateHistory(payload: Payload, routeId: string, id: string | undefined, document: UiDocument, sourceResults: Readonly<Record<string, DataSourceBindingResult<unknown>>>): Promise<readonly SalesStateHistoryEntry[]> {
+  const state = fixedDetailState(routeId); const primaryNode = document.regions.main?.[0];
+  if (state === undefined || id === undefined || primaryNode === undefined) return Object.freeze([]);
+  const expectedRevision = sourceResultRecordRevision(sourceResults[primaryNode.id], id);
+  if (expectedRevision === undefined) return Object.freeze([]);
+  const dualAxis = state.collection === "sales-leads" || state.collection === "sales-opportunities";
+  const select = Object.freeze({ id: true, applicationId: true, environment: true, revision: true, audit: true, ownerId: true, teamId: true, [state.field]: true, ...(dualAxis ? { archiveStatus: true } : {}) });
+  const found = await payload.find({ collection: state.collection, depth: 0, overrideAccess: true, pagination: true, page: 1, limit: 1, sort: ["id"], select, where: { and: [{ id: { equals: id } }, { applicationId: { equals: kNexIdentity.applicationId } }, { environment: { equals: kNexIdentity.environment } }, { revision: { equals: expectedRevision } }] } });
+  if (found.docs.length !== 1) throw new TypeError("Sales detail history is unavailable.");
+  const record = found.docs[0] as unknown as Record<string, unknown>; const currentState = record[state.field];
+  if (String(record.id) !== id || record.applicationId !== kNexIdentity.applicationId || record.environment !== kNexIdentity.environment || record.revision !== expectedRevision || typeof record.ownerId !== "string" || record.ownerId.length === 0 || record.teamId !== undefined && record.teamId !== null && typeof record.teamId !== "string" || typeof currentState !== "string" || dualAxis && typeof record.archiveStatus !== "string") throw new TypeError("Sales detail history is invalid.");
+  return projectSalesStateHistory({ audit: record.audit, collection: state.collection, id, applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment, revision: record.revision as number, ownerId: record.ownerId, teamId: record.teamId as string | null | undefined, currentState, currentStateField: state.field, ...(dualAxis ? { archiveStatus: record.archiveStatus as string } : {}) });
+}
+
+function authorizedFixedDetailDocument(document: UiDocument, routeId: string, permissions: readonly string[]): UiDocument {
+  const fields = routeId === "sales.route.contact-detail" && permissions.includes("sales.contacts.channels.read") ? ["email", "phone"]
+    : routeId === "sales.route.lead-detail" && permissions.includes("sales.leads.channels.read") ? ["email", "phone"]
+      : routeId === "sales.route.opportunity-detail" && permissions.includes("sales.opportunities.amount.read") ? ["amount"] : [];
+  return { ...document, regions: Object.fromEntries(Object.entries(document.regions).map(([region, nodes]) => [region, nodes.flatMap((node, index) => {
+    const action = node.bindings?.action;
+    const registered = action === undefined ? undefined : kNexSalesRegistry.scopedRegistration.contributions.actions.find((entry) => entry.id === action.id)?.value as { readonly descriptor?: { readonly id?: unknown; readonly version?: unknown; readonly permission?: unknown } } | undefined;
+    const actionAllowed = action === undefined || registered?.descriptor?.id === action.id && registered.descriptor.version === action.version && typeof registered.descriptor.permission === "string" && permissions.includes(registered.descriptor.permission);
+    if (!actionAllowed && index > 0) return [];
+    const bindings = node.bindings === undefined ? undefined : { ...node.bindings, ...(!actionAllowed ? { action: undefined } : {}), ...(node.bindings.source === undefined || fields.length === 0 ? {} : { source: { ...node.bindings.source, selectedFields: [...new Set([...(node.bindings.source.selectedFields ?? []), ...fields])] } }) };
+    return [{ ...node, ...(bindings === undefined ? {} : { bindings }) }];
+  })])) };
+}
+
+/** Fixed daily routes may compose an internal timeline projection; page-builder documents never gain a timeline block. */
+function fixedDetailTimelineDocument(document: UiDocument, type: NonNullable<ReturnType<typeof fixedDetailTimelineType>>, permissions: readonly string[]): UiDocument {
+  const first = document.regions.main?.[0];
+  if (first === undefined) throw new TypeError("Sales detail document is unavailable.");
+  return { ...document, regions: { ...document.regions, main: [...document.regions.main, {
+    id: "sales-fixed-timeline", type: first.type, version: first.version, props: first.props,
+    bindings: { source: { source: { id: salesTimelineDescriptor.id, version: salesTimelineDescriptor.version }, input: { "related-record-type": type, "related-record-id": "$route.id" }, structuralCompatibilityHash: salesTimelineDescriptor.structuralCompatibilityHash, selectedFields: ["kind", "subject", "status", "occurred-at", "revision", ...(permissions.includes("sales.notes.body.read") ? ["body"] : [])] } }
+  }] } };
+}
+
+export async function loadRegisteredSalesRoute(payload: Payload, context: KnexRequestContext, routeId: string, value?: SalesRouteParams, pagination: SalesRoutePagination = Object.freeze({})) {
   const initialState = (await currentSalesAuthorityGeneration(payload)).state;
   const { route, template } = routeTemplate(routeId);
+  const parameters = routeParams(route, value);
   const permissions = await workspaceSalesPermissions(payload, context);
   if (!permissions.includes(route.permission) || !permissions.includes(template.permission)) {
     throw new TypeError("Sales route is denied.");
   }
-  const sourceResults = await loadWorkspaceSalesSources(payload, context, template.document, permissions, new AbortController().signal);
+  const document = authorizedFixedDetailDocument(template.document, route.id, permissions);
+  const timelineType = fixedDetailTimelineType(route.id);
+  const listPage = routePage(pagination.listPage, 1_000_000);
+  const timelinePage = routePage(pagination.timelinePage, 4);
+  if (timelineType === undefined && pagination.timelinePage !== undefined || timelineType !== undefined && pagination.listPage !== undefined) throw new TypeError("Sales route pagination is invalid.");
+  const sourceResults = await loadWorkspaceSalesSources(payload, context, document, permissions, new AbortController().signal, parameters, timelineType === undefined ? listPage : 1);
+  const timeline = timelineType === undefined ? null : (await loadWorkspaceSalesSources(payload, context, fixedDetailTimelineDocument(document, timelineType, permissions), permissions, new AbortController().signal, parameters, timelinePage))["sales-fixed-timeline"] ?? null;
+  const stateHistory = await fixedDetailStateHistory(payload, route.id, parameters.id, document, sourceResults);
   const [finalState, finalPermissions] = await Promise.all([
     currentSalesAuthorityGeneration(payload).then((current) => current.state), workspaceSalesPermissions(payload, context)
   ]);
@@ -803,11 +996,22 @@ export async function loadRegisteredSalesRoute(payload: Payload, context: KnexRe
     !finalPermissions.includes(route.permission) || !finalPermissions.includes(template.permission) || canonicalJson(finalPermissions) !== canonicalJson(permissions)) {
     throw new TypeError("Sales route authority changed.");
   }
+  const finalSourceResults = timelineType === undefined ? sourceResults : await loadWorkspaceSalesSources(payload, context, document, finalPermissions, new AbortController().signal, parameters, 1);
+  if (timelineType !== undefined) {
+    const primaryNode = document.regions.main?.[0];
+    const initialRecord = primaryNode === undefined || parameters.id === undefined ? undefined : sourceResultRecord(sourceResults[primaryNode.id], parameters.id);
+    const finalRecord = primaryNode === undefined || parameters.id === undefined ? undefined : sourceResultRecord(finalSourceResults[primaryNode.id], parameters.id);
+    if (initialRecord === undefined || finalRecord === undefined || canonicalJson(finalRecord) !== canonicalJson(initialRecord)) throw new TypeError("Sales detail record changed or is no longer authorized.");
+  }
+  const [postReloadState, postReloadPermissions] = await Promise.all([
+    currentSalesAuthorityGeneration(payload).then((current) => current.state), workspaceSalesPermissions(payload, context)
+  ]);
+  if (postReloadState.authorizationRevision !== finalState.authorizationRevision || postReloadState.lifecycleRevision !== finalState.lifecycleRevision || canonicalJson(postReloadPermissions) !== canonicalJson(finalPermissions)) throw new TypeError("Sales route authority changed during final record authorization.");
   const watermark = "sha256:" + createHash("sha256").update(canonicalJson({
-    authorizationRevision: finalState.authorizationRevision, lifecycleRevision: finalState.lifecycleRevision,
-    permissions: finalPermissions, sourceResults
+    authorizationRevision: postReloadState.authorizationRevision, lifecycleRevision: postReloadState.lifecycleRevision,
+    permissions: postReloadPermissions, routeId: route.id, routeParams: parameters, sourceResults: finalSourceResults, stateHistory, timeline
   })).digest("hex");
-  return Object.freeze({ document: template.document, permissions: finalPermissions, sourceResults, watermark });
+  return Object.freeze({ document, permissions: postReloadPermissions, sourceResults: finalSourceResults, stateHistory, timeline, watermark });
 }
 
 export async function executeRegisteredSalesRouteAction(payload: Payload, context: KnexRequestContext, actionId: string, input: unknown, idempotencyKey: string, signal: AbortSignal) {
@@ -821,61 +1025,141 @@ function salesRouteRuntimeClientSource(): string {
   return `"use client";
 
 import { DataSourceBindingResultSchema, UiDocumentSchema, type DataSourceBindingResult, type UiDocument } from "@k-nex/contracts";
-import { salesOpportunitiesDescriptor, salesTasksDescriptor } from "@k-nex/module-sales/contracts";
+import {
+  salesAccountDetailDescriptor,
+  salesAccountsDescriptor,
+  salesContactDetailDescriptor,
+  salesContactsDescriptor,
+  salesLeadDetailDescriptor,
+  salesLeadsDescriptor,
+  salesOpportunitiesDescriptor,
+  salesOpportunityDetailDescriptor,
+  salesTasksDescriptor,
+  salesTimelineDescriptor
+} from "@k-nex/module-sales/contracts";
+import { SalesFixedDetailRouteProvider, SalesStateHistory, SalesTimeline, type SalesStateHistoryEntry } from "@k-nex/module-sales/pages";
 import { salesUiBlockDefinitions } from "@k-nex/module-sales/ui";
+import type { DataTableRequestState } from "@k-nex/ui-data/data-table-controller";
 import { presentUiRuntimeReact } from "@k-nex/ui-components";
-import { createUiDocumentRuntime, createUiRuntimeRegistry, presentUiRuntimeResult } from "@k-nex/ui-runtime";
-import { useEffect, useMemo, useState } from "react";
+import { createUiDocumentRuntime, createUiRuntimeRegistry, presentUiRuntimeResult, type UiRuntimeActionDispatchRequest } from "@k-nex/ui-runtime";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { io } from "socket.io-client";
 
-const runtime = createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: salesUiBlockDefinitions, sources: [salesOpportunitiesDescriptor, salesTasksDescriptor] }));
-type Projection = Readonly<{ document: UiDocument; permissions: readonly string[]; sourceResults: Readonly<Record<string, DataSourceBindingResult<unknown>>>; watermark: string }>;
+const runtime = createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: salesUiBlockDefinitions, sources: [salesAccountsDescriptor, salesAccountDetailDescriptor, salesContactsDescriptor, salesContactDetailDescriptor, salesLeadsDescriptor, salesLeadDetailDescriptor, salesOpportunitiesDescriptor, salesOpportunityDetailDescriptor, salesTasksDescriptor, salesTimelineDescriptor] }));
+type Projection = Readonly<{ document: UiDocument; permissions: readonly string[]; sourceResults: Readonly<Record<string, DataSourceBindingResult<unknown>>>; stateHistory: readonly SalesStateHistoryEntry[]; timeline: DataSourceBindingResult<unknown> | null; watermark: string }>;
+const routeTopics: Readonly<Record<string, readonly string[]>> = Object.freeze({
+  "sales.route.accounts": ["sales.realtime.accounts"], "sales.route.account-detail": ["sales.realtime.accounts", "sales.realtime.timeline"],
+  "sales.route.contacts": ["sales.realtime.contacts"], "sales.route.contact-detail": ["sales.realtime.contacts", "sales.realtime.timeline"],
+  "sales.route.leads": ["sales.realtime.leads"], "sales.route.lead-detail": ["sales.realtime.leads", "sales.realtime.timeline"],
+  "sales.route.opportunities": ["sales.realtime.opportunities"], "sales.route.opportunity-detail": ["sales.realtime.opportunities", "sales.realtime.timeline"],
+  "sales.route.tasks": ["sales.realtime.tasks"]
+});
+const routeTitles: Readonly<Record<string, string>> = Object.freeze({
+  "sales.route.overview": "Sales overview", "sales.route.tasks": "Sales tasks", "sales.route.opportunities": "Opportunities", "sales.route.settings": "Sales settings",
+  "sales.route.accounts": "Accounts", "sales.route.account-detail": "Account detail", "sales.route.contacts": "Contacts", "sales.route.contact-detail": "Contact detail",
+  "sales.route.leads": "Leads", "sales.route.lead-detail": "Lead detail", "sales.route.opportunity-detail": "Opportunity detail"
+});
+export function createSalesRouteRefreshScheduler(run: (signal: AbortSignal) => Promise<void>) {
+  let pending = false;
+  let queued = false;
+  let disposed = false;
+  let pendingAbort: AbortController | undefined;
+  const refresh = (urgent = false): void => {
+    if (disposed) return;
+    if (pending) { queued = true; if (urgent) pendingAbort?.abort(); return; }
+    pending = true;
+    const abort = new AbortController(); pendingAbort = abort;
+    void run(abort.signal).catch(() => undefined).finally(() => {
+      pending = false;
+      if (pendingAbort === abort) pendingAbort = undefined;
+      if (queued && !disposed) { queued = false; refresh(); }
+    });
+  };
+  return Object.freeze({ refresh, dispose: () => { disposed = true; queued = false; pendingAbort?.abort(); } });
+}
+function opaqueRealtimeEvent(value: unknown, allowed: ReadonlySet<string>): boolean {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  const event = value as Record<string, unknown>;
+  return Object.keys(event).sort().join("\\0") === "correlationId\\0event\\0messageClass\\0topicId" && typeof event.correlationId === "string" && typeof event.topicId === "string" && allowed.has(event.topicId) && event.messageClass === "reconstructible-invalidation" && event.event !== null && typeof event.event === "object" && !Array.isArray(event.event) && Object.keys(event.event as Record<string, unknown>).sort().join("\\0") === "correlation\\0dedupe\\0event\\0source\\0topic";
+}
+
+function stateHistory(value: unknown): readonly SalesStateHistoryEntry[] | undefined {
+  if (!Array.isArray(value) || value.length > 25) return undefined;
+  const entries: SalesStateHistoryEntry[] = [];
+  for (const entry of value) {
+    if (entry === null || typeof entry !== "object" || Array.isArray(entry)) return undefined;
+    const record = entry as Record<string, unknown>;
+    if (Object.keys(record).sort().join("\\0") !== "actionId\\0fromState\\0occurredAt\\0revision\\0stateField\\0toState" || typeof record.actionId !== "string" || !/^sales\\.[a-z]+(?:[.-][a-z]+)*$/u.test(record.actionId) || record.actionId.length > 128 ||
+      !["status", "stageId", "archiveStatus"].includes(String(record.stateField)) || typeof record.fromState !== "string" || record.fromState.length === 0 || record.fromState.length > 64 || typeof record.toState !== "string" || record.toState.length === 0 || record.toState.length > 64 ||
+      !Number.isSafeInteger(record.revision) || (record.revision as number) < 1 || (record.revision as number) > 1_000_000_000 || typeof record.occurredAt !== "string" || !Number.isFinite(Date.parse(record.occurredAt)) || new Date(record.occurredAt).toISOString() !== record.occurredAt) return undefined;
+    entries.push(Object.freeze(record as unknown as SalesStateHistoryEntry));
+  }
+  if (entries.some((entry, index) => index > 0 && entry.revision >= entries[index - 1]!.revision)) return undefined;
+  return Object.freeze(entries);
+}
 
 function projection(value: unknown): Projection | undefined {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
   const candidate = value as Record<string, unknown>;
-  if (Object.keys(candidate).sort().join("\\0") !== "document\\0permissions\\0sourceResults\\0watermark" || typeof candidate.document !== "object" || candidate.document === null || Array.isArray(candidate.document) ||
+  if (Object.keys(candidate).sort().join("\\0") !== "document\\0permissions\\0sourceResults\\0stateHistory\\0timeline\\0watermark" || typeof candidate.document !== "object" || candidate.document === null || Array.isArray(candidate.document) ||
     !Array.isArray(candidate.permissions) || candidate.permissions.some((permission) => typeof permission !== "string") || typeof candidate.sourceResults !== "object" || candidate.sourceResults === null || Array.isArray(candidate.sourceResults) ||
-    typeof candidate.watermark !== "string" || !/^sha256:[0-9a-f]{64}$/u.test(candidate.watermark)) return undefined;
+    candidate.timeline !== null && (typeof candidate.timeline !== "object" || Array.isArray(candidate.timeline)) || typeof candidate.watermark !== "string" || !/^sha256:[0-9a-f]{64}$/u.test(candidate.watermark)) return undefined;
   try {
-    return Object.freeze({ document: UiDocumentSchema.parse(candidate.document), permissions: Object.freeze([...candidate.permissions]), sourceResults: Object.freeze(Object.fromEntries(Object.entries(candidate.sourceResults).map(([id, result]) => [id, DataSourceBindingResultSchema.parse(result)]))), watermark: candidate.watermark });
+    const history = stateHistory(candidate.stateHistory); if (history === undefined) return undefined;
+    return Object.freeze({ document: UiDocumentSchema.parse(candidate.document), permissions: Object.freeze([...candidate.permissions]), sourceResults: Object.freeze(Object.fromEntries(Object.entries(candidate.sourceResults).map(([id, result]) => [id, DataSourceBindingResultSchema.parse(result)]))), stateHistory: history, timeline: candidate.timeline === null ? null : DataSourceBindingResultSchema.parse(candidate.timeline), watermark: candidate.watermark });
   } catch { return undefined; }
 }
 
-export function RegisteredSalesRouteRuntime({ initialProjection, routeId }: Readonly<{ initialProjection: Projection; routeId: string }>) {
+export function RegisteredSalesRouteRuntime({ initialProjection, routeId, routeParams }: Readonly<{ initialProjection: Projection; routeId: string; routeParams?: Readonly<{ id: string }> }>) {
   const [current, setCurrent] = useState<Projection | undefined>(initialProjection);
+  const [listPage, setListPage] = useState(1);
+  const [timelinePage, setTimelinePage] = useState(1);
+  const [pageRefreshing, setPageRefreshing] = useState(false);
+  const dispatchAction = useCallback(async (request: UiRuntimeActionDispatchRequest) => {
+    const response = await fetch("/api/k-nex/sales/actions/" + encodeURIComponent(request.action.id), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ input: request.input, idempotencyKey: "sales-route-action-" + crypto.randomUUID() }) });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.code ?? "Sales action failed.");
+    return body.data;
+  }, []);
+  useEffect(() => { setCurrent(initialProjection); setListPage(1); setTimelinePage(1); }, [initialProjection, routeId, routeParams?.id]);
   useEffect(() => {
     let active = true;
-    let pending = false;
-    setCurrent(initialProjection);
-    const refresh = async () => {
-      if (pending) return;
-      pending = true;
-      const response = await fetch("/api/k-nex/sales/routes/" + encodeURIComponent(routeId), { cache: "no-store" }).catch(() => undefined);
+    const scheduler = createSalesRouteRefreshScheduler(async (signal) => {
+      const query = routeParams === undefined ? "?page=" + listPage : "?id=" + encodeURIComponent(routeParams.id) + "&timelinePage=" + timelinePage;
+      const response = await fetch("/api/k-nex/sales/routes/" + encodeURIComponent(routeId) + query, { cache: "no-store", signal }).catch(() => undefined);
       const next = response?.ok ? projection(await response.json().catch(() => undefined)) : undefined;
-      if (active) setCurrent(next);
-      pending = false;
-    };
-    void refresh();
-    const timer = setInterval(() => { void refresh(); }, 1_000);
-    return () => { active = false; clearInterval(timer); };
-  }, [initialProjection, routeId]);
+      if (active && !signal.aborted) { setCurrent(next); setPageRefreshing(false); }
+    });
+    const topics = new Set(routeTopics[routeId] ?? []);
+    const socket = topics.size === 0 ? undefined : io({ transports: ["websocket"], withCredentials: true, reconnection: true });
+    const subscribe = () => { for (const topicId of topics) void socket?.emitWithAck("k-nex:subscribe", { topicId, params: {} }).catch(() => undefined); scheduler.refresh(); };
+    socket?.on("connect", subscribe);
+    socket?.on("k-nex:event", (event: unknown, acknowledge: unknown) => {
+      if (typeof acknowledge === "function") (acknowledge as () => void)();
+      if (opaqueRealtimeEvent(event, topics)) scheduler.refresh(true);
+    });
+    scheduler.refresh();
+    // Socket reconnect is an authoritative resync edge.  Polling is only a
+    // bounded loss fallback, deliberately slower than an admitted invalidation.
+    const timer = setInterval(() => { scheduler.refresh(); }, 5_000);
+    return () => { active = false; scheduler.dispose(); clearInterval(timer); for (const topicId of topics) void socket?.emitWithAck("k-nex:unsubscribe", { topicId, params: {} }).catch(() => undefined); socket?.disconnect(); };
+  }, [routeId, routeParams?.id, listPage, timelinePage]);
   const result = useMemo(() => current === undefined ? undefined : runtime.render({
     document: current.document, surface: "workspace", actor: { authenticated: true, permissions: new Set(current.permissions) }, sourceResults: current.sourceResults,
-    dispatchAction: async (request) => {
-      const response = await fetch("/api/k-nex/sales/actions/" + encodeURIComponent(request.action.id), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ input: request.input, idempotencyKey: "sales-route-action-" + crypto.randomUUID() }) });
-      const body = await response.json();
-      if (!response.ok) { setCurrent(undefined); throw new Error(body.code ?? "Sales action failed."); }
-      window.location.reload();
-      return body.data;
-    }
-  }), [current]);
-  if (result === undefined) return <section role="alert" data-k-nex-sales-route="unavailable">Sales route unavailable</section>;
-  return <section>{presentUiRuntimeReact(presentUiRuntimeResult(result))}</section>;
+    dispatchAction
+  }), [current, dispatchAction]);
+  const pagination = useMemo(() => ({ listPage, timelinePage, onListPageChange: (page: number) => { if (Number.isSafeInteger(page) && page >= 1 && page <= 1_000_000) { setPageRefreshing(true); setListPage(page); } }, onTimelinePageChange: (page: number) => { if (Number.isSafeInteger(page) && page >= 1 && page <= 4) { setPageRefreshing(true); setTimelinePage(page); } } }), [listPage, timelinePage]);
+  const title = routeTitles[routeId];
+  if (result === undefined || title === undefined) return <section role="alert" data-k-nex-sales-route="unavailable">Sales route unavailable</section>;
+  const timeline = current?.timeline as unknown as DataTableRequestState | null | undefined;
+  const timelineElement = timeline === null || timeline === undefined || current === undefined ? undefined : <SalesTimeline requestState={timeline} permissions={current.permissions} dispatchAction={dispatchAction} />;
+  const historyElement = current === undefined ? undefined : <SalesStateHistory entries={current.stateHistory} />;
+  return <SalesFixedDetailRouteProvider timeline={timelineElement} history={historyElement} pagination={pagination} hostOwnsRouteChrome><h1>{title}</h1>{pageRefreshing ? <p role="status" aria-live="polite">Refreshing page…</p> : null}{presentUiRuntimeReact(presentUiRuntimeResult(result))}</SalesFixedDetailRouteProvider>;
 }
 `;
 }
 
-function salesRoutePageSource(routeId: string, pathname: string): string {
+function salesRoutePageSource(routeId: string, pathname: string, parameterized = false): string {
   const nestedSegments = pathname.split("/").length - 1;
   const source = "../".repeat(3 + nestedSegments);
   const components = "../".repeat(2 + nestedSegments);
@@ -889,11 +1173,11 @@ import { RegisteredSalesRouteRuntime } from "${components}components/k-nex-sales
 
 export const dynamic = "force-dynamic";
 
-export default async function SalesRoute() {
+export default async function SalesRoute(${parameterized ? `{ params }: Readonly<{ params: Promise<{ id: string }> }>` : ""}) {
   const payload = await bootKnexApplication("workspace-web");
   const headers = await getHeaders();
   const context = kNexRequestContext(headers, "sales-route");
-  try { return <RegisteredSalesRouteRuntime routeId={${JSON.stringify(routeId)}} initialProjection={await loadRegisteredSalesRoute(payload, context, ${JSON.stringify(routeId)})} />; } catch { return notFound(); }
+  ${parameterized ? `const routeParams = Object.freeze({ id: (await params).id });\n  ` : ""}try { return <RegisteredSalesRouteRuntime routeId={${JSON.stringify(routeId)}}${parameterized ? " routeParams={routeParams}" : ""} initialProjection={await loadRegisteredSalesRoute(payload, context, ${JSON.stringify(routeId)}${parameterized ? ", routeParams" : ""})} />; } catch { return notFound(); }
 }
 `;
 }
@@ -907,11 +1191,25 @@ import { loadRegisteredSalesRoute } from "../../../../../../k-nex-sales-routes.j
 
 export const dynamic = "force-dynamic";
 
-export async function GET(_: Request, { params }: Readonly<{ params: Promise<{ routeId: string }> }>) {
+function pageNumber(value: string | null, maximum: number): number {
+  if (value === null || !/^[1-9][0-9]{0,6}$/u.test(value) || Number(value) > maximum) throw new TypeError("Sales route page is invalid.");
+  return Number(value);
+}
+
+export async function GET(request: Request, { params }: Readonly<{ params: Promise<{ routeId: string }> }>) {
   try {
     const payload = await bootKnexApplication("workspace-web");
     const headers = await getHeaders();
-    return Response.json(await loadRegisteredSalesRoute(payload, kNexRequestContext(headers, "sales-route-projection"), (await params).routeId), { headers: { "cache-control": "no-store" } });
+    const query = new URL(request.url).searchParams;
+    const id = query.get("id"); const page = query.get("page"); const timelinePage = query.get("timelinePage");
+    const defaultListQuery = query.size === 0;
+    const listQuery = query.size === 1 && page !== null;
+    const defaultDetailQuery = query.size === 1 && id !== null;
+    const detailQuery = query.size === 2 && id !== null && timelinePage !== null;
+    if (!defaultListQuery && !listQuery && !defaultDetailQuery && !detailQuery) throw new TypeError("Sales route parameters are invalid.");
+    const routeParams = defaultDetailQuery || detailQuery ? Object.freeze({ id: id ?? "" }) : undefined;
+    const pagination = listQuery ? Object.freeze({ listPage: pageNumber(page, 1_000_000) }) : detailQuery ? Object.freeze({ timelinePage: pageNumber(timelinePage, 4) }) : Object.freeze({});
+    return Response.json(await loadRegisteredSalesRoute(payload, kNexRequestContext(headers, "sales-route-projection"), (await params).routeId, routeParams, pagination), { headers: { "cache-control": "no-store" } });
   } catch { return Response.json({ code: "NOT_FOUND" }, { status: 404, headers: { "cache-control": "no-store" } }); }
 }
 `;
@@ -1186,6 +1484,7 @@ import { join, relative, resolve } from "node:path";
 import { createAuthorizedPuckBuilderProfile } from "@k-nex/builder-puck";
 import { ApplicationManifestSchema, PackageReleaseManifestSchema, PluginManifestSchema, canonicalJson } from "@k-nex/contracts";
 import manifestJson from "@k-nex/module-sales/manifest" with { type: "json" };
+import realtimeManifestJson from "@k-nex/provider-realtime-socketio/manifest" with { type: "json" };
 import { NodeHttpsAdministrationOperatorClient, type RuntimeExtensionPool } from "@k-nex/payload-adapter";
 import { assertExactProtectedRoleBaselineState, assertMigrationReadiness, currentProtectedPlatformRoleBaselineRelease, protectedRoleBootstrapId } from "@k-nex/runtime";
 import { ${themeResolver} as resolveSelectedThemeProfile } from "@k-nex/theme-${theme}";
@@ -1209,7 +1508,8 @@ const expectedMigrationNames = Object.freeze([
   "20260903_000026_workspace_pages",
   "20260903_000027_event_outbox",
   "20260904_000028_workspace_sidebar_preferences",
-  "20260905_000027_crm_core"
+  "20260905_000027_crm_core",
+  "20260906_000029_attachment_upload_admissions"
 ]);
 const expectedRouteSources = Object.freeze([
   "src/app/(auth)/forbidden/page.tsx",
@@ -1218,6 +1518,13 @@ const expectedRouteSources = Object.freeze([
   "src/app/(payload)/api/graphql-playground/route.ts",
   "src/app/(payload)/api/graphql/route.ts",
   "src/app/(workspace)/page.tsx",
+  "src/app/(workspace)/sales/accounts/[id]/page.tsx",
+  "src/app/(workspace)/sales/accounts/page.tsx",
+  "src/app/(workspace)/sales/contacts/[id]/page.tsx",
+  "src/app/(workspace)/sales/contacts/page.tsx",
+  "src/app/(workspace)/sales/leads/[id]/page.tsx",
+  "src/app/(workspace)/sales/leads/page.tsx",
+  "src/app/(workspace)/sales/opportunities/[id]/page.tsx",
   "src/app/(workspace)/sales/opportunities/page.tsx",
   "src/app/(workspace)/sales/page.tsx",
   "src/app/(workspace)/sales/settings/page.tsx",
@@ -1267,7 +1574,7 @@ const expectedRouteSources = Object.freeze([
   "src/app/api/system/themes/profiles/[profileId]/stage/route.ts"
 ].sort());
 const expectedPackageDependencies = Object.freeze([
-  "@k-nex/builder-puck", "@k-nex/composition", "@k-nex/contracts", "@k-nex/module-sales",
+  "@k-nex/builder-puck", "@k-nex/composition", "@k-nex/contracts", "@k-nex/module-sales", "@k-nex/provider-realtime-socketio",
   "@k-nex/payload-adapter", "@k-nex/runtime", "@k-nex/theme-${theme}", "@k-nex/ui-builder-blocks",
   "@k-nex/ui-components", "@k-nex/ui-data", "@k-nex/ui-design-system-contracts", "@k-nex/ui-forms",
   "@k-nex/ui-pages", "@k-nex/ui-runtime"
@@ -1276,6 +1583,7 @@ const expectedPackageDependencies = Object.freeze([
 type ApplicationPlan = Readonly<{
   composition: Readonly<{ plugins: readonly string[]; builder: string; theme: string; databaseAdapter: string }>;
   packageSource: Readonly<{ kind: string; release: string; manifestDigest: string }>;
+  payloadPostgresPatch: Readonly<{ package: string; upstream: string; fixes: readonly string[]; digest: string }>;
   migration: Readonly<{ owner: string; action: string; expectedPredecessorRevision: number }>;
 }>;
 
@@ -1323,18 +1631,20 @@ function sha256(value: string | Buffer): string { return "sha256:" + createHash(
 function archiveName(packageName: string, version: string): string { return packageName.slice(1).replace("/", "-") + "-" + version + ".tgz"; }
 
 function parseApplicationPlan(value: unknown): ApplicationPlan {
-  const plan = exactRecord(value, ["planVersion", "preset", "composition", "packageSource", "migration", "readiness", "lifecyclePlans"], "Application plan");
+  const plan = exactRecord(value, ["planVersion", "preset", "composition", "packageSource", "payloadPostgresPatch", "migration", "readiness", "lifecyclePlans"], "Application plan");
   const composition = exactRecord(plan.composition, ["plugins", "builder", "theme", "databaseAdapter"], "Application composition");
   const packageSource = exactRecord(plan.packageSource, ["kind", "release", "manifestDigest"], "Application package source");
+  const payloadPostgresPatch = exactRecord(plan.payloadPostgresPatch, ["package", "upstream", "fixes", "digest"], "Payload Postgres patch");
   const migration = exactRecord(plan.migration, ["owner", "action", "expectedPredecessorRevision"], "Application migration plan");
   if (plan.planVersion !== 1 || plan.preset !== "sales-reference" || packageSource.kind !== "packed-mirror" ||
     typeof packageSource.release !== "string" || typeof packageSource.manifestDigest !== "string" ||
     !Array.isArray(composition.plugins) || composition.plugins.some((value) => typeof value !== "string") ||
+    !same(payloadPostgresPatch, { package: "@payloadcms/db-postgres@3.88.0", upstream: "payloadcms/payload#17831@134c89b7955d0dcde9137643ab86873ff542dbd4", fixes: ["#15674", "#16256"], digest: "sha256:0889c7c61e08478410dfcb1112415677fa9f50267901ee15c99e3deb1c9edf2f" }) ||
     typeof composition.builder !== "string" || typeof composition.theme !== "string" || composition.databaseAdapter !== "postgres" ||
     migration.owner !== "customer" || migration.action !== "review-and-apply" || migration.expectedPredecessorRevision !== 0 ||
     !same(plan.readiness, ["exact-package-inventory", "migration-revision", "sales-registration"]) ||
     !same(plan.lifecyclePlans, ["add", "disable", "enable", "upgrade"])) fail("Application plan is incompatible.");
-  return { composition: composition as ApplicationPlan["composition"], packageSource: packageSource as ApplicationPlan["packageSource"], migration: migration as ApplicationPlan["migration"] };
+  return { composition: composition as ApplicationPlan["composition"], packageSource: packageSource as ApplicationPlan["packageSource"], payloadPostgresPatch: payloadPostgresPatch as ApplicationPlan["payloadPostgresPatch"], migration: migration as ApplicationPlan["migration"] };
 }
 
 function routeSources(root: string): readonly string[] {
@@ -1363,15 +1673,17 @@ function reconcileSource(root: string) {
   if (application.application.id !== kNexIdentity.applicationId || application.application.type !== "customer-platform") fail("Application identity mismatch.");
 
   const salesRelease = release.packages.find((entry) => entry.package === "@k-nex/module-sales" && entry.role === "plugin");
+  const realtimeRelease = release.packages.find((entry) => entry.package === "@k-nex/provider-realtime-socketio" && entry.role === "plugin");
   const builderRelease = release.packages.find((entry) => entry.package === "@k-nex/builder-puck" && entry.role === "builder");
   const themeRelease = release.packages.find((entry) => entry.package === "@k-nex/theme-${theme}" && entry.role === "theme");
-  const salesPlugin = application.plugins[0];
+  const salesPlugin = application.plugins.find((plugin) => plugin.id === "module.sales");
+  const realtimePlugin = application.plugins.find((plugin) => plugin.id === "provider.realtime.socketio");
   const builder = application.builder;
   const selectedTheme = exactRecord(application.themes, ["active", "package", "version"], "Selected theme");
-  if (application.plugins.length !== 1 || salesRelease === undefined || salesPlugin?.id !== "module.sales" || salesPlugin.package !== salesRelease.package || salesPlugin.version !== salesRelease.version || !salesPlugin.enabled) fail("Sales application manifest mismatch.");
+  if (application.plugins.length !== 2 || new Set(application.plugins.map((plugin) => plugin.id)).size !== 2 || salesRelease === undefined || realtimeRelease === undefined || salesPlugin?.id !== "module.sales" || salesPlugin.package !== salesRelease.package || salesPlugin.version !== salesRelease.version || !salesPlugin.enabled || realtimePlugin?.id !== "provider.realtime.socketio" || realtimePlugin.package !== realtimeRelease.package || realtimePlugin.version !== realtimeRelease.version || !realtimePlugin.enabled || !same(application.providers, { "realtime.gateway": { plugin: realtimePlugin.id, package: realtimePlugin.package, version: realtimePlugin.version } })) fail("Sales application manifest mismatch.");
   if (builderRelease === undefined || builder?.plugin !== "builder.puck" || builder.package !== builderRelease.package || builder.version !== builderRelease.version || !same(builder.profiles, { workspace: { enabled: true, drafts: true, surfaces: ["workspace"] } })) fail("Puck builder manifest mismatch.");
   if (themeRelease === undefined || selectedTheme.active !== "${theme}" || selectedTheme.package !== themeRelease.package || selectedTheme.version !== themeRelease.version) fail("Theme manifest mismatch.");
-  if (!same(plan.composition.plugins, ["module.sales@" + salesRelease.version]) || plan.composition.builder !== "builder.puck@" + builderRelease.version || plan.composition.theme !== "${theme}@" + themeRelease.version) fail("Application composition mismatch.");
+  if (!same(plan.composition.plugins, ["module.sales@" + salesRelease.version, "provider.realtime.socketio@" + realtimeRelease.version].sort()) || plan.composition.builder !== "builder.puck@" + builderRelease.version || plan.composition.theme !== "${theme}@" + themeRelease.version) fail("Application composition mismatch.");
 
   const packageFile = jsonFile(join(root, "package.json"), "Package manifest");
   const packageJson = exactRecord(packageFile.value, ["name", "version", "private", "type", "packageManager", "engines", "scripts", "dependencies", "devDependencies"], "Package manifest");
@@ -1398,20 +1710,22 @@ function reconcileSource(root: string) {
   if (!same(routeSources(root), expectedRouteSources)) fail("Generated route source inventory mismatch.");
 
   const salesManifest = PluginManifestSchema.parse(manifestJson);
+  const realtimeManifest = PluginManifestSchema.parse(realtimeManifestJson);
   const salesInventory = kNexSalesRegistry.scopedRegistration.inventory;
   const expectedContributions = Object.fromEntries(Object.entries(salesManifest.contributions ?? {}).flatMap(([kind, values]) => {
     const ids = Object.keys(values as object).sort();
     return ids.length === 0 ? [] : [[kind, ids]];
   }));
-  if (salesManifest.id !== salesPlugin.id || salesManifest.package !== salesPlugin.package || salesManifest.version !== salesPlugin.version ||
+  const realtimeInventory = salesInventory.find((entry) => entry.id === realtimeManifest.id);
+  if (salesManifest.id !== salesPlugin.id || salesManifest.package !== salesPlugin.package || salesManifest.version !== salesPlugin.version || realtimeManifest.id !== realtimePlugin.id || realtimeManifest.package !== realtimePlugin.package || realtimeManifest.version !== realtimePlugin.version ||
     kNexSalesRegistry.staticRelease.package.name !== salesRelease.package || kNexSalesRegistry.staticRelease.package.version !== salesRelease.version ||
     kNexSalesRegistry.staticRelease.package.integrity !== salesRelease.integrity || kNexSalesRegistry.staticRelease.release !== release.release.version ||
     kNexSalesRegistry.staticRelease.authorizationGeneration !== kNexSalesRegistry.authorizationGeneration.owner.generation ||
     !same(kNexSalesRegistry.authorizationGeneration.runtimeGenerationIds, [kNexSalesRegistry.staticRelease.runtimeGenerationId]) ||
-    kNexSalesRegistry.registration.pluginId !== salesManifest.id || salesInventory.length !== 1 || salesInventory[0]?.id !== salesManifest.id ||
-    !same(salesInventory[0].contributions, expectedContributions) ||
-    Object.values(kNexSalesRegistry.scopedRegistration.contributions as Readonly<Record<string, readonly { pluginId: string }[]>>).flat().some((entry) => entry.pluginId !== salesManifest.id) ||
-    Object.values(kNexSalesRegistry.scopedRegistration.bindings as Readonly<Record<string, readonly { pluginId: string }[]>>).flat().some((entry) => entry.pluginId !== salesManifest.id)) fail("Sales static registration identity mismatch.");
+    kNexSalesRegistry.registration.pluginId !== salesManifest.id || salesInventory.length !== 2 || salesInventory.filter((entry) => entry.id === salesManifest.id).length !== 1 || realtimeInventory === undefined ||
+    !same(salesInventory.find((entry) => entry.id === salesManifest.id)?.contributions, expectedContributions) || !same(realtimeInventory.contributions, {}) ||
+    Object.values(kNexSalesRegistry.scopedRegistration.contributions as Readonly<Record<string, readonly { pluginId: string }[]>>).flat().some((entry) => entry.pluginId !== salesManifest.id && entry.pluginId !== realtimeManifest.id) ||
+    Object.values(kNexSalesRegistry.scopedRegistration.bindings as Readonly<Record<string, readonly { pluginId: string }[]>>).flat().some((entry) => entry.pluginId !== salesManifest.id && entry.pluginId !== realtimeManifest.id)) fail("Sales static registration identity mismatch.");
   if (!same(kNexSalesRegistry.collectionSlugs, ["sales-accounts", "sales-contacts", "sales-leads", "sales-pipelines", "sales-pipeline-stages", "sales-activities", "sales-opportunities", "sales-tasks", "sales-notes", "sales-attachment-references"]) ||
     !same(kNexSalesRegistry.collections.map(({ slug }) => slug), kNexSalesRegistry.collectionSlugs) ||
     kNexSalesRegistry.readiness.currentRevision !== 3 || !same(kNexSalesRegistry.readiness.predecessorRevisions, [1, 2])) fail("Sales registry readiness mismatch.");
@@ -1494,6 +1808,7 @@ export async function reconcileKnexReadiness(payload: Payload) {
 
 function doctorSource(): string {
   return `import { bootKnexApplication } from "./boot.js";
+import { shutdownKnexApplication } from "./k-nex-authority.js";
 import { kNexApplicationReadyMarker, reconcileKnexReadiness } from "./k-nex-readiness.js";
 
 const payload = await bootKnexApplication("doctor");
@@ -1501,24 +1816,184 @@ try {
   await reconcileKnexReadiness(payload);
   console.log(kNexApplicationReadyMarker);
   console.log("K_NEX_DOCTOR_PASS");
-} finally { await payload.destroy(); }
+} finally { await shutdownKnexApplication(payload); }
 process.exit(0);
+`;
+}
+
+function realtimeSource(): string {
+  return `import { randomUUID } from "node:crypto";
+
+import { createSocketIoMemoryGateway } from "@k-nex/provider-realtime-socketio";
+import { createCurrentAuthorityTarget, createRealtimeTopicRegistry, defineRealtimeTopic } from "@k-nex/runtime";
+import { salesRealtimeTopicDescriptors } from "@k-nex/module-sales/contracts";
+import type { Server } from "node:http";
+import type { Payload } from "payload";
+
+import { currentPayloadAuthentication, currentSalesGeneration, kNexAuthority, kNexRequestContext } from "./k-nex-authority.js";
+import { kNexIdentity } from "./k-nex-identity.js";
+import { kNexSalesRegistry } from "./k-nex-registry.js";
+
+const channel = "k_nex_runtime_invalidation";
+type NotificationClient = { query(text: string): Promise<unknown>; on(event: "notification", listener: (message: Readonly<{ channel: string; payload?: string }>) => void): void; on(event: "error" | "end", listener: () => void): void; release(destroy?: boolean): void; };
+type OpaqueInvalidation = Readonly<{ topic: string; source: string; event: string; correlation: string; dedupe: string }>;
+
+function exactObject(value: unknown, keys: readonly string[]): Record<string, unknown> {
+  if (value === null || typeof value !== "object" || Array.isArray(value) || Object.keys(value).sort().join("\\0") !== [...keys].sort().join("\\0")) throw new TypeError("Realtime invalidation is invalid.");
+  return value as Record<string, unknown>;
+}
+function opaque(value: unknown, topic: string, source: string, event: string): OpaqueInvalidation {
+  const raw = exactObject(value, ["correlation", "dedupe", "event", "source", "topic"]);
+  if (raw.topic !== topic || raw.source !== source || raw.event !== event || typeof raw.correlation !== "string" || typeof raw.dedupe !== "string" || !/^[a-z][a-z0-9.-]{2,127}$/u.test(raw.dedupe) || raw.correlation.length < 1 || raw.correlation.length > 128) throw new TypeError("Realtime invalidation is invalid.");
+  return Object.freeze({ topic, source, event, correlation: raw.correlation, dedupe: raw.dedupe });
+}
+function emptyParams(value: unknown): Readonly<Record<string, never>> {
+  if (value === null || typeof value !== "object" || Array.isArray(value) || Object.keys(value).length !== 0) throw new TypeError("Realtime topic parameters are invalid.");
+  return Object.freeze({});
+}
+type RealtimeSalesScope = Readonly<{ recordScope: "owned-or-assigned-team" | "managed-teams-and-own" | "application-sales-scope" | "explicit-application-or-team-scope"; applicationWide: boolean; mutationAllowed: boolean; authorizedTeamIds: readonly string[]; revision: number }>;
+function realtimeSalesScope(value: unknown): RealtimeSalesScope | undefined {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const row = value as Record<string, unknown>;
+  if (!["owned-or-assigned-team", "managed-teams-and-own", "application-sales-scope", "explicit-application-or-team-scope"].includes(String(row.record_scope)) || typeof row.application_wide !== "boolean" || typeof row.mutation_allowed !== "boolean" || !Array.isArray(row.authorized_team_ids) || row.authorized_team_ids.length > 32 || row.authorized_team_ids.some((team) => typeof team !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,159}$/u.test(team)) || JSON.stringify(row.authorized_team_ids) !== JSON.stringify([...new Set(row.authorized_team_ids)].sort()) || !Number.isSafeInteger(row.revision) || (row.revision as number) < 1) return undefined;
+  const recordScope = row.record_scope as RealtimeSalesScope["recordScope"];
+  const validMode = recordScope === "application-sales-scope" ? row.application_wide === true && row.mutation_allowed === true
+    : recordScope === "explicit-application-or-team-scope" ? row.mutation_allowed === false
+      : row.application_wide === false && row.mutation_allowed === true;
+  return validMode ? Object.freeze({ recordScope, applicationWide: row.application_wide, mutationAllowed: row.mutation_allowed, authorizedTeamIds: Object.freeze([...row.authorized_team_ids] as string[]), revision: row.revision as number }) : undefined;
+}
+async function realtimeAllowed(payload: Payload, headers: Headers, actorId: string, permission: Readonly<{ id: string; resource: string; scope: "application" | "record" | "field" }>, signal: AbortSignal): Promise<boolean> {
+  if (signal.aborted) return false;
+  const initialGeneration = await currentSalesGeneration(payload);
+  const readScope = () => (payload.db.pool as unknown as { query(text: string, values: readonly unknown[]): Promise<{ rows: unknown[] }> }).query("select record_scope,application_wide,mutation_allowed,authorized_team_ids,revision from sales_current_authority_scopes where application_id=$1 and environment=$2 and principal_id=$3 and state='active'", [kNexIdentity.applicationId, kNexIdentity.environment, actorId]);
+  const rows = await readScope();
+  const scope = rows.rows.length === 1 ? realtimeSalesScope(rows.rows[0]) : undefined;
+  if (scope === undefined || signal.aborted) return false;
+  const recordId = "collection";
+  const targetScope = permission.scope === "application" ? { kind: "application", resource: permission.resource }
+    : permission.scope === "record" ? { kind: "record", resource: permission.resource, recordId }
+      : { kind: "field", resource: permission.resource, recordId, fieldId: permission.resource };
+  const allowed = !signal.aborted && await kNexAuthority(payload).adapter.allows(kNexRequestContext(headers, "realtime-sales"), createCurrentAuthorityTarget({ permissionId: permission.id, scope: targetScope, facts: {
+    applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment, boundary: "realtime-sales", recordId, recordEnvironment: kNexIdentity.environment, ownerId: actorId,
+    applicationWide: scope.applicationWide, mutationAllowed: scope.mutationAllowed, authorizedTeamIds: scope.authorizedTeamIds, recordScope: scope.recordScope, salesScopeRevision: scope.revision, collectionScope: true,
+    ...(permission.scope === "field" ? { fieldId: permission.resource, fieldAllowed: true } : {})
+  } }), signal);
+  if (!allowed || signal.aborted) return false;
+  const [finalGeneration, finalRows] = await Promise.all([currentSalesGeneration(payload), readScope()]);
+  const finalScope = finalRows.rows.length === 1 ? realtimeSalesScope(finalRows.rows[0]) : undefined;
+  return !signal.aborted && finalScope !== undefined && finalScope.recordScope === scope.recordScope && finalScope.applicationWide === scope.applicationWide && finalScope.mutationAllowed === scope.mutationAllowed && finalScope.revision === scope.revision && JSON.stringify(finalScope.authorizedTeamIds) === JSON.stringify(scope.authorizedTeamIds) && finalGeneration.state.authorizationRevision === initialGeneration.state.authorizationRevision && finalGeneration.state.lifecycleRevision === initialGeneration.state.lifecycleRevision;
+}
+
+export async function startKnexRealtime(payload: Payload, httpServer: Server) {
+  const credentialHeaders = new Map<string, Headers>();
+  const actorHeaders = new WeakMap<object, Headers>();
+  const pendingAuthorizations = new Set<Promise<unknown>>();
+  const trackAuthorization = <T>(operation: Promise<T>): Promise<T> => {
+    pendingAuthorizations.add(operation);
+    void operation.then(() => pendingAuthorizations.delete(operation), () => pendingAuthorizations.delete(operation));
+    return operation;
+  };
+  const permission = new Map(kNexSalesRegistry.permissionDescriptors.map((descriptor) => [descriptor.id, descriptor]));
+  const topics = createRealtimeTopicRegistry(salesRealtimeTopicDescriptors.map((descriptor) => {
+    const expected = permission.get(descriptor.permission);
+    if (expected === undefined) throw new TypeError("Realtime topic permission is unavailable.");
+    return defineRealtimeTopic({
+      id: descriptor.id,
+      parseParams: emptyParams,
+      parseEvent(value: unknown) { return opaque(value, descriptor.id, descriptor.sourceId, descriptor.eventId); },
+      async authorize({ actor, signal }) {
+        const headers = actorHeaders.get(actor);
+        return headers === undefined ? false : trackAuthorization(realtimeAllowed(payload, headers, actor.id, expected, signal)).catch(() => false);
+      }
+    });
+  }));
+  const gateway = createSocketIoMemoryGateway({
+    httpServer,
+    topics,
+    security: {
+      acknowledgementTimeoutMs: 5_000, authenticationTimeoutMs: 5_000, allowedOrigins: [kNexIdentity.publicOrigin.origin], allowedTransports: ["websocket"],
+      maxBufferedMessagesPerConnection: 32, maxConnections: 1_000, maxPendingPublications: 1_000, maxRequestBytes: 8_192,
+      maxSubscriptionRequestsPerMinute: 120, maxSubscriptionsPerConnection: 8, revalidationIntervalMs: 30_000, revalidationTimeoutMs: 5_000
+    },
+    async authenticate(_credentials, deadline, headers) {
+      if (deadline.signal.aborted || typeof headers.cookie !== "string" || headers.cookie.length < 1 || headers.cookie.length > 8_192) return null;
+      const requestHeaders = new Headers(); requestHeaders.set("cookie", headers.cookie); if (typeof headers.origin === "string") requestHeaders.set("origin", headers.origin);
+      const context = kNexRequestContext(requestHeaders, "realtime-auth");
+      const user = (await trackAuthorization(Promise.resolve().then(() => currentPayloadAuthentication(payload, context))).catch(() => undefined))?.user;
+      if (user === null || typeof user !== "object" || !("id" in user) || !("collection" in user) || user.collection !== "users" || user.id === null || user.id === undefined || deadline.signal.aborted) return null;
+      const id = randomUUID(); const actor = Object.freeze({ id: String(user.id), type: "user" }); credentialHeaders.set(id, requestHeaders); actorHeaders.set(actor, requestHeaders);
+      return Object.freeze({ actor, id, dispose: () => { credentialHeaders.delete(id); if (actorHeaders.get(actor) === requestHeaders) actorHeaders.delete(actor); } });
+    },
+    async isSessionActive(session, deadline) {
+      const headers = credentialHeaders.get(session.id);
+      if (headers === undefined || deadline.signal.aborted) return false;
+      const user = (await trackAuthorization(Promise.resolve().then(() => currentPayloadAuthentication(payload, kNexRequestContext(headers, "realtime-revalidate")))).catch(() => undefined))?.user;
+      return !deadline.signal.aborted && user !== null && typeof user === "object" && "id" in user && "collection" in user && user.collection === "users" && String(user.id) === session.actor.id;
+    }
+  });
+  const pool = payload.db.pool as unknown as { connect(): Promise<NotificationClient> };
+  let listener: NotificationClient | undefined;
+  try { listener = await pool.connect();
+  const activeListener = listener;
+  let closed = false;
+  const publications = new Set<Promise<void>>();
+  const publish = (event: OpaqueInvalidation): void => {
+    const operation = gateway.publish({ channel: { topicId: event.topic, params: {} }, correlationId: event.correlation, message: event, messageClass: "reconstructible-invalidation" })
+      .then(() => undefined, () => undefined).finally(() => publications.delete(operation));
+    publications.add(operation);
+  };
+  activeListener.on("notification", (notification) => {
+    if (closed || notification.channel !== channel || notification.payload === undefined) return;
+    try {
+      const envelope = exactObject(JSON.parse(notification.payload), ["applicationId", "environment", "invalidation", "type"]);
+      if (envelope.applicationId !== kNexIdentity.applicationId || envelope.environment !== kNexIdentity.environment || envelope.type !== "realtime") return;
+      publish(opaque(envelope.invalidation, String((envelope.invalidation as Record<string, unknown> | null)?.topic), String((envelope.invalidation as Record<string, unknown> | null)?.source), String((envelope.invalidation as Record<string, unknown> | null)?.event)));
+    } catch { /* Untrusted notifications never alter realtime state. */ }
+  });
+  activeListener.on("error", () => { /* Polling remains the authoritative fallback after a bridge fault. */ });
+  activeListener.on("end", () => { /* Pool shutdown owns final listener disposal. */ });
+  await activeListener.query("LISTEN k_nex_runtime_invalidation");
+  return Object.freeze({
+    gateway,
+    async close(): Promise<void> {
+      if (closed) return;
+      closed = true;
+      await gateway.close();
+      await Promise.allSettled([...pendingAuthorizations]);
+      await activeListener.query("UNLISTEN k_nex_runtime_invalidation").catch(() => undefined);
+      activeListener.release(true);
+      await Promise.allSettled([...publications]);
+      credentialHeaders.clear();
+    }
+  });
+  } catch (error) {
+    listener?.release(true);
+    await gateway.close().catch(() => undefined);
+    throw error;
+  }
+}
 `;
 }
 
 function workerSource(): string {
   return `import { canonicalJson } from "@k-nex/contracts";
-import { AuthorizationOutboxWorker, PostgresAuthorizationOutboxDispatcher, PostgresWorkspaceNavigationOutboxDispatcher, PostgresWorkspacePageOutboxDispatcher, WorkspaceNavigationOutboxWorker, WorkspacePageOutboxWorker, type RuntimeExtensionPool } from "@k-nex/payload-adapter";
+import { createSalesRealtimeRelay } from "@k-nex/module-sales/server";
+import { AuthorizationOutboxWorker, PostgresAuthorizationOutboxDispatcher, PostgresWorkspaceNavigationOutboxDispatcher, PostgresWorkspacePageOutboxDispatcher, WorkspaceNavigationOutboxWorker, WorkspacePageOutboxWorker, processNextPayloadOutboxEvent, type RuntimeExtensionPool } from "@k-nex/payload-adapter";
 
 import { bootKnexApplication } from "./boot.js";
+import { shutdownKnexApplication } from "./k-nex-authority.js";
 import { kNexIdentity } from "./k-nex-identity.js";
 
 const payload = await bootKnexApplication("authorization-worker");
 const channel = "k_nex_runtime_invalidation";
 const pool = payload.db.pool as RuntimeExtensionPool;
-async function notify(type: "authorization" | "workspace-navigation" | "workspace-page", invalidation: unknown, signal: AbortSignal) {
+const admittedFailures: unknown[] = [];
+function workerFailure(marker: string) {
+  return (error: unknown) => { admittedFailures.push(error); console.error(marker); };
+}
+async function notify(type: "authorization" | "workspace-navigation" | "workspace-page" | "realtime", invalidation: unknown, signal: AbortSignal) {
   if (signal.aborted) throw new Error("Runtime invalidation publication was aborted.");
-  await pool.query("select pg_notify($1,$2)", [channel, canonicalJson({ type, invalidation })]);
+  await pool.query("select pg_notify($1,$2)", [channel, canonicalJson({ applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment, type, invalidation })]);
   if (signal.aborted) throw new Error("Runtime invalidation publication was aborted.");
 }
 const authorizationWorker = new AuthorizationOutboxWorker(
@@ -1527,7 +2002,7 @@ const authorizationWorker = new AuthorizationOutboxWorker(
     if (invalidation.applicationId !== kNexIdentity.applicationId || invalidation.environment !== kNexIdentity.environment) throw new Error("Authorization invalidation identity mismatch.");
     return notify("authorization", invalidation, signal);
   } },
-  { onError: () => console.error("K_NEX_AUTHORIZATION_OUTBOX_ERROR") }
+  { onError: workerFailure("K_NEX_AUTHORIZATION_OUTBOX_ERROR") }
 );
 const workspacePageWorker = new WorkspacePageOutboxWorker(
   new PostgresWorkspacePageOutboxDispatcher(pool, { applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment }),
@@ -1535,7 +2010,7 @@ const workspacePageWorker = new WorkspacePageOutboxWorker(
     if (invalidation.applicationId !== kNexIdentity.applicationId || invalidation.environment !== kNexIdentity.environment) throw new Error("Workspace page invalidation identity mismatch.");
     return notify("workspace-page", invalidation, signal);
   } },
-  { onError: () => console.error("K_NEX_WORKSPACE_PAGE_OUTBOX_ERROR") }
+  { onError: workerFailure("K_NEX_WORKSPACE_PAGE_OUTBOX_ERROR") }
 );
 const workspaceNavigationWorker = new WorkspaceNavigationOutboxWorker(
   new PostgresWorkspaceNavigationOutboxDispatcher(pool, { applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment }),
@@ -1543,21 +2018,67 @@ const workspaceNavigationWorker = new WorkspaceNavigationOutboxWorker(
     if (invalidation.applicationId !== kNexIdentity.applicationId || invalidation.environment !== kNexIdentity.environment) throw new Error("Workspace navigation invalidation identity mismatch.");
     return notify("workspace-navigation", invalidation, signal);
   } },
-  { onError: () => console.error("K_NEX_WORKSPACE_NAVIGATION_OUTBOX_ERROR") }
+  { onError: workerFailure("K_NEX_WORKSPACE_NAVIGATION_OUTBOX_ERROR") }
 );
+let realtimeDispatching = false;
+let realtimeStopping = false;
+const realtimeAbort = new AbortController();
+const salesRealtimeOutboxConsumer = Object.freeze({
+  applicationId: kNexIdentity.applicationId,
+  environment: kNexIdentity.environment,
+  pluginId: "module.sales",
+  eventTypes: Object.freeze([
+    "sales.event.account-changed", "sales.event.contact-changed", "sales.event.lead-changed",
+    "sales.event.opportunity-changed", "sales.event.task-changed", "sales.event.timeline-changed"
+  ])
+});
+const realtimeRelay = createSalesRealtimeRelay({ publish: async (input) => {
+  const message = input.message;
+  if (message === null || typeof message !== "object" || Array.isArray(message)) throw new TypeError("Sales realtime invalidation is invalid.");
+  await notify("realtime", message, realtimeAbort.signal);
+  return { accepted: true };
+} });
+const dispatchRealtime = async () => {
+  if (realtimeDispatching || realtimeStopping) return;
+  realtimeDispatching = true;
+  try { await processNextPayloadOutboxEvent({ payload, consumer: salesRealtimeOutboxConsumer, subscriber: realtimeRelay }); }
+  catch (error) { if (!realtimeStopping) workerFailure("K_NEX_REALTIME_OUTBOX_ERROR")(error); }
+  finally { realtimeDispatching = false; }
+};
+const realtimeTimer = setInterval(() => { void dispatchRealtime(); }, 100);
 authorizationWorker.start();
 workspacePageWorker.start();
 workspaceNavigationWorker.start();
-console.log("K_NEX_WORKER_READY");
+void dispatchRealtime();
 await new Promise<void>((resolve) => {
-  const stop = () => { process.off("SIGINT", stop); process.off("SIGTERM", stop); resolve(); };
-  process.on("SIGINT", stop);
-  process.on("SIGTERM", stop);
+  let seen = false;
+  const stop = () => {
+    if (seen) { process.exitCode = 1; process.exit(1); return; }
+    seen = true;
+    process.off("SIGINT", stop); process.off("SIGTERM", stop); resolve();
+  };
+  process.on("SIGINT", stop); process.on("SIGTERM", stop);
+  // Readiness means signal admission is installed, not merely that workers started.
+  console.log("K_NEX_WORKER_READY");
 });
+const shutdownDeadline = setTimeout(() => { process.exitCode = 1; console.error("K_NEX_WORKER_SHUTDOWN_EXPIRED"); process.exit(1); }, 30_000);
 authorizationWorker.stop();
 workspacePageWorker.stop();
 workspaceNavigationWorker.stop();
-await payload.destroy();
+realtimeStopping = true;
+realtimeAbort.abort();
+clearInterval(realtimeTimer);
+while (realtimeDispatching) await new Promise((resolve) => setTimeout(resolve, 10));
+const workerDrains = await Promise.allSettled([authorizationWorker.idle(), workspacePageWorker.idle(), workspaceNavigationWorker.idle()]);
+const workerDrainFailures = workerDrains.filter((result): result is PromiseRejectedResult => result.status === "rejected");
+let shutdownFailure: unknown;
+try { await shutdownKnexApplication(payload); } catch (error) { shutdownFailure = error; }
+function failShutdown(error: unknown): never { clearTimeout(shutdownDeadline); process.exitCode = 1; console.error(error); process.exit(1); }
+if (workerDrainFailures.length > 0 && shutdownFailure !== undefined) failShutdown(new AggregateError([...workerDrainFailures.map((result) => result.reason), shutdownFailure], "K-Nex worker shutdown failed."));
+if (workerDrainFailures.length > 0) failShutdown(new AggregateError(workerDrainFailures.map((result) => result.reason), "K-Nex worker dispatch did not quiesce."));
+if (shutdownFailure !== undefined) failShutdown(shutdownFailure);
+if (admittedFailures.length > 0) failShutdown(new AggregateError(admittedFailures, "K-Nex worker admitted dispatch failed."));
+clearTimeout(shutdownDeadline);
 process.exit(0);
 `;
 }
@@ -1570,7 +2091,14 @@ export function applicationAuthFiles(options: ApplicationAuthFilesOptions): Read
     "src/app/(workspace)/page.tsx": workspacePageSource(options.applicationName),
     "src/app/(workspace)/sales/page.tsx": salesRoutePageSource("sales.route.overview", "sales"),
     "src/app/(workspace)/sales/tasks/page.tsx": salesRoutePageSource("sales.route.tasks", "sales/tasks"),
+    "src/app/(workspace)/sales/accounts/page.tsx": salesRoutePageSource("sales.route.accounts", "sales/accounts"),
+    "src/app/(workspace)/sales/accounts/[id]/page.tsx": salesRoutePageSource("sales.route.account-detail", "sales/accounts/[id]", true),
+    "src/app/(workspace)/sales/contacts/page.tsx": salesRoutePageSource("sales.route.contacts", "sales/contacts"),
+    "src/app/(workspace)/sales/contacts/[id]/page.tsx": salesRoutePageSource("sales.route.contact-detail", "sales/contacts/[id]", true),
+    "src/app/(workspace)/sales/leads/page.tsx": salesRoutePageSource("sales.route.leads", "sales/leads"),
+    "src/app/(workspace)/sales/leads/[id]/page.tsx": salesRoutePageSource("sales.route.lead-detail", "sales/leads/[id]", true),
     "src/app/(workspace)/sales/opportunities/page.tsx": salesRoutePageSource("sales.route.opportunities", "sales/opportunities"),
+    "src/app/(workspace)/sales/opportunities/[id]/page.tsx": salesRoutePageSource("sales.route.opportunity-detail", "sales/opportunities/[id]", true),
     "src/app/(workspace)/sales/settings/page.tsx": salesRoutePageSource("sales.route.settings", "sales/settings"),
     "src/app/api/k-nex/inventory/route.ts": inventoryRouteSource(),
     "src/app/api/k-nex/navigation/revision/route.ts": navigationRevisionRouteSource(),
@@ -1588,8 +2116,10 @@ export function applicationAuthFiles(options: ApplicationAuthFilesOptions): Read
     "src/k-nex-bootstrap-token.ts": bootstrapTokenSource(),
     "src/k-nex-doctor.ts": doctorSource(),
     "src/k-nex-identity.ts": identitySource(options.applicationId),
+    "src/k-nex-issue-attachment-upload-receipt.ts": issueAttachmentUploadReceiptSource(),
     "src/k-nex-issue-bootstrap-token.ts": issueTokenSource(),
     "src/k-nex-readiness.ts": readinessSource(options.theme),
+    "src/k-nex-realtime.ts": realtimeSource(),
     "src/k-nex-theme-runtime.ts": themeRuntimeSource(options.theme),
     "src/k-nex-sales-routes.ts": salesRouteRuntimeSource(),
     "src/k-nex-sales-scope-administration.ts": salesScopeAdministrationSource(),

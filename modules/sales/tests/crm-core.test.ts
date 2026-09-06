@@ -21,7 +21,7 @@ import {
   salesTasksCollection
 } from "@k-nex/module-sales/server";
 import { describe, expect, it } from "vitest";
-import { salesOpportunityStageUpdateDescriptor, salesTaskCreateDescriptor, salesTaskUpdateDescriptor } from "../src/contracts.js";
+import { salesOpportunityStageUpdateDescriptor, salesOwnershipAssignDescriptor, salesTaskCreateDescriptor, salesTaskUpdateDescriptor, salesWorkflowActionInputRuntimeSchemas, salesWorkflowActionOutputRuntimeSchemas } from "../src/contracts.js";
 
 const frozen = JSON.parse(readFileSync(new URL("../../../contracts/phase-13-crm-product-contract.v1.json", import.meta.url), "utf8")) as {
   readonly dataSemantics: { readonly polymorphicRelatedTargets: { readonly vocabulary: readonly string[] } };
@@ -55,13 +55,14 @@ describe("P13.2 CRM core", () => {
       expect(await protectedField?.access?.update?.({} as never)).toBe(false);
     }
     expect(field(salesActivitiesCollection, "teamId")).toMatchObject({ type: "text", required: true });
-    expect(field(salesActivitiesCollection, "supersedesActivityId")).toMatchObject({ type: "relationship", relationTo: "sales-activities", required: false });
+    expect(field(salesActivitiesCollection, "supersedesActivity")).toMatchObject({ type: "relationship", relationTo: "sales-activities", required: false });
     expect(field(salesOpportunitiesCollection, "closedAt")).toMatchObject({ type: "date" });
     expect(field(salesPipelinesCollection, "orderedStageIds")).toMatchObject({ type: "json", required: true });
     expect(field(salesPipelineStagesCollection, "probabilityBasisPoints")).toMatchObject({ type: "number", required: true, min: 0, max: 10_000 });
     expect(field(salesPipelineStagesCollection, "allowedTransitions")).toMatchObject({ type: "json", required: true });
     expect(salesRelatedRecordTypes).toEqual(["sales.account", "sales.contact", "sales.lead", "sales.opportunity", "sales.task"]);
     expect(field(salesActivitiesCollection, "relatedRecordType")).toMatchObject({ type: "select", required: true });
+    expect(field(salesAttachmentReferencesCollection, "mediaType")).toMatchObject({ type: "text", required: true, maxLength: 128 });
   });
 
   it("keeps contract, Payload options, and PostgreSQL scope trigger on one closed related-target vocabulary", () => {
@@ -88,6 +89,20 @@ describe("P13.2 CRM core", () => {
     expect(salesCrmActionDescriptors.map(({ id, permission }) => [id, permission]).sort()).toEqual([...frozenActionPermissions].sort());
     expect(salesCrmActionDescriptors.find(({ id }) => id === "sales.merge.commit")?.policy).toBe("sales.policy.merge.current");
     expect(salesCrmActionDescriptors.find(({ id }) => id === "sales.ownership.assign")).toMatchObject({ permission: "sales.ownership.write", policy: "sales.policy.ownership.current" });
+    expect(salesOwnershipAssignDescriptor).toMatchObject({ version: 2, inputSchema: { required: ["recordType", "id", "expectedRevision", "ownerId"], additionalProperties: false }, outputSchema: { required: ["recordType", "id", "revision", "ownerId"], additionalProperties: false } });
+    expect(salesWorkflowActionInputRuntimeSchemas["sales.ownership.assign"]?.safeParse({ recordType: "sales.account", id: "1", expectedRevision: 1, ownerId: "2" }).success).toBe(true);
+    expect(salesWorkflowActionInputRuntimeSchemas["sales.ownership.assign"]?.safeParse({ recordType: "sales.account", id: "1", expectedRevision: 1, ownerId: "user:crm-owner", teamId: "team/south" }).success).toBe(true);
+    expect(salesWorkflowActionInputRuntimeSchemas["sales.ownership.assign"]?.safeParse({ recordType: "sales.account", id: "1", expectedRevision: 1, ownerId: "2", teamId: null }).success).toBe(false);
+    expect(salesWorkflowActionInputRuntimeSchemas["sales.ownership.assign"]?.safeParse({ recordType: "sales.account", id: "1", expectedRevision: 1, ownerId: "bad owner" }).success).toBe(false);
+    expect(salesWorkflowActionInputRuntimeSchemas["sales.ownership.assign"]?.safeParse({ recordType: "sales.account", id: "1", expectedRevision: 1, ownerId: "u".repeat(161) }).success).toBe(false);
+    expect(salesWorkflowActionOutputRuntimeSchemas["sales.ownership.assign"]?.safeParse({ recordType: "sales.account", id: "1", revision: 2, ownerId: "2" }).success).toBe(true);
+    expect(salesWorkflowActionOutputRuntimeSchemas["sales.ownership.assign"]?.safeParse({ recordType: "sales.account", id: "1", revision: 2, ownerId: "user:crm-owner", teamId: "team/south" }).success).toBe(true);
+    expect(salesWorkflowActionOutputRuntimeSchemas["sales.ownership.assign"]?.safeParse({ recordType: "sales.account", id: "1", revision: 2, ownerId: "bad owner" }).success).toBe(false);
+    expect(salesWorkflowActionInputRuntimeSchemas["sales.activity.create"]?.safeParse({ relatedRecordType: "sales.task", relatedRecordId: "1", type: "call", subject: "Follow-up", scheduledAt: "2026-09-06T00:00:00.000Z" }).success).toBe(true);
+    expect(salesWorkflowActionInputRuntimeSchemas["sales.note.create"]?.safeParse({ relatedRecordType: "sales.task", relatedRecordId: "1", body: "Task note" }).success).toBe(true);
+    expect(salesWorkflowActionInputRuntimeSchemas["sales.attachment.link"]?.safeParse({ relatedRecordType: "sales.task", relatedRecordId: "1", storageReference: "task/object", filename: "task.txt", mediaType: "text/plain", byteSize: 1 }).success).toBe(true);
+    expect(salesWorkflowActionInputRuntimeSchemas["sales.attachment.link"]?.safeParse({ relatedRecordType: "sales.task", relatedRecordId: "1", storageReference: "task/object", filename: "task.txt", mediaType: "m".repeat(128), byteSize: 1 }).success).toBe(true);
+    expect(salesWorkflowActionInputRuntimeSchemas["sales.attachment.link"]?.safeParse({ relatedRecordType: "sales.task", relatedRecordId: "1", storageReference: "task/object", filename: "task.txt", mediaType: "m".repeat(129), byteSize: 1 }).success).toBe(false);
     expect(salesCrmActionDescriptors.every(({ policy }) => policy !== "")).toBe(true);
     expect(salesCrmPermissionDescriptors.find(({ id }) => id === "sales.ownership.write")?.scope).toBe("record");
     expect(salesCrmPermissionDescriptors.find(({ id }) => id === "sales.records.merge")?.scope).toBe("record");
@@ -122,6 +137,13 @@ describe("P13.2 CRM core", () => {
     expect(salesCrmRouteDescriptors.every((value) => PluginRouteDescriptorSchema.safeParse(value).success)).toBe(true);
     expect(salesCrmRoleTemplates.every((value) => RoleTemplateSchema.safeParse(value).success)).toBe(true);
     expect(Object.keys(manifest.contributions.permissions ?? {}).sort()).toEqual([...frozen.permissions.definitions].sort());
-    expect(Object.keys(manifest.contributions.actions ?? {}).sort()).toEqual(["sales.opportunity.stage.update", "sales.task.create", "sales.task.update"]);
+    expect(Object.keys(manifest.contributions.actions ?? {}).sort()).toEqual([
+      "sales.account.archive", "sales.account.create", "sales.account.update",
+      "sales.contact.archive", "sales.contact.create", "sales.contact.update",
+      "sales.lead.archive", "sales.lead.create", "sales.lead.disqualify", "sales.lead.qualify", "sales.lead.update",
+      "sales.opportunity.archive", "sales.opportunity.close", "sales.opportunity.create", "sales.opportunity.stage.update", "sales.opportunity.update",
+      "sales.activity.cancel", "sales.activity.complete", "sales.activity.create", "sales.note.create", "sales.attachment.link", "sales.attachment.remove", "sales.ownership.assign",
+      "sales.task.create", "sales.task.update"
+    ].sort());
   });
 });

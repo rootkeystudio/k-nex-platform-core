@@ -90,7 +90,11 @@ export function createPayloadPersistenceCapability(
       throw new Error("Current authority denied the Payload persistence operation.");
     }
     const platformOptions = { ...options, req: request };
-    return (request.payload[operation] as (value: unknown) => Promise<unknown>)(platformOptions);
+    const mutableRequest = request as PayloadRequest & { context: unknown };
+    const previousContext = mutableRequest.context;
+    if (Object.hasOwn(options, "context")) mutableRequest.context = options.context as PayloadRequest["context"];
+    try { return await (request.payload[operation] as (value: unknown) => Promise<unknown>)(platformOptions); }
+    finally { mutableRequest.context = previousContext; }
   };
   let ownsTransaction = false;
   let started = false;

@@ -5,15 +5,17 @@ import { sql } from "@payloadcms/db-postgres";
 import type { MigrateDownArgs, MigrateUpArgs } from "@payloadcms/db-postgres";
 
 const bumpedFromOne = new Set([
-  "sales.opportunity.stage.update", "sales.task.create", "sales.task.update", "sales.opportunity-detail", "sales.opportunity-kanban",
-  "sales.opportunity-list", "sales.settings-summary", "sales.task-quick-create", "sales.detail.opportunity", "sales.form.task-quick-create",
+  "sales.opportunity.stage.update", "sales.task.create", "sales.task.update", "sales.opportunity-kanban",
+  "sales.settings-summary", "sales.task-quick-create", "sales.form.task-quick-create",
   "sales.list.opportunities", "sales.status.pipeline-stage", "sales.table.tasks", "sales.event.opportunity-changed", "sales.event.task-changed",
-  "sales.health.runtime", "sales.job.pipeline-audit", "sales.lifecycle.reference", "sales.localization.en", "sales.page.opportunities",
+  "sales.health.runtime", "sales.job.pipeline-audit", "sales.lifecycle.reference", "sales.localization.en",
   "sales.page.overview", "sales.page.settings", "sales.page.tasks", "sales.realtime.opportunities", "sales.realtime.tasks",
   "sales.template.administrator", "sales.template.manager", "sales.template.representative", "sales.template.viewer", "sales.service.domain",
-  "sales.opportunities", "sales.tasks", "sales.testing.conformance", "sales.tools.create-task", "sales.tools.search-tasks"
+  "sales.opportunities", "sales.tasks", "sales.testing.conformance", "sales.tools.create-task", "sales.tools.search-tasks",
+  "sales.contact.update", "sales.lead.update", "sales.opportunity.create", "sales.opportunity.update", "sales.note.create"
 ]);
 const bumpedFromTwo = new Set(["sales.task-table", "sales.migration.initial"]);
+const bumpedToThree = new Set(["sales.page.opportunities", "sales.detail.opportunity", "sales.opportunity-list", "sales.opportunity-detail"]);
 const staticExecutableReferences = new Set([
   "sales.navigation.opportunities", "sales.navigation.overview", "sales.navigation.settings", "sales.navigation.tasks",
   "sales.route.opportunities", "sales.route.overview", "sales.route.settings", "sales.route.tasks", "sales.opportunities.collection",
@@ -117,13 +119,14 @@ function rebindJson(value: unknown, path = "$."): JsonPlan {
     const identity = rawIdentity as string;
     referenceCount += 1;
     if (retiredReferences.has(identity)) fail(`retired Sales reference ${identity} remains executable at ${path}${key}`);
-    const priorVersion = bumpedFromOne.has(identity) ? 1 : bumpedFromTwo.has(identity) ? 2 : undefined;
-    if (priorVersion !== undefined) {
+    const targetVersion = bumpedToThree.has(identity) ? 3 : bumpedFromOne.has(identity) ? 2 : bumpedFromTwo.has(identity) ? 3 : undefined;
+    if (targetVersion !== undefined) {
       const versionKeys = key === "templateId" ? ["adoptedTemplateVersion", "templateVersion", "version"]
         : key.endsWith("Id") ? [`${key.slice(0, -2)}Version`, "version"] : ["version"];
       const versionKey = versionKeys.find((candidate) => Number.isSafeInteger(value[candidate]));
-      if (versionKey === undefined || value[versionKey] !== priorVersion) fail(`Sales reference ${identity} has unresolved version at ${path}${key}`);
-      migrated[versionKey] = priorVersion + 1;
+      const acceptedVersions = bumpedToThree.has(identity) ? [1, 2] : [targetVersion - 1];
+      if (versionKey === undefined || !acceptedVersions.includes(value[versionKey] as number)) fail(`Sales reference ${identity} has unresolved version at ${path}${key}`);
+      migrated[versionKey] = targetVersion;
       changed = true;
       const hashes = sourceHashes.get(identity);
       if (hashes && value.structuralCompatibilityHash !== undefined) {
@@ -878,7 +881,7 @@ export async function up({ db }: MigrateUpArgs): Promise<void> {
     INSERT INTO sales_accounts (id, application_id, environment, owner_id, created_by, updated_by, audit, name)
       SELECT current_setting('k_nex.sales_migration_account_id')::integer, current_setting('k_nex.sales_migration_application_id'), current_setting('k_nex.sales_migration_environment'),
         current_setting('k_nex.sales_migration_owner_id'), current_setting('k_nex.sales_migration_owner_id'), current_setting('k_nex.sales_migration_owner_id'),
-        jsonb_build_array(jsonb_build_object('kind','phase-13-legacy-import','receiptDigest',current_setting('k_nex.sales_migration_receipt_digest'))), current_setting('k_nex.sales_migration_account_name')
+        jsonb_build_array(jsonb_build_object('kind','phase-13-legacy-import','receiptDigest',current_setting('k_nex.sales_migration_receipt_digest'),'ownershipGenesis',jsonb_build_object('ownerId',current_setting('k_nex.sales_migration_owner_id'),'teamId',NULL))), current_setting('k_nex.sales_migration_account_name')
       WHERE current_setting('k_nex.sales_migration_needs_account')::boolean;
     INSERT INTO sales_pipelines (id, application_id, environment, created_by, updated_by, audit, name, ordered_stage_ids, is_active)
       SELECT current_setting('k_nex.sales_migration_pipeline_id')::integer,
@@ -908,12 +911,12 @@ export async function up({ db }: MigrateUpArgs): Promise<void> {
     UPDATE sales_tasks SET
       application_id=current_setting('k_nex.sales_migration_application_id'), environment=current_setting('k_nex.sales_migration_environment'),
       owner_id=current_setting('k_nex.sales_migration_owner_id'), created_by=current_setting('k_nex.sales_migration_owner_id'), updated_by=current_setting('k_nex.sales_migration_owner_id'), revision=1,
-      audit=jsonb_build_array(jsonb_build_object('kind','phase-13-legacy-upgrade','receiptDigest',current_setting('k_nex.sales_migration_receipt_digest'))),
+      audit=jsonb_build_array(jsonb_build_object('kind','phase-13-legacy-upgrade','receiptDigest',current_setting('k_nex.sales_migration_receipt_digest'),'ownershipGenesis',jsonb_build_object('ownerId',current_setting('k_nex.sales_migration_owner_id'),'teamId',NULL))),
       archive_status='active', status_v2=CASE status::text WHEN 'open' THEN 'open' WHEN 'done' THEN 'completed' END;
     UPDATE sales_opportunities SET
       application_id=current_setting('k_nex.sales_migration_application_id'), environment=current_setting('k_nex.sales_migration_environment'),
       owner_id=current_setting('k_nex.sales_migration_owner_id'), created_by=current_setting('k_nex.sales_migration_owner_id'), updated_by=current_setting('k_nex.sales_migration_owner_id'), revision=1,
-      audit=jsonb_build_array(jsonb_build_object('kind','phase-13-legacy-upgrade','receiptDigest',current_setting('k_nex.sales_migration_receipt_digest'),'legacyStage',stage::text)),
+      audit=jsonb_build_array(jsonb_build_object('kind','phase-13-legacy-upgrade','receiptDigest',current_setting('k_nex.sales_migration_receipt_digest'),'legacyStage',stage::text,'ownershipGenesis',jsonb_build_object('ownerId',current_setting('k_nex.sales_migration_owner_id'),'teamId',NULL))),
       account_id=current_setting('k_nex.sales_migration_account_id')::integer, pipeline_id=(SELECT id FROM sales_pipelines WHERE application_id=current_setting('k_nex.sales_migration_application_id') AND environment=current_setting('k_nex.sales_migration_environment') AND is_active),
       stage_id=CASE stage::text WHEN 'lead' THEN 'qualification' WHEN 'qualified' THEN 'discovery' WHEN 'won' THEN 'won' WHEN 'lost' THEN 'lost' END,
       amount=value, currency=CASE WHEN value IS NULL THEN NULL ELSE current_setting('k_nex.sales_migration_currency') END,
@@ -998,10 +1001,18 @@ export async function up({ db }: MigrateUpArgs): Promise<void> {
     DECLARE account_exists boolean; contact_exists boolean; opportunity_exists boolean;
     BEGIN
       IF NEW.status <> 'qualified' THEN RETURN NEW; END IF;
-      SELECT EXISTS (SELECT 1 FROM sales_accounts WHERE id::text=NEW.qualified_account_id AND application_id=NEW.application_id AND environment=NEW.environment) INTO account_exists;
-      SELECT EXISTS (SELECT 1 FROM sales_contacts WHERE id::text=NEW.qualified_contact_id AND application_id=NEW.application_id AND environment=NEW.environment) INTO contact_exists;
-      SELECT EXISTS (SELECT 1 FROM sales_opportunities WHERE id::text=NEW.qualified_opportunity_id AND application_id=NEW.application_id AND environment=NEW.environment) INTO opportunity_exists;
+      SELECT EXISTS (SELECT 1 FROM sales_accounts WHERE id::text=NEW.qualified_account_id AND application_id=NEW.application_id AND environment=NEW.environment AND status='active') INTO account_exists;
+      SELECT EXISTS (SELECT 1 FROM sales_contacts WHERE id::text=NEW.qualified_contact_id AND application_id=NEW.application_id AND environment=NEW.environment AND status='active' AND account_id::text=NEW.qualified_account_id) INTO contact_exists;
+      SELECT EXISTS (SELECT 1 FROM sales_opportunities WHERE id::text=NEW.qualified_opportunity_id AND application_id=NEW.application_id AND environment=NEW.environment AND archive_status='active' AND account_id::text=NEW.qualified_account_id AND primary_contact_id::text=NEW.qualified_contact_id) INTO opportunity_exists;
       IF NOT account_exists OR NOT contact_exists OR NOT opportunity_exists THEN RAISE EXCEPTION 'Sales lead qualification scope is invalid'; END IF;
+      RETURN NEW;
+    END $$;
+
+    CREATE FUNCTION sales_assert_active_account_parent() RETURNS trigger LANGUAGE plpgsql AS $$
+    DECLARE account_active boolean;
+    BEGIN
+      SELECT EXISTS (SELECT 1 FROM sales_accounts WHERE id=NEW.account_id AND application_id=NEW.application_id AND environment=NEW.environment AND status='active') INTO account_active;
+      IF NOT account_active THEN RAISE EXCEPTION 'Sales account parent is not active'; END IF;
       RETURN NEW;
     END $$;
 
@@ -1010,7 +1021,8 @@ export async function up({ db }: MigrateUpArgs): Promise<void> {
     BEGIN
       IF NEW.replaces_note_id IS NULL THEN RETURN NEW; END IF;
       IF NEW.replaces_note_id !~ '^[1-9][0-9]*$' OR NEW.replaces_note_id=NEW.id::text THEN RAISE EXCEPTION 'Sales note replacement is invalid'; END IF;
-      SELECT EXISTS (SELECT 1 FROM sales_notes WHERE id::text=NEW.replaces_note_id AND application_id=NEW.application_id AND environment=NEW.environment) INTO target_exists;
+      SELECT EXISTS (SELECT 1 FROM sales_notes WHERE id::text=NEW.replaces_note_id AND application_id=NEW.application_id AND environment=NEW.environment
+        AND status='recorded' AND related_record_type=NEW.related_record_type AND related_record_id=NEW.related_record_id) INTO target_exists;
       IF NOT target_exists THEN RAISE EXCEPTION 'Sales note replacement scope is invalid'; END IF;
       RETURN NEW;
     END $$;
@@ -1022,7 +1034,9 @@ export async function up({ db }: MigrateUpArgs): Promise<void> {
     CREATE TRIGGER sales_accounts_merge_lineage_scope BEFORE INSERT OR UPDATE OF merged_into_id,merge_lineage,status,application_id,environment ON sales_accounts FOR EACH ROW EXECUTE FUNCTION sales_assert_merge_lineage_scope();
     CREATE TRIGGER sales_contacts_merge_lineage_scope BEFORE INSERT OR UPDATE OF merged_into_id,merge_lineage,status,application_id,environment ON sales_contacts FOR EACH ROW EXECUTE FUNCTION sales_assert_merge_lineage_scope();
     CREATE TRIGGER sales_leads_qualification_scope BEFORE INSERT OR UPDATE OF qualified_account_id,qualified_contact_id,qualified_opportunity_id,status,application_id,environment ON sales_leads FOR EACH ROW EXECUTE FUNCTION sales_assert_lead_qualification_scope();
-    CREATE TRIGGER sales_notes_replacement_scope BEFORE INSERT OR UPDATE OF replaces_note_id,application_id,environment ON sales_notes FOR EACH ROW EXECUTE FUNCTION sales_assert_note_replacement_scope();
+    CREATE TRIGGER sales_contacts_active_account_parent BEFORE INSERT ON sales_contacts FOR EACH ROW EXECUTE FUNCTION sales_assert_active_account_parent();
+    CREATE TRIGGER sales_opportunities_active_account_parent BEFORE INSERT ON sales_opportunities FOR EACH ROW EXECUTE FUNCTION sales_assert_active_account_parent();
+    CREATE TRIGGER sales_notes_replacement_scope BEFORE INSERT OR UPDATE OF replaces_note_id,related_record_id,related_record_type,application_id,environment,status ON sales_notes FOR EACH ROW EXECUTE FUNCTION sales_assert_note_replacement_scope();
 
     SELECT setval(pg_get_serial_sequence('sales_accounts','id'), COALESCE((SELECT max(id) FROM sales_accounts),1), EXISTS (SELECT 1 FROM sales_accounts));
     SELECT setval(pg_get_serial_sequence('sales_pipelines','id'), COALESCE((SELECT max(id) FROM sales_pipelines),1), EXISTS (SELECT 1 FROM sales_pipelines));

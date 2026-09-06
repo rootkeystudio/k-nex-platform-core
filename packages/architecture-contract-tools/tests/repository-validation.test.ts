@@ -121,6 +121,16 @@ describe("P0.4 executable repository validation", () => {
     ((((unsafeRelatedVocabulary.dataSemantics as Record<string, unknown>).polymorphicRelatedTargets as Record<string, unknown>).vocabulary as string[])).pop();
     expect(validatePhase13ProductContract(unsafeRelatedVocabulary).map(({ code }) => code)).toContain("PHASE13_PRODUCT_CONTRACT_INVALID");
 
+    const unsafeLeadQualification = structuredClone(await phase13Contract());
+    (((unsafeLeadQualification.dataSemantics as Record<string, unknown>).leadQualification as Record<string, unknown>).input as Record<string, unknown>).rejected = [];
+    expect(validatePhase13ProductContract(unsafeLeadQualification).map(({ code }) => code)).toContain("PHASE13_PRODUCT_CONTRACT_INVALID");
+
+    for (const semantic of ["protectedFieldMutation", "opportunityMutation", "noteCorrection"]) {
+      const unsafeMutation = structuredClone(await phase13Contract());
+      delete (unsafeMutation.dataSemantics as Record<string, unknown>)[semantic];
+      expect(validatePhase13ProductContract(unsafeMutation).map(({ code }) => code), semantic).toContain("PHASE13_PRODUCT_CONTRACT_INVALID");
+    }
+
     const missingAttackDelivery = structuredClone(await phase13Contract());
     ((missingAttackDelivery.attacks as Array<Record<string, unknown>>)[0]!).deliveryTasks = [];
     expect(validatePhase13ProductContract(missingAttackDelivery).map(({ code }) => code)).toContain("PHASE13_PRODUCT_CONTRACT_INVALID");
@@ -139,6 +149,9 @@ describe("P0.4 executable repository validation", () => {
       ["lifecycle transition removal", (contract) => { (((contract.lifecycles as Array<Record<string, unknown>>)[0]!.transitions as unknown[])).pop(); }],
       ["metric formula replacement", (contract) => { (contract.metrics as Array<Record<string, unknown>>)[0]!.formula = "always zero"; }],
       ["attack task reassignment", (contract) => { (contract.attacks as Array<Record<string, unknown>>)[0]!.deliveryTasks = ["P13.9"]; }]
+      ,["opportunity mutation widening", (contract) => { ((((contract.dataSemantics as Record<string, unknown>).opportunityMutation as Record<string, unknown>).create as Record<string, unknown>).additionalProperties = true); }]
+      ,["protected channel retain drift", (contract) => { (((contract.dataSemantics as Record<string, unknown>).protectedFieldMutation as Record<string, unknown>).modes as string[]).pop(); }]
+      ,["note correction scope drift", (contract) => { ((contract.dataSemantics as Record<string, unknown>).noteCorrection as Record<string, unknown>).input = "any note"; }]
     ];
     for (const [name, mutate] of driftMutations) {
       const changed = structuredClone(await phase13Contract());

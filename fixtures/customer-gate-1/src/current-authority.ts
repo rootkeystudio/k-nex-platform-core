@@ -435,7 +435,8 @@ export function createFixtureCurrentAuthority(
       return new EffectiveAuthorityResolver({ store, catalogProvider: catalogProvider(registration, database, staticIdentityProvider, hotRuntimeRegistry, owner) }).authorize(session, request, signal);
     }
   };
-  const adapter = new CurrentAuthorityAdapter<FixtureAuthorityContext>({ current: (context) => sessions.get(context) }, resolver);
+  // Fixture authority gives real PostgreSQL resolution the platform's maximum bounded deadline.
+  const adapter = new CurrentAuthorityAdapter<FixtureAuthorityContext>({ current: (context) => sessions.get(context) }, resolver, 5_000);
   const realtimeContexts = new WeakMap<object, FixtureAuthorityContext>();
   const permissions = new CurrentAuthorityPermissionProjection(adapter, (kind, descriptor) =>
     target(permission, descriptor.permission, `${kind}-${descriptor.id}`));
@@ -547,7 +548,23 @@ export function createFixtureCurrentAuthority(
         ? operation === "find" ? "sales.tasks.read" : "sales.tasks.write"
         : collection === "sales-opportunities"
           ? operation === "find" ? "sales.opportunities.read" : "sales.opportunities.write"
-          : undefined;
+          : collection === "sales-accounts"
+            ? operation === "find" ? "sales.accounts.read" : "sales.accounts.write"
+            : collection === "sales-contacts"
+              ? operation === "find" ? "sales.contacts.read" : "sales.contacts.write"
+              : collection === "sales-leads"
+                ? operation === "find" ? "sales.leads.read" : "sales.leads.write"
+                : collection === "sales-activities"
+                  ? operation === "find" ? "sales.activities.read" : "sales.activities.write"
+                  : collection === "sales-notes"
+                    ? operation === "find" ? "sales.notes.read" : "sales.notes.write"
+                    : collection === "sales-attachment-references"
+                      ? operation === "find" ? "sales.attachments.read" : "sales.attachments.write"
+                      : collection === "sales-pipelines"
+                        ? "sales.pipelines.read"
+                        : collection === "sales-pipeline-stages"
+                          ? "sales.pipelines.read"
+                : undefined;
       if (permissionId === undefined) throw new TypeError("Payload collection is unavailable.");
       return target(permission, permissionId, `payload-${collection}-${operation}`);
     },
@@ -556,7 +573,31 @@ export function createFixtureCurrentAuthority(
         ? collection === "sales-opportunities" ? "sales.opportunities.stage.update" : undefined
         : actionId === "sales.task.create" || actionId === "sales.task.update"
           ? collection === "sales-tasks" ? "sales.tasks.write" : undefined
-          : undefined;
+          : actionId === "sales.ownership.assign" && ["sales-accounts", "sales-contacts", "sales-leads", "sales-opportunities"].includes(collection)
+            ? "sales.ownership.write"
+          : actionId.startsWith("sales.account.") && collection === "sales-accounts"
+            ? actionId.endsWith(".archive") ? "sales.accounts.archive" : "sales.accounts.write"
+            : actionId.startsWith("sales.contact.") && collection === "sales-contacts"
+              ? actionId.endsWith(".archive") ? "sales.contacts.archive" : "sales.contacts.write"
+              : actionId.startsWith("sales.lead.")
+                ? collection === "sales-leads"
+                  ? actionId.endsWith(".archive") ? "sales.leads.archive" : actionId.endsWith(".qualify") ? "sales.leads.qualify" : actionId.endsWith(".disqualify") ? "sales.leads.disqualify" : "sales.leads.write"
+                    : actionId === "sales.lead.qualify" && collection === "sales-accounts" ? operation === "find" ? "sales.accounts.read" : "sales.accounts.write"
+                      : actionId === "sales.lead.qualify" && collection === "sales-contacts" ? operation === "find" ? "sales.contacts.read" : "sales.contacts.write"
+                      : actionId === "sales.lead.qualify" && collection === "sales-opportunities" ? "sales.opportunities.write"
+                        : actionId === "sales.lead.qualify" && (collection === "sales-pipelines" || collection === "sales-pipeline-stages") && operation === "find" ? "sales.pipelines.read" : undefined
+                : actionId.startsWith("sales.opportunity.") && collection === "sales-opportunities"
+                  ? actionId.endsWith(".archive") ? "sales.opportunities.archive" : actionId.endsWith(".close") ? "sales.opportunities.close" : "sales.opportunities.write"
+                  : (actionId === "sales.opportunity.create" || actionId === "sales.opportunity.update") && collection === "sales-contacts" && operation === "find" ? "sales.contacts.read"
+                    : actionId === "sales.opportunity.create" && collection === "sales-accounts" && operation === "find" ? "sales.accounts.read"
+                    : actionId === "sales.opportunity.create" && (collection === "sales-pipelines" || collection === "sales-pipeline-stages") && operation === "find" ? "sales.pipelines.read"
+                      : actionId === "sales.contact.create" && collection === "sales-accounts" && operation === "find" ? "sales.accounts.read"
+                  : actionId.startsWith("sales.activity.") && collection === "sales-activities" ? "sales.activities.write"
+                    : actionId === "sales.note.create" && collection === "sales-notes" ? operation === "find" ? "sales.notes.read" : "sales.notes.write"
+                      : (actionId === "sales.attachment.link" || actionId === "sales.attachment.remove") && collection === "sales-attachment-references" ? "sales.attachments.write"
+                        : (actionId.startsWith("sales.activity.") || actionId === "sales.note.create" || actionId === "sales.attachment.link" || actionId === "sales.attachment.remove") && operation === "find"
+                          ? collection === "sales-tasks" ? "sales.tasks.read" : collection === "sales-opportunities" ? "sales.opportunities.read" : collection === "sales-accounts" ? "sales.accounts.read" : collection === "sales-contacts" ? "sales.contacts.read" : collection === "sales-leads" ? "sales.leads.read" : undefined
+                  : undefined;
       if (permissionId === undefined) throw new TypeError("Action Payload collection is unavailable.");
       return target(permission, permissionId, `payload-action-${actionId}-${collection}-${operation}`);
     },

@@ -2,15 +2,15 @@ import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { randomBytes } from "node:crypto";
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import test from "node:test";
 
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import pg from "pg";
 
-import { applyCreateKnexApplication, planCreateKnexApplication } from "@k-nex/composition";
 import { createDeploymentReceipt, FleetRegistry } from "@k-nex/runtime";
 import { createFixtureDeploymentVerifier } from "../../../scripts/lib/fixture-deployment-authority.mjs";
 
@@ -116,6 +116,15 @@ test("boots both customer apps from packed packages and verifies protected runti
       const filename = `factory-lock-sales-reference-${entry.theme}-${entry.digest.slice(7)}.yaml`;
       copyFileSync(resolve(repositoryRoot, "fixtures/customer-gate-1/packages", filename), resolve(mirror, filename));
     }
+    const factoryConsumer = resolve(generatedRoot, "factory-consumer");
+    mkdirSync(factoryConsumer);
+    writeFileSync(resolve(factoryConsumer, "package.json"), JSON.stringify({ name: "phase-8-factory-consumer", private: true, type: "module", dependencies: {
+      "@k-nex/composition": `file:${resolve(mirror, "k-nex-composition-1.0.0.tgz")}`,
+      "@k-nex/contracts": `file:${resolve(mirror, "k-nex-contracts-1.0.0.tgz")}`
+    } }));
+    writeFileSync(resolve(factoryConsumer, "pnpm-workspace.yaml"), `packages:\n  - "."\n\noverrides:\n  "@k-nex/contracts": "file:${resolve(mirror, "k-nex-contracts-1.0.0.tgz")}"\n`);
+    execFileSync("pnpm", ["install", "--ignore-scripts"], { cwd: factoryConsumer, env: process.env, stdio: "pipe", encoding: "utf8" });
+    const { applyCreateKnexApplication, planCreateKnexApplication } = await import(pathToFileURL(resolve(factoryConsumer, "node_modules/@k-nex/composition/dist/index.js")));
     for (const label of ["current"]) {
       const applicationId = `gate-eight-${label}`;
       const generatedApplication = resolve(generatedRoot, `application-${label}`);

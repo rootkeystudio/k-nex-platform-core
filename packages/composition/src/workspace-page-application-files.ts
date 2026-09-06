@@ -36,7 +36,11 @@ import { loadWorkspaceSalesSources, workspaceSalesPermissions } from "./k-nex-sa
 
 const platformBlocks = new Map(genericUiBlockDefinitions.map(({ id, version }) => [id, version] as const));
 const scope = Object.freeze({ applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment });
-const runtimes = new WeakMap<Payload, ReturnType<typeof createRuntime>>();
+type WorkspaceRuntimeRegistry = Readonly<{ runtimes: WeakMap<Payload, ReturnType<typeof createRuntime>>; drainedRuntimes: WeakSet<Payload> }>;
+const workspaceRuntimeRegistryKey = Symbol.for("k-nex.workspace-page-runtime.v1");
+const workspaceRuntimeGlobal = globalThis as unknown as Record<symbol, unknown>;
+const workspaceRuntimeRegistry = (workspaceRuntimeGlobal[workspaceRuntimeRegistryKey] ??= Object.freeze({ runtimes: new WeakMap(), drainedRuntimes: new WeakSet() })) as WorkspaceRuntimeRegistry;
+const { runtimes, drainedRuntimes } = workspaceRuntimeRegistry;
 const invalidationChannel = "k_nex_runtime_invalidation";
 const workspaceNavigationFixedNodes = Object.freeze([
   { id: "k-nex.navigation.root", owner: { kind: "platform" as const }, kind: "folder" as const, label: "K-Nex", icon: "dashboard" as const, order: 0 },
@@ -82,34 +86,81 @@ function validateNotification(payload: string | undefined): void {
   if (event.applicationId !== scope.applicationId || event.environment !== scope.environment || canonicalJson(value) !== canonicalJson({ type: "authorization", invalidation: event })) throw new TypeError("Authorization invalidation identity is invalid.");
 }
 
-function listenForInvalidations(payload: Payload, synchronize: () => Promise<unknown>): void {
+function listenForInvalidations(payload: Payload, synchronize: () => Promise<unknown>): Readonly<{ close(): Promise<void> }> {
   const pool = payload.db.pool as unknown as { connect(): Promise<NotificationClient> };
+  let closed = false;
+  let client: NotificationClient | undefined;
+  let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+  let connecting: Promise<void> | undefined;
+  let synchronizing: Promise<void> | undefined;
+  let closing: Promise<void> | undefined;
+  let synchronizationQueued = false;
+  const releasedClients = new WeakSet<object>();
+  const release = (notificationClient: NotificationClient): void => {
+    if (releasedClients.has(notificationClient)) return;
+    releasedClients.add(notificationClient);
+    notificationClient.release(true);
+    if (client === notificationClient) client = undefined;
+  };
+  const synchronizeBackground = (): void => {
+    if (closed) return;
+    if (synchronizing !== undefined) { synchronizationQueued = true; return; }
+    const operation = Promise.resolve().then(synchronize).then(() => undefined, () => undefined);
+    synchronizing = operation;
+    void operation.then(() => {
+      if (synchronizing === operation) synchronizing = undefined;
+      if (synchronizationQueued && !closed) { synchronizationQueued = false; synchronizeBackground(); }
+    });
+  };
+  const synchronizeTimer = setInterval(synchronizeBackground, 1_000);
   const connect = async (): Promise<void> => {
-    let client: NotificationClient | undefined;
+    if (closed) return;
+    let notificationClient: NotificationClient | undefined;
     try {
-      client = await pool.connect();
+      notificationClient = await pool.connect();
+      client = notificationClient;
+      if (closed) { release(notificationClient); return; }
       let finished = false;
       const reconnect = () => {
-        if (finished) return;
+        if (finished || closed) return;
         finished = true;
-        client?.release(true);
-        setTimeout(() => { void connect(); }, 250);
+        if (notificationClient !== undefined) release(notificationClient);
+        reconnectTimer = setTimeout(() => { if (!closed) { connecting = connect(); void connecting.catch(() => undefined); } }, 250);
       };
-      client.on("notification", (message) => {
+      notificationClient.on("notification", (message) => {
         if (message.channel !== invalidationChannel) return;
-        try { validateNotification(message.payload); void synchronize().catch(() => undefined); } catch { /* untrusted notifications cannot alter watermarks */ }
+        try { validateNotification(message.payload); synchronizeBackground(); } catch { /* untrusted notifications cannot alter watermarks */ }
       });
-      client.on("error", reconnect);
-      client.on("end", reconnect);
-      await client.query("LISTEN k_nex_runtime_invalidation");
-      await synchronize();
+      notificationClient.on("error", reconnect);
+      notificationClient.on("end", reconnect);
+      await notificationClient.query("LISTEN k_nex_runtime_invalidation");
+      if (closed) { await notificationClient.query("UNLISTEN k_nex_runtime_invalidation").catch(() => undefined); release(notificationClient); return; }
+      synchronizeBackground();
     } catch {
-      client?.release(true);
-      setTimeout(() => { void connect(); }, 250);
+      if (notificationClient !== undefined) release(notificationClient);
+      if (!closed) reconnectTimer = setTimeout(() => { if (!closed) { connecting = connect(); void connecting.catch(() => undefined); } }, 250);
     }
   };
-  void connect();
-  setInterval(() => { void synchronize().catch(() => undefined); }, 1_000);
+  connecting = connect();
+  void connecting.catch(() => undefined);
+  return Object.freeze({
+    close(): Promise<void> {
+      if (closing !== undefined) return closing;
+      closed = true;
+      synchronizationQueued = false;
+      clearInterval(synchronizeTimer);
+      if (reconnectTimer !== undefined) clearTimeout(reconnectTimer);
+      closing = (async () => {
+        await connecting?.catch(() => undefined);
+        if (client !== undefined) {
+          await client.query("UNLISTEN k_nex_runtime_invalidation").catch(() => undefined);
+          release(client);
+        }
+        await synchronizing;
+      })();
+      return closing;
+    }
+  });
 }
 
 function digest(value: unknown): \`sha256:\${string}\` {
@@ -137,9 +188,7 @@ export async function openWorkspaceForm(request: Request, boundary: string) {
 }
 
 function workspaceSalesServerSource(): string {
-  return `import "server-only";
-
-import { createHash } from "node:crypto";
+  return `import { createHash } from "node:crypto";
 
 import { canonicalJson, type DataSourceBindingResult, type DataSourceDefinition, type UiDocument, type UiNode } from "@k-nex/contracts";
 import {
@@ -507,15 +556,62 @@ function salesRecordWhere(current: ReturnType<typeof authorization>) {
 }
 
 function salesActionGrant(actionId: string) {
+  if (actionId === "sales.ownership.assign") return Object.freeze({ collection: "sales-accounts", operations: Object.freeze(["find", "update"] as const), permissionId: "sales.ownership.write" });
   if (actionId === "sales.task.create") return Object.freeze({ collection: "sales-tasks", operations: Object.freeze(["create", "update"] as const), permissionId: "sales.tasks.write" });
   if (actionId === "sales.task.update") return Object.freeze({ collection: "sales-tasks", operations: Object.freeze(["find", "update"] as const), permissionId: "sales.tasks.write" });
   if (actionId === "sales.opportunity.stage.update") return Object.freeze({ collection: "sales-opportunities", operations: Object.freeze(["find", "update"] as const), permissionId: "sales.opportunities.stage.update" });
+  if (actionId.startsWith("sales.account.")) return Object.freeze({ collection: "sales-accounts", operations: Object.freeze(actionId.endsWith(".create") ? ["create", "update"] as const : ["find", "update"] as const), permissionId: actionId.endsWith(".archive") ? "sales.accounts.archive" : "sales.accounts.write" });
+  if (actionId.startsWith("sales.contact.")) return Object.freeze({ collection: "sales-contacts", operations: Object.freeze(actionId.endsWith(".create") ? ["create", "update"] as const : ["find", "update"] as const), permissionId: actionId.endsWith(".archive") ? "sales.contacts.archive" : "sales.contacts.write" });
+  if (actionId.startsWith("sales.lead.")) return Object.freeze({ collection: "sales-leads", operations: Object.freeze(actionId.endsWith(".create") ? ["create", "update"] as const : ["find", "update"] as const), permissionId: actionId.endsWith(".archive") ? "sales.leads.archive" : actionId.endsWith(".qualify") ? "sales.leads.qualify" : actionId.endsWith(".disqualify") ? "sales.leads.disqualify" : "sales.leads.write" });
+  if (actionId.startsWith("sales.opportunity.")) return Object.freeze({ collection: "sales-opportunities", operations: Object.freeze(actionId.endsWith(".create") ? ["create", "update"] as const : ["find", "update"] as const), permissionId: actionId.endsWith(".archive") ? "sales.opportunities.archive" : actionId.endsWith(".close") ? "sales.opportunities.close" : "sales.opportunities.write" });
+  if (actionId.startsWith("sales.activity.")) return Object.freeze({ collection: "sales-activities", operations: Object.freeze(actionId.endsWith(".create") ? ["create", "update", "find"] as const : ["find", "update"] as const), permissionId: "sales.activities.write" });
+  if (actionId === "sales.note.create") return Object.freeze({ collection: "sales-notes", operations: Object.freeze(["create", "update"] as const), permissionId: "sales.notes.write" });
+  if (actionId === "sales.attachment.link") return Object.freeze({ collection: "sales-attachment-references", operations: Object.freeze(["create", "update", "find"] as const), permissionId: "sales.attachments.write" });
+  if (actionId === "sales.attachment.remove") return Object.freeze({ collection: "sales-attachment-references", operations: Object.freeze(["find", "update"] as const), permissionId: "sales.attachments.write" });
   throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales action persistence is unavailable.");
+}
+
+function salesActionCapabilityGrants(actionId: string) {
+  const primary = salesActionGrant(actionId);
+  if (actionId === "sales.ownership.assign") return [
+    Object.freeze({ collection: "sales-accounts", operations: Object.freeze(["find", "update"] as const), permissionId: "sales.ownership.write" }),
+    Object.freeze({ collection: "sales-contacts", operations: Object.freeze(["find", "update"] as const), permissionId: "sales.ownership.write" }),
+    Object.freeze({ collection: "sales-leads", operations: Object.freeze(["find", "update"] as const), permissionId: "sales.ownership.write" }),
+    Object.freeze({ collection: "sales-opportunities", operations: Object.freeze(["find", "update"] as const), permissionId: "sales.ownership.write" })
+  ];
+  const relatedTargets = actionId.startsWith("sales.activity.") || actionId === "sales.note.create" || actionId === "sales.attachment.link" || actionId === "sales.attachment.remove"
+    ? [Object.freeze({ collection: "sales-accounts", operations: Object.freeze(["find"] as const), permissionId: "sales.accounts.read" }), Object.freeze({ collection: "sales-contacts", operations: Object.freeze(["find"] as const), permissionId: "sales.contacts.read" }), Object.freeze({ collection: "sales-leads", operations: Object.freeze(["find"] as const), permissionId: "sales.leads.read" }), Object.freeze({ collection: "sales-opportunities", operations: Object.freeze(["find"] as const), permissionId: "sales.opportunities.read" }), Object.freeze({ collection: "sales-tasks", operations: Object.freeze(["find"] as const), permissionId: "sales.tasks.read" })]
+    : [];
+  if (actionId === "sales.lead.qualify") return [primary,
+    Object.freeze({ collection: "sales-accounts", operations: Object.freeze(["find"] as const), permissionId: "sales.accounts.read" }),
+    Object.freeze({ collection: "sales-accounts", operations: Object.freeze(["create", "update"] as const), permissionId: "sales.accounts.write" }),
+    Object.freeze({ collection: "sales-contacts", operations: Object.freeze(["find"] as const), permissionId: "sales.contacts.read" }),
+    Object.freeze({ collection: "sales-contacts", operations: Object.freeze(["create", "update"] as const), permissionId: "sales.contacts.write" }),
+    Object.freeze({ collection: "sales-opportunities", operations: Object.freeze(["create", "update"] as const), permissionId: "sales.opportunities.write" }), Object.freeze({ collection: "sales-pipelines", operations: Object.freeze(["find"] as const), permissionId: "sales.pipelines.read" }), Object.freeze({ collection: "sales-pipeline-stages", operations: Object.freeze(["find"] as const), permissionId: "sales.pipelines.read" })];
+  if (actionId === "sales.contact.create") return [primary, Object.freeze({ collection: "sales-accounts", operations: Object.freeze(["find"] as const), permissionId: "sales.accounts.read" })];
+  if (actionId === "sales.opportunity.create") return [primary, Object.freeze({ collection: "sales-accounts", operations: Object.freeze(["find"] as const), permissionId: "sales.accounts.read" }), Object.freeze({ collection: "sales-contacts", operations: Object.freeze(["find"] as const), permissionId: "sales.contacts.read" }), Object.freeze({ collection: "sales-pipelines", operations: Object.freeze(["find"] as const), permissionId: "sales.pipelines.read" }), Object.freeze({ collection: "sales-pipeline-stages", operations: Object.freeze(["find"] as const), permissionId: "sales.pipelines.read" })];
+  if (actionId === "sales.opportunity.update") return [primary, Object.freeze({ collection: "sales-contacts", operations: Object.freeze(["find"] as const), permissionId: "sales.contacts.read" })];
+  if (actionId === "sales.note.create") return [primary, Object.freeze({ collection: "sales-notes", operations: Object.freeze(["find"] as const), permissionId: "sales.notes.read" }), ...relatedTargets];
+  return [primary, ...relatedTargets];
 }
 
 function postgresRows(value: unknown): readonly unknown[] {
   if (value === null || typeof value !== "object" || !("rows" in value) || !Array.isArray(value.rows)) throw new Error("Sales scope guard received an invalid Postgres result.");
   return value.rows;
+}
+
+async function resolveSalesAttachmentUpload(request: PayloadRequest, current: ReturnType<typeof authorization>, input: Readonly<{ applicationId: string; environmentId: string; actorId: string; storageRef: string }>) {
+  if (input.applicationId !== kNexIdentity.applicationId || input.environmentId !== kNexIdentity.environment || input.actorId !== current.effectiveActor.id) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Attachment upload authority is invalid.");
+  const transaction = await activePayloadPostgresTransaction(request);
+  const row = postgresRows(await transaction.execute(sql\`
+    SELECT "storage_ref","application_id","environment","uploader_actor_id","filename","media_type","byte_size","state","revision"
+    FROM "k_nex_sales_attachment_upload_admissions"
+    WHERE "storage_ref"=\${input.storageRef} AND "application_id"=\${input.applicationId} AND "environment"=\${input.environmentId}
+      AND "uploader_actor_id"=\${input.actorId} AND "state"='ready'
+    FOR SHARE
+  \`))[0] as Record<string, unknown> | undefined;
+  if (row === undefined) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Attachment upload is unavailable.");
+  return Object.freeze({ storageRef: row.storage_ref, applicationId: row.application_id, environmentId: row.environment, uploaderActorId: row.uploader_actor_id, filename: row.filename, mediaType: row.media_type, byteSize: row.byte_size, state: row.state, revision: row.revision });
 }
 
 async function currentSalesAuthorityFence(request: PayloadRequest, current: ReturnType<typeof authorization>): Promise<boolean> {
@@ -611,48 +707,155 @@ async function lockSalesActionTarget(request: PayloadRequest, current: ReturnTyp
   if (postgresRows(await transaction.execute(sql\`SELECT "revision" FROM "sales_current_authority_scopes"
     WHERE "application_id" = \${kNexIdentity.applicationId} AND "environment" = \${kNexIdentity.environment} AND "principal_id" = \${actorId} AND "state" = 'active'
       AND "revision" = \${current.salesScope.revision} AND "mutation_allowed" = true FOR SHARE\`)).length !== 1) return false;
-  if (typeof input.id !== "string") return true;
-  if (input.collection === "sales-tasks") {
+  const relatedCollection = input.relatedRecordType === "sales.account" ? "sales-accounts"
+    : input.relatedRecordType === "sales.contact" ? "sales-contacts"
+      : input.relatedRecordType === "sales.lead" ? "sales-leads"
+        : input.relatedRecordType === "sales.opportunity" ? "sales-opportunities"
+          : input.relatedRecordType === "sales.task" ? "sales-tasks" : undefined;
+  const collection = typeof input.id === "string" ? input.collection : relatedCollection;
+  const id = typeof input.id === "string" ? input.id : typeof input.relatedRecordId === "string" ? input.relatedRecordId : undefined;
+  if (typeof collection !== "string" || typeof id !== "string") return true;
+  if (collection === "sales-tasks") {
     return postgresRows(await transaction.execute(sql\`
       SELECT "id" FROM "sales_tasks"
-      WHERE "id" = \${input.id} AND "application_id" = \${kNexIdentity.applicationId} AND "environment" = \${kNexIdentity.environment}
+      WHERE "id" = \${id} AND "application_id" = \${kNexIdentity.applicationId} AND "environment" = \${kNexIdentity.environment}
         AND (\${recordScope})
       FOR UPDATE
     \`)).length === 1;
   }
-  if (input.collection === "sales-opportunities") {
+  if (collection === "sales-opportunities") {
     return postgresRows(await transaction.execute(sql\`
       SELECT "id" FROM "sales_opportunities"
-      WHERE "id" = \${input.id} AND "application_id" = \${kNexIdentity.applicationId} AND "environment" = \${kNexIdentity.environment}
+      WHERE "id" = \${id} AND "application_id" = \${kNexIdentity.applicationId} AND "environment" = \${kNexIdentity.environment}
         AND (\${recordScope})
       FOR UPDATE
     \`)).length === 1;
   }
+  if (collection === "sales-accounts") return postgresRows(await transaction.execute(sql\`
+      SELECT "id" FROM "sales_accounts" WHERE "id" = \${id} AND "application_id" = \${kNexIdentity.applicationId} AND "environment" = \${kNexIdentity.environment} AND (\${recordScope}) FOR UPDATE
+    \`)).length === 1;
+  if (collection === "sales-contacts") return postgresRows(await transaction.execute(sql\`
+      SELECT "id" FROM "sales_contacts" WHERE "id" = \${id} AND "application_id" = \${kNexIdentity.applicationId} AND "environment" = \${kNexIdentity.environment} AND (\${recordScope}) FOR UPDATE
+    \`)).length === 1;
+  if (collection === "sales-leads") return postgresRows(await transaction.execute(sql\`
+      SELECT "id" FROM "sales_leads" WHERE "id" = \${id} AND "application_id" = \${kNexIdentity.applicationId} AND "environment" = \${kNexIdentity.environment} AND (\${recordScope}) FOR UPDATE
+    \`)).length === 1;
+  if (collection === "sales-activities") return postgresRows(await transaction.execute(sql\`
+      SELECT "id" FROM "sales_activities" WHERE "id" = \${id} AND "application_id" = \${kNexIdentity.applicationId} AND "environment" = \${kNexIdentity.environment} AND (\${recordScope}) FOR UPDATE
+    \`)).length === 1;
+  if (collection === "sales-notes") return postgresRows(await transaction.execute(sql\`
+      SELECT "id" FROM "sales_notes" WHERE "id" = \${id} AND "application_id" = \${kNexIdentity.applicationId} AND "environment" = \${kNexIdentity.environment} AND (\${recordScope}) FOR UPDATE
+    \`)).length === 1;
+  if (collection === "sales-attachment-references") return postgresRows(await transaction.execute(sql\`
+      SELECT "id" FROM "sales_attachment_references" WHERE "id" = \${id} AND "application_id" = \${kNexIdentity.applicationId} AND "environment" = \${kNexIdentity.environment} AND (\${recordScope}) FOR UPDATE
+    \`)).length === 1;
   return false;
 }
 
 function salesActionCapability(payload: Payload, context: KnexRequestContext, request: PayloadRequest, actionId: string, current: ReturnType<typeof authorization>) {
   const grant = salesActionGrant(actionId);
-  return createPayloadPersistenceCapability(request, [{ collection: grant.collection, operations: grant.operations }],
-    new CurrentAuthorityPayloadPersistenceAuthorizer(kNexAuthority(payload).adapter, context, () => {
-      const currentTarget = authorizationTarget(grant.permissionId, undefined, undefined, current);
+  return createPayloadPersistenceCapability(request, salesActionCapabilityGrants(actionId).map(({ collection, operations }) => ({ collection, operations })),
+    new CurrentAuthorityPayloadPersistenceAuthorizer(kNexAuthority(payload).adapter, context, ({ collection, operation }) => {
+      const currentGrant = salesActionCapabilityGrants(actionId).find((candidate) => candidate.collection === collection && candidate.operations.some((candidateOperation) => candidateOperation === operation));
+      const currentTarget = authorizationTarget(currentGrant?.permissionId ?? grant.permissionId, undefined, undefined, current);
       if (currentTarget === undefined) throw new Error("Sales persistence permission is unavailable.");
       return currentTarget;
     }), { guard: async (input) => {
-      if (input.collection !== grant.collection || input.id !== undefined && typeof input.id !== "string") return false;
-      const currentTarget = authorizationTarget(grant.permissionId, typeof input.id === "string" ? input.id : undefined, undefined, current);
+      const relatedCollection = input.relatedRecordType === "sales.account" ? "sales-accounts"
+        : input.relatedRecordType === "sales.contact" ? "sales-contacts"
+          : input.relatedRecordType === "sales.lead" ? "sales-leads"
+            : input.relatedRecordType === "sales.opportunity" ? "sales-opportunities"
+              : input.relatedRecordType === "sales.task" ? "sales-tasks" : undefined;
+      const accountReference = (actionId === "sales.contact.create" || actionId === "sales.opportunity.create") && typeof input.accountId === "string"
+        ? Object.freeze({ collection: "sales-accounts", id: input.accountId }) : undefined;
+      const collection = typeof input.id === "string" ? input.collection : relatedCollection ?? accountReference?.collection ?? input.collection;
+      const id = typeof input.id === "string" ? input.id : typeof input.relatedRecordId === "string" ? input.relatedRecordId : accountReference?.id;
+      if (collection !== grant.collection && !salesActionCapabilityGrants(actionId).some((candidate) => candidate.collection === collection)) return false;
+      const operation = input.operation;
+      if (operation !== "find" && operation !== "create" && operation !== "update") return false;
+      const currentGrant = salesActionCapabilityGrants(actionId).find((candidate) => candidate.collection === collection && candidate.operations.some((candidateOperation) => candidateOperation === operation));
+      if (currentGrant === undefined || input.id !== undefined && typeof input.id !== "string") return false;
+      const currentTarget = authorizationTarget(currentGrant.permissionId, id, undefined, current);
       return currentTarget !== undefined && await kNexAuthority(payload).adapter.allows(context, currentTarget) && await lockSalesActionTarget(request, current, input);
     } });
 }
 
-async function salesActionRecord(capability: PayloadPersistenceCapabilityContext, collection: "sales-tasks" | "sales-opportunities", id: string, current: ReturnType<typeof authorization>) {
+async function salesActionRecord(capability: PayloadPersistenceCapabilityContext, collection: "sales-tasks" | "sales-opportunities" | "sales-accounts" | "sales-contacts" | "sales-leads" | "sales-activities" | "sales-notes" | "sales-attachment-references", id: string, current: ReturnType<typeof authorization>) {
   const scope = salesRecordWhere(current);
   const result = await capability.payload.find({ collection, depth: 0, limit: 1, pagination: false, overrideAccess: true,
-    select: { ownerId: true, teamId: true }, where: { and: [{ id: { equals: id } }, ...scope.and] } }) as { docs?: unknown };
+    select: { ownerId: true, teamId: true, status: true, archiveStatus: true, accountId: true, relatedRecordType: true, relatedRecordId: true }, where: { and: [{ id: { equals: id } }, ...scope.and] } }) as { docs?: unknown };
   if (!Array.isArray(result.docs) || result.docs.length !== 1 || result.docs[0] === null || typeof result.docs[0] !== "object") {
     throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales action target is unavailable.");
   }
-  return result.docs[0] as { ownerId?: unknown; teamId?: unknown };
+  return result.docs[0] as { ownerId?: unknown; teamId?: unknown; status?: unknown; archiveStatus?: unknown; accountId?: unknown; relatedRecordType?: unknown; relatedRecordId?: unknown };
+}
+
+async function salesNoteReplacementIdentity(request: PayloadRequest, id: string) {
+  const transaction = await activePayloadPostgresTransaction(request);
+  const row = postgresRows(await transaction.execute(sql\`SELECT "status","related_record_type","related_record_id" FROM "sales_notes" WHERE "id"=\${id} AND "application_id"=\${kNexIdentity.applicationId} AND "environment"=\${kNexIdentity.environment} FOR UPDATE\`))[0] as Record<string, unknown> | undefined;
+  return row === undefined ? undefined : Object.freeze({ status: row.status, relatedRecordType: row.related_record_type, relatedRecordId: Number.isSafeInteger(row.related_record_id) || typeof row.related_record_id === "string" ? String(row.related_record_id) : undefined });
+}
+
+async function salesRelatedMutationParent(request: PayloadRequest, childCollection: "sales-activities" | "sales-attachment-references", id: string): Promise<Readonly<{ collection: "sales-tasks" | "sales-accounts" | "sales-contacts" | "sales-leads" | "sales-opportunities"; id: string }>> {
+  const transaction = await activePayloadPostgresTransaction(request);
+  const row = postgresRows(await (childCollection === "sales-activities" ? transaction.execute(sql\`
+    SELECT "related_record_type","related_record_id" FROM "sales_activities" WHERE "id"=\${id} AND "application_id"=\${kNexIdentity.applicationId} AND "environment"=\${kNexIdentity.environment} FOR UPDATE
+  \`) : transaction.execute(sql\`
+    SELECT "related_record_type","related_record_id" FROM "sales_attachment_references" WHERE "id"=\${id} AND "application_id"=\${kNexIdentity.applicationId} AND "environment"=\${kNexIdentity.environment} FOR UPDATE
+  \`)))[0] as Record<string, unknown> | undefined;
+  const collection = row?.related_record_type === "sales.account" ? "sales-accounts" : row?.related_record_type === "sales.contact" ? "sales-contacts"
+    : row?.related_record_type === "sales.lead" ? "sales-leads" : row?.related_record_type === "sales.opportunity" ? "sales-opportunities"
+      : row?.related_record_type === "sales.task" ? "sales-tasks" : undefined;
+  if (collection === undefined || !(Number.isSafeInteger(row?.related_record_id) || typeof row?.related_record_id === "string" && /^[1-9][0-9]*$/u.test(row.related_record_id))) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales related mutation target is unavailable.");
+  return Object.freeze({ collection, id: String(row!.related_record_id) });
+}
+
+async function salesActivityTaskParent(request: PayloadRequest, id: string): Promise<Readonly<{ collection: "sales-tasks" | "sales-accounts" | "sales-contacts" | "sales-leads" | "sales-opportunities"; id: string }>> {
+  const transaction = await activePayloadPostgresTransaction(request);
+  const row = postgresRows(await transaction.execute(sql\`
+    SELECT "related_record_type","related_record_id" FROM "sales_tasks" WHERE "id"=\${id} AND "application_id"=\${kNexIdentity.applicationId} AND "environment"=\${kNexIdentity.environment} FOR UPDATE
+  \`))[0] as Record<string, unknown> | undefined;
+  const collection = row?.related_record_type === "sales.account" ? "sales-accounts" : row?.related_record_type === "sales.contact" ? "sales-contacts"
+    : row?.related_record_type === "sales.lead" ? "sales-leads" : row?.related_record_type === "sales.opportunity" ? "sales-opportunities" : undefined;
+  const taskCollection = row?.related_record_type === "sales.task" ? "sales-tasks" : collection;
+  if (taskCollection === undefined || !(Number.isSafeInteger(row?.related_record_id) || typeof row?.related_record_id === "string" && /^[1-9][0-9]*$/u.test(row.related_record_id))) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales activity task parent is unavailable.");
+  return Object.freeze({ collection: taskCollection, id: String(row!.related_record_id) });
+}
+
+const salesOwnershipPermissions = Object.freeze({
+  "sales.account": Object.freeze(["sales.accounts.read", "sales.accounts.write"]),
+  "sales.contact": Object.freeze(["sales.contacts.read", "sales.contacts.write"]),
+  "sales.lead": Object.freeze(["sales.leads.read", "sales.leads.write"]),
+  "sales.opportunity": Object.freeze(["sales.opportunities.read", "sales.opportunities.write"])
+} as const);
+
+async function salesOwnershipAdmission(request: PayloadRequest, current: ReturnType<typeof authorization>, input: Readonly<Record<string, unknown>>) {
+  const recordType = input.recordType;
+  const ownerId = input.ownerId;
+  const teamId = input.teamId;
+  if ((recordType !== "sales.account" && recordType !== "sales.contact" && recordType !== "sales.lead" && recordType !== "sales.opportunity") || typeof ownerId !== "string" || teamId !== undefined && typeof teamId !== "string") throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales ownership admission is invalid.");
+  const transaction = await activePayloadPostgresTransaction(request);
+  const permissions = salesOwnershipPermissions[recordType];
+  const grantRows = postgresRows(await transaction.execute(sql\`
+    SELECT g."permission_id" FROM "k_nex_role_assignments" a
+    JOIN "k_nex_role_permission_grants" g ON g."application_id"=a."application_id" AND g."role_id"=a."role_id"
+    JOIN "k_nex_extension_authorization_generations" x ON x."application_id"=g."application_id" AND x."delivery_class"=g."owner_delivery_class" AND x."extension_id"=g."owner_extension_id" AND x."authorization_generation"=g."owner_generation"
+    WHERE a."application_id"=\${kNexIdentity.applicationId} AND a."subject_kind"='user' AND a."subject_id"=\${ownerId} AND a."state"='active'
+      AND g."permission_id" IN (\${sql.join(permissions.map((permissionId) => sql\`\${permissionId}\`), sql\`, \`)})
+      AND g."owner_kind"='extension' AND g."owner_delivery_class"='platform-plugin' AND g."owner_extension_id"='module.sales'
+      AND x."delivery_class"='platform-plugin' AND x."extension_id"='module.sales' AND x."state"='current'
+    FOR SHARE OF a,g,x
+  \`)).map((row) => row !== null && typeof row === "object" ? (row as Record<string, unknown>).permission_id : undefined);
+  if (!permissions.every((permissionId) => grantRows.includes(permissionId))) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales ownership owner lacks current object authority.");
+  const ownerScope = postgresRows(await transaction.execute(sql\`SELECT "record_scope","application_wide","mutation_allowed","authorized_team_ids","revision" FROM "sales_current_authority_scopes" WHERE "application_id"=\${kNexIdentity.applicationId} AND "environment"=\${kNexIdentity.environment} AND "principal_id"=\${ownerId} AND "state"='active' AND "mutation_allowed"=true FOR SHARE\`))[0] as Record<string, unknown> | undefined;
+  if (ownerScope === undefined || typeof ownerScope.record_scope !== "string" || typeof ownerScope.application_wide !== "boolean" || ownerScope.mutation_allowed !== true || !Array.isArray(ownerScope.authorized_team_ids) || !Number.isSafeInteger(ownerScope.revision)) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales ownership owner scope is unavailable.");
+  if (teamId !== undefined) {
+    if (!current.salesScope.applicationWide && !current.salesScope.authorizedTeamIds.includes(teamId)) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales ownership team is outside caller scope.");
+    const teamFacts = postgresRows(await transaction.execute(sql\`SELECT "authorized_team_ids" FROM "sales_current_authority_scopes" WHERE "application_id"=\${kNexIdentity.applicationId} AND "environment"=\${kNexIdentity.environment} AND "state"='active' AND ("principal_id"=\${ownerId} OR "authorized_team_ids" @> \${JSON.stringify([teamId])}::jsonb) FOR SHARE\`));
+    const exists = teamId === \`team:\${ownerId}\` || teamFacts.some((row) => row !== null && typeof row === "object" && Array.isArray((row as Record<string, unknown>).authorized_team_ids) && ((row as Record<string, unknown>).authorized_team_ids as unknown[]).includes(teamId));
+    if (!exists) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales ownership team is unavailable.");
+  }
+  return Object.freeze({ ownershipNewOwnerId: ownerId, ownershipTeamCleared: teamId === undefined, ...(teamId === undefined ? {} : { ownershipNewTeamId: teamId }) });
 }
 
 export async function workspaceSalesPermissions(payload: Payload, context: KnexRequestContext, signal?: AbortSignal) {
@@ -673,11 +876,9 @@ export async function workspaceSalesPermissions(payload: Payload, context: KnexR
 const workspaceSalesPolicy: DataSourcePolicyService = {
   authorize({ descriptor, actor }) {
     const current = workspaceSalesAuthorization(actor);
-    const recordScope = descriptor.id === "sales.opportunities"
-      ? { kind: "sales.opportunities", where: salesRecordWhere(current) }
-      : descriptor.id === "sales.tasks"
-        ? { kind: "sales.tasks", where: salesRecordWhere(current) }
-        : undefined;
+    const recordScope = ["sales.opportunities", "sales.opportunity.detail", "sales.tasks", "sales.accounts", "sales.account.detail", "sales.contacts", "sales.contact.detail", "sales.leads", "sales.lead.detail", "sales.timeline"].includes(descriptor.id)
+      ? { kind: descriptor.id, where: salesRecordWhere(current) }
+      : undefined;
     return Object.freeze({
       sourceAllowed: recordScope !== undefined,
       recordScope,
@@ -708,11 +909,22 @@ function workspaceSalesGateway(payload: Payload, context: KnexRequestContext, pe
       requestContext(request) {
         const capability = createPayloadPersistenceCapability(request, [
           { collection: "sales-tasks", operations: ["find"] },
-          { collection: "sales-opportunities", operations: ["find"] }
+          { collection: "sales-opportunities", operations: ["find"] },
+          { collection: "sales-accounts", operations: ["find"] },
+          { collection: "sales-contacts", operations: ["find"] },
+          { collection: "sales-leads", operations: ["find"] },
+          { collection: "sales-activities", operations: ["find"] },
+          { collection: "sales-notes", operations: ["find"] },
+          { collection: "sales-attachment-references", operations: ["find"] }
         ], { authorize: ({ collection, operation }) => {
           const permissionId = collection === "sales-tasks" && operation === "find" ? "sales.tasks.read"
             : collection === "sales-opportunities" && operation === "find" ? "sales.opportunities.read"
-            : undefined;
+            : collection === "sales-accounts" && operation === "find" ? "sales.accounts.read"
+              : collection === "sales-contacts" && operation === "find" ? "sales.contacts.read"
+                : collection === "sales-leads" && operation === "find" ? "sales.leads.read"
+                  : collection === "sales-activities" && operation === "find" ? "sales.activities.read"
+                    : collection === "sales-notes" && operation === "find" ? "sales.notes.read"
+                      : collection === "sales-attachment-references" && operation === "find" ? "sales.attachments.read" : undefined;
           return permissionId !== undefined && permissions.includes(permissionId);
         } });
         return Object.freeze({ ...capability, applicationIdentity: Object.freeze({ applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment }) });
@@ -739,10 +951,12 @@ function sourceNodes(document: UiDocument): readonly UiNode[] {
   return result;
 }
 
-export async function loadWorkspaceSalesSources(payload: Payload, context: KnexRequestContext, document: UiDocument, permissions: readonly string[], signal: AbortSignal) {
+export async function loadWorkspaceSalesSources(payload: Payload, context: KnexRequestContext, document: UiDocument, permissions: readonly string[], signal: AbortSignal, routeParams: Readonly<Record<string, string>> = Object.freeze({}), pageNumber = 1) {
+  if (!Number.isSafeInteger(pageNumber) || pageNumber < 1 || pageNumber > 1_000_000) throw new TypeError("Workspace Sales page is invalid.");
   const current = await actor(payload, context);
   const gateway = workspaceSalesGateway(payload, context, permissions, current.authorization);
   const output: Record<string, DataSourceBindingResult<unknown>> = {};
+  const loaded = new Map<string, DataSourceBindingResult<unknown>>();
   for (const node of sourceNodes(document)) {
     const binding = node.bindings?.source;
     if (binding === undefined) continue;
@@ -750,26 +964,42 @@ export async function loadWorkspaceSalesSources(payload: Payload, context: KnexR
     const descriptor = source?.definition.descriptor;
     if (descriptor === undefined || descriptor.version !== binding.source.version || descriptor.structuralCompatibilityHash !== binding.structuralCompatibilityHash) throw new TypeError("Workspace Sales source binding is unavailable.");
     const selectedFields = binding.selectedFields ?? descriptor.outputFields?.filter(({ binding }) => binding === "required").map(({ id }) => id) ?? [];
+    const detail = descriptor.id.endsWith(".detail");
+    const timeline = descriptor.id === "sales.timeline";
+    if ((detail || timeline) && Object.keys(routeParams).sort().join("\\0") !== "id") throw new TypeError("Sales detail route parameters are unavailable.");
+    if (!detail && !timeline && Object.keys(routeParams).length !== 0) throw new TypeError("Sales list route parameters are invalid.");
+    const sourceInput = detail ? { id: routeParams.id } : timeline ? (() => {
+      const configured = binding.input;
+      if (configured === null || typeof configured !== "object" || Array.isArray(configured) || Object.keys(configured).sort().join("\\0") !== "related-record-id\\0related-record-type" ||
+        !["sales.account", "sales.contact", "sales.lead", "sales.opportunity"].includes(String((configured as Record<string, unknown>)["related-record-type"]))) throw new TypeError("Sales timeline binding is invalid.");
+      return { "related-record-type": (configured as Record<string, unknown>)["related-record-type"], "related-record-id": routeParams.id };
+    })() : binding.input;
+    const sourcePage = timeline ? pageNumber > 4 ? (() => { throw new TypeError("Sales timeline page exceeds its bounded contract."); })() : pageNumber : detail ? 1 : pageNumber;
+    const loadKey = canonicalJson({ source: binding.source, sourceInput, selectedFields, sourcePage });
+    const existing = loaded.get(loadKey);
+    if (existing !== undefined) { output[node.id] = existing; continue; }
     const response = await gateway.query({
       correlationId: context.correlationId,
       rawRequest: current.request,
       sourceId: descriptor.id,
       surface: "workspace",
-      input: binding.input,
-      query: descriptor.primaryContract.id === "metric.scalar" ? { filters: [], sort: [] } : { page: { number: 1, size: 25 }, filters: [], sort: [] },
+      input: sourceInput,
+      query: descriptor.primaryContract.id === "metric.scalar" ? { filters: [], sort: [] } : { page: { number: sourcePage, size: 25 }, filters: [], sort: [] },
       selectedFields,
       signal
     });
-    if (response.ok) { output[node.id] = { state: "success", data: response.body.data }; continue; }
+    if (response.ok) { const result = { state: "success", data: response.body.data } as const; loaded.set(loadKey, result); output[node.id] = result; continue; }
     if (response.status === 403) {
-      output[node.id] = {
+      const result = {
         state: response.body.code === "INSUFFICIENT_FIELD_PERMISSION" ? "insufficient-permission" : "forbidden",
         problem: { code: response.body.code, status: 403 }
-      };
+      } as const;
+      loaded.set(loadKey, result); output[node.id] = result;
       continue;
     }
     if (response.status === 429) {
-      output[node.id] = { state: "rate-limited", problem: { code: response.body.code, status: 429 } };
+      const result = { state: "rate-limited", problem: { code: response.body.code, status: 429 } } as const;
+      loaded.set(loadKey, result); output[node.id] = result;
       continue;
     }
     throw new DataSourceGatewayError(response.body.code, response.status, response.body.title, response.body.detail);
@@ -792,30 +1022,121 @@ export async function executeWorkspaceSalesAction(payload: Payload, context: Kne
       idempotency = { request: current.request, actionId: action.id, idempotencyKey: request.idempotencyKey ?? "", requestDigest: actionDigest({ actionId: action.id, input: request.input }) };
       currentAuthorization = current.authorization;
       await persistence.transaction.begin();
-      if (!await persistence.guard({ collection: salesActionGrant(action.id).collection })) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales action scope is unavailable.");
       return { actor: current.authorization, request: persistence, authorizationContext: context };
     }
   }, { authorize: async ({ action, input, authenticated }) => {
     if (input === null || typeof input !== "object" || Array.isArray(input) ||
-      ["applicationId", "environment", "ownerId", "teamId", "createdBy", "updatedBy", "revision", "audit"].some((key) => key in input)) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales action facts are forbidden.");
+      ["applicationId", "environment", "createdBy", "updatedBy", "revision", "audit", ...(action.descriptor.id === "sales.ownership.assign" ? [] : ["ownerId", "teamId"])].some((key) => key in input)) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales action facts are forbidden.");
+    const actionInput = input as Readonly<Record<string, unknown>>;
     const current = workspaceSalesAuthorization(authenticated.actor);
     const actorId = current.effectiveActor.id;
-    const resourceId = "id" in input && typeof input.id === "string" ? input.id : undefined;
-    let record: { ownerId?: unknown; teamId?: unknown } | undefined;
-    if (resourceId !== undefined) {
-      const collection = action.descriptor.id === "sales.task.update" ? "sales-tasks" : action.descriptor.id === "sales.opportunity.stage.update" ? "sales-opportunities" : undefined;
+    const capability = authenticated.request as PayloadPersistenceCapabilityContext;
+    let resourceId = typeof actionInput.id === "string" ? actionInput.id : undefined;
+    let record: { ownerId?: unknown; teamId?: unknown; status?: unknown; archiveStatus?: unknown; accountId?: unknown; relatedRecordType?: unknown; relatedRecordId?: unknown } | undefined;
+    const relatedMutationCollection = action.descriptor.id === "sales.attachment.remove" ? "sales-attachment-references" : action.descriptor.id === "sales.activity.complete" || action.descriptor.id === "sales.activity.cancel" ? "sales-activities" : undefined;
+    if (resourceId !== undefined && relatedMutationCollection !== undefined) {
+      if (idempotency === undefined) throw new ActionGatewayError("IDEMPOTENCY_KEY_REQUIRED", 400, "Sales action idempotency key is required.");
+      const parent = await salesRelatedMutationParent(idempotency.request, relatedMutationCollection, resourceId);
+      // Activities inherit a Task's current CRM parent. Attachment references deliberately
+      // remain direct-Task resources: their frozen action contract has no parent promotion.
+      const authorizedParent = (action.descriptor.id === "sales.activity.complete" || action.descriptor.id === "sales.activity.cancel") && parent.collection === "sales-tasks"
+        ? await salesActivityTaskParent(idempotency.request, parent.id)
+        : parent;
+      if (await capability.guard({ ...authorizedParent, operation: "find" }) !== true) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales related mutation target is unavailable.");
+      record = await salesActionRecord(capability, authorizedParent.collection, authorizedParent.id, current);
+    }
+    if (resourceId !== undefined && relatedMutationCollection === undefined) {
+      const collection = action.descriptor.id === "sales.task.update" ? "sales-tasks"
+        : action.descriptor.id === "sales.activity.complete" || action.descriptor.id === "sales.activity.cancel" ? "sales-activities"
+          : action.descriptor.id === "sales.attachment.remove" ? "sales-attachment-references"
+        : action.descriptor.id === "sales.ownership.assign" && actionInput.recordType === "sales.account" ? "sales-accounts"
+          : action.descriptor.id === "sales.ownership.assign" && actionInput.recordType === "sales.contact" ? "sales-contacts"
+            : action.descriptor.id === "sales.ownership.assign" && actionInput.recordType === "sales.lead" ? "sales-leads"
+              : action.descriptor.id === "sales.ownership.assign" && actionInput.recordType === "sales.opportunity" ? "sales-opportunities"
+        : action.descriptor.id.startsWith("sales.account.") ? "sales-accounts"
+          : action.descriptor.id.startsWith("sales.contact.") ? "sales-contacts"
+            : action.descriptor.id.startsWith("sales.lead.") ? "sales-leads"
+              : action.descriptor.id.startsWith("sales.opportunity.") ? "sales-opportunities" : undefined;
       if (collection === undefined) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales action target is unavailable.");
-      const capability = authenticated.request as PayloadPersistenceCapabilityContext;
-      if (await capability.guard({ collection, id: resourceId }) !== true) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales action target is unavailable.");
+      if (await capability.guard({ collection, id: resourceId, operation: "update" }) !== true) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales action target is unavailable.");
       record = await salesActionRecord(capability, collection, resourceId, current);
     }
+    if (resourceId === undefined && (action.descriptor.id === "sales.activity.create" || action.descriptor.id === "sales.note.create" || action.descriptor.id === "sales.attachment.link")) {
+      const relatedType = actionInput.relatedRecordType;
+      const relatedId = actionInput.relatedRecordId;
+      const collection = relatedType === "sales.account" ? "sales-accounts" : relatedType === "sales.contact" ? "sales-contacts"
+        : relatedType === "sales.lead" ? "sales-leads" : relatedType === "sales.opportunity" ? "sales-opportunities"
+          : relatedType === "sales.task" ? "sales-tasks" : undefined;
+      if (collection === undefined || typeof relatedId !== "string") throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales related action target is unavailable.");
+      const parent = action.descriptor.id === "sales.activity.create" && collection === "sales-tasks" ? await salesActivityTaskParent(idempotency!.request, relatedId) : undefined;
+      if (parent !== undefined) {
+        if (await capability.guard({ ...parent, operation: "find" }) !== true) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales related action target is unavailable.");
+        resourceId = parent.id;
+        record = await salesActionRecord(capability, parent.collection, parent.id, current);
+      } else {
+        if (await capability.guard({ collection, id: relatedId, operation: "find" }) !== true) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales related action target is unavailable.");
+        resourceId = relatedId;
+        record = await salesActionRecord(capability, collection, resourceId, current);
+      }
+    }
+    if (resourceId === undefined && (action.descriptor.id === "sales.contact.create" || action.descriptor.id === "sales.opportunity.create")) {
+      const accountId = actionInput.accountId;
+      if (typeof accountId !== "string" || await capability.guard({ collection: "sales-accounts", id: accountId, operation: "find" }) !== true) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales related account is unavailable.");
+      resourceId = accountId;
+      record = await salesActionRecord(capability, "sales-accounts", resourceId, current);
+    }
     if (!await allowed(payload, context, action.descriptor.permission, resourceId, record)) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Current authority does not permit this action.");
+    if ((action.descriptor.id === "sales.opportunity.create" && typeof actionInput.primaryContactId === "string") || (action.descriptor.id === "sales.opportunity.update" && actionInput.primaryContactMode === "set" && typeof actionInput.primaryContactId === "string")) {
+      const contactId = actionInput.primaryContactId as string;
+      if (await capability.guard({ collection: "sales-contacts", id: contactId, operation: "find" }) !== true) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales opportunity contact is unavailable.");
+      const contact = await salesActionRecord(capability, "sales-contacts", contactId, current);
+      const accountId = action.descriptor.id === "sales.opportunity.create" ? actionInput.accountId : record?.accountId;
+      if (contact.status !== "active" || contact.archiveStatus === "archived" || typeof accountId !== "string" && typeof accountId !== "number" || String(contact.accountId) !== String(accountId)) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales opportunity contact is unavailable.");
+    }
+    let noteReplacementAdmission: Readonly<Record<string, unknown>> | undefined;
+    if (action.descriptor.id === "sales.note.create" && typeof actionInput.replacesNoteId === "string") {
+      const predecessor = await salesNoteReplacementIdentity(idempotency!.request, actionInput.replacesNoteId);
+      if (predecessor === undefined || predecessor.status !== "recorded" || predecessor.relatedRecordType !== actionInput.relatedRecordType || String(predecessor.relatedRecordId) !== actionInput.relatedRecordId) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales replaced note is unavailable.");
+      noteReplacementAdmission = Object.freeze({ recordId: actionInput.replacesNoteId, applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment, relatedRecordType: actionInput.relatedRecordType, relatedRecordId: actionInput.relatedRecordId });
+    }
+    const protectedFieldRequests = action.descriptor.id.startsWith("sales.contact.") || action.descriptor.id.startsWith("sales.lead.")
+      ? ["email", "phone"].filter((fieldId) => action.descriptor.id.endsWith(".update") ? actionInput[\`\${fieldId}Mode\`] !== "retain" : actionInput[fieldId] !== undefined).map((fieldId) => Object.freeze({ fieldId: fieldId as "email" | "phone", permissionId: action.descriptor.id.startsWith("sales.contact.") ? "sales.contacts.channels.read" as const : "sales.leads.channels.read" as const }))
+      : action.descriptor.id === "sales.opportunity.create" && actionInput.amount !== undefined || action.descriptor.id === "sales.opportunity.update" && actionInput.amountMode !== "retain"
+        ? [Object.freeze({ fieldId: "amount" as const, permissionId: "sales.opportunities.amount.read" as const })] : [];
+    for (const admission of protectedFieldRequests) {
+      const create = action.descriptor.id.endsWith(".create");
+      if (!await allowed(payload, context, admission.permissionId, create ? undefined : resourceId, create ? undefined : record, signal, current)) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales protected field is unavailable.");
+    }
     if (idempotency === undefined || currentAuthorization === undefined || idempotency.idempotencyKey.length === 0) throw new ActionGatewayError("IDEMPOTENCY_KEY_REQUIRED", 400, "Sales action idempotency key is required.");
     if (!await currentSalesAuthorityFence(idempotency.request, currentAuthorization)) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales action authority changed.");
+    const ownership = action.descriptor.id === "sales.ownership.assign" ? await salesOwnershipAdmission(idempotency.request, current, actionInput) : undefined;
+    const linkedRecordAdmissions: Array<Readonly<{ recordType: "sales.account" | "sales.contact"; recordId: string; applicationId: string; environment: string }>> = [];
+    if (action.descriptor.id === "sales.lead.qualify" && actionInput.accountMode === "link") {
+      const accountId = actionInput.accountId;
+      if (typeof accountId !== "string" || await capability.guard({ collection: "sales-accounts", id: accountId, operation: "find" }) !== true) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales linked account is unavailable.");
+      const account = await salesActionRecord(capability, "sales-accounts", accountId, current);
+      if (account.status !== "active" || account.archiveStatus === "archived") throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales linked account is unavailable.");
+      linkedRecordAdmissions.push(Object.freeze({ recordType: "sales.account", recordId: accountId, applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment }));
+    }
+    if (action.descriptor.id === "sales.lead.qualify" && actionInput.contactMode === "link") {
+      const contactId = actionInput.contactId; const accountId = actionInput.accountId;
+      if (typeof contactId !== "string" || typeof accountId !== "string" || await capability.guard({ collection: "sales-contacts", id: contactId, operation: "find" }) !== true) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales linked contact is unavailable.");
+      const contact = await salesActionRecord(capability, "sales-contacts", contactId, current);
+      if (contact.status !== "active" || contact.archiveStatus === "archived" || String(contact.accountId) !== accountId) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales linked contact is unavailable.");
+      linkedRecordAdmissions.push(Object.freeze({ recordType: "sales.contact", recordId: contactId, applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment }));
+    }
+    const topLevelOwnedCreate = action.descriptor.id === "sales.account.create" || action.descriptor.id === "sales.lead.create";
+    const personalTeam = "team:" + actorId;
+    if (topLevelOwnedCreate && !current.salesScope.applicationWide && !current.salesScope.authorizedTeamIds.includes(personalTeam)) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Personal Sales team is outside current scope.");
     const replay = await reserveSalesActionIdempotency(idempotency, currentAuthorization);
     return Object.freeze({ actionId: action.descriptor.id, applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment, actorId,
       ownerId: typeof record?.ownerId === "string" ? record.ownerId : actorId,
-      ...(typeof record?.teamId === "string" ? { teamId: record.teamId } : {}),
+      ...(typeof record?.teamId === "string" ? { teamId: record.teamId } : topLevelOwnedCreate ? { teamId: personalTeam } : {}),
+      ...(action.descriptor.id === "sales.attachment.link" ? { resolveAttachmentUpload: (upload: Readonly<{ applicationId: string; environmentId: string; actorId: string; storageRef: string }>) => resolveSalesAttachmentUpload(idempotency!.request, current, upload) } : {}),
+      ...(noteReplacementAdmission === undefined ? {} : { noteReplacementAdmission }),
+      ...(ownership ?? {}),
+      ...(linkedRecordAdmissions.length === 0 ? {} : { linkedRecordAdmissions: Object.freeze(linkedRecordAdmissions) }),
+      ...(protectedFieldRequests.length === 0 ? {} : { protectedFieldAdmissions: Object.freeze(protectedFieldRequests) }),
       ...(resourceId === undefined ? {} : { resourceId }),
       eventId: salesActionEventId(currentAuthorization, action.descriptor.id, idempotency.idempotencyKey, idempotency.requestDigest),
       ...(replay === undefined ? {} : { idempotencyReplay: replay }) });
@@ -1438,16 +1759,24 @@ function createRuntime(payload: Payload) {
     },
     now: () => new Date()
   });
-  listenForInvalidations(payload, synchronizeInvalidations);
-  return Object.freeze({ service, store, folders, authority, sessions, synchronizeInvalidations, resolvePlacement });
+  const invalidations = listenForInvalidations(payload, synchronizeInvalidations);
+  return Object.freeze({ service, store, folders, authority, sessions, synchronizeInvalidations, resolvePlacement, close: invalidations.close });
 }
 
 export const kNexWorkspacePageScope = scope;
 
 export function kNexWorkspacePages(payload: Payload) {
+  if (drainedRuntimes.has(payload)) throw new Error("K-Nex workspace runtime is closed.");
   let runtime = runtimes.get(payload);
   if (runtime === undefined) { runtime = createRuntime(payload); runtimes.set(payload, runtime); }
   return runtime;
+}
+
+/** Peeks only: host shutdown must not create a workspace listener. */
+export async function drainKnexWorkspacePages(payload: Payload): Promise<void> {
+  const runtime = runtimes.get(payload);
+  drainedRuntimes.add(payload);
+  if (runtime !== undefined) await runtime.close();
 }
 
 export async function loadWorkspacePageAccessSubjects(payload: Payload, context: KnexRequestContext) {

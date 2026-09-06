@@ -66,6 +66,18 @@ pnpm knex:bootstrap-owner -- --token-file .k-nex-bootstrap-token
 pnpm dev
 \`\`\`
 
+## Attachment upload receipts
+
+Attachment bytes are admitted by host storage before a Sales attachment reference is created. A deployment/operator process with this application's database authority records one immutable receipt; browsers and Sales actions cannot issue receipts. After storage has durably accepted the exact bytes, issue the bounded receipt with the same application environment:
+
+\`\`\`bash
+pnpm knex:issue-attachment-upload-receipt -- \\
+  --storage-ref storage/object-123 --uploader-actor-id user:123 \\
+  --filename document.pdf --media-type application/pdf --byte-size 1024
+\`\`\`
+
+Reissuing identical facts is safe. A storage reference already bound to different application, environment, uploader, filename, media type, byte size, or receipt revision fails closed.
+
 Production-mode check:
 
 \`\`\`bash
@@ -160,10 +172,11 @@ if (process.versions.node.split(".")[0] !== "24" || missing.length > 0 || kNexSa
 console.log("K_NEX_DOCTOR_PASS");
 `,
     "src/k-nex-worker.ts": `import { bootKnexApplication } from "./boot.js";
+import { shutdownKnexApplication } from "./k-nex-authority.js";
 
 const payload = await bootKnexApplication("worker");
 console.log("K_NEX_WORKER_READY");
-await payload.destroy();
+await shutdownKnexApplication(payload);
 `,
     "src/k-nex-bootstrap-owner.ts": `if (!process.env.K_NEX_BOOTSTRAP_TOKEN) throw new Error("K_NEX_BOOTSTRAP_TOKEN is required.");
 throw new Error("Run migrations before owner bootstrap; secure owner persistence is installed by the application authorization layer.");

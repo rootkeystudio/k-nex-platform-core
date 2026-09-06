@@ -94,4 +94,17 @@ describe("workspace page outbox", () => {
     worker.stop();
     expect(worker.started).toBe(false);
   });
+
+  it("joins an admitted dispatch after stop without scheduling another one", async () => {
+    let complete!: () => void;
+    const dispatchNext = vi.fn(() => new Promise<{ status: "idle" }>((resolve) => { complete = () => resolve({ status: "idle" }); }));
+    const worker = new WorkspacePageOutboxWorker({ dispatchNext } as never, { publish: vi.fn() }, { intervalMs: 10 });
+    worker.start();
+    await vi.waitFor(() => expect(dispatchNext).toHaveBeenCalledTimes(1));
+    worker.stop();
+    const idle = worker.idle();
+    complete();
+    await idle;
+    expect(dispatchNext).toHaveBeenCalledTimes(1);
+  });
 });

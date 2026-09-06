@@ -106,6 +106,16 @@ describe("Payload data-source authentication adapter", () => {
     expect(find).not.toHaveBeenCalled();
   });
 
+  it("binds each operation context without leaking it into the next Payload call", async () => {
+    const seen: unknown[] = [];
+    const request = { ...rawRequest, context: { prior: true }, payload: { find: vi.fn(async () => { seen.push(request.context); return { docs: [] }; }), create: vi.fn(), update: vi.fn() } } as unknown as PayloadRequest;
+    const context = createPayloadPersistenceCapability(request, [{ collection: "sales-tasks", operations: ["find"] }], { authorize: () => true });
+    await context.payload.find({ collection: "sales-tasks", overrideAccess: true, context: { event: "one" } });
+    await context.payload.find({ collection: "sales-tasks", overrideAccess: true, context: { event: "two" } });
+    expect(seen).toEqual([{ event: "one" }, { event: "two" }]);
+    expect(request.context).toEqual({ prior: true });
+  });
+
   it("owns only the transaction it starts and exposes its host guard", async () => {
     const beginTransaction = vi.fn(async () => "tx-owned");
     const commitTransaction = vi.fn(async () => undefined);

@@ -47,7 +47,8 @@ function collection(slug: typeof salesCoreCollectionSlugs[number], fields: Field
 }
 
 const activitySupersedesField: RelationshipField = {
-  name: "supersedesActivityId", type: "relationship", relationTo: "sales-activities", required: false, index: true,
+  // Payload adds `_id` for relationship columns; this preserves migration column `supersedes_activity_id`.
+  name: "supersedesActivity", type: "relationship", relationTo: "sales-activities", required: false, index: true,
   validate(value, { siblingData }) {
     const siblingId = typeof siblingData === "object" && siblingData !== null && "id" in siblingData ? siblingData.id : undefined;
     return value === null || value === undefined || siblingId === undefined || String(value) !== String(siblingId)
@@ -66,14 +67,14 @@ export const salesAccountsCollection = collection("sales-accounts", [
 export const salesContactsCollection = collection("sales-contacts", [
   ...salesCommonFields({ ownerRequired: true, lifecycle: ["active", "archived", "merged"] }),
   { name: "accountId", type: "number", required: true, min: 1, index: true },
-  text("displayName", true), text("givenName"), text("email"), text("phone"),
+  text("displayName", true), text("givenName"), text("email"), { name: "phone", type: "text", maxLength: 64 },
   { name: "mergedIntoId", type: "text", access: protectedFieldAccess },
   { name: "mergeLineage", type: "json", access: protectedFieldAccess }
 ], [{ fields: ["applicationId", "environment", "accountId", "status"] }]);
 
 export const salesLeadsCollection = collection("sales-leads", [
   ...salesCommonFields({ ownerRequired: true, lifecycle: ["new", "working", "qualified", "disqualified"] }),
-  text("displayName", true), text("source", true), text("email"), text("phone"),
+  text("displayName", true), text("source", true), text("email"), { name: "phone", type: "text", maxLength: 64 },
   { name: "archiveStatus", type: "select", required: true, defaultValue: "active", options: ["active", "archived"].map((value) => ({ label: value, value })), access: protectedFieldAccess },
   { name: "decidedAt", type: "date", access: protectedFieldAccess },
   { name: "qualifiedAt", type: "date", access: protectedFieldAccess },
@@ -136,7 +137,7 @@ export const salesNotesCollection = collection("sales-notes", [
 
 export const salesAttachmentReferencesCollection = collection("sales-attachment-references", [
   ...salesCommonFields({ ownerRequired: false, lifecycle: ["active", "removed"] }),
-  text("storageReference", true), text("filename", true), text("mediaType", true),
+  text("storageReference", true), text("filename", true), { name: "mediaType", type: "text", required: true, maxLength: 128 },
   { name: "byteSize", type: "number", required: true, min: 0 }, text("uploaderId", true),
   text("relatedRecordId", true), select("relatedRecordType", salesRelatedRecordTypes)
 ], [{ fields: ["applicationId", "environment", "relatedRecordType", "relatedRecordId", "status"] }]);

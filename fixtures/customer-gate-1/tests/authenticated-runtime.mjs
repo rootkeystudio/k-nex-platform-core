@@ -144,7 +144,7 @@ const leadOpportunity = await payload.create({
   collection: "sales-opportunities",
   data: { ...salesScope(users.get("gate1@example.test")), name: "Lead opportunity", accountId: account.id, pipelineId: pipeline.id, stageId: "qualification" }
 });
-await pool.query("update sales_opportunities set audit=jsonb_build_array(jsonb_build_object('kind','phase-13-legacy-upgrade','receiptDigest',$2::text,'legacyStage','lead')) where id=$1", [leadOpportunity.id, `sha256:${"0".repeat(64)}`]);
+await pool.query("update sales_opportunities set audit=jsonb_build_array(jsonb_build_object('kind','phase-13-legacy-upgrade','receiptDigest',$2::text,'legacyStage','lead','ownershipGenesis',jsonb_build_object('ownerId',owner_id,'teamId',team_id))) where id=$1", [leadOpportunity.id, `sha256:${"0".repeat(64)}`]);
 const wonOpportunity = await payload.create({
   collection: "sales-opportunities",
   data: { ...salesScope(users.get("done@example.test")), name: "Won opportunity", accountId: account.id, pipelineId: pipeline.id, stageId: "won", closedAt: new Date().toISOString() }

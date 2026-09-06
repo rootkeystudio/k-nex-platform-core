@@ -316,6 +316,40 @@
     "calendarDate": "YYYY-MM-DD without timezone conversion",
     "instant": "UTC instant",
     "reportingTimezone": "one IANA application timezone used for grouping and display",
+    "ownershipAssignment": {
+      "actionId": "sales.ownership.assign",
+      "version": 2,
+      "recordTypes": ["sales.account", "sales.contact", "sales.lead", "sales.opportunity"],
+      "input": { "required": ["recordType", "id", "expectedRevision", "ownerId"], "optional": ["teamId"], "additionalProperties": false, "teamNullAllowed": false },
+      "output": { "required": ["recordType", "id", "revision", "ownerId"], "optional": ["teamId"], "additionalProperties": false },
+      "admission": "caller current ownership permission and scoped nonterminal target; new owner current object read/write grants plus active mutation scope; team must be caller-managed unless caller scope is application-wide; host-derived top-level Account and Lead creation assigns the effective actor and that actor's current-scope personal team; related Contact, Opportunity, and Activity creation inherits the locked related record owner/team; Lead qualification preserves the locked Lead owner/team on every derived record while the converter remains createdBy and audit actor"
+    },
+    "leadQualification": {
+      "actionId": "sales.lead.qualify",
+      "version": 2,
+      "input": { "required": ["id", "expectedRevision", "accountMode", "contactMode", "opportunityName", "pipelineId"], "conditional": { "create/create": ["accountName", "contactName"], "link/create": ["accountId", "contactName"], "link/link": ["accountId", "contactId"] }, "rejected": ["create/link"], "additionalProperties": false },
+      "lineage": "linked Contact belongs to the chosen active Account; the new Opportunity points to that exact Account and Contact; newly created records inherit the locked active Lead owner/team; linked records are never reassigned",
+      "atomicity": "Lead CAS, derivative creation/link validation, immutable audit/outbox, and idempotency result commit in one transaction; any stale, archived, merged, cross-scope, or lineage mismatch leaves every row and receipt unchanged"
+    },
+    "protectedFieldMutation": {
+      "contactLeadUpdateVersion": 2,
+      "modes": ["retain", "set", "clear"],
+      "input": "emailMode and phoneMode are required; email and phone are present iff their mode is set; retain omits storage changes; clear writes null",
+      "admission": "contact or Lead email/phone create supply and update set/clear require exact current channels.read admission; retain requires no protected-field admission; Note body is excluded"
+    },
+    "opportunityMutation": {
+      "version": 2,
+      "create": { "required": ["name", "accountId", "pipelineId", "stageId"], "optional": ["primaryContactId", "amount", "expectedCloseDate"], "additionalProperties": false },
+      "update": { "required": ["id", "expectedRevision", "name", "primaryContactMode", "amountMode", "expectedCloseDateMode"], "modes": ["retain", "set", "clear"], "conditional": "primaryContactId, amount, and expectedCloseDate are present iff their corresponding mode is set", "additionalProperties": false },
+      "money": "exact {kind:money,value:canonical decimal,currency:ISO uppercase,scale:0..18}; fractional digits at most scale; zero-pad before persistence; padded length at most 128; no rounding",
+      "admission": "amount create and update set/clear require current sales.opportunities.amount.read; primary Contact is current scoped active and belongs to the locked Account; all mutation, CAS, idempotency, audit, and outbox effects are one transaction"
+    },
+    "noteCorrection": {
+      "actionId": "sales.note.create",
+      "version": 2,
+      "input": "optional canonical replacesNoteId names a current-authorized recorded Note in the same application, environment, related record type, and related record ID",
+      "immutability": "the predecessor remains unchanged; the correction persists its replacement link atomically with Note audit, outbox, and idempotency"
+    },
     "polymorphicRelatedTargets": {
       "vocabulary": ["sales.account", "sales.contact", "sales.lead", "sales.opportunity", "sales.task"],
       "sharedIntent": "Activities, Notes, Attachment references, and optional Task links may name only this closed target vocabulary and must resolve in their own application and environment.",

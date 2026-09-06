@@ -56,6 +56,11 @@ describe("table.records@1", () => {
     expect(TableRecordsSchema.safeParse(baseTable).success).toBe(true);
   });
 
+  it("preserves the frozen compact text-cell bound", () => {
+    expect(TableCellSchema.safeParse({ kind: "text", value: "n".repeat(512) }).success).toBe(true);
+    expect(TableCellSchema.safeParse({ kind: "text", value: "n".repeat(513) }).success).toBe(false);
+  });
+
   it("accepts bounded opaque next-cursor result metadata", () => {
     expect(TableRecordsSchema.safeParse({ ...baseTable, page: { ...baseTable.page, hasNext: true, nextCursor: "opaque-next" } }).success).toBe(true);
     expect(TableRecordsSchema.safeParse({ ...baseTable, page: { ...baseTable.page, nextCursor: "" } }).success).toBe(false);

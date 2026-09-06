@@ -79,7 +79,7 @@ try {
   });
   const pool = payload.db?.pool;
   assert.ok(pool && typeof pool === "object" && "query" in pool);
-  await pool.query("update sales_opportunities set audit=jsonb_build_array(jsonb_build_object('kind','phase-13-legacy-upgrade','receiptDigest',$2::text,'legacyStage','lead')) where id=$1", [opportunity.id, `sha256:${"0".repeat(64)}`]);
+  await pool.query("update sales_opportunities set audit=jsonb_build_array(jsonb_build_object('kind','phase-13-legacy-upgrade','receiptDigest',$2::text,'legacyStage','lead','ownershipGenesis',jsonb_build_object('ownerId',owner_id,'teamId',team_id))) where id=$1", [opportunity.id, `sha256:${"0".repeat(64)}`]);
   await binding("actions", "sales.opportunity.stage.update")({
     actor, request: req, authorizationContext: authorization("sales.opportunity.stage.update", String(opportunity.id)),
     input: { id: String(opportunity.id), expectedStage: "qualification", expectedRevision: opportunity.revision, stage: "discovery" },

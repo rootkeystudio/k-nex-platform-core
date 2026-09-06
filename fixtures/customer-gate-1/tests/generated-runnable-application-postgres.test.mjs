@@ -1003,9 +1003,9 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     // opportunity creation is introduced in P13.3.  Keep fixture records on
     // that persisted contract rather than teaching the action validator about
     // a test-only audit shape.
-    const opportunityQualificationAudit = JSON.stringify([{ kind: "phase-13-legacy-upgrade", receiptDigest: `sha256:${"0".repeat(64)}`, legacyStage: "lead" }]);
-    const opportunityDiscoveryAudit = JSON.stringify([{ kind: "phase-13-legacy-upgrade", receiptDigest: `sha256:${"0".repeat(64)}`, legacyStage: "qualified" }]);
-    const taskAudit = JSON.stringify([{ kind: "phase-13-legacy-upgrade", receiptDigest: `sha256:${"0".repeat(64)}` }]);
+    const opportunityQualificationAudit = JSON.stringify([{ kind: "phase-13-legacy-upgrade", receiptDigest: `sha256:${"0".repeat(64)}`, legacyStage: "lead", ownershipGenesis: { ownerId: ownerUserId, teamId: null } }]);
+    const opportunityDiscoveryAudit = JSON.stringify([{ kind: "phase-13-legacy-upgrade", receiptDigest: `sha256:${"0".repeat(64)}`, legacyStage: "qualified", ownershipGenesis: { ownerId: ownerUserId, teamId: null } }]);
+    const taskAudit = JSON.stringify([{ kind: "phase-13-legacy-upgrade", receiptDigest: `sha256:${"0".repeat(64)}`, ownershipGenesis: { ownerId: ownerUserId, teamId: null } }]);
     const account = await pool.query(`insert into sales_accounts
       (application_id, environment, owner_id, created_by, updated_by, audit, name)
       values ($1,$2,$3,$3,$3,$4::jsonb,'Generated app account') returning id`, [applicationId, environmentName, ownerUserId, audit]);

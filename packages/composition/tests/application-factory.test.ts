@@ -9,7 +9,7 @@ import { ApplicationManifestSchema, PackageReleaseManifestSchema, canonicalJson,
 import { afterEach, describe, expect, it } from "vitest";
 
 import { applicationAuthFiles } from "../src/application-auth-files.js";
-import { applyCreateKnexApplication, planCreateKnexApplication } from "../src/index.js";
+import { applyCreateKnexApplication, payloadPostgresPatchDigest, payloadPostgresPatchFilename, payloadPostgresPatchProvenance, payloadPostgresPatchSource, planCreateKnexApplication } from "../src/index.js";
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -89,10 +89,14 @@ describe("create-knex-app", () => {
     expect(planCreateKnexApplication(options)).toEqual(first);
     expect(first.files["compose.yaml"]).toContain("postgres:17.6-alpine@sha256:");
     const manifest = ApplicationManifestSchema.parse(JSON.parse(first.files["k-nex.app.json"]!));
-    expect(manifest.plugins).toEqual([{ id: "module.sales", package: "@k-nex/module-sales", version: "1.0.0", enabled: true }]);
+    expect(manifest.plugins).toEqual([
+      { id: "module.sales", package: "@k-nex/module-sales", version: "1.0.0", enabled: true },
+      { id: "provider.realtime.socketio", package: "@k-nex/provider-realtime-socketio", version: "1.0.0", enabled: true }
+    ]);
+    expect(manifest.providers).toEqual({ "realtime.gateway": { plugin: "provider.realtime.socketio", package: "@k-nex/provider-realtime-socketio", version: "1.0.0" } });
     expect(manifest.builder).toEqual({ plugin: "builder.puck", package: "@k-nex/builder-puck", version: "1.0.0", profiles: { workspace: { enabled: true, drafts: true, surfaces: ["workspace"] } } });
     expect(manifest.environment.required).toEqual(["DATABASE_URL", "K_NEX_ADMINISTRATION_OPERATOR_CA_CERT", "K_NEX_ADMINISTRATION_OPERATOR_CLIENT_CERT", "K_NEX_ADMINISTRATION_OPERATOR_CLIENT_KEY", "K_NEX_ADMINISTRATION_OPERATOR_HOST", "K_NEX_ADMINISTRATION_OPERATOR_IDENTITY", "K_NEX_ADMINISTRATION_OPERATOR_PORT", "K_NEX_ADMINISTRATION_OPERATOR_URI_SAN", "K_NEX_ENVIRONMENT", "K_NEX_PUBLIC_ORIGIN", "PAYLOAD_SECRET"]);
-    expect(JSON.parse(first.files["package.json"]!).dependencies).toMatchObject({ payload: "3.88.0", "@k-nex/builder-puck": "1.0.0", "@k-nex/module-sales": "1.0.0", "@k-nex/theme-minimal": "1.0.0" });
+    expect(JSON.parse(first.files["package.json"]!).dependencies).toMatchObject({ payload: "3.88.0", "@k-nex/builder-puck": "1.0.0", "@k-nex/module-sales": "1.0.0", "@k-nex/provider-realtime-socketio": "1.0.0", "@k-nex/theme-minimal": "1.0.0" });
     expect(first.files["src/payload.config.ts"]).toContain("kNexSalesRegistry.collections");
     expect(first.files["src/app/(workspace)/system/access/roles/page.tsx"]).toContain("SystemRolesPage");
     expect(first.files["src/app/(workspace)/system/access/permissions/page.tsx"]).toContain("SystemPermissionsPage");
@@ -118,11 +122,103 @@ describe("create-knex-app", () => {
       "20260903_000026_workspace_pages",
       "20260903_000027_event_outbox",
       "20260904_000028_workspace_sidebar_preferences",
-      "20260905_000027_crm_core"
+      "20260905_000027_crm_core",
+      "20260906_000029_attachment_upload_admissions"
     ]);
+    const attachmentAdmissions = first.files["src/migrations/20260906_000029_attachment_upload_admissions.ts"]!;
+    expect(attachmentAdmissions).toContain('CREATE TABLE "k_nex_sales_attachment_upload_admissions"');
+    expect(attachmentAdmissions).toContain('length("storage_ref") BETWEEN 1 AND 512');
+    expect(attachmentAdmissions).toContain('length("media_type") BETWEEN 1 AND 128');
+    expect(attachmentAdmissions).not.toContain("{0,511}");
+    expect(attachmentAdmissions).toContain('PRIMARY KEY ("application_id", "environment", "storage_ref")');
+    expect(first.files["src/k-nex-issue-attachment-upload-receipt.ts"]).toContain("K_NEX_ATTACHMENT_UPLOAD_RECEIPT_ISSUED");
+    expect(first.files["src/k-nex-issue-attachment-upload-receipt.ts"]).toContain("mediaType.length > 128");
+    expect(first.files["package.json"]).toContain("knex:issue-attachment-upload-receipt");
     expect(first.files["tsconfig.json"]).toContain('"moduleResolution": "bundler"');
     expect(first.files["tsconfig.scripts.json"]).toContain('"module": "NodeNext"');
     expect(first.files["src/k-nex-registry.ts"]).toContain("salesRegistration");
+    expect(first.files["src/k-nex-registry.ts"]).toContain("socketIoRealtimeProviderRegistration");
+    expect(first.files["src/k-nex-registry.ts"]).toContain('capability: "realtime.gateway", plugin: realtimeManifest.id');
+    expect(first.files["src/k-nex-realtime.ts"]).toContain("createSocketIoMemoryGateway");
+    expect(first.files["src/k-nex-realtime.ts"]).toContain("currentPayloadAuthentication");
+    expect(first.files["src/k-nex-realtime.ts"]).toContain('channel = "k_nex_runtime_invalidation"');
+    expect(first.files["src/k-nex-realtime.ts"]).toContain('exactObject(JSON.parse(notification.payload), ["applicationId", "environment", "invalidation", "type"])');
+    expect(first.files["src/k-nex-realtime.ts"]).toContain("envelope.applicationId !== kNexIdentity.applicationId || envelope.environment !== kNexIdentity.environment || envelope.type !== \"realtime\"");
+    expect(first.files["src/k-nex-realtime.ts"]).toContain('envelope.type !== "realtime"');
+    expect(first.files["src/k-nex-realtime.ts"]).toContain("listener?.release(true)");
+    expect(first.files["src/k-nex-realtime.ts"]).toContain("await gateway.close().catch(() => undefined)");
+    expect(first.files["src/k-nex-realtime.ts"]).toContain("await currentSalesGeneration(payload)");
+    expect(first.files["src/k-nex-realtime.ts"]).toContain("sales_current_authority_scopes");
+    expect(first.files["src/k-nex-realtime.ts"]).toContain("recordScope: scope.recordScope");
+    expect(first.files["src/k-nex-realtime.ts"]).toContain("salesScopeRevision: scope.revision");
+    expect(first.files["src/k-nex-realtime.ts"]).toContain("createCurrentAuthorityTarget");
+    expect(first.files["src/k-nex-realtime.ts"]).toContain("pendingAuthorizations");
+    expect(first.files["src/k-nex-realtime.ts"]).toContain("const actorHeaders = new WeakMap<object, Headers>()");
+    expect(first.files["src/k-nex-realtime.ts"]).toContain("trackAuthorization(Promise.resolve().then(() => currentPayloadAuthentication");
+    expect(first.files["src/k-nex-realtime.ts"]).toContain("await Promise.allSettled([...pendingAuthorizations])");
+    expect(first.files["src/k-nex-realtime.ts"]).toContain("finalGeneration.state.authorizationRevision === initialGeneration.state.authorizationRevision");
+    expect(first.files["src/k-nex-web.ts"]).toContain("startKnexRealtime(payload, server)");
+    expect(first.files["src/k-nex-web.ts"]).toContain("realtime?.close()");
+    expect(first.files["src/k-nex-web.ts"]).toContain("const admittedHandlers = new Map<Promise<void>, AdmittedHandlerMetadata>();");
+    expect(first.files["src/k-nex-web.ts"]).toContain("const maxRetainedHandlerFailures = 16;");
+    expect(first.files["src/k-nex-web.ts"]).toContain("const admitted = Promise.resolve().then(operation).then(");
+    expect(first.files["src/k-nex-web.ts"]).toContain("admittedHandlers.set(admitted, metadata);");
+    expect(first.files["src/k-nex-web.ts"]).toContain("while (admittedHandlers.size > 0) await Promise.all([...admittedHandlers.keys()]);");
+    expect(first.files["src/k-nex-web.ts"]).toContain('throw new AggregateError(admittedHandlerFailures, "K-Nex admitted web handler failed.");');
+    expect(first.files["src/k-nex-web.ts"]).toContain('trackHandler(handlerMetadata("request", request), async () => handler(request, response)');
+    expect(first.files["src/k-nex-web.ts"]).toContain('trackHandler(handlerMetadata("upgrade", request), async () => upgrade(request, socket, head)');
+    expect(first.files["src/k-nex-web.ts"]).toContain('JSON.stringify({ stage: shutdownStage, activeHandlerCount: admittedHandlers.size, handlers: [...admittedHandlers.values()].slice(0, 16), history: shutdownHistory, failureStages: shutdownFailureStages })');
+    const webHandlerDiagnostics = first.files["src/k-nex-web.ts"]!.slice(first.files["src/k-nex-web.ts"]!.indexOf("function handlerMetadata"), first.files["src/k-nex-web.ts"]!.indexOf("function retainHandlerFailure"));
+    expect(webHandlerDiagnostics).toContain('new URL(request.url ?? "/", "http://k-nex.invalid").pathname');
+    expect(webHandlerDiagnostics).toContain("pathname.slice(0, maxDiagnosticPathnameLength)");
+    expect(webHandlerDiagnostics).toContain("performance.now()");
+    expect(webHandlerDiagnostics).not.toMatch(/headers|cookie|body|search|query/iu);
+    expect(first.files["src/k-nex-web.ts"]).toContain('shutdownStage = "payload-" + progress.stage;');
+    expect(first.files["src/k-nex-web.ts"]).toContain("const maxShutdownDiagnostics = 16;");
+    expect(first.files["src/k-nex-web.ts"]).toContain('type ShutdownSnapshot = Readonly<{ stage: string; totalCount: number; idleCount: number; waitingCount: number }>;');
+    expect(first.files["src/k-nex-web.ts"]).toContain('shutdownHistory.push(Object.freeze({ stage, totalCount: boundedPoolCount(pool?.totalCount), idleCount: boundedPoolCount(pool?.idleCount), waitingCount: boundedPoolCount(pool?.waitingCount) }));');
+    expect(first.files["src/k-nex-web.ts"]).toContain('if (shutdownHistory.length >= maxShutdownDiagnostics) return;');
+    expect(first.files["src/k-nex-web.ts"]).toContain('if (shutdownFailureStages.length < maxShutdownDiagnostics) shutdownFailureStages.push(stage);');
+    expect(first.files["src/k-nex-web.ts"]).toContain('console.error("K_NEX_GRACEFUL_SHUTDOWN_FAILED", shutdownDiagnostic());');
+    const poolDiagnostics = first.files["src/k-nex-web.ts"]!.slice(first.files["src/k-nex-web.ts"]!.indexOf("type ShutdownSnapshot"), first.files["src/k-nex-web.ts"]!.indexOf("function handlerMetadata"));
+    expect(poolDiagnostics).not.toMatch(/_clients|_idle|connection|backend|sql|actor|principal|headers|cookie/iu);
+    expect(first.files["src/k-nex-web.ts"]).not.toContain("closeAllConnections");
+    const webShutdown = first.files["src/k-nex-web.ts"]!;
+    const shutdownSnapshots = ["shutdown-start", "before-realtime", "after-realtime", "after-server", "after-handler", "after-next", "before-workspace", "after-workspace", "before-authority", "after-authority", "before-payload-destroy", "after-payload-destroy", "before-pool-end"];
+    let priorSnapshot = webShutdown.indexOf("async function stop");
+    for (const stage of shutdownSnapshots) {
+      const snapshot = webShutdown.indexOf(`recordShutdownSnapshot(${JSON.stringify(stage)})`, priorSnapshot);
+      expect(snapshot).toBeGreaterThan(priorSnapshot);
+      priorSnapshot = snapshot;
+    }
+    expect(webShutdown.indexOf('await attempt("realtime-close", async () => realtime?.close());', webShutdown.indexOf("async function stop"))).toBeLessThan(webShutdown.indexOf("for (const socket of upgradedSockets) socket.destroy();", webShutdown.indexOf("async function stop")));
+    expect(webShutdown.indexOf("for (const socket of upgradedSockets) socket.destroy();", webShutdown.indexOf("async function stop"))).toBeLessThan(webShutdown.indexOf("server.close((error)", webShutdown.indexOf("async function stop")));
+    expect(webShutdown.indexOf("server.close((error)", webShutdown.indexOf("async function stop"))).toBeLessThan(webShutdown.indexOf('await attempt("handler-drain", drainAdmittedHandlers);', webShutdown.indexOf("async function stop")));
+    expect(webShutdown.indexOf('await attempt("handler-drain", drainAdmittedHandlers);', webShutdown.indexOf("async function stop"))).toBeLessThan(webShutdown.indexOf('await attempt("next-close", async () => nextApp.close());', webShutdown.indexOf("async function stop")));
+    expect(first.files["src/k-nex-web.ts"]).toContain("const startupCleanupMs = 5_000;");
+    expect(first.files["src/k-nex-web.ts"]).toContain("K_NEX_STARTUP_CLEANUP_EXPIRED");
+    expect(first.files["src/k-nex-web.ts"]).toContain('throw new AggregateError(failures, "K-Nex startup and cleanup failed.");');
+    expect(first.files["src/k-nex-web.ts"]).not.toContain("await realtime?.close().catch(() => undefined);");
+    expect(first.files["src/k-nex-web.ts"]!.indexOf("startKnexRealtime(payload, server)")).toBeLessThan(first.files["src/k-nex-web.ts"]!.indexOf('server.once("error", failed)'));
+    expect(first.files["src/k-nex-worker.ts"]).toContain("K_NEX_WORKER_SHUTDOWN_EXPIRED");
+    expect(first.files["src/k-nex-worker.ts"]).not.toContain("shutdownDeadline.unref()");
+    expect(first.files["src/k-nex-worker.ts"]!.indexOf('process.on("SIGINT", stop); process.on("SIGTERM", stop);')).toBeLessThan(first.files["src/k-nex-worker.ts"]!.indexOf('console.log("K_NEX_WORKER_READY");'));
+    expect(first.files["src/k-nex-worker.ts"]).toContain("authorizationWorker.idle()");
+    expect(first.files["src/k-nex-worker.ts"]).toContain("const admittedFailures: unknown[] = [];");
+    expect(first.files["src/k-nex-worker.ts"]).toContain("function failShutdown(error: unknown): never");
+    expect(first.files["src/k-nex-worker.ts"]).toContain('failShutdown(new AggregateError(admittedFailures, "K-Nex worker admitted dispatch failed."));');
+    expect(first.files["src/k-nex-web.ts"]).toContain('server.off("error", failed)');
+    expect(first.files["src/k-nex-web.ts"]).toContain('server.on("error", (error) => {');
+    expect(first.files["src/k-nex-web.ts"]).toContain('K_NEX_SERVER_FAILURE_CLEANUP_EXPIRED');
+    expect(first.files["src/k-nex-web.ts"]).toContain("async function failStartup(error: unknown, closeServer: boolean): Promise<never>");
+    expect(first.files["src/k-nex-web.ts"]).toContain("await failStartup(error, false);");
+    expect(first.files["src/k-nex-web.ts"]).toContain("await failStartup(error, true);");
+    expect(first.files["src/k-nex-web.ts"]).not.toContain(".catch(() => undefined)");
+    expect(first.files["src/k-nex-web.ts"]).toContain("if (signalSeen) { process.exitCode = 1; process.exit(1); return; }");
+    expect(first.files["src/k-nex-web.ts"]).not.toContain("grace.unref()");
+    expect(first.files["src/k-nex-web.ts"]).toContain("clearTimeout(grace); process.exitCode = 1; logShutdownFailure(error); process.exit(1);");
+    expect(first.files["src/k-nex-worker.ts"]).toContain("createSalesRealtimeRelay");
+    expect(first.files["src/k-nex-worker.ts"]).toContain('notify("realtime", message');
     expect(first.files["src/k-nex-registry.ts"]).toContain("salesCoreCollections");
     expect(first.files["src/k-nex-registry.ts"]).toContain("salesCoreCollectionSlugs");
     expect(first.files["src/k-nex-registry.ts"]).toContain("collections: Object.freeze([...salesCoreCollections])");
@@ -134,6 +230,26 @@ describe("create-knex-app", () => {
     expect(first.files["src/k-nex-authority.ts"]).toContain("lifecycleOverride: Object.freeze({ enabled: !unavailable, ready: !unavailable })");
     expect(first.files["src/k-nex-authority.ts"]).toContain("inactive-extension-disabled");
     expect(first.files["src/k-nex-authority.ts"]).toContain("kNexSalesRegistry.staticRelease.runtimeGenerationId");
+    expect(first.files["src/k-nex-authority.ts"]).toContain("export async function drainKnexAuthority(payload: Payload): Promise<void>");
+    expect(first.files["src/k-nex-authority.ts"]).toContain("const runtime = runtimes.get(payload);");
+    expect(first.files["src/k-nex-authority.ts"]).toContain("await runtime.adapter.drain();");
+    expect(first.files["src/k-nex-authority.ts"]).toContain("requestAuthentications.delete(payload);");
+    expect(first.files["src/k-nex-authority.ts"]).toContain("export async function shutdownKnexApplication(payload: Payload, progress?: (value: KnexShutdownProgress) => void): Promise<void>");
+    expect(first.files["src/k-nex-authority.ts"]).toContain('progress?.(Object.freeze({ stage: "authority-drain" }));');
+    expect(first.files["src/k-nex-authority.ts"]).toContain('progress?.(Object.freeze({ stage: "payload-destroy" }));');
+    expect(first.files["src/k-nex-authority.ts"]).toContain('progress?.(Object.freeze({ stage: "pool-end", pool: Object.freeze({ totalCount: boundedPoolCount(pool.totalCount), idleCount: boundedPoolCount(pool.idleCount), waitingCount: boundedPoolCount(pool.waitingCount) }) }));');
+    expect(first.files["src/k-nex-authority.ts"]).toContain('progress?.(Object.freeze({ stage: "complete" }));');
+    const authoritySource = first.files["src/k-nex-authority.ts"]!;
+    const shutdownProgressContract = authoritySource.slice(authoritySource.indexOf("export type KnexShutdownProgress"), authoritySource.indexOf("export function currentPayloadAuthentication"));
+    const shutdownProgressImplementation = authoritySource.slice(authoritySource.indexOf("export async function shutdownKnexApplication"), authoritySource.indexOf("export async function currentSalesGeneration"));
+    expect(shutdownProgressContract + shutdownProgressImplementation).not.toMatch(/connection|string|backend|sql|actor|principal|header|cookie/iu);
+    expect(first.files["src/k-nex-authority.ts"]).toContain("await drainKnexAuthority(payload);");
+    expect(first.files["src/k-nex-authority.ts"]).toContain("const shutdowns = new WeakMap<Payload, Promise<void>>();");
+    expect(first.files["src/k-nex-authority.ts"]).toContain("const existing = shutdowns.get(payload);");
+    expect(first.files["src/k-nex-authority.ts"]).toContain("await payload.destroy(); } catch (error) { destroyError = error; }");
+    expect(first.files["src/k-nex-authority.ts"]).toContain("if (typeof pool.end !== \"function\") { reject(new TypeError(\"K-Nex Payload Postgres pool cannot close.\")); return; }");
+    expect(first.files["src/k-nex-authority.ts"]).toContain("try { await pool.end(); } catch (error) { endError = error; }");
+    expect(first.files["src/k-nex-authority.ts"]).toContain("if (shutdowns.has(payload)) throw new Error(\"K-Nex authority runtime is closed.\");");
     expect(first.files["src/k-nex-registry.ts"]).toContain('surface: "admin"');
     expect(first.files["src/k-nex-registry.ts"]).toContain('palette: "light"');
     expect(first.files["src/k-nex-registry.ts"]).toContain("resolveMinimalThemeProfile(kNexInitialThemeProfile)");
@@ -155,6 +271,10 @@ describe("create-knex-app", () => {
     expect(first.files["src/k-nex-bootstrap-owner.ts"]).toContain("bootstrapFirstOwner");
     expect(first.files["src/k-nex-bootstrap-token.ts"]).toContain("update k_nex_owner_bootstrap_tokens set consumed_at=now() where application_id=$1 and environment=$2 and consumed_at is null");
     expect(first.files["src/k-nex-bootstrap-owner.ts"]).toContain("acquireBootstrapLock");
+    for (const path of ["src/k-nex-bootstrap-owner.ts", "src/k-nex-issue-bootstrap-token.ts", "src/k-nex-doctor.ts", "src/k-nex-worker.ts"]) {
+      expect(first.files[path]).toContain("shutdownKnexApplication(payload)");
+      expect(first.files[path]).not.toContain("payload.destroy()");
+    }
     expect(first.files["src/k-nex-bootstrap-owner.ts"]!.indexOf("const priorReceipt")).toBeLessThan(first.files["src/k-nex-bootstrap-owner.ts"]!.indexOf("const existing = await payload.find"));
     expect(first.files["src/k-nex-bootstrap-owner.ts"]).toContain("assertResumableOwnerReceipt(priorReceipt, String(user.id))");
     expect(first.files["src/k-nex-bootstrap-owner.ts"]).toContain('crashAfterCommit("protected-owner")');
@@ -182,12 +302,16 @@ describe("create-knex-app", () => {
       "knex:doctor": "node dist/k-nex-doctor.js",
       "knex:migrate": "payload migrate",
       "knex:worker": "node dist/k-nex-worker.js",
-      start: "next start"
+      start: "node dist/k-nex-web.js"
     });
     expect(packageJson.scripts).not.toHaveProperty("knex:readiness");
     const applicationPlan = JSON.parse(first.files[".k-nex/application-plan.json"]!);
     expect(applicationPlan.packageSource.kind).toBe("workspace");
-    expect(applicationPlan.composition).toMatchObject({ plugins: ["module.sales@1.0.0"], builder: "builder.puck@1.0.0" });
+    expect(applicationPlan.payloadPostgresPatch).toEqual(payloadPostgresPatchProvenance);
+    expect(first.files[payloadPostgresPatchFilename]).toBe(payloadPostgresPatchSource());
+    expect(`sha256:${createHash("sha256").update(first.files[payloadPostgresPatchFilename]!).digest("hex")}`).toBe(payloadPostgresPatchDigest);
+    expect(first.files["pnpm-workspace.yaml"]).toContain(`"@payloadcms/db-postgres@3.88.0": "${payloadPostgresPatchFilename}"`);
+    expect(applicationPlan.composition).toMatchObject({ plugins: ["module.sales@1.0.0", "provider.realtime.socketio@1.0.0"], builder: "builder.puck@1.0.0" });
     expect(first.files[".k-nex/default-pages.json"]).toBeUndefined();
     expect(first.files[".k-nex/package-release-manifest.json"]).toBeUndefined();
     expect(Object.values(first.files).every((source) => !source.includes("defaultPages") && !source.includes("default-pages") && !source.includes("salesPageTemplates"))).toBe(true);
@@ -212,6 +336,8 @@ describe("create-knex-app", () => {
     expect(sales.version).toBe("1.0.0");
     expect(packageJson.dependencies["@k-nex/module-sales"]).toBe(`file:.k-nex/packages/k-nex-module-sales-${sales.version}.tgz`);
     expect(plan.files["pnpm-workspace.yaml"]).toContain('"@k-nex/module-sales": "file:.k-nex/packages/k-nex-module-sales-');
+    expect(plan.files[payloadPostgresPatchFilename]).toBe(payloadPostgresPatchSource());
+    expect(JSON.parse(plan.files[".k-nex/application-plan.json"]!).payloadPostgresPatch).toEqual(payloadPostgresPatchProvenance);
     expect(packageJson.scripts["knex:db:up"]).toBeUndefined();
     expect(plan.files["README.md"]).not.toContain("knex:db:up");
     expect(plan.files["README.md"]).toContain("deploy the K-Nex administration operator as a separate private service");

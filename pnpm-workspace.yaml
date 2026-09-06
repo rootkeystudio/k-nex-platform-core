@@ -17,6 +17,8 @@ fetchTimeout: 30000
 minimumReleaseAge: 10080
 overrides:
   fast-uri: 3.1.6
+patchedDependencies:
+  '@payloadcms/db-postgres@3.88.0': patches/@payloadcms__db-postgres@3.88.0.patch
 peerDependencyRules:
   allowedVersions:
     "@modelcontextprotocol/sdk": "1.26.0 || 1.30.0"
