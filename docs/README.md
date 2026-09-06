@@ -8,7 +8,7 @@ Hot Applications  isolated signed bundles, live generation activation
 Theme Skins       data-only visual bundles, live generation activation
 ```
 
-Gates 0–11 established deterministic composition, authorized data/actions/tools, realtime/outbox, canonical UI documents, themes, Puck integration, a headless component system, release/fleet safety, isolated live applications, RBAC, system settings, extension administration, and privileged operations. The selected next step is to turn those foundations into a runnable customer product shell before expanding the Sales domain.
+Gates 0–12 established deterministic composition, authorized data/actions/tools, realtime/outbox, canonical UI documents, themes, Puck integration, a headless component system, release/fleet safety, isolated live applications, RBAC, system settings, extension administration, privileged operations, and a runnable generated customer workspace with custom internal dashboards. The selected product phase is CRM-first productization, with the coordinated release-train and customer-upgrade plan supplying the required P13.9 upgrade/backup/restore path.
 
 ## Normative order
 
@@ -37,8 +37,9 @@ A plan or ADR at `design-only` is direction, not executable evidence.
 
 - [Master execution plan through Gate 11](./implementation/codex-master-plan.md)
 - [Post-Gate-11 product roadmap addendum](./implementation/post-gate-11-product-roadmap.md)
-- [Phase 12 — Runnable Customer Workspace and Dashboard Builder](./implementation/phase-12-runnable-workspace-and-dashboard-builder.md)
 - [Phase 13 — CRM-First Productization and Pilot Readiness](./implementation/phase-13-crm-first-productization.md)
+- [Platform Release Train and Customer Application Upgrades](./implementation/platform-release-train-and-customer-application-upgrades.md)
+- [Phase 12 — Runnable Customer Workspace and Dashboard Builder](./implementation/phase-12-runnable-workspace-and-dashboard-builder.md)
 - [Phase 11 — System Settings and Extension Operations](./implementation/phase-11-system-settings-and-extension-operations.md)
 - [Phase 10 — RBAC and Extension Bootstrap](./implementation/phase-10-rbac-and-authorization-control-plane.md)
 - [Phase 9 — Dynamic Application Runtime](./implementation/phase-9-dynamic-application-runtime.md)
@@ -63,6 +64,7 @@ A plan or ADR at `design-only` is direction, not executable evidence.
 - [CLI and project generation](./15-cli-and-project-generation.md)
 - [Plugin lifecycle and package management](./19-plugin-lifecycle-and-package-management.md)
 - [Data migrations and versioning](./10-data-migrations-and-versioning.md)
+- [Coordinated release train and customer upgrades](./implementation/platform-release-train-and-customer-application-upgrades.md)
 - [Official Payload plugin adoption](./32-payload-official-plugin-adoption-plan.md)
 
 ## UI, builder, and themes
@@ -90,6 +92,7 @@ A plan or ADR at `design-only` is direction, not executable evidence.
 - [ADR-0022 RBAC and Extension Role Templates](./adr/0022-rbac-authorization-and-extension-role-templates.md)
 - [ADR-0023 Phase 9 Production Isolation and Static Delivery Hardening](./adr/0023-phase-9-production-isolation-and-static-delivery-hardening.md)
 - [ADR-0024 System Settings and Extension Operations](./adr/0024-system-settings-and-extension-operations.md)
+- [ADR-0028 Coordinated Platform Release Trains and Safe Customer Application Upgrades](./adr/0028-coordinated-platform-release-train-and-customer-application-upgrades.md)
 - [Machine-readable evidence registry](./adr/evidence-registry.json)
 
 ## Current sequence
@@ -97,8 +100,9 @@ A plan or ADR at `design-only` is direction, not executable evidence.
 ```text
 Gate 9   accepted dynamic applications and zero-downtime delivery
 Gate 10  accepted RBAC, role templates, and extension authority
-Gate 11  merged system settings and extension/operations administration
-Gate 12  runnable generated workspace and custom internal dashboard builder
-Gate 13  CRM-first productization and pilot-readiness decision
-then     separately selected CMS or other product breadth
+Gate 11  accepted system settings and extension/operations administration
+Gate 12  accepted runnable generated workspace and custom internal dashboard builder
+Gate 13  CRM-first productization and pilot readiness
+P13.9    first executable coordinated release-train upgrade, protection, and restore proof
+then     separately selected custom-object/CMS or other product breadth
 ```

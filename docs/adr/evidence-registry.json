@@ -195,6 +195,13 @@
         "packages/contracts/tests/administration-operator-transport.test.ts",
         "schemas/administration-operator-transport.v1.schema.json"
       ]
+    },
+    "0028": {
+      "level": "design-only",
+      "evidence": [
+        "docs/adr/0028-coordinated-platform-release-train-and-customer-application-upgrades.md",
+        "docs/implementation/platform-release-train-and-customer-application-upgrades.md"
+      ]
     }
   }
 }
