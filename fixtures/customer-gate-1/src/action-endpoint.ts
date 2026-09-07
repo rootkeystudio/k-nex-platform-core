@@ -61,7 +61,11 @@ function actionGrants(actionId: string) {
   ] as const;
   if (actionId === "sales.task.create") return [{ collection: "sales-tasks", operations: ["create", "update"] }] as const;
   if (actionId === "sales.task.update") return [{ collection: "sales-tasks", operations: ["find", "update"] }] as const;
-  if (actionId === "sales.opportunity.stage.update") return [{ collection: "sales-opportunities", operations: ["find", "update"] }] as const;
+  if (actionId === "sales.opportunity.stage.update") return [
+    { collection: "sales-opportunities", operations: ["find", "update"] },
+    { collection: "sales-pipelines", operations: ["find"] },
+    { collection: "sales-pipeline-stages", operations: ["find"] }
+  ] as const;
   const collection = workflowActionCollection(actionId);
   if (collection === undefined) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Action is forbidden.");
   if (actionId === "sales.lead.qualify") return [

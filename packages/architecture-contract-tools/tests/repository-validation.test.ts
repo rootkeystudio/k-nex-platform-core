@@ -1,9 +1,10 @@
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { canonicalJson } from "@k-nex/contracts";
+import { canonicalJson, DataSourceDescriptorSchema, type DataSourceDefinition, type DataSourceDescriptor } from "@k-nex/contracts";
 import { Ajv2020, type AnySchema } from "ajv/dist/2020.js";
 import addFormatsModule from "ajv-formats";
 import { describe, expect, it } from "vitest";
@@ -11,6 +12,8 @@ import { describe, expect, it } from "vitest";
 import { validateFixtures } from "../src/fixture-validation.js";
 import { validatePhase13ProductContract } from "../src/phase-13-product-contract-validation.js";
 import { registerPluginContributionOwnershipKeyword } from "../src/plugin-contribution-ownership.js";
+import { BoundedQueryBudgetEvaluator } from "../../runtime/src/data-source-budget.js";
+import type { DataSourceGatewayRequest, RegisteredDataSource } from "../../runtime/src/data-source-gateway.js";
 import {
   declaredFixtureSchema,
   formatDiagnostics,
@@ -35,7 +38,48 @@ async function phase13Contract(): Promise<Record<string, unknown>> {
   return JSON.parse(await readFile(resolve(repositoryRoot, "contracts/phase-13-crm-product-contract.v1.json"), "utf8")) as Record<string, unknown>;
 }
 
+function stageUuidV5(applicationId: string, environment: string, pipelineStableId: string, semantic: string): string {
+  const namespace = Buffer.from("13f5fa89b4655a7aa19d74ed6c5d1ef4", "hex");
+  const name = ["phase13/pipeline-stage/v1", applicationId, environment, pipelineStableId, semantic].map((part) => part.normalize("NFC")).join("\0");
+  const bytes = createHash("sha1").update(namespace).update(Buffer.from(name, "utf8")).digest().subarray(0, 16);
+  bytes[6] = (bytes[6]! & 0x0f) | 0x50;
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+  const hex = bytes.toString("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+function budgetSource(descriptor: DataSourceDescriptor): RegisteredDataSource {
+  const schema = { safeParse: (value: unknown) => ({ success: true as const, data: value }) };
+  const definition: DataSourceDefinition = { descriptor, inputSchema: schema, outputSchema: schema };
+  return { definition, handler: () => undefined };
+}
+
+const budgetActor = {
+  actor: { principal: { kind: "user" as const, id: "phase13-reviewer" }, effectiveActor: { kind: "user" as const, id: "phase13-reviewer" } },
+  request: {},
+  authorizationContext: {}
+};
+
+function budgetRequest(sourceId: string, size: number, selectedFields: string[]): DataSourceGatewayRequest {
+  return { correlationId: `phase13-${sourceId}`, rawRequest: {}, sourceId, surface: "workspace", input: {}, query: { page: { number: 1, size }, filters: [], sort: [] }, selectedFields, signal: new AbortController().signal };
+}
+
 describe("P0.4 executable repository validation", () => {
+  it("admits the exact Phase 13 administration source cost bounds with the real evaluator", async () => {
+    const contract = await phase13Contract();
+    const descriptors = ((((contract.dataSemantics as Record<string, unknown>).savedViewConfiguration as Record<string, unknown>).sourceDescriptors) as Record<string, DataSourceDescriptor>);
+    for (const [id, size] of [["sales.pipeline.snapshot", 6], ["sales.saved-view.detail", 33]] as const) {
+      const descriptor = descriptors[id]!;
+      const selectedFields = descriptor.outputFields!.map(({ id: fieldId }) => fieldId);
+      const source = budgetSource(descriptor);
+      const request = budgetRequest(id, size, selectedFields);
+      const lease = new BoundedQueryBudgetEvaluator().evaluate(source, request, budgetActor, { selectedFields, recordScope: {} }).lease;
+      lease.release();
+      const undersized = budgetSource({ ...descriptor, limits: { ...descriptor.limits, maxCost: 13 } });
+      expect(() => new BoundedQueryBudgetEvaluator().evaluate(undersized, request, budgetActor, { selectedFields, recordScope: {} })).toThrowError(expect.objectContaining({ code: "QUERY_COST_EXCEEDED" }));
+    }
+  });
+
   it("rejects Phase 13 duplicate ownership, unknown IDs, illegal transitions, ambiguous metrics, and unmapped objects", async () => {
     const duplicateOwner = structuredClone(await phase13Contract());
     (duplicateOwner.owners as Array<unknown>).push((duplicateOwner.owners as Array<unknown>)[0]);
@@ -125,10 +169,185 @@ describe("P0.4 executable repository validation", () => {
     (((unsafeLeadQualification.dataSemantics as Record<string, unknown>).leadQualification as Record<string, unknown>).input as Record<string, unknown>).rejected = [];
     expect(validatePhase13ProductContract(unsafeLeadQualification).map(({ code }) => code)).toContain("PHASE13_PRODUCT_CONTRACT_INVALID");
 
-    for (const semantic of ["protectedFieldMutation", "opportunityMutation", "noteCorrection"]) {
+    for (const semantic of ["protectedFieldMutation", "opportunityMutation", "noteCorrection", "pipelineConfiguration", "savedViewConfiguration"]) {
       const unsafeMutation = structuredClone(await phase13Contract());
       delete (unsafeMutation.dataSemantics as Record<string, unknown>)[semantic];
       expect(validatePhase13ProductContract(unsafeMutation).map(({ code }) => code), semantic).toContain("PHASE13_PRODUCT_CONTRACT_INVALID");
+    }
+
+    const invalidPipelineUuid = structuredClone(await phase13Contract());
+    const invalidPipelineConfiguration = (invalidPipelineUuid.dataSemantics as Record<string, unknown>).pipelineConfiguration as Record<string, unknown>;
+    (invalidPipelineConfiguration.stageIds as Record<string, unknown>).namespace = "00000000-0000-0000-0000-000000000000";
+    expect(validatePhase13ProductContract(invalidPipelineUuid).map(({ code }) => code)).toContain("PHASE13_PRODUCT_CONTRACT_INVALID");
+
+    const pipelineStageIds = (((await phase13Contract()).dataSemantics as Record<string, unknown>).pipelineConfiguration as Record<string, unknown>).stageIds as Record<string, unknown>;
+    const goldenVectors = pipelineStageIds.goldenVectors as Array<Record<string, string>>;
+    for (const vector of goldenVectors) expect(stageUuidV5(vector.applicationId!, vector.environment!, vector.pipelineStableId!, vector.semantic!)).toBe(vector.uuid);
+    const baseline = stageUuidV5("customer-gate-1", "production", "17", "qualification");
+    expect(new Set([baseline, stageUuidV5("customer-gate-2", "production", "17", "qualification"), stageUuidV5("customer-gate-1", "staging", "17", "qualification"), stageUuidV5("customer-gate-1", "production", "18", "qualification"), stageUuidV5("customer-gate-1", "production", "17", "discovery")]).size).toBe(5);
+
+    const immutableEvidenceRewrite = structuredClone(await phase13Contract());
+    const immutableMigration = ((immutableEvidenceRewrite.dataSemantics as Record<string, unknown>).pipelineConfiguration as Record<string, unknown>).migration as Record<string, unknown>;
+    (immutableMigration.mutableReferences as string[]).push("idempotency result bodies");
+    expect(validatePhase13ProductContract(immutableEvidenceRewrite).map(({ code }) => code)).toContain("PHASE13_PRODUCT_CONTRACT_INVALID");
+
+    const unfencedStageMove = structuredClone(await phase13Contract());
+    const unfencedStageInput = ((((unfencedStageMove.dataSemantics as Record<string, unknown>).pipelineConfiguration as Record<string, unknown>).stageMove as Record<string, unknown>).input as Record<string, unknown>);
+    (unfencedStageInput.required as string[]).pop();
+    expect(validatePhase13ProductContract(unfencedStageMove).map(({ code }) => code)).toContain("PHASE13_PRODUCT_CONTRACT_INVALID");
+
+    const compatibilityShim = structuredClone(await phase13Contract());
+    const successorPipeline = (compatibilityShim.dataSemantics as Record<string, unknown>).pipelineConfiguration as Record<string, unknown>;
+    const successorActions = ((successorPipeline.successorContracts as Record<string, unknown>).actions as Record<string, unknown>);
+    (successorActions["sales.opportunity.stage.update"] as Record<string, unknown>).toVersion = 2;
+    expect(validatePhase13ProductContract(compatibilityShim).map(({ code }) => code)).toContain("PHASE13_PRODUCT_CONTRACT_INVALID");
+
+    const unsafeSavedSource = structuredClone(await phase13Contract());
+    const unsafeSavedConfiguration = (unsafeSavedSource.dataSemantics as Record<string, unknown>).savedViewConfiguration as Record<string, unknown>;
+    ((unsafeSavedConfiguration.sourceDescriptors as Record<string, unknown>)["sales.saved-view.table"] as Record<string, unknown>).version = 2;
+    expect(validatePhase13ProductContract(unsafeSavedSource).map(({ code }) => code)).toContain("PHASE13_PRODUCT_CONTRACT_INVALID");
+
+    const acceptedSavedSources = (((await phase13Contract()).dataSemantics as Record<string, unknown>).savedViewConfiguration as Record<string, unknown>).sourceDescriptors as Record<string, unknown>;
+    for (const [id, descriptor] of Object.entries(acceptedSavedSources)) expect(DataSourceDescriptorSchema.safeParse(descriptor).success, id).toBe(true);
+
+    const unsafeSavedFilter = structuredClone(await phase13Contract());
+    const unsafeDefinition = ((unsafeSavedFilter.dataSemantics as Record<string, unknown>).savedViewConfiguration as Record<string, unknown>).definition as Record<string, unknown>;
+    (unsafeDefinition.filters as Record<string, unknown>).conjunction = "or";
+    expect(validatePhase13ProductContract(unsafeSavedFilter).map(({ code }) => code)).toContain("PHASE13_PRODUCT_CONTRACT_INVALID");
+
+    const unsafeSavedActionVersion = structuredClone(await phase13Contract());
+    const unsafeSavedVersions = ((unsafeSavedActionVersion.dataSemantics as Record<string, unknown>).savedViewConfiguration as Record<string, unknown>).versions as Record<string, unknown>;
+    unsafeSavedVersions["sales.saved-view.update"] = 1;
+    expect(validatePhase13ProductContract(unsafeSavedActionVersion).map(({ code }) => code)).toContain("PHASE13_PRODUCT_CONTRACT_INVALID");
+
+    const missingTransitionTranslation = structuredClone(await phase13Contract());
+    const translationMigration = ((missingTransitionTranslation.dataSemantics as Record<string, unknown>).pipelineConfiguration as Record<string, unknown>).migration as Record<string, unknown>;
+    (translationMigration.mutableReferences as string[]).splice((translationMigration.mutableReferences as string[]).indexOf("sales_pipeline_stages.allowed_transition_stage_ids"), 1);
+    expect(validatePhase13ProductContract(missingTransitionTranslation).map(({ code }) => code)).toContain("PHASE13_PRODUCT_CONTRACT_INVALID");
+
+    const crossVersionReplay = structuredClone(await phase13Contract());
+    const crossVersionBindings = ((((crossVersionReplay.dataSemantics as Record<string, unknown>).pipelineConfiguration as Record<string, unknown>).successorContracts as Record<string, unknown>));
+    crossVersionBindings.bindings = "compatibility alias";
+    expect(validatePhase13ProductContract(crossVersionReplay).map(({ code }) => code)).toContain("PHASE13_PRODUCT_CONTRACT_INVALID");
+
+    const unsafeCalendarVariant = structuredClone(await phase13Contract());
+    const unsafeVariants = (((unsafeCalendarVariant.dataSemantics as Record<string, unknown>).savedViewConfiguration as Record<string, unknown>).definition as Record<string, unknown>).variants as Record<string, unknown>;
+    ((unsafeVariants.calendar as Record<string, unknown>).dateField as string[]).pop();
+    expect(validatePhase13ProductContract(unsafeCalendarVariant).map(({ code }) => code)).toContain("PHASE13_PRODUCT_CONTRACT_INVALID");
+
+    const unsafeFieldAuthority = structuredClone(await phase13Contract());
+    const savedOpportunity = (((((unsafeFieldAuthority.dataSemantics as Record<string, unknown>).savedViewConfiguration as Record<string, unknown>).authorityMatrix as Record<string, unknown>).table as Record<string, unknown>)["sales.object.opportunity"] as Record<string, unknown>);
+    ((((savedOpportunity.fields as Record<string, unknown>).amount as Record<string, unknown>))).permission = "sales.opportunities.read";
+    expect(validatePhase13ProductContract(unsafeFieldAuthority).map(({ code }) => code)).toContain("PHASE13_PRODUCT_CONTRACT_INVALID");
+
+    const invalidPlatformKind = structuredClone(await phase13Contract());
+    const tableDescriptor = ((((invalidPlatformKind.dataSemantics as Record<string, unknown>).savedViewConfiguration as Record<string, unknown>).sourceDescriptors as Record<string, unknown>)["sales.saved-view.table"] as Record<string, unknown>);
+    (tableDescriptor.outputFields as Array<Record<string, unknown>>)[0]!.kind = "stage";
+    expect(validatePhase13ProductContract(invalidPlatformKind).map(({ code }) => code)).toContain("PHASE13_PRODUCT_CONTRACT_INVALID");
+
+    const excessiveFieldOperators = structuredClone(await phase13Contract());
+    const excessiveTable = ((((excessiveFieldOperators.dataSemantics as Record<string, unknown>).savedViewConfiguration as Record<string, unknown>).sourceDescriptors as Record<string, unknown>)["sales.saved-view.table"] as Record<string, unknown>);
+    ((excessiveTable.outputFields as Array<Record<string, unknown>>)[0]!.filterOperators as string[]).push("ends-with");
+    expect(validatePhase13ProductContract(excessiveFieldOperators).map(({ code }) => code)).toContain("PHASE13_PRODUCT_CONTRACT_INVALID");
+
+    const wrongSavedViewRegistry = structuredClone(await phase13Contract());
+    const registries = (((wrongSavedViewRegistry.dataSemantics as Record<string, unknown>).savedViewConfiguration as Record<string, unknown>).registries as Record<string, unknown>);
+    ((registries.routes as Array<Record<string, unknown>>)[2]!).pageId = "sales.page.saved-view-management";
+    expect(validatePhase13ProductContract(wrongSavedViewRegistry).map(({ code }) => code)).toContain("PHASE13_PRODUCT_CONTRACT_INVALID");
+
+    const missingSourceSuccessor = structuredClone(await phase13Contract());
+    const sourceSuccessors = ((((missingSourceSuccessor.dataSemantics as Record<string, unknown>).pipelineConfiguration as Record<string, unknown>).successorContracts as Record<string, unknown>).sources as Record<string, unknown>);
+    delete sourceSuccessors["sales.opportunities"];
+    expect(validatePhase13ProductContract(missingSourceSuccessor).map(({ code }) => code)).toContain("PHASE13_PRODUCT_CONTRACT_INVALID");
+
+    const forgedSourceHash = structuredClone(await phase13Contract());
+    const forgedDescriptor = ((((forgedSourceHash.dataSemantics as Record<string, unknown>).savedViewConfiguration as Record<string, unknown>).sourceDescriptors as Record<string, unknown>)["sales.saved-view.kanban"] as Record<string, unknown>);
+    forgedDescriptor.structuralCompatibilityHash = `sha256:${"0".repeat(64)}`;
+    expect(validatePhase13ProductContract(forgedSourceHash).map(({ code }) => code)).toContain("PHASE13_PRODUCT_CONTRACT_INVALID");
+
+    const widenedTableResult = structuredClone(await phase13Contract());
+    const widenedExecution = (((widenedTableResult.dataSemantics as Record<string, unknown>).savedViewConfiguration as Record<string, unknown>).execution as Record<string, unknown>);
+    (widenedExecution.result as Record<string, unknown>).required = ["source", "fields", "rows", "page"];
+    expect(validatePhase13ProductContract(widenedTableResult).map(({ code }) => code)).toContain("PHASE13_PRODUCT_CONTRACT_INVALID");
+
+    const invalidNullFilter = structuredClone(await phase13Contract());
+    const invalidFilterDefinition = (((invalidNullFilter.dataSemantics as Record<string, unknown>).savedViewConfiguration as Record<string, unknown>).definition as Record<string, unknown>);
+    (invalidFilterDefinition.filters as Record<string, unknown>).itemRequired = ["fieldId", "operator", "value"];
+    expect(validatePhase13ProductContract(invalidNullFilter).map(({ code }) => code)).toContain("PHASE13_PRODUCT_CONTRACT_INVALID");
+
+    const widenedReadAuthority = structuredClone(await phase13Contract());
+    const widenedAuthority = ((((widenedReadAuthority.dataSemantics as Record<string, unknown>).savedViewConfiguration as Record<string, unknown>).execution as Record<string, unknown>).authority as Record<string, unknown>);
+    widenedAuthority.read = "current sales.saved-views.read";
+    expect(validatePhase13ProductContract(widenedReadAuthority).map(({ code }) => code)).toContain("PHASE13_PRODUCT_CONTRACT_INVALID");
+
+    const ambiguousLostClose = structuredClone(await phase13Contract());
+    const ambiguousClose = (((((ambiguousLostClose.dataSemantics as Record<string, unknown>).pipelineConfiguration as Record<string, unknown>).successorContracts as Record<string, unknown>).actions as Record<string, unknown>)["sales.opportunity.close"] as Record<string, unknown>);
+    delete (ambiguousClose.input as Record<string, unknown>).optional;
+    expect(validatePhase13ProductContract(ambiguousLostClose).map(({ code }) => code)).toContain("PHASE13_PRODUCT_CONTRACT_INVALID");
+
+    const openPipelineResult = structuredClone(await phase13Contract());
+    const openPipelineAction = (((((openPipelineResult.dataSemantics as Record<string, unknown>).pipelineConfiguration as Record<string, unknown>).successorContracts as Record<string, unknown>).actions as Record<string, unknown>)["sales.pipeline.update"] as Record<string, unknown>);
+    delete (openPipelineAction.output as Record<string, unknown>).stageItem;
+    expect(validatePhase13ProductContract(openPipelineResult).map(({ code }) => code)).toContain("PHASE13_PRODUCT_CONTRACT_INVALID");
+
+    const inventedUiHash = structuredClone(await phase13Contract());
+    const changedContribution = (((((inventedUiHash.dataSemantics as Record<string, unknown>).pipelineConfiguration as Record<string, unknown>).successorContracts as Record<string, unknown>).contributions as Record<string, unknown>)["sales.opportunity-kanban"] as Record<string, unknown>);
+    changedContribution.structuralCompatibilityHash = `sha256:${"a".repeat(64)}`;
+    expect(validatePhase13ProductContract(inventedUiHash).map(({ code }) => code)).toContain("PHASE13_PRODUCT_CONTRACT_INVALID");
+
+    const terminalStageUpdate = structuredClone(await phase13Contract());
+    const terminalInput = (((((terminalStageUpdate.dataSemantics as Record<string, unknown>).pipelineConfiguration as Record<string, unknown>).successorContracts as Record<string, unknown>).actions as Record<string, unknown>)["sales.opportunity.stage.update"] as Record<string, unknown>).input as Record<string, unknown>;
+    terminalInput.destination = "terminal semantic won or lost only";
+    expect(validatePhase13ProductContract(terminalStageUpdate).map(({ code }) => code)).toContain("PHASE13_PRODUCT_CONTRACT_INVALID");
+
+    const p134Mutations: Array<(contract: Record<string, unknown>) => void> = [
+      (contract) => { const registry = (((contract.dataSemantics as Record<string, unknown>).savedViewConfiguration as Record<string, unknown>).registries as Record<string, unknown>); ((registry.contributions as Array<Record<string, unknown>>)[1]!).id = "sales.calendar"; },
+      (contract) => { const sources = ((((contract.dataSemantics as Record<string, unknown>).pipelineConfiguration as Record<string, unknown>).successorContracts as Record<string, unknown>).sources as Record<string, unknown>); (sources["sales.opportunities"] as Record<string, unknown>).structuralCompatibilityHash = `sha256:${"0".repeat(64)}`; },
+      (contract) => { const matrix = ((((contract.dataSemantics as Record<string, unknown>).savedViewConfiguration as Record<string, unknown>).authorityMatrix as Record<string, unknown>).kanban as Record<string, unknown>); delete (((matrix["sales.object.opportunity"] as Record<string, unknown>).fields as Record<string, unknown>)["stage-metadata"]); },
+      (contract) => { const execution = (((contract.dataSemantics as Record<string, unknown>).savedViewConfiguration as Record<string, unknown>).execution as Record<string, unknown>); ((execution.query as Record<string, unknown>).selectedFields) = "subset of definition.fields"; },
+      (contract) => { const execution = (((contract.dataSemantics as Record<string, unknown>).savedViewConfiguration as Record<string, unknown>).execution as Record<string, unknown>); const filters = ((execution.query as Record<string, unknown>).filters as Record<string, unknown>); ((filters.valueOperators as Record<string, unknown>).value) = "any JSON"; },
+      (contract) => { const descriptors = (((contract.dataSemantics as Record<string, unknown>).savedViewConfiguration as Record<string, unknown>).sourceDescriptors as Record<string, unknown>); delete descriptors["sales.pipeline.snapshot"]; },
+      (contract) => { const settings = (((((contract.dataSemantics as Record<string, unknown>).pipelineConfiguration as Record<string, unknown>).successorContracts as Record<string, unknown>).settings as Record<string, unknown>)["sales.settings.workspace"] as Record<string, unknown>); settings.removedEditableFields = []; },
+      (contract) => { const stage = (contract.objects as Array<Record<string, unknown>>).find(({ id }) => id === "sales.object.pipeline-stage")!; (stage.requiredFields as string[]).splice((stage.requiredFields as string[]).indexOf("requiredFieldIds"), 1); },
+      (contract) => { const update = (((contract.dataSemantics as Record<string, unknown>).pipelineConfiguration as Record<string, unknown>).update as Record<string, unknown>); update.positions = "all stages configurable"; },
+      (contract) => { const kanban = (((((contract.dataSemantics as Record<string, unknown>).savedViewConfiguration as Record<string, unknown>).authorityMatrix as Record<string, unknown>).kanban as Record<string, unknown>)["sales.object.opportunity"] as Record<string, unknown>); (((kanban.fields as Record<string, unknown>)["stage-metadata"] as Record<string, unknown>).permission) = "sales.pipelines.read"; },
+      (contract) => { const calendar = (((((contract.dataSemantics as Record<string, unknown>).savedViewConfiguration as Record<string, unknown>).authorityMatrix as Record<string, unknown>).calendar as Record<string, unknown>)["sales.object.activity"] as Record<string, unknown>); (((calendar.fields as Record<string, unknown>).subject as Record<string, unknown>).permission) = "sales.saved-views.read"; },
+      (contract) => { const execution = (((contract.dataSemantics as Record<string, unknown>).savedViewConfiguration as Record<string, unknown>).execution as Record<string, unknown>); const kinds = (((((execution.query as Record<string, unknown>).filters as Record<string, unknown>).valueOperators as Record<string, unknown>).kinds as Record<string, unknown>)); kinds.integer = "number"; },
+      (contract) => { const execution = (((contract.dataSemantics as Record<string, unknown>).savedViewConfiguration as Record<string, unknown>).execution as Record<string, unknown>); const nulls = ((((execution.query as Record<string, unknown>).filters as Record<string, unknown>).nullOperators as Record<string, unknown>)); nulls.value = "optional"; },
+      (contract) => { const execution = (((contract.dataSemantics as Record<string, unknown>).savedViewConfiguration as Record<string, unknown>).execution as Record<string, unknown>); ((execution.persistedSourceBinding as Record<string, unknown>).definitionSourceEquality) = "compatible source"; },
+      (contract) => { const execution = (((contract.dataSemantics as Record<string, unknown>).savedViewConfiguration as Record<string, unknown>).execution as Record<string, unknown>); execution.compiler = "recheck saved-view revision and current authorization revision"; },
+      (contract) => { const descriptors = (((contract.dataSemantics as Record<string, unknown>).savedViewConfiguration as Record<string, unknown>).sourceDescriptors as Record<string, unknown>); (descriptors["sales.pipeline.snapshot"] as Record<string, unknown>).permission = "sales.saved-views.read"; },
+      (contract) => { const pages = (((contract.dataSemantics as Record<string, unknown>).savedViewConfiguration as Record<string, unknown>).registries as Record<string, unknown>).pages as Array<Record<string, unknown>>; delete (((((pages[1]!.document as Record<string, unknown>).regions as Record<string, unknown>).main as Array<Record<string, unknown>>)[0]!).bindings); },
+      (contract) => { const pages = (((contract.dataSemantics as Record<string, unknown>).savedViewConfiguration as Record<string, unknown>).registries as Record<string, unknown>).pages as Array<Record<string, unknown>>; const node = ((((pages[1]!.document as Record<string, unknown>).regions as Record<string, unknown>).main as Array<Record<string, unknown>>)[0]!); ((((node.bindings as Record<string, unknown>).source as Record<string, unknown>).selectedFields as string[])).pop(); },
+      (contract) => { const descriptors = (((contract.dataSemantics as Record<string, unknown>).savedViewConfiguration as Record<string, unknown>).sourceDescriptors as Record<string, unknown>); ((descriptors["sales.saved-view.detail"] as Record<string, unknown>).outputFields as Array<Record<string, unknown>>)[4]!.kind = "text"; }
+      ,(contract) => { const descriptors = (((contract.dataSemantics as Record<string, unknown>).savedViewConfiguration as Record<string, unknown>).sourceDescriptors as Record<string, unknown>); (((descriptors["sales.pipeline.snapshot"] as Record<string, unknown>).limits as Record<string, unknown>).maxCost) = 13; }
+      ,(contract) => { const migration = ((contract.dataSemantics as Record<string, unknown>).pipelineConfiguration as Record<string, unknown>).migration as Record<string, unknown>; ((migration.fieldMapping as Record<string, unknown>).predecessorDatabase) = "allowed_transition_stage_ids"; }
+      ,(contract) => { const pipeline = ((contract.dataSemantics as Record<string, unknown>).pipelineConfiguration as Record<string, unknown>); ((pipeline.opportunityRevisionAuthority as Record<string, unknown>).permission) = "sales.pipelines.read"; }
+      ,(contract) => { const topology = ((contract.dataSemantics as Record<string, unknown>).savedViewConfiguration as Record<string, unknown>).topology as Record<string, unknown>; ((((topology.nodes as Record<string, unknown>)["sales.page.calendar/calendar"] as Record<string, unknown>).sourceId)) = "sales.pipeline.snapshot"; }
+      ,(contract) => { const successors = (((contract.dataSemantics as Record<string, unknown>).pipelineConfiguration as Record<string, unknown>).successorContracts as Record<string, unknown>); const contribution = ((successors.contributions as Record<string, unknown>)["sales.opportunity-kanban"] as Record<string, unknown>); ((contribution.descriptor as Record<string, unknown>).permission) = "sales.pipelines.read"; }
+      ,(contract) => { const successors = (((contract.dataSemantics as Record<string, unknown>).pipelineConfiguration as Record<string, unknown>).successorContracts as Record<string, unknown>); const page = ((successors.pages as Record<string, unknown>)["sales.page.opportunities"] as Record<string, unknown>); ((page.descriptor as Record<string, unknown>).permission) = "sales.pipelines.read"; }
+      ,(contract) => { const closure = ((contract.dataSemantics as Record<string, unknown>).savedViewConfiguration as Record<string, unknown>).runtimeClosure as Record<string, unknown>; (((closure.savedViewBindingInput as Record<string, unknown>).variants as Array<Record<string, unknown>>)[1]!.required as string[]).pop(); }
+      ,(contract) => { const closure = ((contract.dataSemantics as Record<string, unknown>).savedViewConfiguration as Record<string, unknown>).runtimeClosure as Record<string, unknown>; (closure.resolver as Record<string, unknown>).owner = "gateway-only override"; }
+      ,(contract) => { const closure = ((contract.dataSemantics as Record<string, unknown>).savedViewConfiguration as Record<string, unknown>).runtimeClosure as Record<string, unknown>; delete ((closure.resolver as Record<string, unknown>).empty as Record<string, unknown>).fields; }
+      ,(contract) => { const closure = ((contract.dataSemantics as Record<string, unknown>).savedViewConfiguration as Record<string, unknown>).runtimeClosure as Record<string, unknown>; (closure.kanbanRows as Record<string, unknown>).pagination = "shared offset"; }
+      ,(contract) => { const closure = ((contract.dataSemantics as Record<string, unknown>).savedViewConfiguration as Record<string, unknown>).runtimeClosure as Record<string, unknown>; (closure.canonicalTextCells as Record<string, unknown>).requiredFieldIds = "CSV"; }
+      ,(contract) => { const pages = (((contract.dataSemantics as Record<string, unknown>).savedViewConfiguration as Record<string, unknown>).registries as Record<string, unknown>).pages as Array<Record<string, unknown>>; const nodes = (((pages[1]!.document as Record<string, unknown>).regions as Record<string, unknown>).main as Array<Record<string, unknown>>); nodes.pop(); }
+      ,(contract) => { const registries = (((contract.dataSemantics as Record<string, unknown>).savedViewConfiguration as Record<string, unknown>).registries as Record<string, unknown>); (registries.contributions as Array<Record<string, unknown>>).pop(); }
+      ,(contract) => { const closure = ((contract.dataSemantics as Record<string, unknown>).savedViewConfiguration as Record<string, unknown>).runtimeClosure as Record<string, unknown>; (closure.routeExecution as Record<string, unknown>).savedViewDetail = "generic detail size 25"; }
+      ,(contract) => { const closure = ((contract.dataSemantics as Record<string, unknown>).savedViewConfiguration as Record<string, unknown>).runtimeClosure as Record<string, unknown>; (closure.routeExecution as Record<string, unknown>).opportunities = "both modes load"; }
+      ,(contract) => { const closure = ((contract.dataSemantics as Record<string, unknown>).savedViewConfiguration as Record<string, unknown>).runtimeClosure as Record<string, unknown>; (closure.savedViewMutationAuthority as Record<string, unknown>).update = "authorize destination only"; }
+      ,(contract) => { const closure = ((contract.dataSemantics as Record<string, unknown>).savedViewConfiguration as Record<string, unknown>).runtimeClosure as Record<string, unknown>; const pair = (((closure.savedViewBindingInput as Record<string, unknown>).embeddedMapping as Record<string, unknown>).reservedPair as Record<string, unknown>); (pair.requiredTogether as string[]).pop(); }
+      ,(contract) => { const closure = ((contract.dataSemantics as Record<string, unknown>).savedViewConfiguration as Record<string, unknown>).runtimeClosure as Record<string, unknown>; const kinds = ((((closure.savedViewBindingInput as Record<string, unknown>).embeddedMapping as Record<string, unknown>).reservedPair as Record<string, unknown>).kinds as Record<string, unknown>); kinds.savedViewId = "string"; }
+      ,(contract) => { const closure = ((contract.dataSemantics as Record<string, unknown>).savedViewConfiguration as Record<string, unknown>).runtimeClosure as Record<string, unknown>; const mapping = ((closure.savedViewBindingInput as Record<string, unknown>).embeddedMapping as Record<string, unknown>); (mapping.calendarTableRawVariants as string[])[1] = "exact {savedViewId,expectedRevision,extra}"; }
+      ,(contract) => { const closure = ((contract.dataSemantics as Record<string, unknown>).savedViewConfiguration as Record<string, unknown>).runtimeClosure as Record<string, unknown>; const empty = ((closure.resolver as Record<string, unknown>).empty as Record<string, unknown>); (((empty.page as Record<string, unknown>).pageSize as Record<string, unknown>)["sales.page.opportunities/sales-opportunity-kanban"]) = 6; }
+      ,(contract) => { const closure = ((contract.dataSemantics as Record<string, unknown>).savedViewConfiguration as Record<string, unknown>).runtimeClosure as Record<string, unknown>; const detail = ((closure.canonicalTextCells as Record<string, unknown>).detailRows as Record<string, unknown>); (detail.wireMetadata as string[]).pop(); }
+      ,(contract) => { const closure = ((contract.dataSemantics as Record<string, unknown>).savedViewConfiguration as Record<string, unknown>).runtimeClosure as Record<string, unknown>; const kanban = (closure.kanbanRows as Record<string, unknown>); kanban.crossRowValidation = "stage keys need not match cells"; }
+      ,(contract) => { const closure = ((contract.dataSemantics as Record<string, unknown>).savedViewConfiguration as Record<string, unknown>).runtimeClosure as Record<string, unknown>; const input = ((closure.kanbanRows as Record<string, unknown>).stageUpdateInput as Record<string, unknown>); delete input.expectedDestinationStageRevision; }
+    ];
+    for (const mutate of p134Mutations) {
+      const invalid = structuredClone(await phase13Contract());
+      mutate(invalid);
+      expect(validatePhase13ProductContract(invalid).map(({ code }) => code)).toContain("PHASE13_PRODUCT_CONTRACT_INVALID");
     }
 
     const missingAttackDelivery = structuredClone(await phase13Contract());
@@ -152,6 +371,10 @@ describe("P0.4 executable repository validation", () => {
       ,["opportunity mutation widening", (contract) => { ((((contract.dataSemantics as Record<string, unknown>).opportunityMutation as Record<string, unknown>).create as Record<string, unknown>).additionalProperties = true); }]
       ,["protected channel retain drift", (contract) => { (((contract.dataSemantics as Record<string, unknown>).protectedFieldMutation as Record<string, unknown>).modes as string[]).pop(); }]
       ,["note correction scope drift", (contract) => { ((contract.dataSemantics as Record<string, unknown>).noteCorrection as Record<string, unknown>).input = "any note"; }]
+      ,["pipeline snapshot CAS widening", (contract) => { ((((contract.dataSemantics as Record<string, unknown>).pipelineConfiguration as Record<string, unknown>).update as Record<string, unknown>).input as Record<string, unknown>).additionalProperties = true; }]
+      ,["saved-view public visibility widening", (contract) => { ((contract.dataSemantics as Record<string, unknown>).savedViewConfiguration as Record<string, unknown>).visibility = "public"; }]
+      ,["stage semantic source drift", (contract) => { ((contract.objects as Array<Record<string, unknown>>).find(({ id }) => id === "sales.object.opportunity")!).stateSource = "stage ID spelling"; }]
+      ,["pipeline attack delivery drift", (contract) => { ((contract.attacks as Array<Record<string, unknown>>).find(({ id }) => id === "P13-ATK-03")!).deliveryTasks = ["P13.5"]; }]
     ];
     for (const [name, mutate] of driftMutations) {
       const changed = structuredClone(await phase13Contract());

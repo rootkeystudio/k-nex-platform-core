@@ -19,9 +19,12 @@ export const systemGeneralSettingsDescriptor = SystemSettingsDescriptorSchema.pa
   schemaVersion: 1,
   id: "system.general",
   publisher: { kind: "platform", namespace: "system" },
-  descriptorSchemaVersion: 1,
+  descriptorSchemaVersion: 2,
   validation: "immediate",
-  fields: { siteName: { type: "string", required: true, default: "K-Nex" } },
+  fields: {
+    siteName: { type: "string", required: true, default: "K-Nex" },
+    reportingTimezone: { type: "string", required: true, default: "UTC", description: "Canonical IANA timezone used for application reporting and saved calendars." }
+  },
   readPermission: "system.settings.read",
   changePermission: "system.settings.manage"
 });

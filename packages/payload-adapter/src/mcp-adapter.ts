@@ -85,6 +85,13 @@ function boundedString(value: string, maximum: number): string {
 }
 
 function jsonSchemaToZod(schema: AgentToolJsonSchema): z.ZodTypeAny {
+  if ("oneOf" in schema) {
+    let result: z.ZodTypeAny = z.any().superRefine((value, context) => {
+      if (schema.oneOf.filter((branch) => jsonSchemaToZod(branch).safeParse(value).success).length !== 1) context.addIssue({ code: "custom", message: "Value must match exactly one schema branch." });
+    });
+    if (schema.description !== undefined) result = result.describe(schema.description);
+    return result;
+  }
   let result: z.ZodTypeAny;
   if (schema.type === "object") {
     const shape: Record<string, z.ZodTypeAny> = {};
@@ -92,7 +99,7 @@ function jsonSchemaToZod(schema: AgentToolJsonSchema): z.ZodTypeAny {
       const required = schema.required?.includes(key) ?? false;
       shape[key] = required ? jsonSchemaToZod(property) : jsonSchemaToZod(property).optional();
     }
-    result = z.object(shape);
+    result = schema.additionalProperties === false ? z.object(shape).strict() : z.object(shape);
   } else if (schema.type === "array") {
     result = z.array(jsonSchemaToZod(schema.items!));
   } else if (schema.type === "string") {
@@ -111,6 +118,7 @@ function jsonSchemaToZod(schema: AgentToolJsonSchema): z.ZodTypeAny {
   if (schema.type === "string") {
     if (schema.minLength !== undefined) result = (result as z.ZodString).min(schema.minLength);
     if (schema.maxLength !== undefined) result = (result as z.ZodString).max(schema.maxLength);
+    if (schema.maxUtf8Bytes !== undefined) result = (result as z.ZodString).refine((value) => new TextEncoder().encode(value).byteLength <= schema.maxUtf8Bytes!, { message: "String exceeds its UTF-8 byte limit." });
   }
   if (schema.type === "number" || schema.type === "integer") {
     if (schema.minimum !== undefined) result = (result as z.ZodNumber).min(schema.minimum);

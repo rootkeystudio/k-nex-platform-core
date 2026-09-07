@@ -386,12 +386,42 @@ function renderNode(
   }
 }
 
+type RequestLocalNode = UiNode & Readonly<{ presentation?: unknown; pipelineIdentity?: unknown }>;
+
+export function prepareUiRuntimeDocument(value: unknown): UiDocument {
+  const extras = new Map<string, Readonly<{ presentation?: unknown; pipelineIdentity?: unknown }>>();
+  const strip = (node: unknown): unknown => {
+    if (node === null || typeof node !== "object" || Array.isArray(node)) return node;
+    const candidate = node as Record<string, unknown>;
+    const { presentation, pipelineIdentity, ...canonical } = candidate;
+    if (presentation !== undefined || pipelineIdentity !== undefined) {
+      const presentationRecord = presentation !== null && typeof presentation === "object" && !Array.isArray(presentation) ? presentation as Record<string, unknown> : undefined;
+      const presentationValid = presentation === undefined || presentationRecord !== undefined && (candidate.type === "sales.calendar"
+        ? Object.keys(presentationRecord).join("\0") === "mode" && (presentationRecord.mode === "agenda" || presentationRecord.mode === "month")
+        : (candidate.type === "sales.saved-view-table" || candidate.type === "sales.opportunity-kanban") && Object.keys(presentationRecord).join("\0") === "density" && (presentationRecord.density === "comfortable" || presentationRecord.density === "compact"));
+      const identity = pipelineIdentity !== null && typeof pipelineIdentity === "object" && !Array.isArray(pipelineIdentity) ? pipelineIdentity as Record<string, unknown> : undefined;
+      const pipelineValid = pipelineIdentity === undefined || candidate.type === "sales.pipeline-settings" && identity !== undefined && Object.keys(identity).sort().join("\0") === "applicationId\0environment" && [identity.applicationId, identity.environment].every((part) => typeof part === "string" && part.length > 0 && part.length <= 128 && part === part.normalize("NFC") && !part.includes("\0"));
+      if (!presentationValid || !pipelineValid || typeof candidate.id !== "string") throw new UiDocumentMigrationError("INVALID_DOCUMENT", "UI request-local node data is invalid.");
+      extras.set(candidate.id, Object.freeze({ ...(presentation === undefined ? {} : { presentation }), ...(pipelineIdentity === undefined ? {} : { pipelineIdentity }) }));
+    }
+    return { ...canonical, ...(Array.isArray(candidate.children) ? { children: candidate.children.map(strip) } : {}) };
+  };
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return migrateUiDocumentToCurrent(value);
+  const input = value as Record<string, unknown>;
+  const document = migrateUiDocumentToCurrent({ ...input, ...(input.regions !== null && typeof input.regions === "object" && !Array.isArray(input.regions) ? { regions: Object.fromEntries(Object.entries(input.regions as Record<string, unknown>).map(([region, nodes]) => [region, Array.isArray(nodes) ? nodes.map(strip) : nodes])) } : {}) });
+  const attach = (node: UiNode): RequestLocalNode => {
+    const extra = extras.get(node.id);
+    return { ...node, ...(extra ?? {}), ...(node.children === undefined ? {} : { children: node.children.map(attach) }) };
+  };
+  return { ...document, regions: Object.fromEntries(Object.entries(document.regions).map(([region, nodes]) => [region, nodes.map(attach)])) };
+}
+
 export function createUiDocumentRuntime(registry: UiRuntimeRegistry): UiDocumentRuntime {
   return {
     render(input): UiDocumentRuntimeResult {
       let document: UiDocument;
       try {
-        document = migrateUiDocumentToCurrent(input.document);
+        document = prepareUiRuntimeDocument(input.document);
       } catch (error) {
         return {
           success: false,

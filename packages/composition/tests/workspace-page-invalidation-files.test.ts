@@ -62,13 +62,13 @@ describe("generated workspace invalidation runtime", () => {
 
     expect([...listRoutes, ...detailRoutes].map(([path]) => files[path]).filter(Boolean)).toHaveLength(11);
     for (const [path, routeId] of listRoutes) {
-      expect(files[path]).toContain(`loadRegisteredSalesRoute(payload, context, ${JSON.stringify(routeId)})`);
+      expect(files[path]).toContain(`loadRegisteredSalesRoute(payload, context, ${JSON.stringify(routeId)}, undefined, Object.freeze({}), selection)`);
       expect(files[path]).toContain('kNexRequestContext(headers, "sales-route")');
     }
     for (const [path, routeId] of detailRoutes) {
       expect(files[path]).toContain('params: Promise<{ id: string }>');
       expect(files[path]).toContain("const routeParams = Object.freeze({ id: (await params).id });");
-      expect(files[path]).toContain(`loadRegisteredSalesRoute(payload, context, ${JSON.stringify(routeId)}, routeParams)`);
+      expect(files[path]).toContain(`loadRegisteredSalesRoute(payload, context, ${JSON.stringify(routeId)}, routeParams, Object.freeze({}), selection)`);
       expect(files[path]).toContain("routeParams={routeParams}");
     }
     expect(files["src/app/(workspace)/sales/page.tsx"]).toContain('from "../../../k-nex-sales-routes.js"');
@@ -86,16 +86,16 @@ describe("generated workspace invalidation runtime", () => {
     expect(runtime).toContain("permissions.includes(route.permission)");
     expect(runtime).toContain("permissions.includes(template.permission)");
     expect(runtime).toContain("const permissions = await workspaceSalesPermissions(payload, context);");
-    expect(runtime).toContain("loadWorkspaceSalesSources(payload, context, document, permissions, new AbortController().signal, parameters, timelineType === undefined ? listPage : 1)");
+    expect(runtime).toContain("projectWorkspaceSalesDocument(payload, context, authorizedFixedDetailDocument(template.document, route.id, permissions), permissions");
     expect(runtime).toContain("const listPage = routePage(pagination.listPage, 1_000_000)");
     expect(runtime).toContain("const timelinePage = routePage(pagination.timelinePage, 4)");
     expect(runtime).toContain("finalState.authorizationRevision !== initialState.authorizationRevision");
     expect(runtime).toContain("canonicalJson(finalPermissions) !== canonicalJson(permissions)");
     expect(runtime).toContain("permissions.includes(registered.descriptor.permission)");
-    expect(runtime).toContain("if (!actionAllowed && index > 0) return [];");
+    expect(runtime).toContain("if (!actionAllowed && node.bindings?.source === undefined) return [];");
     expect(runtime).toContain('routeId === "sales.route.opportunity-detail" && permissions.includes("sales.opportunities.amount.read") ? ["amount"]');
     expect(runtime).toContain("permissions: postReloadPermissions, routeId: route.id, routeParams: parameters, sourceResults: finalSourceResults, stateHistory, timeline");
-    expect(runtime).toContain("permissions: postReloadPermissions, sourceResults: finalSourceResults, stateHistory, timeline, watermark");
+    expect(runtime).toContain("permissions: postReloadPermissions, selection: Object.freeze");
     expect(runtime).toContain("projectSalesStateHistory({ audit: record.audit");
     expect(runtime).toContain("const expectedRevision = sourceResultRecordRevision(sourceResults[primaryNode.id], id)");
     expect(runtime).toContain('const select = Object.freeze({ id: true, applicationId: true, environment: true, revision: true, audit: true, ownerId: true, teamId: true, [state.field]: true, ...(dualAxis ? { archiveStatus: true } : {}) });');
@@ -109,14 +109,15 @@ describe("generated workspace invalidation runtime", () => {
     expect(runtime).toContain("function fixedDetailTimelineDocument(document: UiDocument");
     expect(runtime).toContain('id: "sales-fixed-timeline"');
     expect(runtime).toContain('selectedFields: ["kind", "subject", "status", "occurred-at", "revision", ...(permissions.includes("sales.notes.body.read") ? ["body"] : [])]');
-    expect(runtime).toContain("executeWorkspaceSalesAction(payload, context, registeredAction(actionId)");
+    expect(runtime).toContain("executeWorkspaceSalesAction(payload, context, registeredAction(routeId, nodeId, actionId, selection)");
     expect(runtime).not.toContain("openWorkspacePageSession");
     expect(client).toContain("createUiDocumentRuntime(createUiRuntimeRegistry");
-    expect(client).toContain('const query = routeParams === undefined ? "?page=" + listPage : "?id=" + encodeURIComponent(routeParams.id) + "&timelinePage=" + timelinePage;');
+    expect(client).toContain('const query = new URLSearchParams();');
+    expect(client).toContain('for (const [key, value] of Object.entries(selection)) query.set(key, String(value));');
     expect(client).toContain("export function createSalesRouteRefreshScheduler(run: (signal: AbortSignal) => Promise<void>)");
     expect(client).toContain("if (pending) { queued = true; if (urgent) pendingAbort?.abort(); return; }");
-    expect(client).toContain('fetch("/api/k-nex/sales/routes/" + encodeURIComponent(routeId) + query, { cache: "no-store", signal })');
-    expect(client).toContain("if (active && !signal.aborted) { setCurrent(next); setPageRefreshing(false); }");
+    expect(client).toContain('fetch("/api/k-nex/sales/routes/" + encodeURIComponent(routeId) + "?" + query, { cache: "no-store", signal })');
+    expect(client).toContain("if (active && !signal.aborted) { setCurrent(next); if (next !== undefined");
     expect(client).toContain('io({ transports: ["websocket"], withCredentials: true, reconnection: true })');
     expect(client).toContain('socket?.emitWithAck("k-nex:subscribe", { topicId, params: {} })');
     expect(client).toContain('const subscribe = () => { for (const topicId of topics) void socket?.emitWithAck("k-nex:subscribe", { topicId, params: {} }).catch(() => undefined); scheduler.refresh(); };');
@@ -137,7 +138,7 @@ describe("generated workspace invalidation runtime", () => {
     expect(client).toContain("if (result === undefined || title === undefined)");
     expect(client).toContain("<h1>{title}</h1>");
     expect(client.match(/<h1>/gu)).toHaveLength(1);
-    expect(client).toContain("UiDocumentSchema.parse(candidate.document)");
+    expect(client).toContain("prepareUiRuntimeDocument(candidate.document)");
     expect(client).toContain("DataSourceBindingResultSchema.parse(result)");
     expect(client).toContain('if (!response.ok) throw new Error(body.code ?? "Sales action failed.");');
     expect(client).not.toContain("window.location.reload()");
@@ -153,12 +154,12 @@ describe("generated workspace invalidation runtime", () => {
     expect(client).toContain("new Date(record.occurredAt).toISOString() !== record.occurredAt");
     expect(client).toContain("const dispatchAction = useCallback(async (request: UiRuntimeActionDispatchRequest)");
     expect(projection).toContain("loadRegisteredSalesRoute(payload, kNexRequestContext(headers, \"sales-route-projection\")");
-    expect(projection).toContain("const listQuery = query.size === 1 && page !== null");
-    expect(projection).toContain("const detailQuery = query.size === 2 && id !== null && timelinePage !== null");
+    expect(projection).toContain("if (id !== null && page !== null || id === null && timelinePage !== null)");
+    expect(projection).toContain("query.getAll(key).length !== 1");
     expect(projection).toContain("!/^[1-9][0-9]{0,6}$/u.test(value)");
     expect(projection).toContain("pageNumber(page, 1_000_000)");
     expect(projection).toContain("pageNumber(timelinePage, 4)");
-    expect(projection).toContain("routeParams, pagination), { headers:");
+    expect(projection).toContain("routeId, routeParams, pagination, selection), { headers:");
     expect(projection).toContain('status: 404');
     expect(action).toContain("executeRegisteredSalesRouteAction");
     expect(action).toContain('from "../../../../../../k-nex-sales-routes.js"');

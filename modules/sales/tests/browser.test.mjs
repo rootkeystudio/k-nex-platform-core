@@ -46,8 +46,8 @@ test("Sales browser factories use stable platform query/action metadata", async 
   assert.deepEqual(salesTasksQuery.source, { id: "sales.tasks", version: 2 });
   assert.deepEqual(salesTasksQuery.selectedFields, ["title", "status"]);
   assert.deepEqual(salesCreateTaskMutation.invalidation.sources, ["sales.tasks"]);
-  assert.deepEqual(salesOpportunitiesQuery.source, { id: "sales.opportunities", version: 2 });
-  assert.deepEqual(salesOpportunitiesQuery.selectedFields, ["name", "stage-id", "revision"]);
+  assert.deepEqual(salesOpportunitiesQuery.source, { id: "sales.opportunities", version: 3 });
+  assert.deepEqual(salesOpportunitiesQuery.selectedFields, ["name", "pipeline-id", "pipeline-revision", "stage-id", "stage-name", "stage-semantic", "stage-revision", "revision"]);
   assert.deepEqual(salesOpportunityStageMutation.invalidation.sources, ["sales.opportunities"]);
   assert.deepEqual(salesUpdateTaskMutation.invalidation.sources, ["sales.tasks"]);
   assert.deepEqual([
@@ -122,13 +122,11 @@ test("Sales workspace settings drive default routing and source presentation", (
   assert.deepEqual(salesWorkspacePresentation({
     defaultTaskPageSize: 50,
     showPotentialRevenue: false,
-    defaultPage: "opportunities",
-    pipelineStages: ["qualification", "discovery", "proposal", "negotiation", "won", "lost"]
+    defaultPage: "opportunities"
   }), {
     routeId: "sales.route.opportunities",
     taskPageSize: 50,
-    showPotentialRevenue: false,
-    pipelineStages: ["qualification", "discovery", "proposal", "negotiation", "won", "lost"]
+    showPotentialRevenue: false
   });
 });
 
@@ -164,18 +162,18 @@ test("CRM browser boundary accepts only canonical PostgreSQL integer record IDs"
 });
 
 test("opportunity archive status requires the exact status cell contract", () => {
-  const data = { fields: ["name", "stage-id", "revision"], rows: [{ key: "1", values: { name: { kind: "text", value: "Acme" }, "stage-id": { kind: "status", value: "discovery" }, revision: { kind: "integer", value: 1 } } }], page: { number: 1, pageSize: 25, hasNext: false } };
+  const data = { fields: ["name", "pipeline-id", "pipeline-revision", "stage-id", "stage-name", "stage-semantic", "stage-revision", "revision"], rows: [{ key: "1", values: { name: { kind: "text", value: "Acme" }, "pipeline-id": { kind: "integer", value: 2 }, "pipeline-revision": { kind: "integer", value: 1 }, "stage-id": { kind: "status", value: "00000000-0000-5000-8000-000000000001" }, "stage-name": { kind: "text", value: "Discovery" }, "stage-semantic": { kind: "enum", value: "discovery" }, "stage-revision": { kind: "integer", value: 1 }, revision: { kind: "integer", value: 1 } } }], page: { number: 1, pageSize: 25, hasNext: false } };
   assert.equal(salesOpportunitiesOutputRuntimeSchema.safeParse(data).success, true);
   assert.equal(salesOpportunitiesOutputRuntimeSchema.safeParse({ ...data, rows: [{ ...data.rows[0], values: { ...data.rows[0].values, "archive-status": { kind: "status", value: "active" } } }] }).success, false);
 });
 
 test("opportunity detail relationship IDs enforce the frozen Postgres range", () => {
   const data = {
-    fields: ["name", "owner-id", "team-id", "account-id", "primary-contact-id", "pipeline-id", "stage-id", "archive-status", "revision"],
+    fields: ["name", "owner-id", "team-id", "account-id", "primary-contact-id", "pipeline-id", "pipeline-revision", "stage-id", "stage-name", "stage-semantic", "stage-revision", "archive-status", "revision"],
     rows: [{ key: "1", values: {
       name: { kind: "text", value: "Acme" }, "owner-id": { kind: "text", value: "owner-1" }, "team-id": null,
-      "account-id": { kind: "integer", value: 1 }, "primary-contact-id": null, "pipeline-id": { kind: "integer", value: 2 },
-      "stage-id": { kind: "status", value: "qualification" }, "archive-status": { kind: "status", value: "active" }, revision: { kind: "integer", value: 1 }
+      "account-id": { kind: "integer", value: 1 }, "primary-contact-id": null, "pipeline-id": { kind: "integer", value: 2 }, "pipeline-revision": { kind: "integer", value: 1 },
+      "stage-id": { kind: "status", value: "00000000-0000-5000-8000-000000000001" }, "stage-name": { kind: "text", value: "Qualification" }, "stage-semantic": { kind: "enum", value: "qualification" }, "stage-revision": { kind: "integer", value: 1 }, "archive-status": { kind: "status", value: "active" }, revision: { kind: "integer", value: 1 }
     } }], page: { number: 1, pageSize: 25, hasNext: false }
   };
   assert.equal(salesOpportunityDetailOutputRuntimeSchema.safeParse(data).success, true);
@@ -219,11 +217,13 @@ test("active CRM source structural hashes cover the frozen compatibility project
 
 test("workflow schemas close canonical stages, instants, IDs, and action-specific outputs", () => {
   const opportunityCreate = salesWorkflowActionInputRuntimeSchemas["sales.opportunity.create"];
-  assert.equal(opportunityCreate.safeParse({ name: "Acme", accountId: "1", pipelineId: "2", stageId: "qualification" }).success, true);
-  assert.equal(opportunityCreate.safeParse({ name: "Acme", accountId: "1", pipelineId: "2", stageId: "qualification", primaryContactId: "3", amount: { kind: "money", value: "12", currency: "EUR", scale: 2 }, expectedCloseDate: "2026-09-30" }).success, true);
-  assert.equal(opportunityCreate.safeParse({ name: "Acme", accountId: "1", pipelineId: "2", stageId: "qualification", amount: { kind: "money", value: "12.345", currency: "EUR", scale: 2 } }).success, false);
-  assert.equal(opportunityCreate.safeParse({ name: "Acme", accountId: "1", pipelineId: "2", stageId: "qualification", expectedCloseDate: "0000-01-01" }).success, false);
-  assert.equal(opportunityCreate.safeParse({ name: "Acme", accountId: "1", pipelineId: "2", stageId: "discovery" }).success, false);
+  const stageId = "00000000-0000-5000-8000-000000000001";
+  const baseOpportunity = { name: "Acme", accountId: "1", pipelineId: "2", expectedPipelineRevision: 1, stageId, expectedStageRevision: 1 };
+  assert.equal(opportunityCreate.safeParse(baseOpportunity).success, true);
+  assert.equal(opportunityCreate.safeParse({ ...baseOpportunity, primaryContactId: "3", amount: { kind: "money", value: "12", currency: "EUR", scale: 2 }, expectedCloseDate: "2026-09-30" }).success, true);
+  assert.equal(opportunityCreate.safeParse({ ...baseOpportunity, amount: { kind: "money", value: "12.345", currency: "EUR", scale: 2 } }).success, false);
+  assert.equal(opportunityCreate.safeParse({ ...baseOpportunity, expectedCloseDate: "0000-01-01" }).success, false);
+  assert.equal(opportunityCreate.safeParse({ ...baseOpportunity, stageId: "qualification" }).success, false);
   const opportunityUpdate = salesWorkflowActionInputRuntimeSchemas["sales.opportunity.update"];
   const retained = { id: "2", expectedRevision: 1, name: "Renewal", primaryContactMode: "retain", amountMode: "retain", expectedCloseDateMode: "retain" };
   assert.equal(opportunityUpdate.safeParse(retained).success, true);

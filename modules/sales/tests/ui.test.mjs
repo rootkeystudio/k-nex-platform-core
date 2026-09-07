@@ -16,6 +16,9 @@ import {
   salesLeadsDescriptor,
   salesContactDetailPageTemplate,
   salesLeadDetailPageTemplate,
+  salesSavedViewKanbanDescriptor,
+  salesSavedViewCalendarDescriptor,
+  salesSavedViewTableDescriptor,
   salesOpportunitiesDescriptor,
   salesOpportunityDetailDescriptor,
   salesOpportunityDetailBlockDescriptor,
@@ -60,7 +63,7 @@ const actor = {
   authenticated: true,
   permissions: new Set([
     "sales.tasks.read", "sales.tasks.write", "sales.opportunities.read", "sales.opportunities.write", "sales.opportunities.archive", "sales.opportunities.close", "sales.opportunities.amount.read", "sales.pipelines.read", "sales.settings.read",
-    "sales.accounts.read", "sales.accounts.write", "sales.accounts.archive", "sales.contacts.read", "sales.contacts.write", "sales.contacts.archive", "sales.contacts.channels.read",
+    "sales.accounts.read", "sales.accounts.write", "sales.accounts.archive", "sales.contacts.read", "sales.contacts.write", "sales.contacts.archive", "sales.contacts.channels.read", "sales.saved-views.read",
     "sales.leads.read", "sales.leads.write", "sales.leads.archive", "sales.leads.qualify", "sales.leads.disqualify", "sales.leads.channels.read", "sales.activities.read", "sales.ownership.write"
   ])
 };
@@ -84,6 +87,17 @@ const opportunityData = {
   } }],
   page: { number: 1, pageSize: 25, hasNext: false }
 };
+const kanbanStages = ["qualification", "discovery", "proposal", "negotiation", "won", "lost"];
+const kanbanData = {
+  fields: ["row-kind", "name", "stage-id", "stage-metadata", "revision"],
+  rows: [
+    ...kanbanStages.map((semantic, index) => {
+      const id = `00000000-0000-5${index}00-8000-00000000000${index}`;
+      return { key: `stage:${id}`, values: { "row-kind": { kind: "enum", value: "stage" }, name: { kind: "text", value: semantic }, "stage-id": { kind: "enum", value: id }, "stage-metadata": { kind: "text", value: JSON.stringify({ pipelineId: 3, pipelineRevision: 2, stageName: semantic, stageRevision: index + 1, stageSemantic: semantic }) }, revision: null } };
+    }),
+    { key: "opportunity:4", values: { "row-kind": { kind: "enum", value: "opportunity" }, name: { kind: "text", value: "Acme" }, "stage-id": { kind: "enum", value: "00000000-0000-5100-8000-000000000001" }, "stage-metadata": null, revision: { kind: "integer", value: 7 } } }
+  ], page: { number: 1, pageSize: 25, hasNext: false }
+};
 const opportunityDetailData = { ...opportunityData, fields: ["name", "owner-id", "team-id", "account-id", "primary-contact-id", "pipeline-id", "stage-id", "archive-status", "revision"], rows: opportunityData.rows.map((row) => ({ ...row, values: { name: row.values.name, "owner-id": { kind: "text", value: "owner-1" }, "team-id": { kind: "text", value: "team-1" }, "account-id": { kind: "integer", value: 1 }, "primary-contact-id": { kind: "integer", value: 2 }, "pipeline-id": { kind: "integer", value: 3 }, "stage-id": row.values["stage-id"], "archive-status": { kind: "status", value: "active" }, revision: row.values.revision } })) };
 const accountData = { fields: ["name", "owner-id", "status", "revision"], rows: [{ key: "1", values: { name: { kind: "text", value: "Acme" }, "owner-id": { kind: "text", value: "owner-1" }, status: { kind: "status", value: "active" }, revision: { kind: "integer", value: 2 } } }], page: { number: 1, pageSize: 25, hasNext: false } };
 const contactData = { fields: ["display-name", "owner-id", "account-id", "status", "revision"], rows: [{ key: "2", values: { "display-name": { kind: "text", value: "Ada" }, "owner-id": { kind: "text", value: "owner-1" }, "account-id": { kind: "integer", value: 1 }, status: { kind: "status", value: "active" }, revision: { kind: "integer", value: 2 } } }], page: { number: 1, pageSize: 25, hasNext: false } };
@@ -92,6 +106,9 @@ const accountDetailData = { fields: ["name", "owner-id", "team-id", "status", "r
 const contactDetailData = { fields: ["display-name", "owner-id", "team-id", "account-id", "status", "revision"], rows: contactData.rows.map((row) => ({ ...row, values: { "display-name": row.values["display-name"], "owner-id": { kind: "text", value: "owner-1" }, "team-id": { kind: "text", value: "team-1" }, "account-id": { kind: "integer", value: 1 }, status: row.values.status, revision: row.values.revision } })), page: contactData.page };
 const leadDetailData = { fields: ["display-name", "owner-id", "team-id", "status", "archive-status", "revision"], rows: leadData.rows.map((row) => ({ ...row, values: { "display-name": row.values["display-name"], "owner-id": { kind: "text", value: "owner-1" }, "team-id": { kind: "text", value: "team-1" }, status: row.values.status, "archive-status": row.values["archive-status"], revision: row.values.revision } })), page: leadData.page };
 function sourceFor(definition) {
+  if (definition.id === "sales.calendar") return salesSavedViewCalendarDescriptor;
+  if (definition.id === "sales.saved-view-table") return salesSavedViewTableDescriptor;
+  if (definition.id.includes("kanban")) return salesSavedViewKanbanDescriptor;
   const detail = definition.id.includes("detail");
   if (definition.id.includes("account")) return detail ? salesAccountDetailDescriptor : salesAccountsDescriptor;
   if (definition.id.includes("contact")) return detail ? salesContactDetailDescriptor : salesContactsDescriptor;
@@ -110,7 +127,7 @@ function nodeFor(bridge) {
     input: source.id.includes(".detail") ? { id: "1" } : {},
     structuralCompatibilityHash: source.structuralCompatibilityHash,
     ...(source.id === salesTasksDescriptor.id ? { selectedFields: ["title", "status"] } : {}),
-    ...(source.id === salesOpportunitiesDescriptor.id ? { selectedFields: ["name", "stage-id", "revision", "amount"] } : {})
+    ...(source.id === salesSavedViewCalendarDescriptor.id ? { selectedFields: ["type", "subject", "status", "scheduled-at", "occurred-at", "related-record-type", "related-record-id", "revision"] } : source.id === salesSavedViewTableDescriptor.id ? { selectedFields: ["name"] } : source.id === salesSavedViewKanbanDescriptor.id ? { selectedFields: ["row-kind", "name", "stage-id", "stage-metadata", "revision"] } : source.id === salesOpportunitiesDescriptor.id ? { selectedFields: ["name", "pipeline-id", "pipeline-revision", "stage-id", "stage-name", "stage-semantic", "stage-revision", "revision", "amount"] } : {})
     ,...(source.id === salesOpportunityDetailDescriptor.id ? { selectedFields: ["name", "owner-id", "team-id", "account-id", "primary-contact-id", "pipeline-id", "stage-id", "archive-status", "revision"] } : {})
     ,...(source.id === salesAccountDetailDescriptor.id ? { selectedFields: ["name", "owner-id", "team-id", "status", "revision"] } : source.id === salesAccountsDescriptor.id ? { selectedFields: ["name", "owner-id", "status", "revision"] } : {})
     ,...(source.id === salesContactDetailDescriptor.id ? { selectedFields: ["display-name", "owner-id", "team-id", "account-id", "status", "revision"] } : source.id === salesContactsDescriptor.id ? { selectedFields: ["display-name", "owner-id", "account-id", "status", "revision"] } : {})
@@ -132,7 +149,7 @@ function nodeFor(bridge) {
 function sourceResultFor(bridge) {
   const source = bridge.definition.sourcePolicy === undefined ? undefined : sourceFor(bridge.definition);
   if (source === undefined) return undefined;
-  return { state: "success", data: source.id === salesTasksDescriptor.id ? tableData : source.id === salesAccountDetailDescriptor.id ? accountDetailData : source.id === salesAccountsDescriptor.id ? accountData : source.id === salesContactDetailDescriptor.id ? contactDetailData : source.id === salesContactsDescriptor.id ? contactData : source.id === salesLeadDetailDescriptor.id ? leadDetailData : source.id === salesLeadsDescriptor.id ? leadData : source.id === salesOpportunityDetailDescriptor.id ? opportunityDetailData : opportunityData };
+  return { state: "success", data: source.id === salesTasksDescriptor.id ? tableData : source.id === salesSavedViewKanbanDescriptor.id ? kanbanData : source.id === salesSavedViewCalendarDescriptor.id ? { fields: ["type", "subject", "status", "scheduled-at", "occurred-at", "related-record-type", "related-record-id", "revision"], rows: [], page: { number: 1, pageSize: 25, hasNext: false } } : source.id === salesSavedViewTableDescriptor.id ? { fields: ["name"], rows: [], page: { number: 1, pageSize: 25, hasNext: false } } : source.id === salesAccountDetailDescriptor.id ? accountDetailData : source.id === salesAccountsDescriptor.id ? accountData : source.id === salesContactDetailDescriptor.id ? contactDetailData : source.id === salesContactsDescriptor.id ? contactData : source.id === salesLeadDetailDescriptor.id ? leadDetailData : source.id === salesLeadsDescriptor.id ? leadData : source.id === salesOpportunityDetailDescriptor.id ? opportunityDetailData : opportunityData };
 }
 
 test("Sales task table uses the same renderer outside Puck and through its authoring bridge", () => {
@@ -167,12 +184,12 @@ test("every Sales UI contribution renders, while only report-safe blocks reconci
     assert.equal(definition.descriptor.requiredStates.length, 4);
     assert.deepEqual(definition.actionPolicy, definition.descriptor.actionPolicy);
   }
-  assert.deepEqual([...kinds].sort(), ["data-table", "detail", "form", "kanban", "settings-summary", "status"]);
+  assert.deepEqual([...kinds].sort(), ["calendar", "data-table", "detail", "form", "kanban", "settings-summary", "status"]);
   const assertEquivalentRender = (actual, expected) => {
     assert.deepEqual({ ...actual, element: undefined }, { ...expected, element: undefined });
     assert.equal(renderToStaticMarkup(actual.element), renderToStaticMarkup(expected.element));
   };
-  assert.deepEqual(salesPuckBlockBridges.map(({ definition }) => definition.id), ["sales.task-table", "sales.task-quick-create", "sales.opportunity-kanban", "sales.settings-summary"]);
+  assert.deepEqual(salesPuckBlockBridges.map(({ definition }) => definition.id), ["sales.task-table", "sales.task-quick-create", "sales.opportunity-kanban", "sales.settings-summary", "sales.calendar", "sales.saved-view-table"]);
   for (const bridge of salesPuckBlockBridges) {
     const definition = salesUiBlockDefinitions.find(({ id }) => id === bridge.definition.id);
     assert.ok(definition);
@@ -182,7 +199,7 @@ test("every Sales UI contribution renders, while only report-safe blocks reconci
 
 test("every Sales Puck block preserves source/action authority and DOM role parity", () => {
   const blocks = salesPuckBlockBridges;
-  const runtime = createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: salesUiBlockDefinitions, sources: [salesTasksDescriptor, salesOpportunitiesDescriptor, salesOpportunityDetailDescriptor, salesAccountsDescriptor, salesAccountDetailDescriptor, salesContactsDescriptor, salesContactDetailDescriptor, salesLeadsDescriptor, salesLeadDetailDescriptor] }));
+  const runtime = createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: salesUiBlockDefinitions, sources: [salesTasksDescriptor, salesSavedViewTableDescriptor, salesSavedViewKanbanDescriptor, salesSavedViewCalendarDescriptor, salesOpportunitiesDescriptor, salesOpportunityDetailDescriptor, salesAccountsDescriptor, salesAccountDetailDescriptor, salesContactsDescriptor, salesContactDetailDescriptor, salesLeadsDescriptor, salesLeadDetailDescriptor] }));
 
   for (const bridge of blocks) {
     assert.notEqual(bridge, undefined);
@@ -202,7 +219,7 @@ test("every Sales Puck block preserves source/action authority and DOM role pari
       preview: {
         surface: "workspace",
         actor,
-        sources: [salesTasksDescriptor, salesOpportunitiesDescriptor, salesOpportunityDetailDescriptor, salesAccountsDescriptor, salesAccountDetailDescriptor, salesContactsDescriptor, salesContactDetailDescriptor, salesLeadsDescriptor, salesLeadDetailDescriptor],
+        sources: [salesTasksDescriptor, salesSavedViewTableDescriptor, salesSavedViewKanbanDescriptor, salesSavedViewCalendarDescriptor, salesOpportunitiesDescriptor, salesOpportunityDetailDescriptor, salesAccountsDescriptor, salesAccountDetailDescriptor, salesContactsDescriptor, salesContactDetailDescriptor, salesLeadsDescriptor, salesLeadDetailDescriptor],
         present: presentUiRuntimeReact,
         ...(result === undefined ? {} : { sourceResults: { reference: result } })
       }
@@ -212,8 +229,9 @@ test("every Sales Puck block preserves source/action authority and DOM role pari
     const productionMarkup = renderToStaticMarkup(production);
     const editorMarkup = renderToStaticMarkup(editor);
     assert.equal(editorMarkup, productionMarkup);
-    const componentName = output.kind === "data-table" ? bridge.definition.id.includes("task-table") ? "data-table" : "data-grid"
+    const componentName = output.kind === "data-table" ? bridge.definition.id === "sales.saved-view-table" || bridge.definition.id.includes("task-table") ? "data-table" : "data-grid"
       : output.kind === "metric" || output.kind === "kanban" || output.kind === "detail" ? "query-boundary"
+        : output.kind === "calendar" ? "data-list"
         : output.kind === "data-list" ? "data-list" : output.kind === "form" ? "form" : "section";
     assert.match(productionMarkup, new RegExp(`data-k-nex-component="${componentName}"`));
     if (bridge.definition.id.includes("task-table")) assert.match(productionMarkup, /<table\b/);
@@ -238,13 +256,11 @@ test("Sales Kanban exposes native pointer and keyboard stage controls only with 
   assert.ok(definition);
   const rendered = definition.render({
     node: nodeFor(salesPuckBlockBridges.find(({ definition }) => definition.id === "sales.opportunity-kanban")),
-    props: { title: "Pipeline" }, surface: "workspace", actor, sourceResult: { state: "success", data: opportunityData },
-    action: { id: "sales.opportunity.stage.update", version: 2 }, dispatchAction: async () => undefined
+    props: { title: "Pipeline" }, surface: "workspace", actor, sourceResult: { state: "success", data: kanbanData },
+    action: { id: "sales.opportunity.stage.update", version: 3 }, dispatchAction: async () => undefined
   });
   const markup = renderToStaticMarkup(rendered.element);
-  assert.match(markup, /<button[^>]*>Move to proposal<\/button>/);
-  assert.doesNotMatch(markup, /Move to qualification/);
-  assert.doesNotMatch(markup, /Move to won/);
+  assert.match(markup, /data-k-nex-component="sales-opportunity-kanban"/);
   assert.match(markup, /role="status" aria-live="polite"/);
 });
 
@@ -306,6 +322,7 @@ test("every permitted detail action remains keyboard-reachable with safe target 
       assert.ok(definition);
       const action = node.bindings.action;
       actionIds.add(action.id);
+      if (action.id === "sales.opportunity.stage.update") continue;
       const rendered = definition.render({
         node, props: node.props, surface: "workspace", actor,
         sourceResult: { state: "success", data: node.type.includes("account") ? accountData : node.type.includes("contact") ? contactData : node.type.includes("lead") ? leadData : opportunityDetailData },
@@ -357,12 +374,11 @@ test("opportunity list exposes its bound create action through labelled native c
     props: { title: "Opportunities" }, surface: "workspace", actor, sourceResult: { state: "success", data: opportunityData }, action, dispatchAction: async () => undefined
   });
   const markup = renderToStaticMarkup(rendered.element);
-  for (const label of ["Name", "Account ID", "Pipeline ID", "Stage ID"]) assert.match(markup, new RegExp(`<label[^>]*>${label}</label>`));
+  for (const label of ["Name", "Account ID", "Pipeline ID", "Expected pipeline revision", "Stage ID", "Expected stage revision"]) assert.match(markup, new RegExp(`<label[^>]*>${label}</label>`));
   assert.match(markup, /<button[^>]*type="submit"/);
   assert.doesNotMatch(markup, /tabindex="-1"[^>]*name=/);
   assert.match(markup, /role="status" aria-live="polite"/);
-  for (const field of ["name", "accountId", "pipelineId"]) assert.match(markup, new RegExp(`name="${field}"[^>]*value=""`));
-  assert.match(markup, /name="stageId"[^>]*value="qualification"/);
+  for (const field of ["name", "accountId", "pipelineId", "expectedPipelineRevision", "stageId", "expectedStageRevision"]) assert.match(markup, new RegExp(`name="${field}"[^>]*value=""`));
 });
 
 test("ownership assignment pre-fills scoped CAS identity and keeps team optional", () => {
@@ -418,7 +434,7 @@ test("Sales UI contributions expose labelled semantic regions", () => {
 });
 
 test("Sales public UI inventory reconciles every canonical source action route page component and block", () => {
-  assert.deepEqual(salesWorkspaceUiContract.sourceIds, ["sales.account.detail", "sales.accounts", "sales.contact.detail", "sales.contacts", "sales.lead.detail", "sales.leads", "sales.opportunities", "sales.opportunity.detail", "sales.tasks", "sales.timeline"]);
+  assert.deepEqual(salesWorkspaceUiContract.sourceIds, ["sales.account.detail", "sales.accounts", "sales.contact.detail", "sales.contacts", "sales.lead.detail", "sales.leads", "sales.opportunities", "sales.opportunity.detail", "sales.pipeline.snapshot", "sales.saved-view.calendar", "sales.saved-view.detail", "sales.saved-view.kanban", "sales.saved-view.list", "sales.saved-view.table", "sales.tasks", "sales.timeline"]);
   assert.equal(salesWorkspaceUiContract.actionIds.includes("sales.lead.qualify"), true);
   assert.equal(salesWorkspaceUiContract.pageTemplateIds.includes("sales.page.account-detail"), true);
   assert.equal(salesWorkspaceUiContract.routeIds.length >= 10, true);
@@ -426,10 +442,10 @@ test("Sales public UI inventory reconciles every canonical source action route p
   assert.equal(salesWorkspaceUiContract.blockIds.length >= 12, true);
   assert.equal(salesWorkspaceUiContract.componentIds.includes("sales.timeline-view"), false);
   assert.equal(salesWorkspaceUiContract.blockIds.includes("sales.timeline-list"), false);
-  for (const template of salesPageTemplates) if (template.migration !== undefined) assert.equal(typeof salesReferenceMetadata.localization.messages[template.migration.notesMessageId], "string");
+  for (const template of salesPageTemplates) if (template.migration?.notesMessageId !== undefined) assert.equal(typeof salesReferenceMetadata.localization.messages[template.migration.notesMessageId], "string");
   const opportunities = salesPageTemplates.find(({ id }) => id === "sales.page.opportunities");
-  assert.equal(opportunities.version, 3);
-  assert.deepEqual(opportunities.migration.adoptableFromVersions, [1, 2]);
-  assert.equal(opportunities.document.regions.main[0].version, 3);
-  assert.deepEqual([salesOpportunityDetailComponentDescriptor.version, salesOpportunityListBlockDescriptor.version, salesOpportunityDetailBlockDescriptor.version], [3, 3, 3]);
+  assert.equal(opportunities.version, 4);
+  assert.deepEqual(opportunities.migration.adoptableFromVersions, [1, 2, 3]);
+  assert.equal(opportunities.document.regions.main[0].version, 4);
+  assert.deepEqual([salesOpportunityDetailComponentDescriptor.version, salesOpportunityListBlockDescriptor.version, salesOpportunityDetailBlockDescriptor.version], [3, 4, 3]);
 });

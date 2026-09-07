@@ -66,8 +66,25 @@ import {
   salesWorkflowActionHandler,
   salesPermissionPolicyExecutors,
   projectSalesStateHistory,
-  salesEventAfterChange
+  salesEventAfterChange,
+  salesPipelineStageId
 } from "../dist/server.js";
+
+const qualificationStageId = salesPipelineStageId("customer-gate-1", "production", 17, "qualification");
+const discoveryStageId = salesPipelineStageId("customer-gate-1", "production", 17, "discovery");
+const proposalStageId = salesPipelineStageId("customer-gate-1", "production", 17, "proposal");
+const negotiationStageId = salesPipelineStageId("customer-gate-1", "production", 17, "negotiation");
+const wonStageId = salesPipelineStageId("customer-gate-1", "production", 17, "won");
+const lostStageId = salesPipelineStageId("customer-gate-1", "production", 17, "lost");
+const stageSemantics = new Map([[qualificationStageId, "qualification"], [discoveryStageId, "discovery"], [proposalStageId, "proposal"], [negotiationStageId, "negotiation"], [wonStageId, "won"], [lostStageId, "lost"]]);
+const stageTransitions = new Map([[qualificationStageId, [discoveryStageId, lostStageId]], [discoveryStageId, [proposalStageId, lostStageId]], [proposalStageId, [negotiationStageId, lostStageId]], [negotiationStageId, [wonStageId, lostStageId]], [wonStageId, []], [lostStageId, []]]);
+const stageMove = (id, expectedRevision, source, destination) => ({ id, expectedRevision, expectedPipelineId: "17", expectedPipelineRevision: 2, expectedSourceStageId: source, expectedSourceStageRevision: 2, destinationStageId: destination, expectedDestinationStageRevision: 2 });
+const p134StageFind = (state, options) => {
+  if (options.collection === "sales-opportunities") return { docs: [structuredClone(state)] };
+  if (options.collection === "sales-pipelines") return { docs: [{ id: "17", revision: 2, status: "active", isActive: true }] };
+  const stageId = options.where.and.find((clause) => clause.stageId)?.stageId.equals;
+  return { docs: [{ id: stageId, pipelineId: 17, stageId, revision: 2, status: "active", semantic: stageSemantics.get(stageId), allowedTransitionStageIds: stageTransitions.get(stageId), requiredFieldIds: stageId === lostStageId ? ["lossReason"] : [] }] };
+};
 
 test("qualified Lead detail projects only bounded lineage cells", async () => {
   let select;
@@ -118,13 +135,13 @@ test("lead qualification accepts only exact ordered host linked-record admission
   await assert.rejects(salesWorkflowActionHandler({ actor: handlerContext().actor, request, authorizationContext: { ...base, linkedRecordAdmissions: [] }, input: createInput, idempotencyKey: "qualification-create-admission", signal: new AbortController().signal }), /Sales linked-record admission is invalid/u);
 });
 
-test("committed v2 task and opportunity actions preserve opaque 128-byte IDs", async () => {
+test("committed task and v3 opportunity actions preserve opaque record IDs", async () => {
   const id = `legacy-${"x".repeat(121)}`;
   assert.equal(id.length, 128);
   const taskOutput = { id, title: "Legacy task", status: "open", revision: 1 };
   const taskUpdate = { id, expectedRevision: 1, expectedStatus: "open", status: "completed" };
-  const opportunityInput = { id, expectedStage: "qualification", expectedRevision: 1, stage: "discovery" };
-  const opportunityOutput = { id, name: "Legacy opportunity", stage: "discovery", revision: 2 };
+  const opportunityInput = { id, expectedRevision: 1, expectedPipelineId: "17", expectedPipelineRevision: 2, expectedSourceStageId: qualificationStageId, expectedSourceStageRevision: 2, destinationStageId: discoveryStageId, expectedDestinationStageRevision: 2 };
+  const opportunityOutput = { id, pipelineId: "17", stageId: discoveryStageId, revision: 2 };
   assert.equal(salesCreateTaskOutputRuntimeSchema.safeParse(taskOutput).success, true);
   assert.equal(salesUpdateTaskInputRuntimeSchema.safeParse(taskUpdate).success, true);
   assert.equal(salesUpdateTaskOutputRuntimeSchema.safeParse({ ...taskOutput, status: "completed", revision: 2 }).success, true);
@@ -205,21 +222,21 @@ function structuralHash(descriptor) {
   })).digest("hex")}`;
 }
 
-test("Sales registers active v2 sources and frozen P13.2 authority", () => {
+test("Sales registers active successor sources and frozen authority", () => {
   assert.equal(DataSourceDescriptorSchema.safeParse(salesTasksDescriptor).success, true);
   assert.equal(DataSourceDescriptorSchema.safeParse(salesOpportunitiesDescriptor).success, true);
   assert.equal(salesTasksDescriptor.structuralCompatibilityHash, structuralHash(salesTasksDescriptor));
   assert.equal(salesOpportunitiesDescriptor.structuralCompatibilityHash, structuralHash(salesOpportunitiesDescriptor));
   assert.equal(salesTasksDefinition.descriptor.primaryContract.id, "table.records");
   assert.deepEqual(salesTasksDescriptor.outputFields.map(({ id }) => id), ["title", "status"]);
-  assert.deepEqual(salesOpportunitiesDescriptor.outputFields.map(({ id }) => id), ["name", "stage-id", "revision", "amount"]);
+  assert.deepEqual(salesOpportunitiesDescriptor.outputFields.map(({ id }) => id), ["name", "pipeline-id", "pipeline-revision", "stage-id", "stage-name", "stage-semantic", "stage-revision", "revision", "amount"]);
   assert.deepEqual(salesOpportunitiesDescriptor, {
-    id: "sales.opportunities", version: 2, ownerPluginId: "module.sales",
-    primaryContract: { id: "table.records", version: 1 }, sourceSchema: { id: "sales.opportunities.output", version: 2 },
+    id: "sales.opportunities", version: 3, ownerPluginId: "module.sales",
+    primaryContract: { id: "table.records", version: 1 }, sourceSchema: { id: "sales.opportunities.output", version: 3 },
     audience: "authenticated", surfaces: ["workspace"], permission: "sales.opportunities.read",
-    structuralCompatibilityHash: "sha256:49a707b6f512bc0d8cad02c38a506066e6973e09468e1e3c8373c8e1287ade5d",
+    structuralCompatibilityHash: "sha256:82668a173c4ee1ce38924b5f99846f86644f437a3926299927cf979426f826ad",
     presentationMetadataRevision: 1, title: "Sales opportunities", inputFields: [], outputFields: salesOpportunityFields,
-    paginationModes: ["offset"], limits: { maxSelectedFields: 8, maxPageSize: 100, maxFilters: 8, maxSorts: 2, maxBodyBytes: 32_768, maxResultBytes: 1_048_576, maxDepth: 6, timeoutMs: 5_000, maxConcurrency: 4, ratePerMinute: 300, burst: 30, costClass: "medium", maxCost: 100 }, cacheClass: "actor"
+    paginationModes: ["offset"], limits: { maxSelectedFields: 9, maxPageSize: 100, maxFilters: 8, maxSorts: 2, maxBodyBytes: 32_768, maxResultBytes: 1_048_576, maxDepth: 6, timeoutMs: 5_000, maxConcurrency: 4, ratePerMinute: 300, burst: 30, costClass: "medium", maxCost: 100 }, cacheClass: "actor"
   });
   const permissionIds = new Set(salesCrmPermissionDescriptors.map(({ id }) => id));
   for (const descriptor of [salesTasksDescriptor, salesOpportunitiesDescriptor]) {
@@ -236,7 +253,7 @@ test("Sales registers active v2 sources and frozen P13.2 authority", () => {
     register: (kind, id) => contributions.push([kind, id]),
     bindRenderer: (kind, id) => bindings.push([kind, id])
   });
-  assert.deepEqual(contributions.filter(([kind]) => kind === "sources").map(([, id]) => id).sort(), ["sales.account.detail", "sales.accounts", "sales.contact.detail", "sales.contacts", "sales.lead.detail", "sales.leads", "sales.opportunities", "sales.opportunity.detail", "sales.tasks", "sales.timeline"]);
+  assert.deepEqual(contributions.filter(([kind]) => kind === "sources").map(([, id]) => id).sort(), ["sales.account.detail", "sales.accounts", "sales.contact.detail", "sales.contacts", "sales.lead.detail", "sales.leads", "sales.opportunities", "sales.opportunity.detail", "sales.pipeline.snapshot", "sales.saved-view.calendar", "sales.saved-view.detail", "sales.saved-view.kanban", "sales.saved-view.list", "sales.saved-view.table", "sales.tasks", "sales.timeline"]);
   assert.deepEqual(contributions.filter(([kind]) => kind === "actions").map(([, id]) => id).sort(), salesManifest.contributions.actions && Object.keys(salesManifest.contributions.actions).sort());
   assert.deepEqual(contributions.filter(([kind]) => kind === "tools").map(([, id]) => id).sort(), ["sales.tools.create-task", "sales.tools.search-tasks"]);
   assert.deepEqual(contributions.filter(([kind]) => kind === "permissions").map(([, id]) => id).sort(), salesCrmPermissionDescriptors.map(({ id }) => id).sort());
@@ -248,7 +265,7 @@ test("Sales registers active v2 sources and frozen P13.2 authority", () => {
   assert.deepEqual(contributions.filter(([kind]) => kind === "pageTemplates").map(([, id]) => id), salesPageTemplates.map(({ id }) => id));
   assert.deepEqual(contributions.filter(([kind]) => kind === "components").map(([, id]) => id), salesUiComponentDescriptors.map(({ id }) => id));
   assert.deepEqual(contributions.filter(([kind]) => kind === "blocks").map(([, id]) => id), salesUiBlockDescriptors.map(({ id }) => id));
-  assert.deepEqual(bindings.filter(([kind]) => kind === "sources").map(([, id]) => id).sort(), ["sales.account.detail", "sales.accounts", "sales.contact.detail", "sales.contacts", "sales.lead.detail", "sales.leads", "sales.opportunities", "sales.opportunity.detail", "sales.tasks", "sales.timeline"]);
+  assert.deepEqual(bindings.filter(([kind]) => kind === "sources").map(([, id]) => id).sort(), ["sales.account.detail", "sales.accounts", "sales.contact.detail", "sales.contacts", "sales.lead.detail", "sales.leads", "sales.opportunities", "sales.opportunity.detail", "sales.pipeline.snapshot", "sales.saved-view.calendar", "sales.saved-view.detail", "sales.saved-view.kanban", "sales.saved-view.list", "sales.saved-view.table", "sales.tasks", "sales.timeline"]);
   assert.deepEqual(bindings.filter(([kind]) => kind === "actions").map(([, id]) => id).sort(), salesManifest.contributions.actions && Object.keys(salesManifest.contributions.actions).sort());
   assert.deepEqual(bindings.filter(([kind]) => kind === "components").map(([, id]) => id), salesUiComponentDescriptors.map(({ id }) => id));
   assert.deepEqual(bindings.filter(([kind]) => kind === "blocks").map(([, id]) => id), salesUiBlockDescriptors.map(({ id }) => id));
@@ -263,10 +280,7 @@ test("Sales settings, permissions, routes, and navigation use strict platform co
   assert.equal(PluginPageTemplateDescriptorSchema.safeParse(salesTaskPageTemplate).success, true);
   assert.equal(PluginUiContributionDescriptorSchema.safeParse(salesTaskTableComponentDescriptor).success, true);
   assert.equal(PluginUiContributionDescriptorSchema.safeParse(salesTaskTableBlockDescriptor).success, true);
-  assert.deepEqual(salesDefaultSettings, {
-    defaultTaskPageSize: 25, showPotentialRevenue: true, defaultPage: "tasks",
-    pipelineStages: ["qualification", "discovery", "proposal", "negotiation", "won", "lost"]
-  });
+  assert.deepEqual(salesDefaultSettings, { defaultTaskPageSize: 25, showPotentialRevenue: true, defaultPage: "tasks" });
   assert.deepEqual([salesReferenceMetadata.health.version, salesReferenceMetadata.lifecycle.version, salesReferenceMetadata.testing.version], [2, 2, 2]);
 });
 
@@ -658,11 +672,10 @@ test("Sales sources require closed host-issued application and environment scope
 
 test("the opportunities source returns bounded canonical rows", async () => {
   const result = await salesOpportunitiesHandler(handlerContext({
-    request: { payload: { find: async (options) => {
-      assert.equal(options.collection, "sales-opportunities");
-      assert.equal(options.select.currency, true);
-      return { docs: [{ id: "2", name: "Platform rollout", stageId: "discovery", archiveStatus: "active", amount: "1200.50", currency: "EUR", revision: 7 }], hasNextPage: false };
-    } } },
+    request: { payload: { find: async (options) => options.collection === "sales-opportunities"
+      ? (assert.equal(options.select.currency, true), { docs: [{ id: "2", name: "Platform rollout", pipelineId: 17, stageId: discoveryStageId, archiveStatus: "active", amount: "1200.50", currency: "EUR", revision: 7 }], hasNextPage: false })
+      : options.collection === "sales-pipelines" ? { docs: [{ id: 17, revision: 2, status: "active" }] }
+        : { docs: [{ pipelineId: 17, stageId: discoveryStageId, name: "Discovery", semantic: "discovery", revision: 2, status: "active" }] } } },
     selectedFields: ["name", "stage-id", "revision", "amount"],
     recordScope: salesScope("sales.opportunities")
   }));
@@ -670,7 +683,7 @@ test("the opportunities source returns bounded canonical rows", async () => {
     key: "2",
     values: {
       name: { kind: "text", value: "Platform rollout" },
-      "stage-id": { kind: "status", value: "discovery" },
+      "stage-id": { kind: "status", value: discoveryStageId },
       revision: { kind: "integer", value: 7 },
       amount: { kind: "money", value: "1200.50", currency: "EUR", scale: 2 }
     }
@@ -679,10 +692,11 @@ test("the opportunities source returns bounded canonical rows", async () => {
 
 test("Sales opportunity output accepts only exact canonical selected cells", () => {
   const valid = {
-    fields: ["name", "stage-id", "revision", "amount"],
+    fields: ["name", "pipeline-id", "pipeline-revision", "stage-id", "stage-name", "stage-semantic", "stage-revision", "revision", "amount"],
     rows: [{ key: "2", values: {
       name: { kind: "text", value: "Platform rollout" },
-      "stage-id": { kind: "status", value: "discovery" },
+      "pipeline-id": { kind: "integer", value: 17 }, "pipeline-revision": { kind: "integer", value: 2 },
+      "stage-id": { kind: "status", value: discoveryStageId }, "stage-name": { kind: "text", value: "Discovery" }, "stage-semantic": { kind: "enum", value: "discovery" }, "stage-revision": { kind: "integer", value: 2 },
       revision: { kind: "integer", value: 7 },
       amount: { kind: "money", value: "1200.5", currency: "EUR", scale: 2 }
     } }],
@@ -703,7 +717,7 @@ test("Sales opportunity output accepts only exact canonical selected cells", () 
 
 test("Sales opportunity money preserves stored currency and rejects malformed amount pairs", async () => {
   const source = (document) => salesOpportunitiesHandler(handlerContext({
-    request: { payload: { find: async () => ({ docs: [{ id: "2", name: "Platform rollout", stageId: "discovery", revision: 1, ...document }], hasNextPage: false }) } },
+    request: { payload: { find: async (options) => options.collection === "sales-opportunities" ? { docs: [{ id: "2", name: "Platform rollout", pipelineId: 17, stageId: discoveryStageId, revision: 1, ...document }], hasNextPage: false } : options.collection === "sales-pipelines" ? { docs: [{ id: 17, revision: 2 }] } : { docs: [{ pipelineId: 17, stageId: discoveryStageId, name: "Discovery", semantic: "discovery", revision: 2 }] } } },
     selectedFields: ["amount"], recordScope: salesScope("sales.opportunities")
   }));
   assert.deepEqual((await source({ amount: "0.00", currency: "EUR" })).rows[0].values.amount, { kind: "money", value: "0.00", currency: "EUR", scale: 2 });
@@ -739,9 +753,10 @@ test("Sales mutation lifecycles reject invalid, stale, replayed, and foreign-sco
   await assert.rejects(salesTaskUpdateHandler({ ...base, input: { id: "1", expectedRevision: 1, expectedStatus: "open", status: "open" } }));
   await assert.rejects(salesTaskUpdateHandler({ ...base, input: { id: "1", expectedRevision: 1, expectedStatus: "open", status: "completed" } }), (error) => error?.code === "STALE_RECORD");
   await assert.rejects(salesTaskUpdateHandler({ ...base, authorizationContext: { ...base.authorizationContext, ownerId: "user-2", teamId: "team-2" }, input: { id: "1", expectedRevision: 1, expectedStatus: "open", status: "cancelled" } }), (error) => error?.code === "STALE_RECORD");
+  const foreignWhere = readWheres.at(-1);
   await assert.rejects(salesTaskCreateHandler({ ...base, authorizationContext: { ...base.authorizationContext, actionId: "sales.task.create", resourceId: undefined }, input: { title: "Blocked", status: "completed" } }));
-  await assert.rejects(salesOpportunityStageUpdateHandler({ ...base, authorizationContext: { ...base.authorizationContext, actionId: "sales.opportunity.stage.update", resourceId: "2" }, input: { id: "2", expectedStage: "negotiation", expectedRevision: 1, stage: "won" } }));
-  assert.deepEqual(readWheres.at(-1).and, [
+  await assert.rejects(salesOpportunityStageUpdateHandler({ ...base, authorizationContext: { ...base.authorizationContext, actionId: "sales.opportunity.stage.update", resourceId: "2" }, input: stageMove("2", 1, negotiationStageId, proposalStageId) }));
+  assert.deepEqual(foreignWhere.and, [
     { id: { equals: "1" } }, { applicationId: { equals: "customer-gate-1" } }, { environment: { equals: "production" } },
     { ownerId: { equals: "user-2" } }, { teamId: { equals: "team-2" } }, { status: { equals: "open" } }, { revision: { equals: 1 } }
   ]);
@@ -790,7 +805,7 @@ test("Sales audit origin and current-row binding are collection-specific", async
   const opportunityRequest = { payload: { find: async () => ({ docs: [{ id: "2", revision: 3, audit: [migration, firstStage, repeatedStage] }] }), create: async () => ({}), update: async () => { updates += 1; return { docs: [], errors: [] }; } } };
   await assert.rejects(salesOpportunityStageUpdateHandler({ actor: handlerContext().actor, request: opportunityRequest,
     authorizationContext: { ...authorizationContext, actionId: "sales.opportunity.stage.update", resourceId: "2" },
-    input: { id: "2", expectedRevision: 3, expectedStage: "discovery", stage: "proposal" }, idempotencyKey: "strict-opp", signal: new AbortController().signal
+    input: stageMove("2", 3, discoveryStageId, proposalStageId), idempotencyKey: "strict-opp", signal: new AbortController().signal
   }), (error) => error?.code === "STALE_RECORD" && error?.status === 409);
   assert.equal(updates, 0);
 });
@@ -850,11 +865,11 @@ test("Sales task CAS admits one close and rejects its replay without another wri
 });
 
 test("Sales opportunity stage history appends one complete audit entry per accepted transition", async () => {
-  const state = { id: "2", name: "Platform rollout", ownerId: "user-1", stageId: "qualification", archiveStatus: "active", revision: 1, audit: [{ kind: "phase-13-legacy-upgrade", receiptDigest: `sha256:${"0".repeat(64)}`, legacyStage: "lead", ownershipGenesis: { ownerId: "user-1", teamId: null } }] };
+  const state = { id: "2", name: "Platform rollout", ownerId: "user-1", pipelineId: 17, stageId: qualificationStageId, archiveStatus: "active", revision: 1, audit: [{ kind: "phase-13-legacy-upgrade", receiptDigest: `sha256:${"0".repeat(64)}`, legacyStage: "lead", ownershipGenesis: { ownerId: "user-1", teamId: null } }] };
   const request = {
     payload: {
       create: async () => ({}),
-      find: async () => ({ docs: [structuredClone(state)] }),
+      find: async (options) => p134StageFind(state, options),
       update: async (options) => {
         Object.assign(state, { stageId: options.data.stageId, revision: options.data.revision, audit: options.data.audit });
         return { docs: [structuredClone(state)], errors: [] };
@@ -862,20 +877,20 @@ test("Sales opportunity stage history appends one complete audit entry per accep
     }
   };
   const authorizationContext = { actionId: "sales.opportunity.stage.update", resourceId: "2", applicationId: "customer-gate-1", environment: "production", actorId: "user-1", ownerId: "user-1" };
-  const stages = ["discovery", "proposal", "negotiation"];
+  const stages = [discoveryStageId, proposalStageId, negotiationStageId];
   for (const stage of stages) {
     const result = await salesOpportunityStageUpdateHandler({
       actor: handlerContext().actor, request, authorizationContext,
-      input: { id: "2", expectedStage: state.stageId, expectedRevision: state.revision, stage },
+      input: stageMove("2", state.revision, state.stageId, stage),
       idempotencyKey: `opp-${stage}-1`, signal: new AbortController().signal
     });
-    assert.equal(result.stage, stage);
+    assert.equal(result.stageId, stage);
   }
   assert.equal(state.audit.length, stages.length + 1);
   for (const [index, entry] of state.audit.slice(1).entries()) {
     assertActionAudit(entry, {
       actionId: "sales.opportunity.stage.update", resourceId: "2", applicationId: "customer-gate-1", environment: "production",
-      fromState: index === 0 ? "qualification" : stages[index - 1], toState: stages[index], actorId: "user-1", revision: index + 2,
+      fromState: index === 0 ? qualificationStageId : stages[index - 1], toState: stages[index], actorId: "user-1", revision: index + 2,
       idempotencyKey: `opp-${stages[index]}-1`
     });
   }
@@ -884,7 +899,7 @@ test("Sales opportunity stage history appends one complete audit entry per accep
 test("Sales opportunity stage update rejects archived records before audit or mutation", async () => {
   let updates = 0;
   const audit = [{ kind: "phase-13-legacy-upgrade", receiptDigest: `sha256:${"0".repeat(64)}`, legacyStage: "lead", ownershipGenesis: { ownerId: "user-1", teamId: null } }];
-  const document = { id: "2", name: "Archived", ownerId: "user-1", stageId: "qualification", archiveStatus: "archived", revision: 1, audit };
+  const document = { id: "2", name: "Archived", ownerId: "user-1", pipelineId: 17, stageId: qualificationStageId, archiveStatus: "archived", revision: 1, audit };
   const request = { payload: {
     find: async () => ({ docs: [structuredClone(document)] }), create: async () => ({}),
     update: async () => { updates += 1; return { docs: [], errors: [] }; }
@@ -892,11 +907,31 @@ test("Sales opportunity stage update rejects archived records before audit or mu
   await assert.rejects(salesOpportunityStageUpdateHandler({
     actor: handlerContext().actor, request,
     authorizationContext: { actionId: "sales.opportunity.stage.update", resourceId: "2", applicationId: "customer-gate-1", environment: "production", actorId: "user-1", ownerId: "user-1" },
-    input: { id: "2", expectedStage: "qualification", expectedRevision: 1, stage: "discovery" },
+    input: stageMove("2", 1, qualificationStageId, discoveryStageId),
     idempotencyKey: "archived-stage-1", signal: new AbortController().signal
   }), (error) => error?.code === "STALE_RECORD" && error?.status === 409);
   assert.equal(updates, 0);
   assert.deepEqual(document.audit, audit);
+});
+
+test("Sales opportunity stage update denies a trusted graph edge removed by configuration", async () => {
+  let updates = 0;
+  const state = { id: "2", name: "Configured", ownerId: "user-1", pipelineId: 17, stageId: qualificationStageId, archiveStatus: "active", revision: 1, audit: [{ kind: "phase-13-legacy-upgrade", receiptDigest: `sha256:${"0".repeat(64)}`, legacyStage: "lead", ownershipGenesis: { ownerId: "user-1", teamId: null } }] };
+  const request = { payload: {
+    create: async () => ({}),
+    find: async (options) => {
+      const found = p134StageFind(state, options);
+      if (options.collection !== "sales-pipeline-stages") return found;
+      const stageId = options.where.and.find((clause) => clause.stageId)?.stageId.equals;
+      return stageId === qualificationStageId ? { docs: found.docs.map((stage) => ({ ...stage, allowedTransitionStageIds: [] })) } : found;
+    },
+    update: async () => { updates += 1; return { docs: [], errors: [] }; }
+  } };
+  await assert.rejects(salesOpportunityStageUpdateHandler({ actor: handlerContext().actor, request,
+    authorizationContext: { actionId: "sales.opportunity.stage.update", resourceId: "2", applicationId: "customer-gate-1", environment: "production", actorId: "user-1", ownerId: "user-1" },
+    input: stageMove("2", 1, qualificationStageId, discoveryStageId), idempotencyKey: "removed-edge-1", signal: new AbortController().signal
+  }), (error) => error?.code === "STALE_RECORD" && error?.status === 409);
+  assert.equal(updates, 0);
 });
 
 test("Sales update actions use actor-scoped Payload updates exactly once", async () => {
@@ -905,9 +940,8 @@ test("Sales update actions use actor-scoped Payload updates exactly once", async
   const opportunityAudit = { kind: "phase-13-legacy-upgrade", receiptDigest: `sha256:${"0".repeat(64)}`, legacyStage: "qualified", ownershipGenesis: { ownerId: "user-1", teamId: null } };
   const request = {
     payload: {
-      find: async (options) => ({ docs: [options.collection === "sales-tasks"
-        ? { id: "1", status: "open", revision: 1, audit: [taskAudit] }
-        : { id: "2", ownerId: "user-1", stageId: "discovery", archiveStatus: "active", revision: 1, audit: [opportunityAudit] }] }), create: async () => ({}),
+      find: async (options) => options.collection === "sales-tasks" ? { docs: [{ id: "1", status: "open", revision: 1, audit: [taskAudit] }] }
+        : p134StageFind({ id: "2", ownerId: "user-1", pipelineId: 17, stageId: discoveryStageId, archiveStatus: "active", revision: 1, audit: [opportunityAudit] }, options), create: async () => ({}),
       update: async (options) => {
         calls.push(options);
         return options.collection === "sales-tasks"
@@ -919,7 +953,7 @@ test("Sales update actions use actor-scoped Payload updates exactly once", async
   const auth = (actionId, resourceId) => ({ actionId, resourceId, applicationId: "customer-gate-1", environment: "production", actorId: "user-1", ownerId: "user-1" });
   const base = { actor: handlerContext().actor, request, idempotencyKey: "update-1", signal: new AbortController().signal };
   assert.deepEqual(await salesTaskUpdateHandler({ ...base, authorizationContext: auth("sales.task.update", "1"), input: { id: "1", expectedRevision: 1, expectedStatus: "open", status: "completed" } }), { id: "1", title: "Existing", status: "completed", revision: 2 });
-  assert.deepEqual(await salesOpportunityStageUpdateHandler({ ...base, authorizationContext: auth("sales.opportunity.stage.update", "2"), input: { id: "2", expectedStage: "discovery", expectedRevision: 1, stage: "proposal" } }), { id: "2", name: "Platform rollout", stage: "proposal", revision: 2 });
+  assert.deepEqual(await salesOpportunityStageUpdateHandler({ ...base, authorizationContext: auth("sales.opportunity.stage.update", "2"), input: stageMove("2", 1, discoveryStageId, proposalStageId) }), { id: "2", pipelineId: "17", stageId: proposalStageId, revision: 2 });
   assert.equal(calls.length, 2);
   assert.equal(calls.every((call) => call.overrideAccess === true && call.user.id === "user-1"), true);
   assert.deepEqual(calls[1].where, { and: [
@@ -937,7 +971,7 @@ test("Sales update actions use actor-scoped Payload updates exactly once", async
   assert.deepEqual(calls[1].data.audit.slice(0, 1), [opportunityAudit]);
   assertActionAudit(calls[1].data.audit[1], {
     actionId: "sales.opportunity.stage.update", resourceId: "2", applicationId: "customer-gate-1", environment: "production",
-    fromState: "discovery", toState: "proposal", actorId: "user-1", revision: 2, idempotencyKey: "update-1"
+    fromState: discoveryStageId, toState: proposalStageId, actorId: "user-1", revision: 2, idempotencyKey: "update-1"
   });
 });
 
@@ -948,7 +982,7 @@ test("Sales rejects a stale opportunity card without a blind update", async () =
     actor: handlerContext().actor, request,
     authorizationContext: { actionId: "sales.opportunity.stage.update", resourceId: "2", applicationId: "customer-gate-1", environment: "production", actorId: "user-1", ownerId: "user-1" },
     idempotencyKey: "stale-1", signal: new AbortController().signal,
-    input: { id: "2", expectedStage: "qualification", expectedRevision: 1, stage: "discovery" }
+    input: stageMove("2", 1, qualificationStageId, discoveryStageId)
   }), (error) => error?.code === "STALE_RECORD" && error?.status === 409);
   assert.equal(updates, 0);
 });

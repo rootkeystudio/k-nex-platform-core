@@ -140,6 +140,43 @@ const opportunityMoney = { type: "object" as const, properties: {
   kind: { type: "string" as const, enum: ["money"] }, value: { type: "string" as const, minLength: 1, maxLength: 128 },
   currency: { type: "string" as const, minLength: 3, maxLength: 3 }, scale: { type: "integer" as const, minimum: 0, maximum: 18 }
 }, required: ["kind", "value", "currency", "scale"], additionalProperties: false as const };
+const stageUuid = { type: "string" as const, minLength: 36, maxLength: 36 };
+const stringArray = { type: "array" as const, items: { type: "string" as const }, maxItems: 6 };
+const pipelineStageSnapshot = { type: "object" as const, properties: {
+  stageId: stageUuid, expectedRevision: revision, semantic: opportunityStage, name: shortText,
+  position: { type: "integer" as const, minimum: 0, maximum: 5 }, probabilityBasisPoints: { type: "integer" as const, minimum: 0, maximum: 10_000 },
+  allowedTransitionStageIds: stringArray, requiredFieldIds: { type: "array" as const, items: { type: "string" as const }, maxItems: 1 }
+}, required: ["stageId", "expectedRevision", "semantic", "name", "position", "probabilityBasisPoints", "allowedTransitionStageIds", "requiredFieldIds"], additionalProperties: false as const };
+const pipelineStageOutput = { type: "object" as const, properties: {
+  stageId: stageUuid, revision, semantic: opportunityStage, name: shortText,
+  position: { type: "integer" as const, minimum: 0, maximum: 5 }, probabilityBasisPoints: { type: "integer" as const, minimum: 0, maximum: 10_000 },
+  allowedTransitionStageIds: stringArray, requiredFieldIds: { type: "array" as const, items: { type: "string" as const }, maxItems: 1 }, status: { type: "string" as const, enum: ["active"] }
+}, required: ["stageId", "revision", "semantic", "name", "position", "probabilityBasisPoints", "allowedTransitionStageIds", "requiredFieldIds", "status"], additionalProperties: false as const };
+const savedViewName = { type: "string" as const, minLength: 1, maxLength: 120, maxUtf8Bytes: 120 };
+const savedViewVisibility = {
+  oneOf: [
+    { type: "object" as const, properties: { kind: { type: "string" as const, enum: ["personal"] } }, required: ["kind"], additionalProperties: false as const },
+    { type: "object" as const, properties: { kind: { type: "string" as const, enum: ["team"] }, teamId: { type: "string" as const, minLength: 1, maxLength: 120, maxUtf8Bytes: 120 } }, required: ["kind", "teamId"], additionalProperties: false as const }
+  ]
+} satisfies AgentToolJsonSchema;
+const savedViewFilterValue = {
+  oneOf: [
+    { type: "null" as const },
+    { type: "string" as const, maxLength: 512, maxUtf8Bytes: 512 },
+    { type: "integer" as const, minimum: -Number.MAX_SAFE_INTEGER, maximum: Number.MAX_SAFE_INTEGER },
+    { type: "array" as const, items: { type: "string" as const, maxLength: 512, maxUtf8Bytes: 512 }, minItems: 1, maxItems: 20 },
+    { type: "array" as const, items: { type: "integer" as const, minimum: -Number.MAX_SAFE_INTEGER, maximum: Number.MAX_SAFE_INTEGER }, minItems: 1, maxItems: 20 }
+  ]
+} satisfies AgentToolJsonSchema;
+const savedViewDefinition = { type: "object" as const, properties: {
+  kind: { type: "string" as const, enum: ["table", "kanban", "calendar"] }, targetObjectId: { type: "string" as const },
+  source: { type: "object" as const, properties: { id: { type: "string" as const }, version: revision, sourceSchema: { type: "object" as const, properties: { id: { type: "string" as const }, version: revision }, required: ["id", "version"], additionalProperties: false as const }, structuralCompatibilityHash: { type: "string" as const } }, required: ["id", "version", "sourceSchema", "structuralCompatibilityHash"], additionalProperties: false as const },
+  fields: { type: "array" as const, items: { type: "string" as const }, minItems: 1, maxItems: 8 },
+  filters: { type: "array" as const, items: { type: "object" as const, properties: { fieldId: { type: "string" as const }, operator: { type: "string" as const }, value: savedViewFilterValue }, required: ["fieldId", "operator"], additionalProperties: false as const }, maxItems: 8 },
+  sorts: { type: "array" as const, items: { type: "object" as const, properties: { fieldId: { type: "string" as const }, direction: { type: "string" as const, enum: ["asc", "desc"] } }, required: ["fieldId", "direction"], additionalProperties: false as const }, maxItems: 2 },
+  grouping: { type: "string" as const }, dateField: { type: "string" as const }, calendarRange: { type: "object" as const, properties: { start: { type: "string" as const }, end: { type: "string" as const }, timezone: { type: "string" as const } }, required: ["start", "end", "timezone"], additionalProperties: false as const },
+  presentation: { type: "object" as const, properties: { density: { type: "string" as const }, mode: { type: "string" as const } }, additionalProperties: false as const }, pageSize: { type: "integer" as const, minimum: 1, maximum: 100 }
+}, required: ["kind", "targetObjectId", "source", "fields", "filters", "sorts", "presentation", "pageSize"], additionalProperties: false as const };
 const mutationInput = (properties: Record<string, AgentToolJsonSchema>, required: string[]) => ({ type: "object" as const, properties, required, additionalProperties: false as const });
 const workflowActionInputs: Readonly<Record<string, ActionDescriptor["inputSchema"]>> = Object.freeze({
   "sales.account.create": mutationInput({ name: shortText }, ["name"]),
@@ -153,9 +190,9 @@ const workflowActionInputs: Readonly<Record<string, ActionDescriptor["inputSchem
   "sales.lead.qualify": mutationInput({ id: recordId, expectedRevision: revision, accountMode: qualificationMode, accountName: shortText, accountId: recordId, contactMode: qualificationMode, contactName: shortText, contactId: recordId, opportunityName: shortText, pipelineId: recordId }, ["id", "expectedRevision", "accountMode", "contactMode", "opportunityName", "pipelineId"]),
   "sales.lead.disqualify": mutationInput({ id: recordId, expectedRevision: revision }, ["id", "expectedRevision"]),
   "sales.lead.archive": mutationInput({ id: recordId, expectedRevision: revision }, ["id", "expectedRevision"]),
-  "sales.opportunity.create": mutationInput({ name: shortText, accountId: recordId, pipelineId: recordId, stageId: { type: "string" as const, enum: ["qualification"] }, primaryContactId: recordId, amount: opportunityMoney, expectedCloseDate: calendarDate }, ["name", "accountId", "pipelineId", "stageId"]),
+  "sales.opportunity.create": mutationInput({ name: shortText, accountId: recordId, pipelineId: recordId, expectedPipelineRevision: revision, stageId: stageUuid, expectedStageRevision: revision, primaryContactId: recordId, amount: opportunityMoney, expectedCloseDate: calendarDate }, ["name", "accountId", "pipelineId", "expectedPipelineRevision", "stageId", "expectedStageRevision"]),
   "sales.opportunity.update": mutationInput({ id: recordId, expectedRevision: revision, name: shortText, primaryContactMode: optionalMutationMode, primaryContactId: recordId, amountMode: optionalMutationMode, amount: opportunityMoney, expectedCloseDateMode: optionalMutationMode, expectedCloseDate: calendarDate }, ["id", "expectedRevision", "name", "primaryContactMode", "amountMode", "expectedCloseDateMode"]),
-  "sales.opportunity.close": mutationInput({ id: recordId, expectedRevision: revision, expectedStage: opportunityStage, stage: { type: "string" as const, enum: ["won", "lost"] }, lossReason: optionalText }, ["id", "expectedRevision", "expectedStage", "stage"]),
+  "sales.opportunity.close": mutationInput({ id: recordId, expectedRevision: revision, expectedPipelineId: recordId, expectedPipelineRevision: revision, expectedSourceStageId: stageUuid, expectedSourceStageRevision: revision, destinationStageId: stageUuid, expectedDestinationStageRevision: revision, lossReason: { type: "string" as const, minLength: 1, maxLength: 500 } }, ["id", "expectedRevision", "expectedPipelineId", "expectedPipelineRevision", "expectedSourceStageId", "expectedSourceStageRevision", "destinationStageId", "expectedDestinationStageRevision"]),
   "sales.opportunity.archive": mutationInput({ id: recordId, expectedRevision: revision }, ["id", "expectedRevision"]),
   "sales.activity.create": mutationInput({ relatedRecordType, relatedRecordId: recordId, type: activityType, subject: shortText, scheduledAt: shortText, supersedesActivityId: recordId }, ["relatedRecordType", "relatedRecordId", "type", "subject", "scheduledAt"]),
   "sales.activity.complete": mutationInput({ id: recordId, expectedRevision: revision }, ["id", "expectedRevision"]),
@@ -163,6 +200,11 @@ const workflowActionInputs: Readonly<Record<string, ActionDescriptor["inputSchem
   "sales.note.create": mutationInput({ relatedRecordType, relatedRecordId: recordId, body: { type: "string" as const, minLength: 1, maxLength: 10_000 }, replacesNoteId: recordId }, ["relatedRecordType", "relatedRecordId", "body"]),
   "sales.attachment.link": mutationInput({ relatedRecordType, relatedRecordId: recordId, storageReference: shortText, filename: shortText, mediaType, byteSize: { type: "integer" as const, minimum: 0, maximum: 1_073_741_824 } }, ["relatedRecordType", "relatedRecordId", "storageReference", "filename", "mediaType", "byteSize"]),
   "sales.attachment.remove": mutationInput({ id: recordId, expectedRevision: revision }, ["id", "expectedRevision"]),
+  "sales.pipeline.update": mutationInput({ id: recordId, expectedRevision: revision, name: shortText, orderedStageIds: stringArray, stages: { type: "array" as const, items: pipelineStageSnapshot, minItems: 6, maxItems: 6 } }, ["id", "expectedRevision", "name", "orderedStageIds", "stages"]),
+  "sales.pipeline.archive": mutationInput({ id: recordId, expectedRevision: revision }, ["id", "expectedRevision"]),
+  "sales.saved-view.create": mutationInput({ name: savedViewName, visibility: savedViewVisibility, definition: savedViewDefinition }, ["name", "visibility", "definition"]),
+  "sales.saved-view.update": mutationInput({ id: recordId, expectedRevision: revision, name: savedViewName, visibility: savedViewVisibility, definition: savedViewDefinition }, ["id", "expectedRevision", "name", "visibility", "definition"]),
+  "sales.saved-view.archive": mutationInput({ id: recordId, expectedRevision: revision }, ["id", "expectedRevision"]),
   "sales.ownership.assign": mutationInput({ recordType: ownershipRecordType, id: recordId, expectedRevision: revision, ownerId: principalIdentity, teamId: principalIdentity }, ["recordType", "id", "expectedRevision", "ownerId"])
 });
 const ownershipOutput = { type: "object" as const, properties: { recordType: ownershipRecordType, id: recordId, revision, ownerId: principalIdentity, teamId: principalIdentity }, required: ["recordType", "id", "revision", "ownerId"], additionalProperties: false as const };
@@ -171,12 +213,22 @@ const workflowOutputStatuses: Readonly<Record<string, readonly string[]>> = Obje
   "sales.contact.create": ["active"], "sales.contact.update": ["active"], "sales.contact.archive": ["archived"],
   "sales.lead.create": ["new"], "sales.lead.update": ["working"], "sales.lead.qualify": ["qualified"], "sales.lead.disqualify": ["disqualified"], "sales.lead.archive": ["archived"],
   "sales.opportunity.create": ["qualification"], "sales.opportunity.update": ["qualification", "discovery", "proposal", "negotiation"], "sales.opportunity.close": ["won", "lost"], "sales.opportunity.archive": ["archived"],
-  "sales.activity.create": ["scheduled"], "sales.activity.complete": ["completed"], "sales.activity.cancel": ["cancelled"], "sales.note.create": ["recorded"], "sales.attachment.link": ["active"], "sales.attachment.remove": ["removed"]
+  "sales.activity.create": ["scheduled"], "sales.activity.complete": ["completed"], "sales.activity.cancel": ["cancelled"], "sales.note.create": ["recorded"], "sales.attachment.link": ["active"], "sales.attachment.remove": ["removed"],
+  "sales.pipeline.update": ["active"], "sales.pipeline.archive": ["archived"], "sales.saved-view.create": ["active"], "sales.saved-view.update": ["active"], "sales.saved-view.archive": ["archived"]
 });
 function workflowOutput(id: string): ActionDescriptor["outputSchema"] {
   const statuses = workflowOutputStatuses[id];
   if (statuses === undefined) return actionOutput;
   const qualification = id === "sales.lead.qualify";
+  if (id === "sales.opportunity.create" || id === "sales.opportunity.stage.update" || id === "sales.opportunity.close") return {
+    type: "object", properties: { id: recordId, revision, pipelineId: recordId, stageId: stageUuid }, required: ["id", "revision", "pipelineId", "stageId"], additionalProperties: false
+  };
+  if (id === "sales.pipeline.update") return {
+    type: "object", properties: { id: recordId, revision, name: shortText, orderedStageIds: stringArray, stages: { type: "array", items: pipelineStageOutput, minItems: 6, maxItems: 6 }, status: { type: "string", enum: ["active"] } }, required: ["id", "revision", "name", "orderedStageIds", "stages", "status"], additionalProperties: false
+  };
+  if (id === "sales.saved-view.create" || id === "sales.saved-view.update") return {
+    type: "object", properties: { id: recordId, revision, name: savedViewName, visibility: savedViewVisibility, definition: savedViewDefinition, status: { type: "string", enum: ["active"] } }, required: ["id", "revision", "name", "visibility", "definition", "status"], additionalProperties: false
+  };
   return { type: "object", properties: { id: recordId, revision, status: { type: "string", enum: [...statuses] }, ...(qualification ? { accountId: recordId, contactId: recordId, opportunityId: recordId } : {}) }, required: ["id", "revision", "status", ...(qualification ? ["accountId", "contactId", "opportunityId"] : [])], additionalProperties: false };
 }
 export const salesCrmActionDescriptors: readonly ActionDescriptor[] = Object.freeze(Object.entries(actionPermissions).map(([id, permission]) => {
@@ -185,7 +237,7 @@ export const salesCrmActionDescriptors: readonly ActionDescriptor[] = Object.fre
   const workflow = workflowActionInputs[id];
   return {
     id,
-    version: id === "sales.task.create" || id === "sales.task.update" || id === "sales.opportunity.stage.update" || id === "sales.ownership.assign" || id === "sales.lead.qualify" || id === "sales.opportunity.create" || id === "sales.opportunity.update" || id === "sales.contact.update" || id === "sales.lead.update" || id === "sales.note.create" ? 2 : 1,
+    version: id === "sales.opportunity.stage.update" || id === "sales.opportunity.create" ? 3 : id === "sales.task.create" || id === "sales.task.update" || id === "sales.ownership.assign" || id === "sales.lead.qualify" || id === "sales.opportunity.update" || id === "sales.opportunity.close" || id === "sales.contact.update" || id === "sales.lead.update" || id === "sales.note.create" || id.startsWith("sales.pipeline.") || id.startsWith("sales.saved-view.") ? 2 : 1,
     ownerPluginId: "module.sales",
     inputSchema: workflow ?? actionInput,
     outputSchema: id === "sales.ownership.assign" ? ownershipOutput : workflow === undefined ? { type: "object" as const, properties: { accepted: { type: "boolean" as const } }, required: ["accepted"], additionalProperties: false as const } : workflowOutput(id),

@@ -38,7 +38,8 @@
       "sales.opportunities.collection": "required",
       "sales.tasks.collection": "required",
       "sales.notes.collection": "required",
-      "sales.attachment-references.collection": "required"
+      "sales.attachment-references.collection": "required",
+      "sales.saved-views.collection": "required"
     },
     "migrations": {
       "sales.migration.initial": "required"
@@ -86,7 +87,8 @@
       "sales.opportunities": "required",
       "sales.accounts": "required", "sales.account.detail": "required",
       "sales.contacts": "required", "sales.contact.detail": "required",
-      "sales.leads": "required", "sales.lead.detail": "required", "sales.opportunity.detail": "required", "sales.timeline": "required"
+      "sales.leads": "required", "sales.lead.detail": "required", "sales.opportunity.detail": "required", "sales.timeline": "required",
+      "sales.pipeline.snapshot": "required", "sales.saved-view.list": "required", "sales.saved-view.detail": "required", "sales.saved-view.table": "required", "sales.saved-view.kanban": "required", "sales.saved-view.calendar": "required"
     },
     "actions": {
       "sales.task.create": "required", "sales.task.update": "required", "sales.opportunity.stage.update": "required",
@@ -94,7 +96,8 @@
       "sales.contact.create": "required", "sales.contact.update": "required", "sales.contact.archive": "required",
       "sales.lead.create": "required", "sales.lead.update": "required", "sales.lead.qualify": "required", "sales.lead.disqualify": "required", "sales.lead.archive": "required",
       "sales.opportunity.create": "required", "sales.opportunity.update": "required", "sales.opportunity.close": "required", "sales.opportunity.archive": "required",
-      "sales.activity.create": "required", "sales.activity.complete": "required", "sales.activity.cancel": "required", "sales.note.create": "required", "sales.attachment.link": "required", "sales.attachment.remove": "required", "sales.ownership.assign": "required"
+      "sales.activity.create": "required", "sales.activity.complete": "required", "sales.activity.cancel": "required", "sales.note.create": "required", "sales.attachment.link": "required", "sales.attachment.remove": "required", "sales.ownership.assign": "required",
+      "sales.pipeline.update": "required", "sales.pipeline.archive": "required", "sales.saved-view.create": "required", "sales.saved-view.update": "required", "sales.saved-view.archive": "required"
     },
     "tools": {
       "sales.tools.create-task": "required", "sales.tools.search-tasks": "required"
@@ -102,11 +105,13 @@
     "routes": {
       "sales.route.overview": "required",
       "sales.route.tasks": "required", "sales.route.opportunities": "required", "sales.route.settings": "required",
-      "sales.route.accounts": "required", "sales.route.account-detail": "required", "sales.route.contacts": "required", "sales.route.contact-detail": "required", "sales.route.leads": "required", "sales.route.lead-detail": "required", "sales.route.opportunity-detail": "required"
+      "sales.route.accounts": "required", "sales.route.account-detail": "required", "sales.route.contacts": "required", "sales.route.contact-detail": "required", "sales.route.leads": "required", "sales.route.lead-detail": "required", "sales.route.opportunity-detail": "required",
+      "sales.route.calendar": "required", "sales.route.pipeline-settings": "required", "sales.route.saved-views": "required"
     },
     "pageTemplates": {
       "sales.page.overview": "required", "sales.page.tasks": "required", "sales.page.opportunities": "required", "sales.page.settings": "required",
-      "sales.page.accounts": "required", "sales.page.account-detail": "required", "sales.page.contacts": "required", "sales.page.contact-detail": "required", "sales.page.leads": "required", "sales.page.lead-detail": "required", "sales.page.opportunity-detail": "required"
+      "sales.page.accounts": "required", "sales.page.account-detail": "required", "sales.page.contacts": "required", "sales.page.contact-detail": "required", "sales.page.leads": "required", "sales.page.lead-detail": "required", "sales.page.opportunity-detail": "required",
+      "sales.page.calendar": "required", "sales.page.pipeline-settings": "required", "sales.page.saved-views": "required"
     },
     "navigation": {
       "sales.navigation.overview": "required", "sales.navigation.tasks": "required", "sales.navigation.opportunities": "required", "sales.navigation.settings": "required", "sales.navigation.accounts": "required", "sales.navigation.contacts": "required", "sales.navigation.leads": "required"
@@ -115,7 +120,8 @@
       "sales.table.tasks": "required", "sales.form.task-quick-create": "required", "sales.list.opportunities": "required", "sales.detail.opportunity": "required", "sales.status.pipeline-stage": "required", "sales.list.accounts": "required", "sales.detail.account": "required", "sales.list.contacts": "required", "sales.detail.contact": "required", "sales.list.leads": "required", "sales.detail.lead": "required"
     },
     "blocks": {
-      "sales.task-table": "required", "sales.task-quick-create": "required", "sales.opportunity-list": "required", "sales.opportunity-detail": "required", "sales.opportunity-kanban": "required", "sales.settings-summary": "required", "sales.account-list": "required", "sales.account-detail": "required", "sales.contact-list": "required", "sales.contact-detail": "required", "sales.lead-list": "required", "sales.lead-detail": "required"
+      "sales.task-table": "required", "sales.task-quick-create": "required", "sales.opportunity-list": "required", "sales.opportunity-detail": "required", "sales.opportunity-kanban": "required", "sales.settings-summary": "required", "sales.account-list": "required", "sales.account-detail": "required", "sales.contact-list": "required", "sales.contact-detail": "required", "sales.lead-list": "required", "sales.lead-detail": "required",
+      "sales.calendar": "required", "sales.pipeline-settings": "required", "sales.saved-views": "required", "sales.saved-view-table": "required"
     },
     "events": {
       "sales.event.task-changed": "required", "sales.event.opportunity-changed": "required", "sales.event.account-changed": "required", "sales.event.contact-changed": "required", "sales.event.lead-changed": "required", "sales.event.timeline-changed": "required"

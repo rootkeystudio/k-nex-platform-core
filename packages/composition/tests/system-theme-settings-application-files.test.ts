@@ -9,7 +9,8 @@ describe("generated System Theme and Settings administration", () => {
     const runtime = files["src/k-nex-system-theme-settings.ts"]!;
 
     expect(runtime).toContain('id: "system.general"');
-    expect(runtime).toContain('fields: { siteName: { type: "string", required: true, default: "K-Nex" } }');
+    expect(runtime).toContain('descriptorSchemaVersion: 2');
+    expect(runtime).toContain('reportingTimezone: { type: "string", required: true, default: "UTC"');
     expect(runtime).toContain('readPermission: "system.settings.read"');
     expect(runtime).toContain('changePermission: "system.settings.manage"');
     expect(runtime).toContain("new SystemThemeAdministrationService");

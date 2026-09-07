@@ -19,6 +19,12 @@ const repositoryRoot = resolve(import.meta.dirname, "../../..");
 const applicationId = "p13-crm-browser";
 const environmentName = "test";
 const owner = Object.freeze({ kind: "extension", deliveryClass: "platform-plugin", extensionId: "module.sales", generation: 1 });
+const stageNamespace = Buffer.from("13f5fa89b4655a7aa19d74ed6c5d1ef4", "hex");
+function opaqueStageId(pipelineId, semantic) {
+  const bytes = Buffer.from(createHash("sha1").update(stageNamespace).update(Buffer.from(["phase13/pipeline-stage/v1", applicationId, environmentName, String(pipelineId), semantic].join("\0"))).digest().subarray(0, 16));
+  bytes[6] = (bytes[6] & 15) | 80; bytes[8] = (bytes[8] & 63) | 128; const hex = bytes.toString("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
 const crmProductContract = Object.freeze(JSON.parse(readFileSync(resolve(repositoryRoot, "contracts/phase-13-crm-product-contract.v1.json"), "utf8")));
 
 function canonicalPersona(personaId) {
@@ -38,6 +44,12 @@ const canonicalPersonas = Object.freeze({
 
 function run(command, arguments_, options) {
   return execFileSync(command, arguments_, { ...options, encoding: "utf8", timeout: 240_000 });
+}
+
+function issueDoctorCredential(directory, uriSan) {
+  const key = resolve(directory, "doctor-operator.key"); const certificate = resolve(directory, "doctor-operator.crt");
+  run("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1", "-subj", "/CN=K-Nex P13 Doctor", "-addext", `subjectAltName=URI:${uriSan}`, "-keyout", key, "-out", certificate], { stdio: "pipe" });
+  return { key, certificate };
 }
 
 async function unusedPort() {
@@ -158,6 +170,8 @@ function audit(actionId, resourceId, actorId, fromState, toState, revision, key,
 
 async function seedRecords(pool, ids) {
   const teamId = `team:${ids.owner}`;
+  await pool.query("insert into k_nex_system_settings_state (application_id,environment,settings_revision) values ($1,$2,1) on conflict (application_id,environment) do update set settings_revision=greatest(k_nex_system_settings_state.settings_revision,1)", [applicationId, environmentName]);
+  await pool.query("insert into k_nex_system_settings_documents (application_id,environment,descriptor_id,descriptor_schema_version,owner_scope_key,owner_kind,owner_namespace,owner_delivery_class,owner_extension_id,owner_generation,document_revision,settings_revision,values_json) values ($1,$2,'system.general',2,'platform:system','platform','system',null,null,null,1,1,$3::jsonb)", [applicationId, environmentName, JSON.stringify({ siteName: "K-Nex", reportingTimezone: "UTC" })]);
   const insertAccount = async (name, ownerId = ids.owner, team = teamId) => {
     const row = (await pool.query("insert into sales_accounts (application_id,environment,owner_id,team_id,created_by,updated_by,name) values ($1,$2,$3,$4,$3,$3,$5) returning id", [applicationId, environmentName, ownerId, team, name])).rows[0];
     await pool.query("update sales_accounts set audit=$2::jsonb where id=$1", [row.id, JSON.stringify([audit("sales.account.create", row.id, ownerId, "absent", "active", 1, `account-create-${row.id}`, { ownerId, teamId: team })])]);
@@ -170,9 +184,20 @@ async function seedRecords(pool, ids) {
   for (let index = 1; index <= 26; index += 1) await insertAccount(index === 26 ? page2AccountName : `P13 pagination account ${index}`);
   const pipeline = (await pool.query("insert into sales_pipelines (application_id,environment,created_by,updated_by,name,ordered_stage_ids,is_active) values ($1,$2,$3,$3,'Browser pipeline',$4::jsonb,true) returning id", [applicationId, environmentName, ids.owner, JSON.stringify(["qualification", "discovery", "proposal", "negotiation", "won", "lost"])])).rows[0];
   for (const [position, stageId] of ["qualification", "discovery", "proposal", "negotiation", "won", "lost"].entries()) {
+    const opaqueId = opaqueStageId(pipeline.id, stageId);
     const allowed = stageId === "qualification" ? ["discovery", "lost"] : stageId === "discovery" ? ["proposal", "lost"] : stageId === "proposal" ? ["negotiation", "lost"] : stageId === "negotiation" ? ["won", "lost"] : [];
-    await pool.query("insert into sales_pipeline_stages (application_id,environment,created_by,updated_by,pipeline_id,stage_id,name,semantic,position,probability_basis_points,allowed_transitions) values ($1,$2,$3,$3,$4,$5,$6,$5,$7,$8,$9::jsonb)", [applicationId, environmentName, ids.owner, pipeline.id, stageId, stageId[0].toUpperCase() + stageId.slice(1), position, stageId === "won" ? 10_000 : 0, JSON.stringify(allowed)]);
+    await pool.query("insert into sales_pipeline_stages (application_id,environment,created_by,updated_by,pipeline_id,stage_id,name,semantic,position,probability_basis_points,allowed_transition_stage_ids,required_field_ids) values ($1,$2,$3,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb)", [applicationId, environmentName, ids.owner, pipeline.id, opaqueId, stageId[0].toUpperCase() + stageId.slice(1), stageId, position, stageId === "won" ? 10_000 : 0, JSON.stringify(allowed.map((semantic) => opaqueStageId(pipeline.id, semantic))), JSON.stringify(stageId === "lost" ? ["lossReason"] : [])]);
   }
+  const pipelineIdentityAudit = [{ kind: "phase-13-pipeline-stage-identity", receiptDigest: `sha256:${"0".repeat(64)}`, sourceRevision: 0, targetRevision: 1 }];
+  await pool.query("update sales_pipelines set ordered_stage_ids=$2::jsonb,audit=$3::jsonb where id=$1", [pipeline.id, JSON.stringify(["qualification", "discovery", "proposal", "negotiation", "won", "lost"].map((semantic) => opaqueStageId(pipeline.id, semantic))), JSON.stringify(pipelineIdentityAudit)]);
+  await pool.query("update sales_pipeline_stages set audit=$2::jsonb where pipeline_id=$1", [pipeline.id, JSON.stringify(pipelineIdentityAudit)]);
+  assert.deepEqual((await pool.query("select revision,audit from sales_pipelines where id=$1", [pipeline.id])).rows, [{ revision: 1, audit: pipelineIdentityAudit }], "fixture pipeline must carry exact migration identity genesis");
+  assert.equal((await pool.query("select count(*)::int count from sales_pipeline_stages where pipeline_id=$1 and revision=1 and audit=$2::jsonb", [pipeline.id, JSON.stringify(pipelineIdentityAudit)])).rows[0].count, 6, "fixture Stages must carry exact migration identity genesis");
+  const kanbanDefinition = { kind: "kanban", targetObjectId: "sales.object.opportunity", source: { id: "sales.saved-view.kanban", version: 1, sourceSchema: { id: "sales.saved-view.kanban.output", version: 1 }, structuralCompatibilityHash: "sha256:c54433c895722e63dd499720e37e8f2ae9b1390c28bab9f0c5111c4f7ea1233a" }, fields: ["row-kind", "name", "stage-id", "stage-metadata", "revision"], filters: [], sorts: [], grouping: "stage-id", presentation: { density: "comfortable" }, pageSize: 25 };
+  const teamKanbanView = (await pool.query("insert into sales_saved_views (application_id,environment,owner_id,created_by,updated_by,name,visibility,visibility_team_id,view_kind,target_object_id,definition) values ($1,$2,$3,$3,$3,'Team opportunity Kanban','team',$4,'kanban','sales.object.opportunity',$5::jsonb) returning id", [applicationId, environmentName, ids.owner, teamId, JSON.stringify(kanbanDefinition)])).rows[0];
+  await pool.query("update sales_saved_views set audit=$2::jsonb where id=$1", [teamKanbanView.id, JSON.stringify([audit("sales.saved-view.create", teamKanbanView.id, ids.owner, "absent", "active", 1, `saved-view-create-${teamKanbanView.id}`, { ownerId: ids.owner, teamId })])]);
+  const kanbanView = (await pool.query("insert into sales_saved_views (application_id,environment,owner_id,created_by,updated_by,name,visibility,visibility_team_id,view_kind,target_object_id,definition) values ($1,$2,$3,$3,$3,'Browser opportunity Kanban','personal',null,'kanban','sales.object.opportunity',$4::jsonb) returning id", [applicationId, environmentName, ids.owner, JSON.stringify(kanbanDefinition)])).rows[0];
+  await pool.query("update sales_saved_views set audit=$2::jsonb where id=$1", [kanbanView.id, JSON.stringify([audit("sales.saved-view.create", kanbanView.id, ids.owner, "absent", "active", 1, `saved-view-create-${kanbanView.id}`, { ownerId: ids.owner, teamId: null })])]);
   const contactPhone = "+15550100001";
   const contact = (await pool.query("insert into sales_contacts (application_id,environment,owner_id,team_id,created_by,updated_by,account_id,display_name,email,phone) values ($1,$2,$3,$4,$3,$3,$5,'Browser contact seed','owner-contact-secret@example.test',$6) returning id", [applicationId, environmentName, ids.owner, teamId, accountId, contactPhone])).rows[0];
   await pool.query("update sales_contacts set audit=$2::jsonb where id=$1", [contact.id, JSON.stringify([audit("sales.contact.create", contact.id, ids.owner, "absent", "active", 1, `contact-create-${contact.id}`, { ownerId: ids.owner, teamId })])]);
@@ -190,11 +215,12 @@ async function seedRecords(pool, ids) {
     leadIds.push(String(lead.id));
   }
   const insertOpportunity = async (name, stageId, amount, { ownerId = ids.owner, team = teamId, account = accountId, primaryContactId = null } = {}) => {
+    const stageSemantic = stageId; stageId = /^[a-z]+$/u.test(stageId) ? opaqueStageId(pipeline.id, stageId) : stageId;
     const opportunity = (await pool.query("insert into sales_opportunities (application_id,environment,owner_id,team_id,created_by,updated_by,name,account_id,pipeline_id,stage_id,amount,currency,primary_contact_id) values ($1,$2,$3,$4,$3,$3,$5,$6,$7,$8,$9,'USD',$10) returning id", [applicationId, environmentName, ownerId, team, name, account, pipeline.id, stageId, amount, primaryContactId])).rows[0];
-    const history = [audit("sales.opportunity.create", opportunity.id, ownerId, "absent", "qualification", 1, `opportunity-create-${opportunity.id}`, { ownerId, teamId: team })];
+    const history = [audit("sales.opportunity.create", opportunity.id, ownerId, "absent", opaqueStageId(pipeline.id, "qualification"), 1, `opportunity-create-${opportunity.id}`, { ownerId, teamId: team })];
     for (const [index, [from, to]] of [["qualification", "discovery"], ["discovery", "proposal"], ["proposal", "negotiation"]].entries()) {
-      if (["qualification", "discovery", "proposal", "negotiation"].indexOf(stageId) <= index) break;
-      history.push(audit("sales.opportunity.stage.update", opportunity.id, ownerId, from, to, index + 2, `opportunity-stage-${opportunity.id}-${index + 2}`));
+      if (["qualification", "discovery", "proposal", "negotiation"].indexOf(stageSemantic) <= index) break;
+      history.push(audit("sales.opportunity.stage.update", opportunity.id, ownerId, opaqueStageId(pipeline.id, from), opaqueStageId(pipeline.id, to), index + 2, `opportunity-stage-${opportunity.id}-${index + 2}`));
     }
     await pool.query("update sales_opportunities set revision=$2,audit=$3::jsonb where id=$1", [opportunity.id, history.length, JSON.stringify(history)]);
     return String(opportunity.id);
@@ -248,7 +274,7 @@ export async function withGeneratedCrmBrowserFixture(runBrowser) {
     for (const entry of manifest.packages) copyFileSync(resolve(repositoryRoot, "fixtures/customer-gate-1/packages", `${entry.package.slice(1).replace("/", "-")}-${entry.version}.tgz`), resolve(mirror, `${entry.package.slice(1).replace("/", "-")}-${entry.version}.tgz`));
     for (const lock of Object.values(manifest.factoryLockTemplates)) copyFileSync(resolve(repositoryRoot, "fixtures/customer-gate-1/packages", `factory-lock-sales-reference-${lock.theme}-${lock.digest.slice(7)}.yaml`), resolve(mirror, `factory-lock-sales-reference-${lock.theme}-${lock.digest.slice(7)}.yaml`));
     manifest.release.version = "1.0.0-p13.3.browser"; manifest.supportWindow.supportedReleases = [manifest.release.version];
-    for (const [name, source] of [["@k-nex/composition", "packages/composition"], ["@k-nex/runtime", "packages/runtime"], ["@k-nex/payload-adapter", "packages/payload-adapter"], ["@k-nex/module-sales", "modules/sales"], ["@k-nex/provider-realtime-socketio", "packages/realtime-socketio"]]) {
+    for (const [name, source] of [["@k-nex/contracts", "packages/contracts"], ["@k-nex/composition", "packages/composition"], ["@k-nex/runtime", "packages/runtime"], ["@k-nex/payload-adapter", "packages/payload-adapter"], ["@k-nex/ui-runtime", "packages/ui-runtime"], ["@k-nex/module-sales", "modules/sales"], ["@k-nex/provider-realtime-socketio", "packages/realtime-socketio"]]) {
       run("pnpm", ["build"], { cwd: resolve(repositoryRoot, source), stdio: "pipe" });
       run("pnpm", ["pack", "--pack-destination", mirror], { cwd: resolve(repositoryRoot, source), stdio: "pipe" });
       const entry = manifest.packages.find((candidate) => candidate.package === name); assert.ok(entry);
@@ -278,8 +304,9 @@ export async function withGeneratedCrmBrowserFixture(runBrowser) {
     assert.ok(payloadPostgresConnect.includes("result.release();"), "Generated application omitted the required Payload Postgres reconnect release repair.");
     await administrator.query("create database p13_crm_browser_application");
     const databaseUrl = new URL(container.getConnectionUri()); databaseUrl.pathname = "/p13_crm_browser_application";
-    const port = await unusedPort();
-    const environment = { ...process.env, DATABASE_URL: databaseUrl.toString(), K_NEX_ENVIRONMENT: environmentName, K_NEX_PUBLIC_ORIGIN: `http://127.0.0.1:${port}`, PAYLOAD_SECRET: randomBytes(32).toString("hex") };
+    const port = await unusedPort(); const operatorPort = await unusedPort();
+    const operatorUriSan = `spiffe://k-nex.test/applications/${applicationId}/environments/${environmentName}/administration`; const operatorCredential = issueDoctorCredential(directory, operatorUriSan);
+    const environment = { ...process.env, DATABASE_URL: databaseUrl.toString(), K_NEX_ENVIRONMENT: environmentName, K_NEX_PUBLIC_ORIGIN: `http://127.0.0.1:${port}`, PAYLOAD_SECRET: randomBytes(32).toString("hex"), K_NEX_ADMINISTRATION_OPERATOR_HOST: "127.0.0.1", K_NEX_ADMINISTRATION_OPERATOR_PORT: String(operatorPort), K_NEX_ADMINISTRATION_OPERATOR_CLIENT_CERT: operatorCredential.certificate, K_NEX_ADMINISTRATION_OPERATOR_CLIENT_KEY: operatorCredential.key, K_NEX_ADMINISTRATION_OPERATOR_CA_CERT: operatorCredential.certificate, K_NEX_ADMINISTRATION_OPERATOR_URI_SAN: operatorUriSan, K_NEX_ADMINISTRATION_OPERATOR_IDENTITY: "fixture.p13-doctor" };
     const origin = `http://127.0.0.1:${port}`;
     applicationBackendSnapshot = async () => {
       const result = await administrator.query({
@@ -354,7 +381,8 @@ export async function withGeneratedCrmBrowserFixture(runBrowser) {
     await startWorker();
     stage("worker-ready");
     stage("browser-callback-start");
-    await runBrowser({ application, origin, personas, records, pool, connectionString: databaseUrl.toString(), applicationOutput: () => output, workerOutput: () => workerOutput, workerProcess: () => worker, startWorker, stopWorker, acknowledgeAbnormalWorkerExit, startWeb, stopWeb, issueAttachmentUploadReceipt });
+    const runDoctor = () => run("pnpm", ["knex:doctor"], { cwd: application, env: environment, stdio: "pipe" });
+    await runBrowser({ application, origin, personas, records, pool, connectionString: databaseUrl.toString(), applicationOutput: () => output, workerOutput: () => workerOutput, workerProcess: () => worker, startWorker, stopWorker, acknowledgeAbnormalWorkerExit, startWeb, stopWeb, issueAttachmentUploadReceipt, runDoctor });
     stage("browser-callback-complete");
   } catch (error) {
     primaryFailure = error;

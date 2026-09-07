@@ -10,15 +10,13 @@ test("Sales persisted settings enforce read/change permissions and drive workspa
   assert.equal(salesWorkspaceSettingsDescriptor.readPermission, "sales.settings.read");
   assert.equal(salesWorkspaceSettingsDescriptor.changePermission, "sales.settings.write");
   assert.deepEqual(salesDefaultSettings, {
-    defaultTaskPageSize: 25, showPotentialRevenue: true, defaultPage: "tasks",
-    pipelineStages: ["qualification", "discovery", "proposal", "negotiation", "won", "lost"]
+    defaultTaskPageSize: 25, showPotentialRevenue: true, defaultPage: "tasks"
   });
   const changed = validateSystemSettingsValues(salesWorkspaceSettingsDescriptor, {
     ...salesDefaultSettings, defaultTaskPageSize: 50, showPotentialRevenue: false, defaultPage: "opportunities"
   });
   assert.deepEqual(salesWorkspacePresentation(changed), {
-    routeId: "sales.route.opportunities", taskPageSize: 50, showPotentialRevenue: false,
-    pipelineStages: ["qualification", "discovery", "proposal", "negotiation", "won", "lost"]
+    routeId: "sales.route.opportunities", taskPageSize: 50, showPotentialRevenue: false
   });
   assert.throws(() => validateSystemSettingsValues(salesWorkspaceSettingsDescriptor, {
     ...changed, apiKey: "must-never-be-a-setting"

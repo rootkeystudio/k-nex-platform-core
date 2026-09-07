@@ -81,7 +81,7 @@ export const salesOpportunitiesTableDefinition = defineDataTable({
   id: "sales.opportunities-index",
   descriptor: salesOpportunitiesDescriptor,
   query: salesOpportunitiesQuery,
-  columns: [{ id: "name", label: "Name", size: 280 }, { id: "stage-id", label: "Stage" }, { id: "revision", label: "Revision" }, { id: "amount", label: "Amount" }],
+  columns: [{ id: "name", label: "Name", size: 280 }, { id: "pipeline-id", label: "Pipeline" }, { id: "pipeline-revision", label: "Pipeline revision" }, { id: "stage-id", label: "Stage" }, { id: "stage-name", label: "Stage name" }, { id: "stage-semantic", label: "Stage semantic" }, { id: "stage-revision", label: "Stage revision" }, { id: "revision", label: "Revision" }, { id: "amount", label: "Amount" }],
   paginationModes: ["offset"],
   defaultPageSize: 25,
   rowActions: []
@@ -312,15 +312,6 @@ export function createSalesOpportunityStageController(transport: BrowserDataTran
   });
 }
 
-const opportunityStages: readonly ChoiceOption[] = [
-  { id: "qualification", label: "Qualification" },
-  { id: "discovery", label: "Discovery" },
-  { id: "proposal", label: "Proposal" },
-  { id: "negotiation", label: "Negotiation" },
-  { id: "won", label: "Won" },
-  { id: "lost", label: "Lost" }
-];
-
 export interface SalesOpportunityEditFormProps {
   readonly opportunity: FormSnapshot<UpdateOpportunityStageInput>;
   readonly opportunityOptions: readonly ChoiceOption[];
@@ -330,7 +321,7 @@ export interface SalesOpportunityEditFormProps {
 export function SalesOpportunityEditForm({ opportunity, opportunityOptions, onOpportunityChange, onOpportunitySubmit }: SalesOpportunityEditFormProps): ReactElement {
   return <Form label="Edit opportunity" pending={opportunity.submitting} onSubmit={onOpportunitySubmit}>
     <Select name="id" label="Opportunity" value={opportunity.values.id} options={opportunityOptions} disabled={opportunity.submitting} {...(opportunity.fieldErrors.id === undefined ? {} : { error: opportunity.fieldErrors.id })} onChange={(value) => onOpportunityChange("id", value)} />
-    <Select name="stage" label="Stage" value={opportunity.values.stage} options={opportunityStages} disabled={opportunity.submitting} {...(opportunity.fieldErrors.stage === undefined ? {} : { error: opportunity.fieldErrors.stage })} onChange={(value) => onOpportunityChange("stage", value as UpdateOpportunityStageInput["stage"])} />
+    <TextInput name="destinationStageId" label="Destination stage ID" value={opportunity.values.destinationStageId} required disabled={opportunity.submitting} {...(opportunity.fieldErrors.destinationStageId === undefined ? {} : { error: opportunity.fieldErrors.destinationStageId })} onChange={(value) => onOpportunityChange("destinationStageId", value)} />
     <FormActions><Button type="submit" isDisabled={opportunity.submitting}>Save opportunity</Button></FormActions>
   </Form>;
 }
@@ -396,8 +387,7 @@ export function SalesSettingsPage({ settings }: SalesSettingsPageProps): ReactEl
     <KeyValueList label="Sales settings" items={[
       { id: "default-page", key: "Default page", value: settings.defaultPage },
       { id: "page-size", key: "Task page size", value: String(settings.defaultTaskPageSize) },
-      { id: "revenue", key: "Potential revenue", value: settings.showPotentialRevenue ? "Visible" : "Hidden" },
-      { id: "stages", key: "Pipeline stages", value: settings.pipelineStages.join(", ") }
+      { id: "revenue", key: "Potential revenue", value: settings.showPotentialRevenue ? "Visible" : "Hidden" }
     ]} />
   </SettingsPage>;
 }

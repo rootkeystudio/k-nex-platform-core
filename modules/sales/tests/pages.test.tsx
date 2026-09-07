@@ -49,8 +49,8 @@ const taskRecords = {
   page: { number: 1, pageSize: 25, hasNext: false }
 };
 const opportunityRecords = {
-  fields: ["name", "stage-id", "revision", "amount"],
-  rows: [{ key: "4", values: { name: { kind: "text" as const, value: "Platform rollout" }, "stage-id": { kind: "status" as const, value: "discovery" }, revision: { kind: "integer" as const, value: 7 }, amount: { kind: "money" as const, value: "1200", currency: "USD", scale: 2 } } }],
+  fields: ["name", "pipeline-id", "pipeline-revision", "stage-id", "stage-name", "stage-semantic", "stage-revision", "revision", "amount"],
+  rows: [{ key: "4", values: { name: { kind: "text" as const, value: "Platform rollout" }, "pipeline-id": { kind: "integer" as const, value: 17 }, "pipeline-revision": { kind: "integer" as const, value: 4 }, "stage-id": { kind: "status" as const, value: "76ad7b41-5584-5d62-ab10-2575df5a8d47" }, "stage-name": { kind: "text" as const, value: "Discovery" }, "stage-semantic": { kind: "enum" as const, value: "discovery" }, "stage-revision": { kind: "integer" as const, value: 3 }, revision: { kind: "integer" as const, value: 7 }, amount: { kind: "money" as const, value: "1200", currency: "USD", scale: 2 } } }],
   page: { number: 1, pageSize: 25, hasNext: false }
 };
 
@@ -60,7 +60,7 @@ describe("P7.7 Sales default pages", () => {
     const createTask = createSalesTaskQuickCreateController({ query: vi.fn(), mutate: vi.fn() } as unknown as BrowserDataTransport, "task-page").initial();
     const tasks = renderToStaticMarkup(<SalesTasksPage requestState={{ state: "success", data: taskRecords }} createTask={createTask} onCreateTaskChange={() => undefined} onCreateTask={() => undefined} />);
     const opportunities = renderToStaticMarkup(<SalesOpportunitiesPage requestState={{ state: "success", data: opportunityRecords }} />);
-    const settings = renderToStaticMarkup(<SalesSettingsPage settings={{ defaultTaskPageSize: 25, showPotentialRevenue: true, defaultPage: "tasks", pipelineStages: ["qualification", "won"] }} />);
+    const settings = renderToStaticMarkup(<SalesSettingsPage settings={{ defaultTaskPageSize: 25, showPotentialRevenue: true, defaultPage: "tasks" }} />);
     expect(overview).toContain('data-page-template-id="sales.page.overview"');
     expect(overview).toContain("Current pipeline summary.");
     expect(tasks).toContain('data-page-template-id="sales.page.tasks"');
@@ -220,8 +220,8 @@ describe("P7.7 Sales default pages", () => {
     };
     const task = createSalesTaskQuickCreateController(transport, "create-1");
     await task.submit(task.change(task.initial(), "title", "Follow up"), new AbortController().signal);
-    const opportunity = createSalesOpportunityStageController(transport, { id: "4", expectedStage: "discovery", expectedRevision: 7, stage: "discovery" }, "stage-1");
-    await opportunity.submit(opportunity.change(opportunity.initial(), "stage", "proposal"), new AbortController().signal);
+    const opportunity = createSalesOpportunityStageController(transport, { id: "4", expectedRevision: 7, expectedPipelineId: "17", expectedPipelineRevision: 4, expectedSourceStageId: "76ad7b41-5584-5d62-ab10-2575df5a8d47", expectedSourceStageRevision: 3, destinationStageId: "a5299df1-1fd8-50dd-947a-4ed1ea145b2d", expectedDestinationStageRevision: 4 }, "stage-1");
+    await opportunity.submit(opportunity.initial(), new AbortController().signal);
     expect(actions).toEqual(["sales.task.create", "sales.opportunity.stage.update"]);
   });
 
@@ -242,12 +242,12 @@ describe("P7.7 Sales default pages", () => {
     const record = source.state === "success" ? source.data.rows[0]! : undefined;
     const name = record?.values.name;
     const options = record === undefined || name?.kind !== "text" ? [] : [{ id: record.key, label: name.value }];
-    const controller = createSalesOpportunityStageController(transport, { id: "4", expectedStage: "discovery", expectedRevision: 7, stage: "discovery" }, "edit-1");
+    const controller = createSalesOpportunityStageController(transport, { id: "4", expectedRevision: 7, expectedPipelineId: "17", expectedPipelineRevision: 4, expectedSourceStageId: "76ad7b41-5584-5d62-ab10-2575df5a8d47", expectedSourceStageRevision: 3, destinationStageId: "a5299df1-1fd8-50dd-947a-4ed1ea145b2d", expectedDestinationStageRevision: 4 }, "edit-1");
     const markup = renderToStaticMarkup(<SalesOpportunityEditForm opportunity={controller.initial()} opportunityOptions={options} onOpportunityChange={() => undefined} onOpportunitySubmit={() => undefined} />);
 
     expect(markup).toContain('aria-label="Edit opportunity"');
     expect(markup).toContain('<option value="4" selected="">Platform rollout</option>');
-    expect(markup).toContain('<option value="discovery" selected="">Discovery</option>');
+    expect(markup).toContain('name="destinationStageId"');
     expect(markup).toContain("Save opportunity");
   });
 });

@@ -10,10 +10,10 @@ import {
 
 const authenticatedActor = {
   authenticated: true,
-  permissions: new Set(["sales.tasks.read", "sales.tasks.title.read", "sales.tasks.status.read", "sales.tasks.revenue.read"])
+  permissions: new Set(["sales.tasks.read"])
 };
 const table = {
-  fields: ["title", "status", "potential-revenue"],
+  fields: ["title", "status"],
   rows: [{
     key: "task-1",
     values: {
@@ -35,10 +35,10 @@ const workspaceDocument = {
       version: 1,
       props: { title: "Open tasks" },
       bindings: { source: {
-        source: { id: "sales.tasks", version: 1 },
+        source: { id: "sales.tasks", version: salesTasksDescriptor.version },
         input: {},
         structuralCompatibilityHash: salesTasksDescriptor.structuralCompatibilityHash,
-        selectedFields: ["title", "status", "potential-revenue"]
+        selectedFields: ["title", "status"]
       } }
     }]
   }
@@ -89,7 +89,7 @@ describe("P4.5 proof blocks", () => {
     expect(result).toMatchObject({ success: true, regions: { main: [{ status: "fallback", reason: "SOURCE_RESULT_INVALID" }] } });
   });
 
-  it("accepts omitted nullable cells and drops a denied optional selection exactly like the Phase 2 gateway", () => {
+  it("rejects a removed optional field from the prior source version", () => {
     const runtime = createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: [createWorkspaceTaskTableBlockDefinition()], sources: [salesTasksDescriptor] }));
     const withDeniedOptional = {
       ...workspaceDocument,
@@ -99,7 +99,7 @@ describe("P4.5 proof blocks", () => {
       }] }
     };
     const result = runtime.render({ document: withDeniedOptional, surface: "workspace", actor: authenticatedActor, sourceResults: { "tasks-1": { state: "success", data: table } } });
-    expect(result).toMatchObject({ success: true, regions: { main: [{ status: "rendered" }] } });
+    expect(result).toMatchObject({ success: true, regions: { main: [{ status: "fallback", reason: "SOURCE_FIELD_UNAVAILABLE" }] } });
   });
 
   it("accepts gateway-valid field reordering and omitted applicable cells", () => {
@@ -108,7 +108,7 @@ describe("P4.5 proof blocks", () => {
       ...workspaceDocument,
       regions: { main: [{
         ...workspaceDocument.regions.main[0],
-        bindings: { source: { ...workspaceDocument.regions.main[0].bindings.source, selectedFields: ["status", "title", "potential-revenue"] } }
+        bindings: { source: { ...workspaceDocument.regions.main[0].bindings.source, selectedFields: ["status", "title"] } }
       }] }
     };
     const sparse = { ...table, rows: [{ key: "task-1", values: {} }] };

@@ -42,8 +42,8 @@ function strictModeGeneratedEditorSession(source: string): Readonly<{ session: G
     .replace(/  if \(unavailable === "access"\) return <section[^\n]*\n/u, "")
     .replace(/  if \(unavailable === "authority"\) return <section[^\n]*\n/u, "")
     .replace(/  return <WorkspacePuckEditorHost[^\n]*\/>;\n/u, "  return session;\n");
-  const WorkspacePageEditor = new Function("useState", "useRef", "useEffect", "useMemo", "WorkspaceEditorSession", "createAuthorizedPuckBuilderProfile", "WorkspacePuckEditorHost", "presentUiRuntimeReact", "genericPuckBlockBridges", "salesPuckBlockBridges", "salesOpportunitiesDescriptor", "salesTasksDescriptor", "fetch", "crypto", `${executable}\nreturn WorkspacePageEditor;`)(
-    useState, useRef, useEffect, useMemo, WorkspaceEditorSession, () => ({}), () => undefined, () => undefined, [], [], {}, {},
+  const WorkspacePageEditor = new Function("useState", "useRef", "useEffect", "useMemo", "WorkspaceEditorSession", "createAuthorizedPuckBuilderProfile", "WorkspacePuckEditorHost", "presentUiRuntimeReact", "genericPuckBlockBridges", "salesPuckBlockBridges", "salesOpportunitiesDescriptor", "salesTasksDescriptor", "salesPipelineSnapshotDescriptor", "salesSavedViewListDescriptor", "salesSavedViewDetailDescriptor", "salesSavedViewTableDescriptor", "salesSavedViewKanbanDescriptor", "salesSavedViewCalendarDescriptor", "fetch", "crypto", `${executable}\nreturn WorkspacePageEditor;`)(
+    useState, useRef, useEffect, useMemo, WorkspaceEditorSession, () => ({}), () => undefined, () => undefined, [], [], {}, {}, {}, {}, {}, {}, {}, {},
     async (_input: string, init?: Readonly<{ method?: string; signal?: AbortSignal }>) => {
       if (init?.method === "POST" && init.signal !== undefined) mutationSignals.push(init.signal);
       return { ok: true, status: 200, json: async () => ({ watermark }) };
@@ -117,9 +117,9 @@ describe("generated workspace page builder policy", () => {
     expect(source).toContain("workspaceSalesPermissions(payload, context, signal)");
     expect(source).toContain("function workspaceDocumentValidator(payload: Payload): WorkspacePageDocumentValidator<KnexRequestContext>");
     expect(source).toContain("documents: workspaceDocumentValidator(payload)");
-    expect(source).toContain("profile.validateChange(previous, { ...document, version: previous.version })");
-    expect(source).toContain("return profile.validateDocument(document)");
-    expect(source).toContain(".validateDocument(document)");
+    expect(source).toContain("profile.validateChange(admittedWorkspaceSalesDocument(previous), { ...admittedWorkspaceSalesDocument(document), version: previous.version })");
+    expect(source).toContain("profile.validateDocument(admittedWorkspaceSalesDocument(document))");
+    expect(source).toContain("return document;");
   });
 
   it("keeps compiled Sales dependencies available across unrelated lifecycle advances", () => {
@@ -202,7 +202,8 @@ describe("generated workspace page builder policy", () => {
     expect(client).toContain('"/api/k-nex/workspace-pages/" + encodeURIComponent(pageId) + "/actions/"');
     expect(route).toContain('openWorkspacePageSession(payload, context, pageId, "view", context.correlationId)');
     expect(route).toContain('detail.page.state !== "published" || detail.impact.state !== "ready" || detail.publication === undefined');
-    expect(route).toContain("function boundAction(document: UiDocument, actionId: string)");
+    expect(route).toContain("function boundAction(document: UiDocument, nodeId: string, actionId: string)");
+    expect(route).toContain("if (node.id === nodeId && action?.id === actionId)");
     expect(route).toContain("node.children?.forEach(visit)");
     expect(route).toContain("if (action === undefined) return notFound();");
     expect(route).toContain("return Response.json({ code: \"NOT_FOUND\" }, { status: 404");
@@ -254,7 +255,8 @@ describe("generated workspace page builder policy", () => {
     expect(sales).toContain('? await salesActivityTaskParent(idempotency.request, parent.id)');
     expect(sales).toContain("else await persistence?.transaction.rollback();");
     expect(sales).toContain("await persistence?.transaction.rollback();");
-    expect(sales).toContain("select: { ownerId: true, teamId: true, status: true, archiveStatus: true, accountId: true, relatedRecordType: true, relatedRecordId: true }");
+    expect(sales).toContain('const select = collection === "sales-pipelines" ? { status: true } : collection === "sales-saved-views" ? { ownerId: true, visibility: true, visibilityTeamId: true, status: true }');
+    expect(sales).toContain(': { ownerId: true, teamId: true, status: true, archiveStatus: true, accountId: true, relatedRecordType: true, relatedRecordId: true };');
     expect(sales).toContain("if (!await allowed(payload, context, action.descriptor.permission, resourceId, record))");
     expect(sales).toContain("applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment, recordId");
     expect(sales).toContain("...(resourceId === undefined ? {} : { resourceId })");
@@ -273,8 +275,7 @@ describe("generated workspace page builder policy", () => {
     expect(sales).toContain('const workspaceSalesAuthorityBrand: unique symbol = Symbol("workspace-sales-current-authority")');
     expect(sales).toContain("function workspaceSalesAuthorization(value: unknown): WorkspaceSalesAuthorization");
     expect(sales).toContain("value[workspaceSalesAuthorityBrand] !== true");
-    expect(sales).toContain("const current = workspaceSalesAuthorization(actor);");
-    expect(sales).toContain("workspaceCurrentSalesPolicy(permissions)");
+    expect(sales).toContain("workspaceCurrentSalesPolicy(permissions, current, plan)");
     expect(sales).toContain("kNexSalesRegistry.scopedRegistration.contributions.sources");
     expect(sales).toContain("kNexSalesRegistry.scopedRegistration.bindings.sources");
     expect(sales).toContain("const workspaceSalesBudget = new BoundedQueryBudgetEvaluator();");
@@ -299,10 +300,11 @@ describe("generated workspace page builder policy", () => {
     expect(sales).toContain('state: response.body.code === "INSUFFICIENT_FIELD_PERMISSION" ? "insufficient-permission" : "forbidden"');
     expect(sales).toContain('if (response.status === 429) {');
     expect(sales).toContain('state: "rate-limited", problem: { code: response.body.code, status: 429 }');
-    expect(sales).toContain('recordScope = ["sales.opportunities"');
+    expect(sales).toContain('request.descriptor.id === "sales.pipeline.snapshot" ? { kind: "sales.pipelines"');
+    expect(sales).toContain('request.descriptor.id === "sales.saved-view.list" || request.descriptor.id === "sales.saved-view.detail" ? { kind: "sales.saved-views"');
     expect(sales).toContain("for (const node of sourceNodes(document))");
     expect(sales).toContain("const loaded = new Map<string, DataSourceBindingResult<unknown>>();");
-    expect(sales).toContain("const loadKey = canonicalJson({ source: binding.source, sourceInput, selectedFields, sourcePage });");
+    expect(sales).toContain("const loadKey = canonicalJson({ source: binding.source, sourceInput, selectedFields, query });");
     expect(sales).toContain("if (existing !== undefined) { output[node.id] = existing; continue; }");
     expect(sales).not.toContain("salesOpportunitiesHandler");
     expect(sales).not.toContain("salesTasksHandler");
@@ -314,7 +316,7 @@ describe("generated workspace page builder policy", () => {
     const files = workspacePageApplicationFiles({ applicationId: "customer-alpha" });
     const sales = files["src/k-nex-sales-workspace.ts"]!;
     const runtime = files["src/k-nex-workspace-pages.ts"]!;
-    const scan = sales.slice(sales.indexOf("export async function workspaceSalesPermissions"), sales.indexOf("const workspaceSalesPolicy"));
+    const scan = sales.slice(sales.indexOf("export async function workspaceSalesPermissions"), sales.indexOf("function savedViewMetadataWhere"));
     const sourcePolicy = sales.slice(sales.indexOf("const workspaceCurrentSalesPolicy"), sales.indexOf("function sourceNodes"));
 
     expect(scan).toContain("const current = (await actor(payload, context)).authorization;");
@@ -324,17 +326,18 @@ describe("generated workspace page builder policy", () => {
     expect(scan).toContain("adapter.allows(context, currentTarget, signal)");
     expect(scan).not.toContain("allowsMany");
     expect(scan).toContain("return Object.freeze(kNexSalesRegistry.permissionDescriptors.flatMap");
-    expect(sourcePolicy).toContain("const workspaceCurrentSalesPolicy = (permissions: readonly string[]):");
-    expect(sourcePolicy).toContain("permissions.includes(request.descriptor.permission)");
-    expect(sourcePolicy).toContain("field !== undefined && permissions.includes(field.permission)");
-    expect(sourcePolicy).toContain("permissionId !== undefined && permissions.includes(permissionId)");
+    expect(sourcePolicy).toContain("const workspaceCurrentSalesPolicy = (permissions: readonly string[], current: WorkspaceSalesAuthorization");
+    expect(sourcePolicy).toContain('permissions.includes(request.descriptor.permission)');
+    expect(sourcePolicy).not.toContain("nativeKanban");
+    expect(sourcePolicy).toContain("field !== undefined && (execution || permissions.includes(field.permission))");
+    expect(sourcePolicy).toContain("extendedPermissionId !== undefined && permissions.includes(extendedPermissionId)");
     expect(sourcePolicy).not.toContain("allowed(payload, context");
     expect(runtime).toContain("const permissions = await workspaceSalesPermissions(payload, context, session.signal);");
-    expect(runtime).toContain("loadWorkspaceSalesSources(payload, context, document, permissions, session.signal)");
+    expect(runtime).toContain('projectWorkspaceSalesDocument(payload, context, detail.publication.revision.document, permissions, session.signal, Object.freeze({}), pageNumber, undefined, "table", pageNodeId)');
     expect(sales).toContain("pageNumber > 1_000_000");
-    expect(sales).toContain("timeline ? pageNumber > 4");
-    expect(sales).toContain("detail ? 1 : pageNumber");
-    expect(sales).toContain("page: { number: sourcePage, size: 25 }");
+    expect(sales).toContain("timeline ? requestedPage > 4");
+    expect(sales).toContain("detail || administrationPageSize !== undefined ? 1 : requestedPage");
+    expect(sales).toContain("page: { number: sourcePage, size: administrationPageSize ?? 25 }");
     expect(runtime).toContain("const currentState = await kNexAuthority(payload).store.readState(scope.applicationId, scope.environment);");
     expect(runtime).toContain("currentState.authorizationRevision !== session.watermark.authorizationRevision || currentState.lifecycleRevision !== session.watermark.lifecycleRevision");
   });
@@ -365,9 +368,9 @@ describe("generated workspace page builder policy", () => {
     expect(editor).toContain("Editor authority changed");
     expect(route).toContain("loadWorkspacePageViewProjection");
     expect(route).toContain("loadWorkspacePageEditorProjection");
-    expect(route).toContain('requestedWatermark(new URL(request.url).searchParams.get("watermark"))');
+    expect(route).toContain('requestedWatermark(search.get("watermark"))');
     expect(route).toContain("readWorkspacePageWatermark");
-    expect(route).toContain('requested !== undefined && (mode === "edit" || sameWatermark(requested, watermark))');
+    expect(route).toContain('requested !== undefined && nodeId === null && (mode === "edit" || sameWatermark(requested, watermark))');
     expect(route).toContain('Response.json({ watermark: projection.watermark, projection }');
     expect(route).toContain('["Workspace page session authority changed.", "Workspace page session was invalidated."].includes(error.message)');
     expect(route).toContain('Response.json({ code: "REVISION_CONFLICT" }, { status: 409');
@@ -379,7 +382,7 @@ describe("generated workspace page builder policy", () => {
     expect(runtime.indexOf("const state = await runtime.synchronizeInvalidations();")).toBeGreaterThan(runtime.indexOf("const detail = await runtime.service.detail(context, scope, pageId, capability);"));
     expect(runtime).toContain("if (initialState.authorizationRevision !== state.authorizationRevision || initialState.lifecycleRevision !== state.lifecycleRevision) throw new TypeError(\"Workspace page session authority changed.\");");
     expect(runtime).toContain("if (session.signal.aborted) { session.close(); throw new TypeError(\"Workspace page session was invalidated.\"); }");
-    expect(runtime).toContain("loadWorkspaceSalesSources(payload, context, document, permissions, session.signal)");
+    expect(runtime).toContain('projectWorkspaceSalesDocument(payload, context, detail.publication.revision.document, permissions, session.signal, Object.freeze({}), pageNumber, undefined, "table", pageNodeId)');
     expect(runtime).toContain("Workspace page projection was invalidated.");
   });
 

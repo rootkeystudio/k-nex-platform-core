@@ -144,6 +144,26 @@ describe("P2A.1 agent-tool contracts", () => {
     ]) expect(runtime.safeParse(value).success).toBe(false);
   });
 
+  it("enforces exact-one branches and UTF-8 string limits for public action schemas", () => {
+    const visibility = {
+      oneOf: [
+        { type: "object" as const, properties: { kind: { type: "string" as const, enum: ["personal"] } }, required: ["kind"], additionalProperties: false as const },
+        { type: "object" as const, properties: { kind: { type: "string" as const, enum: ["team"] }, teamId: { type: "string" as const, minLength: 1, maxUtf8Bytes: 120 } }, required: ["kind", "teamId"], additionalProperties: false as const }
+      ]
+    };
+    expect(AgentToolJsonSchemaSchema.safeParse(visibility).success).toBe(true);
+    const runtime = createAgentToolJsonRuntimeSchema(visibility);
+    expect(runtime.safeParse({ kind: "personal" }).success).toBe(true);
+    expect(runtime.safeParse({ kind: "team", teamId: "team-a" }).success).toBe(true);
+    expect(runtime.safeParse({ kind: "personal", teamId: "forbidden" }).success).toBe(false);
+    expect(runtime.safeParse({ kind: "team" }).success).toBe(false);
+    expect(runtime.safeParse({ kind: "team", teamId: "é".repeat(61) }).success).toBe(false);
+    expect(AgentToolJsonSchemaSchema.safeParse({ type: "integer", maxUtf8Bytes: 1 }).success).toBe(false);
+    expect(AgentToolJsonSchemaSchema.safeParse({ oneOf: [{ type: "null" }] }).success).toBe(false);
+    const ambiguous = createAgentToolJsonRuntimeSchema({ oneOf: [{ type: "string" }, { type: "string" }] });
+    expect(ambiguous.safeParse("ambiguous").success).toBe(false);
+  });
+
   it("requires declared object properties to be owned rather than inherited", () => {
     const runtime = createAgentToolJsonRuntimeSchema({
       type: "object",

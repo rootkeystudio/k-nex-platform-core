@@ -21,7 +21,7 @@ it("fails the complete generated detail projection when ownership changes during
       .replace(/import \{ currentSalesGeneration[^;]+from "\.\/k-nex-authority\.js";/u, 'import { currentSalesGeneration as currentSalesAuthorityGeneration } from "./stubs.mjs";')
       .replace('import { kNexIdentity } from "./k-nex-identity.js";', 'import { kNexIdentity } from "./stubs.mjs";')
       .replace('import { kNexSalesRegistry } from "./k-nex-registry.js";', 'import { kNexSalesRegistry } from "./stubs.mjs";')
-      .replace(/import \{ executeWorkspaceSalesAction,[^;]+from "\.\/k-nex-sales-workspace\.js";/u, 'import { executeWorkspaceSalesAction, loadWorkspaceSalesSources, workspaceSalesPermissions } from "./stubs.mjs";');
+      .replace(/import \{ executeWorkspaceSalesAction,[^;]+from "\.\/k-nex-sales-workspace\.js";/u, 'import { executeWorkspaceSalesAction, loadWorkspaceSalesSources, projectWorkspaceSalesDocument, workspaceSalesPermissions } from "./stubs.mjs";');
     writeFileSync(join(directory, "routes.mjs"), ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2024 } }).outputText);
     writeFileSync(join(directory, "stubs.mjs"), `
 export const control = globalThis.__kNexGeneratedRouteRace ??= { authorized: true, sourceCalls: 0, authorizationRevision: 1, permissions: ["sales.accounts.read", "sales.activities.read", "sales.notes.body.read"], finalGate: undefined, historyOptions: [] };
@@ -35,6 +35,7 @@ export const kNexSalesRegistry = { scopedRegistration: { contributions: {
 } } };
 export const currentSalesGeneration = async () => ({ state: { authorizationRevision: control.authorizationRevision, lifecycleRevision: 1 } });
 export const workspaceSalesPermissions = async () => [...control.permissions];
+export async function projectWorkspaceSalesDocument(payload, context, document, permissions, signal, parameters, page) { return { document, sourceResults: await loadWorkspaceSalesSources(payload, context, document, permissions, signal, parameters, page) }; }
 const sensitive = { fields: ["name", "owner-id", "team-id", "status", "revision"], rows: [{ key: "1", values: { name: { kind: "text", value: "protected-record" }, "owner-id": { kind: "text", value: "owner-1" }, "team-id": { kind: "text", value: "team-1" }, status: { kind: "status", value: "active" }, revision: { kind: "integer", value: 1 } } }], page: { number: 1, pageSize: 1, hasNext: false } };
 export async function loadWorkspaceSalesSources(_payload, _context, candidate) {
   if (candidate.regions.main.at(-1)?.id === "sales-fixed-timeline") return { "sales-fixed-timeline": { state: "success", data: { fields: ["kind", "subject", "status", "occurred-at", "revision", "body"], rows: [{ key: "note:2", values: { kind: { kind: "text", value: "note" }, subject: { kind: "text", value: "private" }, status: { kind: "status", value: "recorded" }, "occurred-at": { kind: "text", value: "2026-09-06T00:00:00.000Z" }, revision: { kind: "integer", value: 1 }, body: { kind: "text", value: "protected-note" } } }], page: { number: 1, pageSize: 25, hasNext: false } } } };

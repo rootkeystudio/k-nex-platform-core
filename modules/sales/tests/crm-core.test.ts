@@ -34,8 +34,8 @@ const field = (collection: { readonly fields: readonly { readonly name?: string 
 const selectValues = (collection: { readonly fields: readonly { readonly name?: string; readonly options?: unknown }[] }, name: string) => ((collection.fields.find((candidate) => candidate.name === name)?.options ?? []) as readonly { readonly value: string }[]).map(({ value }) => value);
 
 describe("P13.2 CRM core", () => {
-  it("registers ten deterministic internal-only collections", async () => {
-    expect(salesCoreCollectionSlugs).toEqual(["sales-accounts", "sales-contacts", "sales-leads", "sales-pipelines", "sales-pipeline-stages", "sales-activities", "sales-opportunities", "sales-tasks", "sales-notes", "sales-attachment-references"]);
+  it("registers eleven deterministic internal-only collections", async () => {
+    expect(salesCoreCollectionSlugs).toEqual(["sales-accounts", "sales-contacts", "sales-leads", "sales-pipelines", "sales-pipeline-stages", "sales-activities", "sales-opportunities", "sales-tasks", "sales-notes", "sales-attachment-references", "sales-saved-views"]);
     for (const collection of [salesAccountsCollection, salesLeadsCollection, salesOpportunitiesCollection, salesTasksCollection]) {
       expect(await collection.access?.create?.({} as never)).toBe(false);
       expect(await collection.access?.read?.({} as never)).toBe(false);
@@ -59,7 +59,7 @@ describe("P13.2 CRM core", () => {
     expect(field(salesOpportunitiesCollection, "closedAt")).toMatchObject({ type: "date" });
     expect(field(salesPipelinesCollection, "orderedStageIds")).toMatchObject({ type: "json", required: true });
     expect(field(salesPipelineStagesCollection, "probabilityBasisPoints")).toMatchObject({ type: "number", required: true, min: 0, max: 10_000 });
-    expect(field(salesPipelineStagesCollection, "allowedTransitions")).toMatchObject({ type: "json", required: true });
+    expect(field(salesPipelineStagesCollection, "allowedTransitionStageIds")).toMatchObject({ type: "json", required: true });
     expect(salesRelatedRecordTypes).toEqual(["sales.account", "sales.contact", "sales.lead", "sales.opportunity", "sales.task"]);
     expect(field(salesActivitiesCollection, "relatedRecordType")).toMatchObject({ type: "select", required: true });
     expect(field(salesAttachmentReferencesCollection, "mediaType")).toMatchObject({ type: "text", required: true, maxLength: 128 });
@@ -142,7 +142,7 @@ describe("P13.2 CRM core", () => {
       "sales.contact.archive", "sales.contact.create", "sales.contact.update",
       "sales.lead.archive", "sales.lead.create", "sales.lead.disqualify", "sales.lead.qualify", "sales.lead.update",
       "sales.opportunity.archive", "sales.opportunity.close", "sales.opportunity.create", "sales.opportunity.stage.update", "sales.opportunity.update",
-      "sales.activity.cancel", "sales.activity.complete", "sales.activity.create", "sales.note.create", "sales.attachment.link", "sales.attachment.remove", "sales.ownership.assign",
+      "sales.activity.cancel", "sales.activity.complete", "sales.activity.create", "sales.note.create", "sales.attachment.link", "sales.attachment.remove", "sales.ownership.assign", "sales.pipeline.archive", "sales.pipeline.update", "sales.saved-view.archive", "sales.saved-view.create", "sales.saved-view.update",
       "sales.task.create", "sales.task.update"
     ].sort());
   });

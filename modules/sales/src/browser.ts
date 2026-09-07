@@ -1,4 +1,5 @@
 import { defineActionMutation, defineSourceQuery } from "@k-nex/ui-runtime";
+import { TableRecordsSchema, type RuntimeSchema, type TableRecords } from "@k-nex/contracts";
 
 import {
   salesAccountDetailDescriptor,
@@ -46,6 +47,17 @@ import {
   salesOpportunityStageInputRuntimeSchema,
   salesOpportunityStageOutputRuntimeSchema,
   salesOpportunityStageUpdateDescriptor,
+  salesPipelineArchiveDescriptor,
+  salesPipelineUpdateDescriptor,
+  salesPipelineSnapshotDescriptor,
+  salesSavedViewCalendarDescriptor,
+  salesSavedViewDetailDescriptor,
+  salesSavedViewKanbanDescriptor,
+  salesSavedViewListDescriptor,
+  salesSavedViewTableDescriptor,
+  salesSavedViewArchiveDescriptor,
+  salesSavedViewCreateDescriptor,
+  salesSavedViewUpdateDescriptor,
   salesRouteDescriptors,
   salesTaskCreateDescriptor,
   salesTaskUpdateDescriptor,
@@ -65,7 +77,6 @@ export interface SalesWorkspacePresentation {
   readonly routeId: "sales.route.overview" | "sales.route.opportunities" | "sales.route.tasks";
   readonly taskPageSize: number;
   readonly showPotentialRevenue: boolean;
-  readonly pipelineStages: readonly string[];
 }
 
 export function salesWorkspacePresentation(settings: SalesWorkspaceSettings): Readonly<SalesWorkspacePresentation> {
@@ -74,8 +85,7 @@ export function salesWorkspacePresentation(settings: SalesWorkspaceSettings): Re
   return Object.freeze({
     routeId,
     taskPageSize: settings.defaultTaskPageSize,
-    showPotentialRevenue: settings.showPotentialRevenue,
-    pipelineStages: Object.freeze([...settings.pipelineStages])
+    showPotentialRevenue: settings.showPotentialRevenue
   });
 }
 
@@ -93,9 +103,32 @@ export const salesOpportunitiesQuery = defineSourceQuery({
   input: salesEmptyInputRuntimeSchema,
   output: salesOpportunitiesOutputRuntimeSchema,
   defaults: {},
-  selectedFields: ["name", "stage-id", "revision"],
+  selectedFields: ["name", "pipeline-id", "pipeline-revision", "stage-id", "stage-name", "stage-semantic", "stage-revision", "revision"],
   isEmpty: (value) => value.rows.length === 0
 });
+
+const savedViewBindingInputRuntimeSchema: RuntimeSchema<Readonly<{ "saved-view-id"?: number; "expected-revision"?: number }>> = { safeParse(value) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return { success: false as const, error: new Error("Sales saved-view binding is invalid.") };
+  const record = value as Record<string, unknown>; const keys = Object.keys(record).sort().join("\u0000");
+  if (keys !== "" && keys !== "expected-revision\u0000saved-view-id" || keys !== "" && (!Number.isSafeInteger(record["saved-view-id"]) || (record["saved-view-id"] as number) < 1 || !Number.isSafeInteger(record["expected-revision"]) || (record["expected-revision"] as number) < 1)) return { success: false as const, error: new Error("Sales saved-view binding is invalid.") };
+  return { success: true as const, data: record as Readonly<{ "saved-view-id"?: number; "expected-revision"?: number }> };
+} };
+const exactTableOutput = (fields: readonly string[]): RuntimeSchema<TableRecords> => ({ safeParse(value) {
+  const parsed = TableRecordsSchema.safeParse(value);
+  if (!parsed.success || parsed.data.fields.join("\u0000") !== fields.join("\u0000") || parsed.data.rows.some((row) => Object.keys(row.values).sort().join("\u0000") !== [...fields].sort().join("\u0000"))) return { success: false as const, error: new Error("Sales saved-view output is invalid.") };
+  return { success: true as const, data: parsed.data as TableRecords };
+} });
+const savedViewQuery = (descriptor: { readonly id: string; readonly version: number }, fields: readonly string[], input = savedViewBindingInputRuntimeSchema, defaults: Record<string, unknown> = {}) => defineSourceQuery({ source: { id: descriptor.id, version: descriptor.version }, input, output: exactTableOutput(fields), defaults, selectedFields: fields, isEmpty: (value) => value.rows.length === 0 });
+
+export const salesSavedViewTableQuery = savedViewQuery(salesSavedViewTableDescriptor, ["name"]);
+export const salesSavedViewKanbanQuery = savedViewQuery(salesSavedViewKanbanDescriptor, ["row-kind", "name", "stage-id", "stage-metadata", "revision"]);
+export const salesSavedViewCalendarQuery = savedViewQuery(salesSavedViewCalendarDescriptor, ["type", "subject", "status", "scheduled-at", "occurred-at", "related-record-type", "related-record-id", "revision"]);
+export const salesPipelineSnapshotQuery = savedViewQuery(salesPipelineSnapshotDescriptor, ["pipeline-id", "pipeline-revision", "pipeline-name", "stage-id", "stage-revision", "semantic", "stage-name", "position", "probability-basis-points", "allowed-transition-stage-ids", "required-field-ids", "status"], salesEmptyInputRuntimeSchema);
+export const salesSavedViewListQuery = savedViewQuery(salesSavedViewListDescriptor, ["id", "name", "visibility", "team-id", "target-object-id", "view-kind", "revision", "status"], salesEmptyInputRuntimeSchema);
+export const salesSavedViewDetailQuery = savedViewQuery(salesSavedViewDetailDescriptor, ["id", "name", "visibility", "team-id", "chunk-index", "chunk-count", "definition-chunk", "target-object-id", "view-kind", "revision", "status"], { safeParse(value: unknown) {
+  if (value === null || typeof value !== "object" || Array.isArray(value) || Object.keys(value as object).length !== 1 || !Number.isSafeInteger((value as Record<string, unknown>)["saved-view-id"])) return { success: false as const, error: new Error("Sales saved-view selection is invalid.") };
+  return { success: true as const, data: value as Readonly<{ "saved-view-id": number }> };
+} }, { "saved-view-id": 1 });
 
 const crmListQuery = (
   descriptor: typeof salesAccountsDescriptor,
@@ -195,6 +228,13 @@ export const salesOpportunityStageMutation = defineActionMutation({
   invalidates: [salesOpportunitiesDescriptor.id]
 });
 
+export const salesPipelineUpdateMutation = workflowMutation(salesPipelineUpdateDescriptor, [salesPipelineSnapshotDescriptor.id]);
+export const salesPipelineArchiveMutation = workflowMutation(salesPipelineArchiveDescriptor, [salesPipelineSnapshotDescriptor.id]);
+const savedViewSources = [salesSavedViewListDescriptor.id, salesSavedViewDetailDescriptor.id, salesSavedViewTableDescriptor.id, salesSavedViewKanbanDescriptor.id, salesSavedViewCalendarDescriptor.id];
+export const salesSavedViewCreateMutation = workflowMutation(salesSavedViewCreateDescriptor, savedViewSources);
+export const salesSavedViewUpdateMutation = workflowMutation(salesSavedViewUpdateDescriptor, savedViewSources);
+export const salesSavedViewArchiveMutation = workflowMutation(salesSavedViewArchiveDescriptor, savedViewSources);
+
 export const salesBrowserContract = Object.freeze({
   pluginId: "module.sales" as const,
   sourceIds: Object.freeze([
@@ -207,8 +247,14 @@ export const salesBrowserContract = Object.freeze({
     salesTasksDescriptor.id,
     salesTimelineDescriptor.id,
     salesOpportunityDetailDescriptor.id,
-    salesOpportunitiesDescriptor.id
+    salesOpportunitiesDescriptor.id,
+    salesPipelineSnapshotDescriptor.id,
+    salesSavedViewCalendarDescriptor.id,
+    salesSavedViewDetailDescriptor.id,
+    salesSavedViewKanbanDescriptor.id,
+    salesSavedViewListDescriptor.id,
+    salesSavedViewTableDescriptor.id
   ].sort()),
-  actionIds: Object.freeze([salesTaskCreateDescriptor.id, salesTaskUpdateDescriptor.id, salesOpportunityStageUpdateDescriptor.id, ...salesWorkflowMutations.map(({ action }) => action.id)].sort()),
+  actionIds: Object.freeze([salesTaskCreateDescriptor.id, salesTaskUpdateDescriptor.id, salesOpportunityStageUpdateDescriptor.id, salesPipelineUpdateDescriptor.id, salesPipelineArchiveDescriptor.id, salesSavedViewCreateDescriptor.id, salesSavedViewUpdateDescriptor.id, salesSavedViewArchiveDescriptor.id, ...salesWorkflowMutations.map(({ action }) => action.id)].sort()),
   routeIds: Object.freeze(salesRouteDescriptors.map(({ id }) => id))
 });

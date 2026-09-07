@@ -9,9 +9,10 @@ import type {
   SystemSettingsDescriptor,
   PluginUiContributionDescriptor,
   RuntimeSchema,
-  TableRecords
+  TableRecords,
+  DataSourceQueryControls
 } from "@k-nex/contracts";
-import { TableRecordsSchema } from "@k-nex/contracts";
+import { TableRecordsSchema, canonicalJson } from "@k-nex/contracts";
 import { isSalesCalendarDate, salesCrmActionDescriptors, salesCrmRouteDescriptors } from "./crm-authority.js";
 
 export const salesRecordIdPattern = "^(?:[1-9][0-9]{0,8}|1[0-9]{9}|20[0-9]{8}|21[0-3][0-9]{7}|214[0-6][0-9]{6}|2147[0-3][0-9]{5}|21474[0-7][0-9]{4}|214748[0-2][0-9]{3}|2147483[0-5][0-9]{2}|21474836[0-3][0-9]|214748364[0-7])$";
@@ -77,7 +78,12 @@ const crmField = (id: string, kind: "text" | "status" | "integer", permission: s
 
 export const salesOpportunityFields: NonNullable<DataSourceDescriptor["outputFields"]> = [
   { id: "name", kind: "text", binding: "required", nullable: false, permission: "sales.opportunities.read", sortable: true, filterOperators: ["eq", "contains"] },
+  crmField("pipeline-id", "integer", "sales.opportunities.read"),
+  crmField("pipeline-revision", "integer", "sales.opportunities.read"),
   { id: "stage-id", kind: "status", binding: "required", nullable: false, permission: "sales.opportunities.read", sortable: true, filterOperators: ["eq", "in"] },
+  crmField("stage-name", "text", "sales.opportunities.read"),
+  { id: "stage-semantic", kind: "enum", binding: "required", nullable: false, permission: "sales.opportunities.read", sortable: false, filterOperators: [] },
+  crmField("stage-revision", "integer", "sales.opportunities.read"),
   { id: "revision", kind: "integer", binding: "required", nullable: false, permission: "sales.opportunities.read", sortable: false, filterOperators: [] },
   { id: "amount", kind: "money", binding: "optional", nullable: true, permission: "sales.opportunities.amount.read", sortable: false, filterOperators: [] }
 ];
@@ -88,7 +94,11 @@ export const salesOpportunityDetailFields: NonNullable<DataSourceDescriptor["out
   crmField("account-id", "integer", "sales.opportunities.read"),
   crmField("primary-contact-id", "integer", "sales.opportunities.read", true),
   crmField("pipeline-id", "integer", "sales.opportunities.read"),
+  crmField("pipeline-revision", "integer", "sales.opportunities.read"),
   crmField("stage-id", "status", "sales.opportunities.read"),
+  crmField("stage-name", "text", "sales.opportunities.read"),
+  { id: "stage-semantic", kind: "enum", binding: "required", nullable: false, permission: "sales.opportunities.read", sortable: false, filterOperators: [] },
+  crmField("stage-revision", "integer", "sales.opportunities.read"),
   crmField("archive-status", "status", "sales.opportunities.read"),
   crmField("expected-close-date", "text", "sales.opportunities.read", true),
   crmField("revision", "integer", "sales.opportunities.read"),
@@ -97,20 +107,20 @@ export const salesOpportunityDetailFields: NonNullable<DataSourceDescriptor["out
 
 export const salesOpportunitiesDescriptor: DataSourceDescriptor = {
   id: "sales.opportunities",
-  version: 2,
+  version: 3,
   ownerPluginId: "module.sales",
   primaryContract: { id: "table.records", version: 1 },
-  sourceSchema: { id: "sales.opportunities.output", version: 2 },
+  sourceSchema: { id: "sales.opportunities.output", version: 3 },
   audience: "authenticated",
   surfaces: ["workspace"],
   permission: "sales.opportunities.read",
-  structuralCompatibilityHash: "sha256:49a707b6f512bc0d8cad02c38a506066e6973e09468e1e3c8373c8e1287ade5d",
+  structuralCompatibilityHash: "sha256:82668a173c4ee1ce38924b5f99846f86644f437a3926299927cf979426f826ad",
   presentationMetadataRevision: 1,
   title: "Sales opportunities",
   inputFields: [],
   outputFields: salesOpportunityFields,
   paginationModes: ["offset"],
-  limits: { ...salesSourceLimits },
+  limits: { ...salesSourceLimits, maxSelectedFields: 9 },
   cacheClass: "actor"
 };
 
@@ -155,9 +165,224 @@ export const salesLeadDetailDescriptor: DataSourceDescriptor = Object.freeze({
   limits: { ...salesSourceLimits, maxSelectedFields: 15 }
 });
 export const salesOpportunityDetailDescriptor: DataSourceDescriptor = Object.freeze({
-  ...crmSource("sales.opportunity.detail", 1, "sales.opportunities.read", "Sales opportunity detail", salesOpportunityDetailFields, "sha256:13f00de403130aa2e96978e81d8c93da1b7bf30bf8892b708cee12e6781da59a", crmDetailInputFields),
-  limits: { ...salesSourceLimits, maxSelectedFields: 12 }
+  ...crmSource("sales.opportunity.detail", 2, "sales.opportunities.read", "Sales opportunity detail", salesOpportunityDetailFields, "sha256:77e88e1763a20e8ac1c2c2eb41d6a877534ee81cdb02d697dbdf06dbd688225c", crmDetailInputFields),
+  limits: { ...salesSourceLimits, maxSelectedFields: 15 }
 });
+
+const savedBindingInput: NonNullable<DataSourceDescriptor["inputFields"]> = [
+  { id: "saved-view-id", kind: "integer", required: false, nullable: false },
+  { id: "expected-revision", kind: "integer", required: false, nullable: false }
+];
+const viewField = (id: string, kind: SalesSourceField["kind"], permission: string, options: { required?: boolean; nullable?: boolean; sortable?: boolean; operators?: readonly string[] } = {}): SalesSourceField => ({
+  id, kind, binding: options.required ? "required" : "optional", nullable: options.nullable ?? false, permission,
+  sortable: options.sortable ?? false, filterOperators: [...(options.operators ?? [])] as SalesSourceField["filterOperators"]
+});
+const textOps = ["eq", "neq", "in", "not-in", "contains", "starts-with", "is-null", "is-not-null"] as const;
+const enumOps = ["eq", "neq", "in", "not-in", "is-null", "is-not-null"] as const;
+const orderedOps = ["eq", "neq", "gt", "gte", "lt", "lte", "is-null", "is-not-null"] as const;
+export const salesSavedViewTableFields = Object.freeze([
+  viewField("name", "text", "sales.saved-views.read", { sortable: true, operators: textOps }), viewField("display-name", "text", "sales.saved-views.read", { sortable: true, operators: textOps }),
+  viewField("title", "text", "sales.saved-views.read", { sortable: true, operators: textOps }), viewField("subject", "text", "sales.saved-views.read", { sortable: true, operators: textOps }),
+  viewField("type", "enum", "sales.saved-views.read", { sortable: true, operators: enumOps }), viewField("source", "enum", "sales.saved-views.read", { sortable: true, operators: enumOps }),
+  viewField("owner-id", "text", "sales.saved-views.read"), viewField("team-id", "text", "sales.saved-views.read", { nullable: true }),
+  viewField("status", "status", "sales.saved-views.read", { sortable: true, operators: enumOps }), viewField("archive-status", "status", "sales.saved-views.read", { sortable: true, operators: enumOps }),
+  viewField("revision", "integer", "sales.saved-views.read", { sortable: true, operators: orderedOps }), viewField("account-id", "integer", "sales.saved-views.read", { nullable: true, operators: orderedOps }),
+  viewField("primary-contact-id", "integer", "sales.saved-views.read", { nullable: true }), viewField("pipeline-id", "integer", "sales.saved-views.read", { nullable: true }),
+  viewField("stage-id", "enum", "sales.saved-views.read", { nullable: true, sortable: true, operators: enumOps }), viewField("expected-close-date", "date", "sales.saved-views.read", { nullable: true, sortable: true, operators: orderedOps }),
+  viewField("amount", "money", "sales.saved-views.read", { nullable: true }), viewField("email", "text", "sales.saved-views.read", { nullable: true }), viewField("phone", "text", "sales.saved-views.read", { nullable: true }),
+  viewField("due-date", "date", "sales.saved-views.read", { nullable: true, sortable: true, operators: orderedOps }), viewField("related-record-type", "enum", "sales.saved-views.read", { nullable: true }),
+  viewField("related-record-id", "integer", "sales.saved-views.read", { nullable: true }), viewField("scheduled-at", "datetime", "sales.saved-views.read", { nullable: true, sortable: true, operators: orderedOps }),
+  viewField("occurred-at", "datetime", "sales.saved-views.read", { nullable: true, sortable: true, operators: orderedOps })
+] satisfies NonNullable<DataSourceDescriptor["outputFields"]>);
+export const salesSavedViewKanbanFields = Object.freeze([
+  viewField("row-kind", "enum", "sales.opportunities.read", { required: true }), viewField("name", "text", "sales.opportunities.read", { required: true, sortable: true, operators: textOps }),
+  viewField("stage-id", "enum", "sales.opportunities.read", { required: true, sortable: true, operators: enumOps }), viewField("stage-metadata", "text", "sales.opportunities.read", { nullable: true }),
+  viewField("revision", "integer", "sales.opportunities.read", { nullable: true, sortable: true, operators: orderedOps })
+] satisfies NonNullable<DataSourceDescriptor["outputFields"]>);
+export const salesSavedViewCalendarFields = Object.freeze([
+  viewField("type", "enum", "sales.activities.read", { required: true, sortable: true, operators: enumOps }), viewField("subject", "text", "sales.activities.read", { required: true, sortable: true, operators: textOps }),
+  viewField("status", "status", "sales.activities.read", { required: true, sortable: true, operators: enumOps }), viewField("scheduled-at", "datetime", "sales.activities.read", { nullable: true, sortable: true, operators: orderedOps }),
+  viewField("occurred-at", "datetime", "sales.activities.read", { nullable: true, sortable: true, operators: orderedOps }), viewField("related-record-type", "enum", "sales.activities.read", { required: true }),
+  viewField("related-record-id", "integer", "sales.activities.read", { required: true }), viewField("revision", "integer", "sales.activities.read", { required: true, sortable: true, operators: orderedOps })
+] satisfies NonNullable<DataSourceDescriptor["outputFields"]>);
+export const salesPipelineSnapshotFields = Object.freeze([
+  viewField("pipeline-id", "integer", "sales.pipelines.read", { required: true }), viewField("pipeline-revision", "integer", "sales.pipelines.read", { required: true }),
+  viewField("pipeline-name", "text", "sales.pipelines.read", { required: true }), viewField("stage-id", "text", "sales.pipelines.read", { required: true }),
+  viewField("stage-revision", "integer", "sales.pipelines.read", { required: true }), viewField("semantic", "enum", "sales.pipelines.read", { required: true }),
+  viewField("stage-name", "text", "sales.pipelines.read", { required: true }), viewField("position", "integer", "sales.pipelines.read", { required: true }),
+  viewField("probability-basis-points", "integer", "sales.pipelines.read", { required: true }), viewField("allowed-transition-stage-ids", "text", "sales.pipelines.read", { required: true }),
+  viewField("required-field-ids", "text", "sales.pipelines.read", { required: true }), viewField("status", "status", "sales.pipelines.read", { required: true })
+] satisfies NonNullable<DataSourceDescriptor["outputFields"]>);
+export const salesSavedViewListFields = Object.freeze([
+  viewField("id", "integer", "sales.saved-views.read", { required: true }), viewField("name", "text", "sales.saved-views.read", { required: true, sortable: true, operators: ["eq", "contains"] }),
+  viewField("visibility", "enum", "sales.saved-views.read", { required: true, sortable: true, operators: ["eq", "in"] }), viewField("team-id", "text", "sales.saved-views.read", { nullable: true }),
+  viewField("target-object-id", "enum", "sales.saved-views.read", { required: true }), viewField("view-kind", "enum", "sales.saved-views.read", { required: true }),
+  viewField("revision", "integer", "sales.saved-views.read", { required: true }), viewField("status", "status", "sales.saved-views.read", { required: true })
+] satisfies NonNullable<DataSourceDescriptor["outputFields"]>);
+export const salesSavedViewDetailFields = Object.freeze([
+  ...salesSavedViewListFields.slice(0, 4), viewField("chunk-index", "integer", "sales.saved-views.read", { required: true }), viewField("chunk-count", "integer", "sales.saved-views.read", { required: true }),
+  viewField("definition-chunk", "text", "sales.saved-views.read", { required: true }), ...salesSavedViewListFields.slice(4)
+] satisfies NonNullable<DataSourceDescriptor["outputFields"]>);
+
+function p134Source(id: string, title: string, hash: string, fields: readonly SalesSourceField[], limits: Partial<NonNullable<DataSourceDescriptor["limits"]>>, inputFields: DataSourceDescriptor["inputFields"] = []): DataSourceDescriptor {
+  return { id, version: 1, ownerPluginId: "module.sales", primaryContract: { id: "table.records", version: 1 }, sourceSchema: { id: `${id}.output`, version: 1 }, audience: "authenticated", surfaces: ["workspace"], permission: id === "sales.pipeline.snapshot" ? "sales.pipelines.read" : "sales.saved-views.read", structuralCompatibilityHash: hash, presentationMetadataRevision: 1, title, inputFields, outputFields: [...fields], paginationModes: ["offset"], limits: { ...salesSourceLimits, ...limits }, cacheClass: "authorization-context" };
+}
+export const salesSavedViewTableDescriptor = p134Source("sales.saved-view.table", "Sales saved table view", "sha256:9707080142ac16e3f0d540c439e7ae3bc8d2cc1f6fb5166a1879f355834c07d2", salesSavedViewTableFields, {}, savedBindingInput);
+export const salesSavedViewKanbanDescriptor = p134Source("sales.saved-view.kanban", "Sales saved Kanban view", "sha256:c54433c895722e63dd499720e37e8f2ae9b1390c28bab9f0c5111c4f7ea1233a", salesSavedViewKanbanFields, {}, savedBindingInput);
+export const salesSavedViewCalendarDescriptor = p134Source("sales.saved-view.calendar", "Sales saved calendar view", "sha256:8d9e0bc1f7f3c53b53f3e006c51f2e5e41e2198284c3ad827e10cbf32431f5f9", salesSavedViewCalendarFields, {}, savedBindingInput);
+const salesAdministrationSourceLimits = Object.freeze({ ratePerMinute: 120, burst: 12, costClass: "low" as const });
+export const salesPipelineSnapshotDescriptor = p134Source("sales.pipeline.snapshot", "Sales pipeline snapshot", "sha256:c9bc20dcc9f46c54dc5c16ef1dcafa54bbba0b6a6531e79f0e8f7dac2493664b", salesPipelineSnapshotFields, { ...salesAdministrationSourceLimits, maxSelectedFields: 12, maxPageSize: 6, maxFilters: 0, maxSorts: 0, maxCost: 14 });
+export const salesSavedViewListDescriptor = p134Source("sales.saved-view.list", "Sales saved views", "sha256:21cb975945b4b96ce9e239ef091cf64d2b7249f4015481f45d38fc11c5cd0dbd", salesSavedViewListFields, { ...salesAdministrationSourceLimits, maxFilters: 2, maxSorts: 1, maxCost: 20 });
+export const salesSavedViewDetailDescriptor = p134Source("sales.saved-view.detail", "Sales saved view detail", "sha256:52bcebb4b05acf5db95f83c21a9a95dc5d6c8f5db70cd56cf2204fbba9baaf76", salesSavedViewDetailFields, { ...salesAdministrationSourceLimits, maxSelectedFields: 11, maxPageSize: 33, maxFilters: 0, maxSorts: 0, maxCost: 14 }, [{ id: "saved-view-id", kind: "integer", required: false, nullable: false }]);
+
+export type SalesSavedViewSourceId = "sales.saved-view.table" | "sales.saved-view.kanban" | "sales.saved-view.calendar";
+export type SalesSavedViewVisibility = Readonly<{ kind: "personal" } | { kind: "team"; teamId: string }>;
+export interface SalesSavedViewSourceBinding { readonly id: SalesSavedViewSourceId; readonly version: 1; readonly sourceSchema: Readonly<{ id: string; version: 1 }>; readonly structuralCompatibilityHash: string; }
+export interface SalesSavedViewDefinition {
+  readonly kind: "table" | "kanban" | "calendar";
+  readonly targetObjectId: "sales.object.account" | "sales.object.contact" | "sales.object.lead" | "sales.object.opportunity" | "sales.object.task" | "sales.object.activity";
+  readonly source: SalesSavedViewSourceBinding;
+  readonly fields: readonly string[];
+  readonly filters: readonly Readonly<{ fieldId: string; operator: string; value?: unknown }>[];
+  readonly sorts: readonly Readonly<{ fieldId: string; direction: "asc" | "desc" }>[];
+  readonly grouping?: "stage-id";
+  readonly dateField?: "scheduled-at" | "occurred-at";
+  readonly calendarRange?: Readonly<{ start: string; end: string; timezone: string }>;
+  readonly presentation: Readonly<{ density: "comfortable" | "compact" } | { mode: "agenda" | "month" }>;
+  readonly pageSize: number;
+}
+export interface SalesSavedViewBindingInput { readonly "saved-view-id"?: number; readonly "expected-revision"?: number; }
+export interface CompiledSalesSavedView { readonly selectedFields: readonly string[]; readonly query: DataSourceQueryControls; }
+export interface SalesReportingTimezone { readonly timezone: string; readonly revision: number; }
+export interface SalesSavedViewCompileContext { readonly reportingTimezone?: SalesReportingTimezone; readonly now?: Date; }
+
+const savedViewDescriptors: Readonly<Record<SalesSavedViewSourceId, DataSourceDescriptor>> = Object.freeze({
+  "sales.saved-view.table": salesSavedViewTableDescriptor, "sales.saved-view.kanban": salesSavedViewKanbanDescriptor, "sales.saved-view.calendar": salesSavedViewCalendarDescriptor
+});
+const sourceTargets: Readonly<Record<SalesSavedViewSourceId, readonly SalesSavedViewDefinition["targetObjectId"][]>> = Object.freeze({
+  "sales.saved-view.table": ["sales.object.account", "sales.object.contact", "sales.object.lead", "sales.object.opportunity", "sales.object.task", "sales.object.activity"],
+  "sales.saved-view.kanban": ["sales.object.opportunity"], "sales.saved-view.calendar": ["sales.object.activity"]
+});
+const utf8Bytes = (value: string) => new TextEncoder().encode(value).byteLength;
+/** Exact persisted Saved View byte representation: recursively key-sorted and whitespace-free. */
+export const canonicalSalesSavedViewJson = (value: unknown): string => JSON.stringify(JSON.parse(canonicalJson(value)));
+export const isSalesBoundedNfcText = (value: unknown, maxUtf8Bytes = 120): value is string => typeof value === "string" && value.normalize("NFC") === value && !value.includes("\0") && utf8Bytes(value) >= 1 && utf8Bytes(value) <= maxUtf8Bytes;
+const exactObject = (value: unknown, allowed: readonly string[], required: readonly string[]): value is Record<string, unknown> => salesRecord(value) && Object.keys(value).every((key) => allowed.includes(key)) && required.every((key) => Object.hasOwn(value, key));
+const positiveSafeInteger = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) > 0;
+const instant = (value: unknown): value is string => typeof value === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u.test(value) && new Date(value).toISOString() === value;
+const canonicalIanaTimezone = (value: unknown): value is string => {
+  if (typeof value !== "string" || value.normalize("NFC") !== value || value.includes("\0") || utf8Bytes(value) < 1 || utf8Bytes(value) > 120) return false;
+  try {
+    return (value === "UTC" || Intl.supportedValuesOf("timeZone").includes(value)) && new Intl.DateTimeFormat("en", { timeZone: value }).resolvedOptions().timeZone === value;
+  } catch { return false; }
+};
+const calendarParts = (date: Date, timezone: string): Readonly<{ year: number; month: number; day: number; hour: number; minute: number; second: number }> => {
+  const values = Object.fromEntries(new Intl.DateTimeFormat("en", { calendar: "iso8601", numberingSystem: "latn", timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }).formatToParts(date).filter(({ type }) => type !== "literal").map(({ type, value }) => [type, Number(value)]));
+  const year = values.year; const month = values.month; const day = values.day; const hour = values.hour; const minute = values.minute; const second = values.second;
+  if (typeof year !== "number" || typeof month !== "number" || typeof day !== "number" || typeof hour !== "number" || typeof minute !== "number" || typeof second !== "number" || ![year, month, day, hour, minute, second].every(Number.isSafeInteger) || month < 1 || month > 12 || day < 1 || day > 31 || hour < 0 || hour > 24 || minute < 0 || minute > 59 || second < 0 || second > 59) throw new TypeError("Sales reporting timezone conversion is invalid.");
+  return Object.freeze({ year, month, day, hour: hour === 24 ? 0 : hour, minute, second });
+};
+const utcAtZonedMidnight = (year: number, month: number, day: number, timezone: string): string => {
+  const expected = Date.UTC(year, month - 1, day); let candidate = expected;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const actual = calendarParts(new Date(candidate), timezone); const actualEpoch = Date.UTC(actual.year, actual.month - 1, actual.day, actual.hour, actual.minute, actual.second);
+    const adjustment = expected - actualEpoch;
+    if (adjustment === 0) {
+      if (actual.year !== year || actual.month !== month || actual.day !== day || actual.hour !== 0 || actual.minute !== 0 || actual.second !== 0) break;
+      return new Date(candidate).toISOString();
+    }
+    candidate += adjustment;
+  }
+  throw new TypeError("Sales reporting timezone midnight is invalid.");
+};
+const calendarDaysBetween = (start: string, end: string, timezone: string): number => {
+  const first = calendarParts(new Date(start), timezone); const last = calendarParts(new Date(end), timezone);
+  return (Date.UTC(last.year, last.month - 1, last.day) - Date.UTC(first.year, first.month - 1, first.day)) / 86_400_000;
+};
+export function canonicalSalesCalendarRange(reportingTimezone: SalesReportingTimezone, now = new Date()): Readonly<{ start: string; end: string; timezone: string }> {
+  if (!positiveSafeInteger(reportingTimezone.revision) || !canonicalIanaTimezone(reportingTimezone.timezone) || Number.isNaN(now.getTime())) throw new TypeError("Sales reporting timezone is invalid.");
+  const current = calendarParts(now, reportingTimezone.timezone); const nextYear = current.month === 12 ? current.year + 1 : current.year; const nextMonth = current.month === 12 ? 1 : current.month + 1;
+  return Object.freeze({ start: utcAtZonedMidnight(current.year, current.month, 1, reportingTimezone.timezone), end: utcAtZonedMidnight(nextYear, nextMonth, 1, reportingTimezone.timezone), timezone: reportingTimezone.timezone });
+}
+
+export function parseSalesSavedViewBindingInput(value: unknown): Readonly<{ savedViewId?: number; expectedRevision?: number }> {
+  if (!salesRecord(value)) throw new TypeError("Sales saved-view binding input is invalid.");
+  const keys = Object.keys(value).sort().join("\0");
+  if (keys === "") return Object.freeze({});
+  if (keys !== "expected-revision\0saved-view-id" || !positiveSafeInteger(value["saved-view-id"]) || !positiveSafeInteger(value["expected-revision"])) throw new TypeError("Sales saved-view binding input must be empty or an exact ID/revision pair.");
+  return Object.freeze({ savedViewId: value["saved-view-id"], expectedRevision: value["expected-revision"] });
+}
+
+function savedScalar(field: SalesSourceField, value: unknown): boolean {
+  if (value === null) return field.nullable;
+  if (["text", "status", "enum", "resource"].includes(field.kind)) return typeof value === "string" && utf8Bytes(value) <= 512;
+  if (field.kind === "integer") return Number.isSafeInteger(value);
+  if (["number", "percentage", "duration"].includes(field.kind)) return typeof value === "number" && Number.isFinite(value);
+  if (field.kind === "date") return isSalesCalendarDate(value);
+  if (field.kind === "datetime") return instant(value);
+  if (field.kind === "boolean") return typeof value === "boolean";
+  if (field.kind === "decimal") return typeof value === "string" && /^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/u.test(value);
+  return false;
+}
+
+/** Validates the persisted closed grammar and compiles only platform query controls. */
+export function compileSalesSavedViewDefinition(definition: unknown, sourceId: SalesSavedViewSourceId, selectedFields: readonly string[], pageNumber: number, context: SalesSavedViewCompileContext = {}): CompiledSalesSavedView {
+  const descriptor = savedViewDescriptors[sourceId];
+  if (!positiveSafeInteger(pageNumber) || pageNumber > 1_000_000 || !exactObject(definition, ["kind", "targetObjectId", "source", "fields", "filters", "sorts", "grouping", "calendarRange", "dateField", "presentation", "pageSize"], ["kind", "targetObjectId", "source", "fields", "filters", "sorts", "presentation", "pageSize"]) || utf8Bytes(canonicalSalesSavedViewJson(definition)) > 16_384) throw new TypeError("Sales saved-view definition is invalid.");
+  const view = definition as unknown as SalesSavedViewDefinition;
+  const expectedKind = sourceId.slice("sales.saved-view.".length);
+  const source = view.source;
+  if (view.kind !== expectedKind || !sourceTargets[sourceId].includes(view.targetObjectId) || !exactObject(source, ["id", "version", "sourceSchema", "structuralCompatibilityHash"], ["id", "version", "sourceSchema", "structuralCompatibilityHash"]) || source.id !== descriptor.id || source.version !== descriptor.version || canonicalJson(source.sourceSchema) !== canonicalJson(descriptor.sourceSchema) || source.structuralCompatibilityHash !== descriptor.structuralCompatibilityHash) throw new TypeError("Sales saved-view source binding is stale or forged.");
+  const fields = descriptor.outputFields ?? [];
+  if (!Array.isArray(view.fields) || view.fields.length < 1 || view.fields.length > 8 || new Set(view.fields).size !== view.fields.length || view.fields.some((id) => typeof id !== "string" || !fields.some((field) => field.id === id)) || selectedFields.join("\0") !== view.fields.join("\0") || fields.some((field) => field.binding === "required" && !view.fields.includes(field.id))) throw new TypeError("Sales saved-view selected fields are invalid.");
+  if (!Array.isArray(view.filters) || view.filters.length > (view.kind === "calendar" ? 6 : 8) || !Array.isArray(view.sorts) || view.sorts.length > 2) throw new TypeError("Sales saved-view query exceeds its bounds.");
+  const filters = view.filters.map((filter) => {
+    if (!exactObject(filter, ["fieldId", "operator", "value"], ["fieldId", "operator"]) || typeof filter.fieldId !== "string" || typeof filter.operator !== "string") throw new TypeError("Sales saved-view filter is invalid.");
+    const field = fields.find((candidate) => candidate.id === filter.fieldId);
+    const nullOperator = filter.operator === "is-null" || filter.operator === "is-not-null";
+    const arrayOperator = filter.operator === "in" || filter.operator === "not-in";
+    if (field === undefined || !view.fields.includes(field.id) || !field.filterOperators.includes(filter.operator as never) || nullOperator === Object.hasOwn(filter, "value")) throw new TypeError("Sales saved-view filter is invalid.");
+    if (!nullOperator) {
+      const value = filter.value;
+      if (arrayOperator ? !Array.isArray(value) || value.length < 1 || value.length > 20 || new Set(value.map((item) => item === null ? "null" : typeof item)).size !== 1 || !value.every((item) => savedScalar(field, item)) : !savedScalar(field, value)) throw new TypeError("Sales saved-view filter value is invalid.");
+    }
+    return Object.freeze({ field: filter.fieldId, operator: filter.operator, ...(nullOperator ? {} : { value: filter.value }) });
+  });
+  const seenSorts = new Set<string>();
+  const sort = view.sorts.map((item) => {
+    if (!exactObject(item, ["fieldId", "direction"], ["fieldId", "direction"]) || typeof item.fieldId !== "string" || typeof item.direction !== "string" || !view.fields.includes(item.fieldId) || seenSorts.has(item.fieldId) || !["asc", "desc"].includes(item.direction)) throw new TypeError("Sales saved-view sort is invalid.");
+    const field = fields.find((candidate) => candidate.id === item.fieldId); if (field?.sortable !== true) throw new TypeError("Sales saved-view sort is invalid."); seenSorts.add(item.fieldId);
+    return Object.freeze({ field: item.fieldId, direction: item.direction });
+  });
+  if (!positiveSafeInteger(view.pageSize) || view.pageSize > 100 || view.kind === "kanban" && view.pageSize < 7) throw new TypeError("Sales saved-view page size is invalid.");
+  const presentation = view.presentation as Record<string, unknown>;
+  if (view.kind === "table" && (view.grouping !== undefined || view.calendarRange !== undefined || view.dateField !== undefined || !exactObject(presentation, ["density"], ["density"]) || !["comfortable", "compact"].includes(presentation.density as string))) throw new TypeError("Sales table-view discriminator is invalid.");
+  if (view.kind === "kanban" && (view.targetObjectId !== "sales.object.opportunity" || view.grouping !== "stage-id" || view.calendarRange !== undefined || view.dateField !== undefined || view.fields.join("\0") !== "row-kind\0name\0stage-id\0stage-metadata\0revision" || !exactObject(presentation, ["density"], ["density"]) || !["comfortable", "compact"].includes(presentation.density as string))) throw new TypeError("Sales Kanban-view discriminator is invalid.");
+  if (view.kind === "calendar") {
+    const reportingTimezone = context.reportingTimezone;
+    if (view.targetObjectId !== "sales.object.activity" || view.grouping !== undefined || !["scheduled-at", "occurred-at"].includes(view.dateField as string) || !view.fields.includes(view.dateField!) || !exactObject(presentation, ["mode"], ["mode"]) || !["agenda", "month"].includes(presentation.mode as string) || !exactObject(view.calendarRange, ["start", "end", "timezone"], ["start", "end", "timezone"]) || !instant(view.calendarRange.start) || !instant(view.calendarRange.end) || reportingTimezone === undefined || !positiveSafeInteger(reportingTimezone.revision) || !canonicalIanaTimezone(reportingTimezone.timezone) || view.calendarRange.timezone !== reportingTimezone.timezone) throw new TypeError("Sales calendar-view discriminator is invalid.");
+    const start = Date.parse(view.calendarRange.start); const end = Date.parse(view.calendarRange.end); const calendarDays = calendarDaysBetween(view.calendarRange.start, view.calendarRange.end, reportingTimezone.timezone); if (end <= start || !Number.isSafeInteger(calendarDays) || calendarDays < 1 || calendarDays > 31) throw new TypeError("Sales calendar-view range is invalid.");
+    const dateField = view.dateField!; filters.push(Object.freeze({ field: dateField, operator: "gte", value: view.calendarRange.start }), Object.freeze({ field: dateField, operator: "lt", value: view.calendarRange.end }));
+  }
+  return Object.freeze({ selectedFields: Object.freeze([...view.fields]), query: Object.freeze({ filters: Object.freeze(filters), sort: Object.freeze(sort), page: Object.freeze({ number: pageNumber, size: view.pageSize }) }) as DataSourceQueryControls });
+}
+
+export function validateSalesPipelineSnapshotInput(value: unknown, applicationId: string, environment: string, deriveStageId: (applicationId: string, environment: string, pipelineId: number, semantic: SalesOpportunityStage) => string): Readonly<Record<string, unknown>> {
+  if (!exactObject(value, ["id", "expectedRevision", "name", "orderedStageIds", "stages"], ["id", "expectedRevision", "name", "orderedStageIds", "stages"]) || !positiveSafeInteger(Number(value.id)) || !positiveSafeInteger(value.expectedRevision) || typeof value.name !== "string" || !isSalesBoundedNfcText(value.name.trim()) || !Array.isArray(value.orderedStageIds) || value.orderedStageIds.length !== 6 || new Set(value.orderedStageIds).size !== 6 || !Array.isArray(value.stages) || value.stages.length !== 6) throw new TypeError("Sales pipeline snapshot is invalid.");
+  const pipelineId = Number(value.id); const orderedStageIds = value.orderedStageIds as unknown[]; const semantics = ["qualification", "discovery", "proposal", "negotiation", "won", "lost"] as const; const seen = new Set<string>();
+  const stages: readonly Readonly<Record<string, unknown>>[] = value.stages.map((raw, index): Readonly<Record<string, unknown>> => {
+    if (!exactObject(raw, ["stageId", "expectedRevision", "semantic", "name", "position", "probabilityBasisPoints", "allowedTransitionStageIds", "requiredFieldIds"], ["stageId", "expectedRevision", "semantic", "name", "position", "probabilityBasisPoints", "allowedTransitionStageIds", "requiredFieldIds"]) || typeof raw.semantic !== "string" || !semantics.includes(raw.semantic as typeof semantics[number]) || seen.has(raw.semantic) || raw.stageId !== deriveStageId(applicationId, environment, pipelineId, raw.semantic as SalesOpportunityStage) || raw.position !== index || orderedStageIds[index] !== raw.stageId || !positiveSafeInteger(raw.expectedRevision) || typeof raw.name !== "string" || !isSalesBoundedNfcText(raw.name.trim()) || !Number.isSafeInteger(raw.probabilityBasisPoints) || (raw.probabilityBasisPoints as number) < 0 || (raw.probabilityBasisPoints as number) > 10_000 || !Array.isArray(raw.allowedTransitionStageIds) || new Set(raw.allowedTransitionStageIds).size !== raw.allowedTransitionStageIds.length || !Array.isArray(raw.requiredFieldIds)) throw new TypeError("Sales pipeline stage snapshot is invalid.");
+    seen.add(raw.semantic);
+    return Object.freeze({ ...(raw as Readonly<Record<string, unknown>>), name: raw.name.trim() });
+  });
+  if (seen.size !== 6 || stages[4]?.semantic !== "won" || stages[5]?.semantic !== "lost" || stages.slice(0, 4).some((stage) => !["qualification", "discovery", "proposal", "negotiation"].includes(String(stage.semantic)))) throw new TypeError("Sales pipeline semantic positions are invalid.");
+  const byId = new Map(stages.map((stage) => [stage.stageId as string, stage])); const trusted: Readonly<Record<string, readonly string[]>> = { qualification: ["discovery", "lost"], discovery: ["proposal", "lost"], proposal: ["negotiation", "lost"], negotiation: ["won", "lost"], won: [], lost: [] };
+  for (const stage of stages) {
+    const destinations = stage.allowedTransitionStageIds as unknown[]; if (destinations.some((id) => typeof id !== "string" || !byId.has(id) || !trusted[stage.semantic as string]!.includes(String(byId.get(id)?.semantic)))) throw new TypeError("Sales pipeline transition graph is invalid.");
+    const required = stage.requiredFieldIds as unknown[]; const expected = stage.semantic === "lost" ? ["lossReason"] : []; if (canonicalJson(required) !== canonicalJson(expected)) throw new TypeError("Sales pipeline transition requirements are invalid.");
+  }
+  return Object.freeze({ ...value, name: value.name.trim(), stages: Object.freeze(stages) });
+}
 
 export const salesTimelineFields: NonNullable<DataSourceDescriptor["outputFields"]> = [
   crmField("kind", "text", "sales.activities.read"),
@@ -293,15 +518,19 @@ export interface UpdateTaskOutput { readonly id: string; readonly title: string;
 export type SalesOpportunityStage = "qualification" | "discovery" | "proposal" | "negotiation" | "won" | "lost";
 export interface UpdateOpportunityStageInput {
   readonly id: string;
-  readonly expectedStage: SalesOpportunityStage;
   readonly expectedRevision: number;
-  readonly stage: SalesOpportunityStage;
+  readonly expectedPipelineId: string;
+  readonly expectedPipelineRevision: number;
+  readonly expectedSourceStageId: string;
+  readonly expectedSourceStageRevision: number;
+  readonly destinationStageId: string;
+  readonly expectedDestinationStageRevision: number;
 }
 export interface UpdateOpportunityStageOutput {
   readonly id: string;
-  readonly name: string;
-  readonly stage: SalesOpportunityStage;
   readonly revision: number;
+  readonly pipelineId: string;
+  readonly stageId: string;
 }
 
 const salesRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
@@ -359,10 +588,9 @@ export const salesUpdateTaskOutputRuntimeSchema: RuntimeSchema<UpdateTaskOutput>
 
 export const salesOpportunityStageInputRuntimeSchema: RuntimeSchema<UpdateOpportunityStageInput> = {
   safeParse(value) {
-    const transitions: Readonly<Record<string, string>> = { qualification: "discovery", discovery: "proposal", proposal: "negotiation" };
-    if (!salesRecord(value) || Object.keys(value).sort().join("\u0000") !== "expectedRevision\u0000expectedStage\u0000id\u0000stage" || !boundedLegacyId(value.id) ||
-      !Number.isSafeInteger(value.expectedRevision) || (value.expectedRevision as number) < 1 ||
-      typeof value.expectedStage !== "string" || typeof value.stage !== "string" || transitions[value.expectedStage] !== value.stage) {
+    if (!salesRecord(value) || Object.keys(value).sort().join("\u0000") !== "destinationStageId\u0000expectedDestinationStageRevision\u0000expectedPipelineId\u0000expectedPipelineRevision\u0000expectedRevision\u0000expectedSourceStageId\u0000expectedSourceStageRevision\u0000id" || !boundedLegacyId(value.id) || !isSalesRecordId(value.expectedPipelineId) ||
+      ![value.expectedRevision, value.expectedPipelineRevision, value.expectedSourceStageRevision, value.expectedDestinationStageRevision].every((revision) => Number.isSafeInteger(revision) && (revision as number) >= 1) ||
+      ![value.expectedSourceStageId, value.destinationStageId].every((id) => typeof id === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(id))) {
       return invalidRuntimeValue("Sales opportunity stage input is invalid.");
     }
     return { success: true as const, data: value as unknown as UpdateOpportunityStageInput };
@@ -371,8 +599,7 @@ export const salesOpportunityStageInputRuntimeSchema: RuntimeSchema<UpdateOpport
 
 export const salesOpportunityStageOutputRuntimeSchema: RuntimeSchema<UpdateOpportunityStageOutput> = {
   safeParse(value) {
-    if (!salesRecord(value) || Object.keys(value).sort().join("\u0000") !== "id\u0000name\u0000revision\u0000stage" || !boundedLegacyId(value.id) ||
-      typeof value.name !== "string" || value.name.length < 1 || value.name.length > 256 || !["qualification", "discovery", "proposal", "negotiation", "won", "lost"].includes(value.stage as string) ||
+    if (!salesRecord(value) || Object.keys(value).sort().join("\u0000") !== "id\u0000pipelineId\u0000revision\u0000stageId" || !boundedLegacyId(value.id) || !isSalesRecordId(value.pipelineId) || typeof value.stageId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(value.stageId) ||
       !Number.isSafeInteger(value.revision) || (value.revision as number) < 1) {
       return invalidRuntimeValue("Sales opportunity stage output is invalid.");
     }
@@ -418,10 +645,11 @@ function exactSalesOpportunityCell(fieldId: string, cell: unknown): boolean {
   if (field === undefined) return false;
   if (cell === null) return field.nullable;
   if (!salesRecord(cell) || cell.kind !== field.kind || !field.nullable && cell.value === null) return false;
-  if (fieldId === "name") return typeof cell.value === "string" && cell.value.length > 0;
-  if (fieldId === "stage-id") return typeof cell.value === "string" && opportunityStages.includes(cell.value as typeof opportunityStages[number]);
-  if (fieldId === "revision") return Number.isSafeInteger(cell.value) && (cell.value as number) >= 1;
-  return typeof cell.value === "string" && /^[A-Z]{3}$/u.test(cell.currency as string) && Number.isSafeInteger(cell.scale) && (cell.scale as number) >= 0 && (cell.scale as number) <= 18;
+  if (fieldId === "name" || fieldId === "stage-name") return typeof cell.value === "string" && cell.value.length > 0;
+  if (fieldId === "stage-id") return typeof cell.value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(cell.value);
+  if (fieldId === "stage-semantic") return typeof cell.value === "string" && opportunityStages.includes(cell.value as typeof opportunityStages[number]);
+  if (["pipeline-id", "pipeline-revision", "stage-revision", "revision"].includes(fieldId)) return Number.isSafeInteger(cell.value) && (cell.value as number) >= 1 && (cell.value as number) <= 2_147_483_647;
+  return fieldId === "amount" && typeof cell.value === "string" && /^[A-Z]{3}$/u.test(cell.currency as string) && Number.isSafeInteger(cell.scale) && (cell.scale as number) >= 0 && (cell.scale as number) <= 18;
 }
 
 export const salesOpportunitiesOutputRuntimeSchema: RuntimeSchema<TableRecords> = {
@@ -513,28 +741,30 @@ export const salesTaskUpdateDescriptor: ActionDescriptor = {
 
 export const salesOpportunityStageUpdateDescriptor: ActionDescriptor = {
   id: "sales.opportunity.stage.update",
-  version: 2,
+  version: 3,
   ownerPluginId: "module.sales",
   inputSchema: {
     type: "object",
     properties: {
       id: { type: "string", minLength: 1, maxLength: 128 },
-      expectedStage: { type: "string", enum: ["qualification", "discovery", "proposal"] },
       expectedRevision: { type: "integer", minimum: 1 },
-      stage: { type: "string", enum: ["discovery", "proposal", "negotiation"] }
+      expectedPipelineId: { type: "string", minLength: 1, maxLength: 10 },
+      expectedPipelineRevision: { type: "integer", minimum: 1 },
+      expectedSourceStageId: { type: "string", minLength: 36, maxLength: 36 },
+      expectedSourceStageRevision: { type: "integer", minimum: 1 },
+      destinationStageId: { type: "string", minLength: 36, maxLength: 36 },
+      expectedDestinationStageRevision: { type: "integer", minimum: 1 }
     },
-    required: ["id", "expectedStage", "expectedRevision", "stage"],
+    required: ["id", "expectedRevision", "expectedPipelineId", "expectedPipelineRevision", "expectedSourceStageId", "expectedSourceStageRevision", "destinationStageId", "expectedDestinationStageRevision"],
     additionalProperties: false
   },
   outputSchema: {
     type: "object",
     properties: {
       id: { type: "string", minLength: 1, maxLength: 128 },
-      name: { type: "string", minLength: 1, maxLength: 256 },
-      stage: { type: "string", enum: ["qualification", "discovery", "proposal", "negotiation", "won", "lost"] },
-      revision: { type: "integer", minimum: 1 }
+      revision: { type: "integer", minimum: 1 }, pipelineId: { type: "string", minLength: 1, maxLength: 10 }, stageId: { type: "string", minLength: 36, maxLength: 36 }
     },
-    required: ["id", "name", "stage", "revision"],
+    required: ["id", "revision", "pipelineId", "stageId"],
     additionalProperties: false
   },
   permission: "sales.opportunities.stage.update",
@@ -565,6 +795,11 @@ export const salesOpportunityCreateDescriptor = workflowActionDescriptor("sales.
 export const salesOpportunityUpdateDescriptor = workflowActionDescriptor("sales.opportunity.update");
 export const salesOpportunityCloseDescriptor = workflowActionDescriptor("sales.opportunity.close");
 export const salesOpportunityArchiveDescriptor = workflowActionDescriptor("sales.opportunity.archive");
+export const salesPipelineUpdateDescriptor = workflowActionDescriptor("sales.pipeline.update");
+export const salesPipelineArchiveDescriptor = workflowActionDescriptor("sales.pipeline.archive");
+export const salesSavedViewCreateDescriptor = workflowActionDescriptor("sales.saved-view.create");
+export const salesSavedViewUpdateDescriptor = workflowActionDescriptor("sales.saved-view.update");
+export const salesSavedViewArchiveDescriptor = workflowActionDescriptor("sales.saved-view.archive");
 export const salesActivityCreateDescriptor = workflowActionDescriptor("sales.activity.create");
 export const salesActivityCompleteDescriptor = workflowActionDescriptor("sales.activity.complete");
 export const salesActivityCancelDescriptor = workflowActionDescriptor("sales.activity.cancel");
@@ -575,13 +810,14 @@ export const salesOwnershipAssignDescriptor = workflowActionDescriptor("sales.ow
 
 function actionRuntime(descriptor: ActionDescriptor): RuntimeSchema<Readonly<Record<string, unknown>>> {
   return { safeParse(value) {
-    if (!salesRecord(value) || descriptor.inputSchema.type !== "object" || descriptor.inputSchema.properties === undefined) return invalidRuntimeValue("Sales action input is invalid.");
+    if (!salesRecord(value) || !("type" in descriptor.inputSchema) || descriptor.inputSchema.type !== "object" || descriptor.inputSchema.properties === undefined) return invalidRuntimeValue("Sales action input is invalid.");
     const properties = descriptor.inputSchema.properties;
     const required = new Set(descriptor.inputSchema.required ?? []);
     if (Object.keys(value).some((key) => !Object.hasOwn(properties, key)) || [...required].some((key) => !Object.hasOwn(value, key))) return invalidRuntimeValue("Sales action input is invalid.");
     for (const [key, property] of Object.entries(properties)) {
       const item = value[key]; if (item === undefined) continue;
-      if (property.type === "string" && (typeof item !== "string" || item.length < (property.minLength ?? 0) || item.length > (property.maxLength ?? Number.MAX_SAFE_INTEGER) || property.enum !== undefined && !property.enum.includes(item) || salesRecordIdKeys.has(key) && !isSalesRecordId(item) || salesPrincipalIdentityKeys.has(key) && !salesPrincipalIdentityRegex.test(item) || key === "scheduledAt" && !isCanonicalUtcInstant(item))) return invalidRuntimeValue("Sales action input is invalid.");
+      if ("oneOf" in property) { if (!exactJsonSchemaValue(property, item)) return invalidRuntimeValue("Sales action input is invalid."); continue; }
+      if (property.type === "string" && (typeof item !== "string" || item.length < (property.minLength ?? 0) || item.length > (property.maxLength ?? Number.MAX_SAFE_INTEGER) || new TextEncoder().encode(item).byteLength > (property.maxUtf8Bytes ?? Number.MAX_SAFE_INTEGER) || property.maxUtf8Bytes === 120 && !isSalesBoundedNfcText(key === "name" ? item.trim() : item) || property.enum !== undefined && !property.enum.includes(item) || salesRecordIdKeys.has(key) && !isSalesRecordId(item) || salesPrincipalIdentityKeys.has(key) && !salesPrincipalIdentityRegex.test(item) || key === "scheduledAt" && !isCanonicalUtcInstant(item))) return invalidRuntimeValue("Sales action input is invalid.");
       if (property.type === "integer" && (typeof item !== "number" || !Number.isSafeInteger(item) || item < (property.minimum ?? Number.MIN_SAFE_INTEGER) || item > (property.maximum ?? Number.MAX_SAFE_INTEGER))) return invalidRuntimeValue("Sales action input is invalid.");
     }
     if (descriptor.id === "sales.lead.qualify") {
@@ -617,30 +853,37 @@ function actionRuntime(descriptor: ActionDescriptor): RuntimeSchema<Readonly<Rec
     return { success: true as const, data: Object.freeze({ ...value }) };
   } };
 }
+function exactJsonSchemaValue(schema: AgentToolJsonSchema, value: unknown): boolean {
+  if ("oneOf" in schema) return schema.oneOf.filter((branch) => exactJsonSchemaValue(branch, value)).length === 1;
+  if (schema.enum !== undefined && !schema.enum.some((candidate) => Object.is(candidate, value))) return false;
+  if (schema.type === "null") return value === null;
+  if (schema.type === "boolean") return typeof value === "boolean";
+  if (schema.type === "number" || schema.type === "integer") return typeof value === "number" && Number.isFinite(value) && (schema.type !== "integer" || Number.isSafeInteger(value)) && value >= (schema.minimum ?? -Infinity) && value <= (schema.maximum ?? Infinity);
+  if (schema.type === "string") return typeof value === "string" && value.length >= (schema.minLength ?? 0) && value.length <= (schema.maxLength ?? Number.MAX_SAFE_INTEGER) && new TextEncoder().encode(value).byteLength <= (schema.maxUtf8Bytes ?? Number.MAX_SAFE_INTEGER) && (schema.maxUtf8Bytes !== 120 || isSalesBoundedNfcText(value));
+  if (schema.type === "array") return Array.isArray(value) && value.length >= (schema.minItems ?? 0) && value.length <= (schema.maxItems ?? Number.MAX_SAFE_INTEGER) && schema.items !== undefined && value.every((item) => exactJsonSchemaValue(schema.items!, item));
+  if (!salesRecord(value) || schema.properties === undefined) return false;
+  const required = new Set(schema.required ?? []);
+  return Object.keys(value).every((key) => Object.hasOwn(schema.properties!, key)) && [...required].every((key) => Object.hasOwn(value, key)) &&
+    Object.entries(value).every(([key, item]) => exactJsonSchemaValue(schema.properties![key]!, item));
+}
 function actionOutputRuntime(descriptor: ActionDescriptor): RuntimeSchema<Readonly<Record<string, unknown>>> {
   return { safeParse(value) {
     const schema = descriptor.outputSchema;
-    if (!salesRecord(value) || schema === undefined || schema.type !== "object" || schema.properties === undefined) return invalidRuntimeValue("Sales action output is invalid.");
-    const properties = schema.properties; const required = new Set(schema.required ?? []);
-    if (Object.keys(value).some((key) => !Object.hasOwn(properties, key)) || [...required].some((key) => !Object.hasOwn(value, key))) return invalidRuntimeValue("Sales action output is invalid.");
-    for (const [key, property] of Object.entries(properties)) {
-      const item = value[key]; if (item === undefined) continue;
-      if (property.type === "string" && (typeof item !== "string" || item.length < (property.minLength ?? 0) || item.length > (property.maxLength ?? Number.MAX_SAFE_INTEGER) || property.enum !== undefined && !property.enum.includes(item) || salesRecordIdKeys.has(key) && !isSalesRecordId(item) || salesPrincipalIdentityKeys.has(key) && !salesPrincipalIdentityRegex.test(item))) return invalidRuntimeValue("Sales action output is invalid.");
-      if (property.type === "integer" && (typeof item !== "number" || !Number.isSafeInteger(item) || item < (property.minimum ?? Number.MIN_SAFE_INTEGER) || item > (property.maximum ?? Number.MAX_SAFE_INTEGER))) return invalidRuntimeValue("Sales action output is invalid.");
-    }
+    if (!salesRecord(value) || schema === undefined || !exactJsonSchemaValue(schema, value)) return invalidRuntimeValue("Sales action output is invalid.");
+    for (const [key, item] of Object.entries(value)) if (typeof item === "string" && (salesRecordIdKeys.has(key) && !isSalesRecordId(item) || salesPrincipalIdentityKeys.has(key) && !salesPrincipalIdentityRegex.test(item))) return invalidRuntimeValue("Sales action output is invalid.");
     return { success: true as const, data: Object.freeze({ ...value }) };
   } };
 }
 export const salesWorkflowActionInputRuntimeSchemas = Object.freeze(Object.fromEntries([
   salesAccountCreateDescriptor, salesAccountUpdateDescriptor, salesAccountArchiveDescriptor, salesContactCreateDescriptor, salesContactUpdateDescriptor, salesContactArchiveDescriptor,
   salesLeadCreateDescriptor, salesLeadUpdateDescriptor, salesLeadQualifyDescriptor, salesLeadDisqualifyDescriptor, salesLeadArchiveDescriptor,
-  salesOpportunityCreateDescriptor, salesOpportunityUpdateDescriptor, salesOpportunityCloseDescriptor, salesOpportunityArchiveDescriptor,
+  salesOpportunityCreateDescriptor, salesOpportunityUpdateDescriptor, salesOpportunityCloseDescriptor, salesOpportunityArchiveDescriptor, salesPipelineUpdateDescriptor, salesPipelineArchiveDescriptor, salesSavedViewCreateDescriptor, salesSavedViewUpdateDescriptor, salesSavedViewArchiveDescriptor,
   salesActivityCreateDescriptor, salesActivityCompleteDescriptor, salesActivityCancelDescriptor, salesNoteCreateDescriptor, salesAttachmentLinkDescriptor, salesAttachmentRemoveDescriptor, salesOwnershipAssignDescriptor
 ].map((descriptor) => [descriptor.id, actionRuntime(descriptor)])) as Readonly<Record<string, RuntimeSchema<Readonly<Record<string, unknown>>>>>) ;
 export const salesWorkflowActionOutputRuntimeSchemas = Object.freeze(Object.fromEntries([
   salesAccountCreateDescriptor, salesAccountUpdateDescriptor, salesAccountArchiveDescriptor, salesContactCreateDescriptor, salesContactUpdateDescriptor, salesContactArchiveDescriptor,
   salesLeadCreateDescriptor, salesLeadUpdateDescriptor, salesLeadQualifyDescriptor, salesLeadDisqualifyDescriptor, salesLeadArchiveDescriptor,
-  salesOpportunityCreateDescriptor, salesOpportunityUpdateDescriptor, salesOpportunityCloseDescriptor, salesOpportunityArchiveDescriptor,
+  salesOpportunityCreateDescriptor, salesOpportunityUpdateDescriptor, salesOpportunityCloseDescriptor, salesOpportunityArchiveDescriptor, salesPipelineUpdateDescriptor, salesPipelineArchiveDescriptor, salesSavedViewCreateDescriptor, salesSavedViewUpdateDescriptor, salesSavedViewArchiveDescriptor,
   salesActivityCreateDescriptor, salesActivityCompleteDescriptor, salesActivityCancelDescriptor, salesNoteCreateDescriptor, salesAttachmentLinkDescriptor, salesAttachmentRemoveDescriptor, salesOwnershipAssignDescriptor
 ].map((descriptor) => [descriptor.id, actionOutputRuntime(descriptor)])) as Readonly<Record<string, RuntimeSchema<Readonly<Record<string, unknown>>>>>) ;
 
@@ -694,7 +937,7 @@ export const salesWorkspaceSettingsDescriptor: SystemSettingsDescriptor = {
   schemaVersion: 1,
   id: "sales.settings.workspace",
   publisher: { kind: "extension", deliveryClass: "platform-plugin", extensionId: "module.sales" },
-  descriptorSchemaVersion: 1,
+  descriptorSchemaVersion: 2,
   validation: "immediate",
   fields: {
     defaultTaskPageSize: {
@@ -717,12 +960,6 @@ export const salesWorkspaceSettingsDescriptor: SystemSettingsDescriptor = {
       default: "tasks",
       allowed: ["overview", "tasks", "opportunities"],
       description: "Default Sales workspace page."
-    },
-    pipelineStages: {
-      type: "string-list",
-      required: true,
-      default: ["qualification", "discovery", "proposal", "negotiation", "won", "lost"],
-      description: "Ordered reference pipeline stages."
     }
   },
   readPermission: "sales.settings.read",
@@ -733,7 +970,6 @@ export type SalesWorkspaceSettings = Readonly<{
   defaultTaskPageSize: number;
   showPotentialRevenue: boolean;
   defaultPage: "overview" | "tasks" | "opportunities";
-  pipelineStages: readonly string[];
 }>;
 
 export const salesRouteDescriptors = Object.freeze([
@@ -797,7 +1033,8 @@ export const salesRouteDescriptors = Object.freeze([
   },
   {
     id: "sales.route.opportunity-detail", ownerPluginId: "module.sales", path: "/sales/opportunities/:id", parameters: { id: { type: "string" } }, surface: "workspace", audience: "authenticated", permission: "sales.opportunities.read", viewId: "sales.page.opportunity-detail"
-  }
+  },
+  ...salesCrmRouteDescriptors.filter(({ id }) => ["sales.route.calendar", "sales.route.pipeline-settings", "sales.route.saved-views"].includes(id))
 ] satisfies readonly PluginRouteDescriptor[]);
 
 export const salesNavigationDescriptors = Object.freeze([
@@ -909,19 +1146,22 @@ export const salesOverviewPageTemplate: PluginPageTemplateDescriptor = {
 };
 
 export const salesOpportunitiesPageTemplate: PluginPageTemplateDescriptor = {
-  id: "sales.page.opportunities", version: 3, ownerPluginId: "module.sales",
+  id: "sales.page.opportunities", version: 4, ownerPluginId: "module.sales",
   route: { routeId: "sales.route.opportunities", params: {} }, surface: "workspace", profile: "workspace",
   permission: "sales.opportunities.read", publicationPolicy: { ownership: "customer", adoption: "explicit" },
-  migration: { adoptableFromVersions: [1, 2], notesMessageId: "sales.message.template-v3" },
+  migration: { adoptableFromVersions: [1, 2, 3], notesMessageId: "sales.message.template-v4" },
   requirements: {
-    capabilities: [], sources: [{ id: salesOpportunitiesDescriptor.id, version: salesOpportunitiesDescriptor.version }], actions: [{ id: salesOpportunityCreateDescriptor.id, version: salesOpportunityCreateDescriptor.version }, { id: salesOpportunityStageUpdateDescriptor.id, version: salesOpportunityStageUpdateDescriptor.version }],
-    blocks: [{ id: "sales.opportunity-list", version: 3 }]
+    capabilities: [], sources: [{ id: salesOpportunitiesDescriptor.id, version: salesOpportunitiesDescriptor.version }, { id: salesSavedViewKanbanDescriptor.id, version: salesSavedViewKanbanDescriptor.version }], actions: [{ id: salesOpportunityCreateDescriptor.id, version: salesOpportunityCreateDescriptor.version }, { id: salesOpportunityStageUpdateDescriptor.id, version: salesOpportunityStageUpdateDescriptor.version }],
+    blocks: [{ id: "sales.opportunity-list", version: 4 }, { id: "sales.opportunity-kanban", version: 3 }]
   },
   document: {
-    id: "sales.page.opportunities", version: 3, schemaVersion: 1, profile: "workspace",
+    id: "sales.page.opportunities", version: 4, schemaVersion: 1, profile: "workspace",
     regions: { main: [{
-      id: "sales-opportunities", type: "sales.opportunity-list", version: 3, props: { title: "Opportunities" },
-      bindings: { source: { source: { id: salesOpportunitiesDescriptor.id, version: salesOpportunitiesDescriptor.version }, input: {}, structuralCompatibilityHash: salesOpportunitiesDescriptor.structuralCompatibilityHash, selectedFields: ["name", "stage-id", "revision"] }, action: { id: salesOpportunityCreateDescriptor.id, version: salesOpportunityCreateDescriptor.version } }
+      id: "sales-opportunities", type: "sales.opportunity-list", version: 4, props: { title: "Opportunities" },
+      bindings: { source: { source: { id: salesOpportunitiesDescriptor.id, version: salesOpportunitiesDescriptor.version }, input: {}, structuralCompatibilityHash: salesOpportunitiesDescriptor.structuralCompatibilityHash, selectedFields: ["name", "pipeline-id", "pipeline-revision", "stage-id", "stage-name", "stage-semantic", "stage-revision", "revision"] }, action: { id: salesOpportunityCreateDescriptor.id, version: salesOpportunityCreateDescriptor.version } }
+    }, {
+      id: "sales-opportunity-kanban", type: "sales.opportunity-kanban", version: 3, props: { title: "Opportunity pipeline" },
+      bindings: { source: { source: { id: salesSavedViewKanbanDescriptor.id, version: salesSavedViewKanbanDescriptor.version }, input: {}, structuralCompatibilityHash: salesSavedViewKanbanDescriptor.structuralCompatibilityHash, selectedFields: ["row-kind", "name", "stage-id", "stage-metadata", "revision"] }, action: { id: salesOpportunityStageUpdateDescriptor.id, version: salesOpportunityStageUpdateDescriptor.version } }
     }] }
   }
 };
@@ -962,10 +1202,29 @@ export const salesLeadsPageTemplate = crmPageTemplate({ id: "sales.page.leads", 
 export const salesLeadDetailPageTemplate = crmPageTemplate({ id: "sales.page.lead-detail", routeId: "sales.route.lead-detail", permission: "sales.leads.read", source: salesLeadDetailDescriptor, fields: ["display-name", "source", "owner-id", "team-id", "status", "archive-status", "revision", "decided-at", "qualified-at", "disqualified-at", "qualified-account-id", "qualified-contact-id", "qualified-opportunity-id"], blockId: "sales.lead-detail", detail: true, actions: [salesLeadUpdateDescriptor, salesLeadQualifyDescriptor, salesLeadDisqualifyDescriptor, salesLeadArchiveDescriptor, salesOwnershipAssignDescriptor, salesActivityCreateDescriptor, salesActivityCompleteDescriptor, salesActivityCancelDescriptor, salesNoteCreateDescriptor, salesAttachmentLinkDescriptor, salesAttachmentRemoveDescriptor] });
 export const salesOpportunityDetailPageTemplate = crmPageTemplate({ id: "sales.page.opportunity-detail", routeId: "sales.route.opportunity-detail", permission: "sales.opportunities.read", source: salesOpportunityDetailDescriptor, fields: ["name", "owner-id", "team-id", "account-id", "primary-contact-id", "pipeline-id", "stage-id", "archive-status", "expected-close-date", "revision"], blockId: "sales.opportunity-detail", blockVersion: 3, detail: true, actions: [salesOpportunityUpdateDescriptor, salesOpportunityStageUpdateDescriptor, salesOpportunityCloseDescriptor, salesOpportunityArchiveDescriptor, salesOwnershipAssignDescriptor, salesActivityCreateDescriptor, salesActivityCompleteDescriptor, salesActivityCancelDescriptor, salesNoteCreateDescriptor, salesAttachmentLinkDescriptor, salesAttachmentRemoveDescriptor] });
 
+function p134Page(input: { id: string; routeId: string; permission: string; sources: readonly DataSourceDescriptor[]; actions: readonly ActionDescriptor[]; blocks: readonly { nodeId: string; id: string; source?: DataSourceDescriptor; fields?: readonly string[]; input?: Readonly<Record<string, never>>; action?: ActionDescriptor }[] }): PluginPageTemplateDescriptor {
+  return { id: input.id, version: 1, ownerPluginId: "module.sales", route: { routeId: input.routeId, params: {} }, surface: "workspace", profile: "workspace", permission: input.permission,
+    publicationPolicy: { ownership: "customer", adoption: "explicit" }, requirements: { capabilities: [], sources: input.sources.map(({ id, version }) => ({ id, version })), actions: input.actions.map(({ id, version }) => ({ id, version })), blocks: [...new Set(input.blocks.map(({ id }) => id))].map((id) => ({ id, version: 1 })) },
+    document: { id: input.id, version: 1, schemaVersion: 1, profile: "workspace", regions: { main: input.blocks.map((block) => ({ id: block.nodeId, type: block.id, version: 1, props: {}, bindings: { ...(block.source === undefined ? {} : { source: { source: { id: block.source.id, version: block.source.version }, input: block.input ?? {}, structuralCompatibilityHash: block.source.structuralCompatibilityHash, selectedFields: [...(block.fields ?? [])] } }), ...(block.action === undefined ? {} : { action: { id: block.action.id, version: block.action.version } }) } })) } } };
+}
+export const salesCalendarPageTemplate = p134Page({ id: "sales.page.calendar", routeId: "sales.route.calendar", permission: "sales.activities.read", sources: [salesSavedViewCalendarDescriptor], actions: [], blocks: [{ nodeId: "calendar", id: "sales.calendar", source: salesSavedViewCalendarDescriptor, fields: ["type", "subject", "status", "scheduled-at", "occurred-at", "related-record-type", "related-record-id", "revision"] }] });
+export const salesPipelineSettingsPageTemplate = p134Page({ id: "sales.page.pipeline-settings", routeId: "sales.route.pipeline-settings", permission: "sales.pipelines.configure", sources: [salesPipelineSnapshotDescriptor], actions: [salesPipelineUpdateDescriptor, salesPipelineArchiveDescriptor], blocks: [
+  { nodeId: "pipeline-update", id: "sales.pipeline-settings", source: salesPipelineSnapshotDescriptor, fields: salesPipelineSnapshotFields.map(({ id }) => id), action: salesPipelineUpdateDescriptor },
+  { nodeId: "pipeline-archive", id: "sales.pipeline-settings", source: salesPipelineSnapshotDescriptor, fields: salesPipelineSnapshotFields.map(({ id }) => id), action: salesPipelineArchiveDescriptor }
+] });
+export const salesSavedViewsPageTemplate = p134Page({ id: "sales.page.saved-views", routeId: "sales.route.saved-views", permission: "sales.saved-views.read", sources: [salesSavedViewListDescriptor, salesSavedViewDetailDescriptor, salesSavedViewTableDescriptor], actions: [salesSavedViewCreateDescriptor, salesSavedViewUpdateDescriptor, salesSavedViewArchiveDescriptor], blocks: [
+  { nodeId: "saved-view-list", id: "sales.saved-views", source: salesSavedViewListDescriptor, fields: salesSavedViewListFields.map(({ id }) => id) },
+  { nodeId: "saved-view-create", id: "sales.saved-views", action: salesSavedViewCreateDescriptor },
+  { nodeId: "saved-view-table-preview", id: "sales.saved-view-table", source: salesSavedViewTableDescriptor, fields: ["name"], input: {} },
+  { nodeId: "saved-view-detail", id: "sales.saved-views", source: salesSavedViewDetailDescriptor, fields: salesSavedViewDetailFields.map(({ id }) => id), action: salesSavedViewUpdateDescriptor },
+  { nodeId: "saved-view-archive", id: "sales.saved-views", source: salesSavedViewDetailDescriptor, fields: salesSavedViewDetailFields.map(({ id }) => id), action: salesSavedViewArchiveDescriptor }
+] });
+
 export const salesPageTemplates = Object.freeze([
   salesOverviewPageTemplate, salesTaskPageTemplate, salesOpportunitiesPageTemplate, salesSettingsPageTemplate,
   salesAccountsPageTemplate, salesAccountDetailPageTemplate, salesContactsPageTemplate, salesContactDetailPageTemplate,
-  salesLeadsPageTemplate, salesLeadDetailPageTemplate, salesOpportunityDetailPageTemplate
+  salesLeadsPageTemplate, salesLeadDetailPageTemplate, salesOpportunityDetailPageTemplate,
+  salesCalendarPageTemplate, salesPipelineSettingsPageTemplate, salesSavedViewsPageTemplate
 ]);
 
 const salesTaskUiPolicy: Omit<PluginUiContributionDescriptor, "id" | "version" | "ownerPluginId" | "kind"> = {
@@ -1021,6 +1280,18 @@ function uiContribution(
 
 const salesInteractionActions = [salesActivityCreateDescriptor, salesActivityCompleteDescriptor, salesActivityCancelDescriptor, salesNoteCreateDescriptor, salesAttachmentLinkDescriptor, salesAttachmentRemoveDescriptor] as const;
 
+const emptyPropsSchema = { type: "object" as const, properties: {}, additionalProperties: false as const };
+function p134Block(id: string, permission: string, requiredFields: readonly string[], actions: readonly ActionDescriptor[] = [], sourceRequired = true): PluginUiContributionDescriptor {
+  return { id, version: 1, ownerPluginId: "module.sales", kind: "block", propsSchema: emptyPropsSchema, profiles: ["workspace"], surfaces: ["workspace"], audience: "authenticated", permission,
+    sourcePolicy: { required: sourceRequired, contracts: [{ id: "table.records", version: 1 }], requiredFields: [...requiredFields] },
+    ...(actions.length === 0 ? {} : { actionPolicy: { required: id === "sales.pipeline-settings", actions: actions.map(({ id: actionId, version }) => ({ id: actionId, version })) } }),
+    requiredStates: ["loading", "empty", "error", "forbidden"] };
+}
+export const salesCalendarBlockDescriptor = p134Block("sales.calendar", "sales.activities.read", ["type", "subject", "status", "related-record-type", "related-record-id", "revision"]);
+export const salesPipelineSettingsBlockDescriptor = p134Block("sales.pipeline-settings", "sales.pipelines.configure", ["pipeline-id", "pipeline-revision", "stage-id", "stage-revision", "semantic", "position", "allowed-transition-stage-ids", "required-field-ids"], [salesPipelineUpdateDescriptor, salesPipelineArchiveDescriptor]);
+export const salesSavedViewsBlockDescriptor = p134Block("sales.saved-views", "sales.saved-views.read", ["id", "name", "visibility", "target-object-id", "view-kind", "revision", "status"], [salesSavedViewCreateDescriptor, salesSavedViewUpdateDescriptor, salesSavedViewArchiveDescriptor], false);
+export const salesSavedViewTableBlockDescriptor = p134Block("sales.saved-view-table", "sales.saved-views.read", []);
+
 const opportunitySourcePolicy = { required: true, contracts: [{ id: "table.records" as const, version: 1 as const }], requiredFields: ["name", "stage-id", "revision"] };
 const opportunityDetailSourcePolicy = { required: true, contracts: [{ id: "table.records" as const, version: 1 as const }], requiredFields: ["name", "owner-id", "team-id", "account-id", "primary-contact-id", "pipeline-id", "stage-id", "archive-status", "revision"] };
 
@@ -1030,7 +1301,7 @@ export const salesOpportunityDetailComponentDescriptor: PluginUiContributionDesc
 export const salesPipelineStatusComponentDescriptor: PluginUiContributionDescriptor = uiContribution("sales.status.pipeline-stage", "component", "sales.pipelines.read");
 
 export const salesQuickCreateBlockDescriptor: PluginUiContributionDescriptor = uiContribution("sales.task-quick-create", "block", "sales.tasks.write", undefined, { required: true, actions: [{ id: salesTaskCreateDescriptor.id, version: salesTaskCreateDescriptor.version }] });
-export const salesOpportunityListBlockDescriptor: PluginUiContributionDescriptor = { ...uiContribution("sales.opportunity-list", "block", "sales.opportunities.read", opportunitySourcePolicy, { required: false, actions: [{ id: salesOpportunityCreateDescriptor.id, version: salesOpportunityCreateDescriptor.version }] }), version: 3 };
+export const salesOpportunityListBlockDescriptor: PluginUiContributionDescriptor = { ...uiContribution("sales.opportunity-list", "block", "sales.opportunities.read", { ...opportunitySourcePolicy, requiredFields: ["name", "pipeline-id", "pipeline-revision", "stage-id", "stage-name", "stage-semantic", "stage-revision", "revision"] }, { required: false, actions: [{ id: salesOpportunityCreateDescriptor.id, version: salesOpportunityCreateDescriptor.version }] }), version: 4 };
 export const salesOpportunityDetailBlockDescriptor: PluginUiContributionDescriptor = { ...uiContribution("sales.opportunity-detail", "block", "sales.opportunities.read", opportunityDetailSourcePolicy, { required: false, actions: [
   { id: salesOpportunityStageUpdateDescriptor.id, version: salesOpportunityStageUpdateDescriptor.version },
   { id: salesOpportunityUpdateDescriptor.id, version: salesOpportunityUpdateDescriptor.version },
@@ -1039,7 +1310,7 @@ export const salesOpportunityDetailBlockDescriptor: PluginUiContributionDescript
   { id: salesOwnershipAssignDescriptor.id, version: salesOwnershipAssignDescriptor.version },
   ...salesInteractionActions.map(({ id, version }) => ({ id, version }))
 ] }), version: 3 };
-export const salesOpportunityKanbanBlockDescriptor: PluginUiContributionDescriptor = uiContribution("sales.opportunity-kanban", "block", "sales.opportunities.read", opportunitySourcePolicy, { required: false, actions: [{ id: salesOpportunityStageUpdateDescriptor.id, version: salesOpportunityStageUpdateDescriptor.version }] });
+export const salesOpportunityKanbanBlockDescriptor: PluginUiContributionDescriptor = { ...uiContribution("sales.opportunity-kanban", "block", "sales.opportunities.read", { required: true, contracts: [{ id: "table.records", version: 1 }], requiredFields: ["row-kind", "name", "stage-id", "stage-metadata", "revision"] }, { required: false, actions: [{ id: salesOpportunityStageUpdateDescriptor.id, version: salesOpportunityStageUpdateDescriptor.version }] }), version: 3 };
 export const salesSettingsSummaryBlockDescriptor: PluginUiContributionDescriptor = uiContribution("sales.settings-summary", "block", "sales.settings.read");
 const crmListPolicy = (fields: readonly string[]) => ({ required: true, contracts: [{ id: "table.records" as const, version: 1 as const }], requiredFields: [...fields] });
 const crmUiComponent = (id: string, permission: string, fields: readonly string[], actions: readonly ActionDescriptor[]) => uiContribution(id, "component", permission, crmListPolicy(fields), actions.length === 0 ? undefined : { required: false, actions: actions.map(({ id: actionId, version }) => ({ id: actionId, version })) });
@@ -1065,7 +1336,8 @@ export const salesUiComponentDescriptors: readonly PluginUiContributionDescripto
 export const salesUiBlockDescriptors: readonly PluginUiContributionDescriptor[] = Object.freeze([
   salesTaskTableBlockDescriptor, salesQuickCreateBlockDescriptor,
   salesOpportunityListBlockDescriptor, salesOpportunityDetailBlockDescriptor, salesOpportunityKanbanBlockDescriptor, salesSettingsSummaryBlockDescriptor,
-  salesAccountListBlockDescriptor, salesAccountDetailBlockDescriptor, salesContactListBlockDescriptor, salesContactDetailBlockDescriptor, salesLeadListBlockDescriptor, salesLeadDetailBlockDescriptor
+  salesAccountListBlockDescriptor, salesAccountDetailBlockDescriptor, salesContactListBlockDescriptor, salesContactDetailBlockDescriptor, salesLeadListBlockDescriptor, salesLeadDetailBlockDescriptor,
+  salesCalendarBlockDescriptor, salesPipelineSettingsBlockDescriptor, salesSavedViewsBlockDescriptor, salesSavedViewTableBlockDescriptor
 ]);
 
 export const salesEventDescriptors = Object.freeze([
@@ -1098,7 +1370,8 @@ export const salesReferenceMetadata = Object.freeze({
       "sales.message.navigation-overview": "Overview", "sales.message.navigation-tasks": "Tasks",
       "sales.message.navigation-opportunities": "Opportunities", "sales.message.navigation-settings": "Settings", "sales.message.navigation-accounts": "Accounts", "sales.message.navigation-contacts": "Contacts", "sales.message.navigation-leads": "Leads",
       "sales.message.template-v2": "Adopt CRM core template version 2.",
-      "sales.message.template-v3": "Adopt CRM opportunity template version 3."
+      "sales.message.template-v3": "Adopt CRM opportunity template version 3.",
+      "sales.message.template-v4": "Adopt CRM pipeline and saved-view template version 4."
     }
   },
   health: { id: "sales.health.runtime", version: 2, ownerPluginId: "module.sales", safe: true },

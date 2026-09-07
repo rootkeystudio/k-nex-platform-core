@@ -123,7 +123,8 @@ describe("create-knex-app", () => {
       "20260903_000027_event_outbox",
       "20260904_000028_workspace_sidebar_preferences",
       "20260905_000027_crm_core",
-      "20260906_000029_attachment_upload_admissions"
+      "20260906_000029_attachment_upload_admissions",
+      "20260907_000030_pipeline_saved_views"
     ]);
     const attachmentAdmissions = first.files["src/migrations/20260906_000029_attachment_upload_admissions.ts"]!;
     expect(attachmentAdmissions).toContain('CREATE TABLE "k_nex_sales_attachment_upload_admissions"');
@@ -223,6 +224,8 @@ describe("create-knex-app", () => {
     expect(first.files["src/k-nex-registry.ts"]).toContain("salesCoreCollectionSlugs");
     expect(first.files["src/k-nex-registry.ts"]).toContain("collections: Object.freeze([...salesCoreCollections])");
     expect(first.files["src/k-nex-registry.ts"]).toContain("collectionSlugs: salesCoreCollectionSlugs");
+    expect(first.files["src/k-nex-readiness.ts"]).toContain('"sales-attachment-references", "sales-saved-views"');
+    expect(first.files["src/k-nex-readiness.ts"]).toContain('sales_saved_views: ["name", "visibility", "visibility_team_id", "view_kind", "target_object_id", "definition", "status"]');
     expect(first.files["src/k-nex-registry.ts"]).not.toContain("salesTasksCollection");
     expect(first.files["src/k-nex-registry.ts"]).not.toContain("salesOpportunitiesCollection");
     expect(first.files["src/k-nex-registry.ts"]).toContain("staticRelease: Object.freeze");
@@ -289,6 +292,11 @@ describe("create-knex-app", () => {
     expect(first.files["src/migrations/20260905_000027_crm_core.ts"]).toContain("maintenance-required: P13.2 CRM core rollback");
     expect(first.files["src/migrations/20260905_000027_crm_core.ts"]).toContain('CREATE TABLE "sales_accounts"');
     expect(first.files["src/migrations/20260905_000027_crm_core.ts"]).toBe(readFileSync(new URL("../../../fixtures/customer-gate-1/src/migrations/20260905_000027_crm_core.ts", import.meta.url), "utf8"));
+    const pipelineSavedViews = first.files["src/migrations/20260907_000030_pipeline_saved_views.ts"]!;
+    expect(pipelineSavedViews).toContain("13f5fa89-b465-5a7a-a19d-74ed6c5d1ef4");
+    expect(pipelineSavedViews).toContain("sales_pipeline_stage_translation_evidence");
+    expect(pipelineSavedViews).toContain("maintenance-required: P13.4 opaque stage-ID cutover is forward-only");
+    expect(pipelineSavedViews).toBe(readFileSync(new URL("../../../fixtures/customer-gate-1/src/migrations/20260907_000030_pipeline_saved_views.ts", import.meta.url), "utf8"));
     expect(first.files["src/app/api/k-nex/inventory/route.ts"]).toContain("system.extensions.read");
     expect(Object.values(first.files).every((source) => !source.includes("fixtures/customer-gate-1"))).toBe(true);
     const packageJson = JSON.parse(first.files["package.json"]!);

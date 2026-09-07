@@ -863,13 +863,56 @@ import type { Payload } from "payload";
 import { currentSalesGeneration as currentSalesAuthorityGeneration, type KnexRequestContext } from "./k-nex-authority.js";
 import { kNexIdentity } from "./k-nex-identity.js";
 import { kNexSalesRegistry } from "./k-nex-registry.js";
-import { executeWorkspaceSalesAction, loadWorkspaceSalesSources, workspaceSalesPermissions } from "./k-nex-sales-workspace.js";
+import { executeWorkspaceSalesAction, loadWorkspaceSalesSources, prepareWorkspaceSalesDocument, projectWorkspaceSalesDocument, resolveCanonicalSavedViewBinding, workspaceSalesPermissions } from "./k-nex-sales-workspace.js";
 
 type RegisteredRoute = Readonly<{ id: string; ownerPluginId: string; permission: string; viewId: string; parameters: Readonly<Record<string, Readonly<{ type: "string" }>>> }>;
 type RegisteredTemplate = Readonly<{ id: string; ownerPluginId: string; route: Readonly<{ routeId: string }>; permission: string; document: UiDocument }>;
 type RegisteredAction = Readonly<{ id: string; version: number }>;
 type SalesRouteParams = Readonly<{ id: string }>;
 type SalesRoutePagination = Readonly<{ listPage?: number; timelinePage?: number }>;
+export type SalesRouteSelection = Readonly<{ mode?: "table" | "kanban"; savedView?: Readonly<{ "saved-view-id": number; "expected-revision": number }> }>;
+
+function positiveRouteInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+}
+
+export function salesRouteSelection(routeId: string, value: unknown): SalesRouteSelection {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) throw new TypeError("Sales route selection is invalid.");
+  const selection = value as Record<string, unknown>;
+  const keys = Object.keys(selection).sort().join("\\0");
+  if (routeId === "sales.route.opportunities") {
+    if (keys === "") return Object.freeze({ mode: "table" });
+    if (keys === "mode" && (selection.mode === "table" || selection.mode === "kanban")) return Object.freeze({ mode: selection.mode });
+    if (keys === "expected-revision\\0mode\\0saved-view-id" && selection.mode === "kanban" && positiveRouteInteger(selection["saved-view-id"]) && positiveRouteInteger(selection["expected-revision"])) {
+      return Object.freeze({ mode: "kanban", savedView: Object.freeze({ "saved-view-id": selection["saved-view-id"], "expected-revision": selection["expected-revision"] }) });
+    }
+    throw new TypeError("Sales route selection is invalid.");
+  }
+  if (routeId === "sales.route.calendar" || routeId === "sales.route.saved-views") {
+    if (keys === "") return Object.freeze({});
+    if (keys === "expected-revision\\0saved-view-id" && positiveRouteInteger(selection["saved-view-id"]) && positiveRouteInteger(selection["expected-revision"])) {
+      return Object.freeze({ savedView: Object.freeze({ "saved-view-id": selection["saved-view-id"], "expected-revision": selection["expected-revision"] }) });
+    }
+    throw new TypeError("Sales route selection is invalid.");
+  }
+  if (keys !== "") throw new TypeError("Sales route selection is invalid.");
+  return Object.freeze({});
+}
+
+export function salesRouteSelectionFromSearchParams(routeId: string, value: Readonly<Record<string, string | readonly string[] | undefined>>): Readonly<Record<string, unknown>> {
+  const input: Record<string, unknown> = {};
+  for (const [key, raw] of Object.entries(value)) {
+    if (typeof raw !== "string") throw new TypeError("Sales route selection is invalid.");
+    if (key === "mode") input.mode = raw;
+    else if (key === "saved-view-id" || key === "expected-revision") {
+      if (!/^[1-9][0-9]{0,15}$/u.test(raw) || !Number.isSafeInteger(Number(raw))) throw new TypeError("Sales route selection is invalid.");
+      input[key] = Number(raw);
+    } else throw new TypeError("Sales route selection is invalid.");
+  }
+  const parsed = salesRouteSelection(routeId, input);
+  if (routeId === "sales.route.opportunities") return Object.freeze({ ...(parsed.mode === "kanban" ? { mode: "kanban" } : {}), ...(parsed.savedView ?? {}) });
+  return Object.freeze(parsed.savedView ?? {});
+}
 
 function routePage(value: number | undefined, maximum: number): number {
   const page = value ?? 1;
@@ -898,14 +941,14 @@ function routeTemplate(routeId: string): Readonly<{ route: RegisteredRoute; temp
   return Object.freeze({ route, template });
 }
 
-function registeredAction(actionId: string): RegisteredAction {
+function registeredAction(routeId: string, nodeId: string, actionId: string, selection: SalesRouteSelection): RegisteredAction {
   const action = kNexSalesRegistry.scopedRegistration.contributions.actions.find((entry) => entry.id === actionId)?.value as { readonly descriptor?: RegisteredAction } | undefined;
-  const bound = kNexSalesRegistry.scopedRegistration.contributions.pageTemplates.some((entry) => {
-    const template = entry.value as { readonly requirements?: { readonly actions?: readonly RegisteredAction[] } };
-    return template.requirements?.actions?.some(({ id, version }) => id === action?.descriptor?.id && version === action.descriptor.version) === true;
-  });
-  if (action?.descriptor === undefined || !bound) throw new TypeError("Sales route action is unavailable.");
-  return action.descriptor;
+  const descriptor = action?.descriptor;
+  const { template } = routeTemplate(routeId); const document = prepareWorkspaceSalesDocument(template.document, selection.savedView, selection.mode ?? "table"); let bound = false;
+  const visit = (node: UiDocument["regions"][string][number]): void => { const binding = node.bindings?.action; if (descriptor !== undefined && node.id === nodeId && binding?.id === descriptor.id && binding.version === descriptor.version) bound = true; node.children?.forEach(visit); };
+  Object.values(document.regions).forEach((region) => region.forEach(visit));
+  if (descriptor === undefined || !bound) throw new TypeError("Sales route action is unavailable.");
+  return descriptor;
 }
 
 function fixedDetailTimelineType(routeId: string): "sales.account" | "sales.contact" | "sales.lead" | "sales.opportunity" | undefined {
@@ -957,7 +1000,7 @@ function authorizedFixedDetailDocument(document: UiDocument, routeId: string, pe
     const action = node.bindings?.action;
     const registered = action === undefined ? undefined : kNexSalesRegistry.scopedRegistration.contributions.actions.find((entry) => entry.id === action.id)?.value as { readonly descriptor?: { readonly id?: unknown; readonly version?: unknown; readonly permission?: unknown } } | undefined;
     const actionAllowed = action === undefined || registered?.descriptor?.id === action.id && registered.descriptor.version === action.version && typeof registered.descriptor.permission === "string" && permissions.includes(registered.descriptor.permission);
-    if (!actionAllowed && index > 0) return [];
+    if (!actionAllowed && node.bindings?.source === undefined) return [];
     const bindings = node.bindings === undefined ? undefined : { ...node.bindings, ...(!actionAllowed ? { action: undefined } : {}), ...(node.bindings.source === undefined || fields.length === 0 ? {} : { source: { ...node.bindings.source, selectedFields: [...new Set([...(node.bindings.source.selectedFields ?? []), ...fields])] } }) };
     return [{ ...node, ...(bindings === undefined ? {} : { bindings }) }];
   })])) };
@@ -973,7 +1016,7 @@ function fixedDetailTimelineDocument(document: UiDocument, type: NonNullable<Ret
   }] } };
 }
 
-export async function loadRegisteredSalesRoute(payload: Payload, context: KnexRequestContext, routeId: string, value?: SalesRouteParams, pagination: SalesRoutePagination = Object.freeze({})) {
+export async function loadRegisteredSalesRoute(payload: Payload, context: KnexRequestContext, routeId: string, value?: SalesRouteParams, pagination: SalesRoutePagination = Object.freeze({}), selectionValue: unknown = Object.freeze({})) {
   const initialState = (await currentSalesAuthorityGeneration(payload)).state;
   const { route, template } = routeTemplate(routeId);
   const parameters = routeParams(route, value);
@@ -981,12 +1024,16 @@ export async function loadRegisteredSalesRoute(payload: Payload, context: KnexRe
   if (!permissions.includes(route.permission) || !permissions.includes(template.permission)) {
     throw new TypeError("Sales route is denied.");
   }
-  const document = authorizedFixedDetailDocument(template.document, route.id, permissions);
+  const requestedSelection = salesRouteSelection(route.id, selectionValue);
+  const canonicalBinding = route.id === "sales.route.saved-views" && requestedSelection.savedView === undefined ? await resolveCanonicalSavedViewBinding(payload, context) : undefined;
+  const selection: SalesRouteSelection = canonicalBinding !== undefined && "saved-view-id" in canonicalBinding
+    ? Object.freeze({ savedView: canonicalBinding as Readonly<{ "saved-view-id": number; "expected-revision": number }> }) : requestedSelection;
   const timelineType = fixedDetailTimelineType(route.id);
   const listPage = routePage(pagination.listPage, 1_000_000);
   const timelinePage = routePage(pagination.timelinePage, 4);
   if (timelineType === undefined && pagination.timelinePage !== undefined || timelineType !== undefined && pagination.listPage !== undefined) throw new TypeError("Sales route pagination is invalid.");
-  const sourceResults = await loadWorkspaceSalesSources(payload, context, document, permissions, new AbortController().signal, parameters, timelineType === undefined ? listPage : 1);
+  const primary = await projectWorkspaceSalesDocument(payload, context, authorizedFixedDetailDocument(template.document, route.id, permissions), permissions, new AbortController().signal, parameters, timelineType === undefined ? listPage : 1, selection.savedView, selection.mode ?? "table");
+  const { document, sourceResults } = primary;
   const timeline = timelineType === undefined ? null : (await loadWorkspaceSalesSources(payload, context, fixedDetailTimelineDocument(document, timelineType, permissions), permissions, new AbortController().signal, parameters, timelinePage))["sales-fixed-timeline"] ?? null;
   const stateHistory = await fixedDetailStateHistory(payload, route.id, parameters.id, document, sourceResults);
   const [finalState, finalPermissions] = await Promise.all([
@@ -1011,12 +1058,14 @@ export async function loadRegisteredSalesRoute(payload: Payload, context: KnexRe
     authorizationRevision: postReloadState.authorizationRevision, lifecycleRevision: postReloadState.lifecycleRevision,
     permissions: postReloadPermissions, routeId: route.id, routeParams: parameters, sourceResults: finalSourceResults, stateHistory, timeline
   })).digest("hex");
-  return Object.freeze({ document, permissions: postReloadPermissions, sourceResults: finalSourceResults, stateHistory, timeline, watermark });
+  return Object.freeze({ document, permissions: postReloadPermissions, selection: Object.freeze({ ...(selection.mode === "kanban" ? { mode: "kanban" } : {}), ...(selection.savedView ?? {}) }), sourceResults: finalSourceResults, stateHistory, timeline, watermark });
 }
 
-export async function executeRegisteredSalesRouteAction(payload: Payload, context: KnexRequestContext, actionId: string, input: unknown, idempotencyKey: string, signal: AbortSignal) {
+export async function executeRegisteredSalesRouteAction(payload: Payload, context: KnexRequestContext, routeId: string, nodeId: string, actionId: string, input: unknown, selectionValue: unknown, idempotencyKey: string, signal: AbortSignal) {
   await currentSalesAuthorityGeneration(payload);
-  return executeWorkspaceSalesAction(payload, context, registeredAction(actionId), input, idempotencyKey, signal);
+  const selection = salesRouteSelection(routeId, selectionValue);
+  if ((actionId === "sales.saved-view.update" || actionId === "sales.saved-view.archive") && (selection.savedView === undefined || input === null || typeof input !== "object" || Array.isArray(input) || (input as Record<string, unknown>).id !== String(selection.savedView["saved-view-id"]) || (input as Record<string, unknown>).expectedRevision !== selection.savedView["expected-revision"])) throw new TypeError("Sales Saved View action selection changed.");
+  return executeWorkspaceSalesAction(payload, context, registeredAction(routeId, nodeId, actionId, selection), input, idempotencyKey, signal);
 }
 `;
 }
@@ -1024,8 +1073,9 @@ export async function executeRegisteredSalesRouteAction(payload: Payload, contex
 function salesRouteRuntimeClientSource(): string {
   return `"use client";
 
-import { DataSourceBindingResultSchema, UiDocumentSchema, type DataSourceBindingResult, type UiDocument } from "@k-nex/contracts";
+import { canonicalJson, DataSourceBindingResultSchema, type DataSourceBindingResult, type UiDocument } from "@k-nex/contracts";
 import {
+  isSalesRecordId,
   salesAccountDetailDescriptor,
   salesAccountsDescriptor,
   salesContactDetailDescriptor,
@@ -1034,6 +1084,12 @@ import {
   salesLeadsDescriptor,
   salesOpportunitiesDescriptor,
   salesOpportunityDetailDescriptor,
+  salesPipelineSnapshotDescriptor,
+  salesSavedViewCalendarDescriptor,
+  salesSavedViewDetailDescriptor,
+  salesSavedViewKanbanDescriptor,
+  salesSavedViewListDescriptor,
+  salesSavedViewTableDescriptor,
   salesTasksDescriptor,
   salesTimelineDescriptor
 } from "@k-nex/module-sales/contracts";
@@ -1041,12 +1097,12 @@ import { SalesFixedDetailRouteProvider, SalesStateHistory, SalesTimeline, type S
 import { salesUiBlockDefinitions } from "@k-nex/module-sales/ui";
 import type { DataTableRequestState } from "@k-nex/ui-data/data-table-controller";
 import { presentUiRuntimeReact } from "@k-nex/ui-components";
-import { createUiDocumentRuntime, createUiRuntimeRegistry, presentUiRuntimeResult, type UiRuntimeActionDispatchRequest } from "@k-nex/ui-runtime";
+import { createUiDocumentRuntime, createUiRuntimeRegistry, prepareUiRuntimeDocument, presentUiRuntimeResult, type UiRuntimeActionDispatchRequest } from "@k-nex/ui-runtime";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { io } from "socket.io-client";
 
-const runtime = createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: salesUiBlockDefinitions, sources: [salesAccountsDescriptor, salesAccountDetailDescriptor, salesContactsDescriptor, salesContactDetailDescriptor, salesLeadsDescriptor, salesLeadDetailDescriptor, salesOpportunitiesDescriptor, salesOpportunityDetailDescriptor, salesTasksDescriptor, salesTimelineDescriptor] }));
-type Projection = Readonly<{ document: UiDocument; permissions: readonly string[]; sourceResults: Readonly<Record<string, DataSourceBindingResult<unknown>>>; stateHistory: readonly SalesStateHistoryEntry[]; timeline: DataSourceBindingResult<unknown> | null; watermark: string }>;
+const runtime = createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: salesUiBlockDefinitions, sources: [salesAccountsDescriptor, salesAccountDetailDescriptor, salesContactsDescriptor, salesContactDetailDescriptor, salesLeadsDescriptor, salesLeadDetailDescriptor, salesOpportunitiesDescriptor, salesOpportunityDetailDescriptor, salesTasksDescriptor, salesTimelineDescriptor, salesPipelineSnapshotDescriptor, salesSavedViewListDescriptor, salesSavedViewDetailDescriptor, salesSavedViewTableDescriptor, salesSavedViewKanbanDescriptor, salesSavedViewCalendarDescriptor] }));
+type Projection = Readonly<{ document: UiDocument; permissions: readonly string[]; selection: Readonly<Record<string, unknown>>; sourceResults: Readonly<Record<string, DataSourceBindingResult<unknown>>>; stateHistory: readonly SalesStateHistoryEntry[]; timeline: DataSourceBindingResult<unknown> | null; watermark: string }>;
 const routeTopics: Readonly<Record<string, readonly string[]>> = Object.freeze({
   "sales.route.accounts": ["sales.realtime.accounts"], "sales.route.account-detail": ["sales.realtime.accounts", "sales.realtime.timeline"],
   "sales.route.contacts": ["sales.realtime.contacts"], "sales.route.contact-detail": ["sales.realtime.contacts", "sales.realtime.timeline"],
@@ -1058,6 +1114,7 @@ const routeTitles: Readonly<Record<string, string>> = Object.freeze({
   "sales.route.overview": "Sales overview", "sales.route.tasks": "Sales tasks", "sales.route.opportunities": "Opportunities", "sales.route.settings": "Sales settings",
   "sales.route.accounts": "Accounts", "sales.route.account-detail": "Account detail", "sales.route.contacts": "Contacts", "sales.route.contact-detail": "Contact detail",
   "sales.route.leads": "Leads", "sales.route.lead-detail": "Lead detail", "sales.route.opportunity-detail": "Opportunity detail"
+  ,"sales.route.calendar": "Sales calendar", "sales.route.pipeline-settings": "Pipeline settings", "sales.route.saved-views": "Saved views"
 });
 export function createSalesRouteRefreshScheduler(run: (signal: AbortSignal) => Promise<void>) {
   let pending = false;
@@ -1098,37 +1155,125 @@ function stateHistory(value: unknown): readonly SalesStateHistoryEntry[] | undef
   return Object.freeze(entries);
 }
 
+function projectionSelection(value: unknown): Readonly<Record<string, unknown>> | undefined {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const selection = value as Record<string, unknown>; const keys = Object.keys(selection).sort().join("\\0");
+  if (keys === "") return Object.freeze({});
+  const pair = Number.isSafeInteger(selection["saved-view-id"]) && (selection["saved-view-id"] as number) > 0 && Number.isSafeInteger(selection["expected-revision"]) && (selection["expected-revision"] as number) > 0;
+  if (keys === "expected-revision\\0saved-view-id" && pair || keys === "expected-revision\\0mode\\0saved-view-id" && pair && selection.mode === "kanban" || keys === "mode" && selection.mode === "kanban") return Object.freeze({ ...selection });
+  return undefined;
+}
+
 function projection(value: unknown): Projection | undefined {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
   const candidate = value as Record<string, unknown>;
-  if (Object.keys(candidate).sort().join("\\0") !== "document\\0permissions\\0sourceResults\\0stateHistory\\0timeline\\0watermark" || typeof candidate.document !== "object" || candidate.document === null || Array.isArray(candidate.document) ||
+  if (Object.keys(candidate).sort().join("\\0") !== "document\\0permissions\\0selection\\0sourceResults\\0stateHistory\\0timeline\\0watermark" || typeof candidate.document !== "object" || candidate.document === null || Array.isArray(candidate.document) ||
     !Array.isArray(candidate.permissions) || candidate.permissions.some((permission) => typeof permission !== "string") || typeof candidate.sourceResults !== "object" || candidate.sourceResults === null || Array.isArray(candidate.sourceResults) ||
-    candidate.timeline !== null && (typeof candidate.timeline !== "object" || Array.isArray(candidate.timeline)) || typeof candidate.watermark !== "string" || !/^sha256:[0-9a-f]{64}$/u.test(candidate.watermark)) return undefined;
+    candidate.selection === null || typeof candidate.selection !== "object" || Array.isArray(candidate.selection) || candidate.timeline !== null && (typeof candidate.timeline !== "object" || Array.isArray(candidate.timeline)) || typeof candidate.watermark !== "string" || !/^sha256:[0-9a-f]{64}$/u.test(candidate.watermark)) return undefined;
   try {
-    const history = stateHistory(candidate.stateHistory); if (history === undefined) return undefined;
-    return Object.freeze({ document: UiDocumentSchema.parse(candidate.document), permissions: Object.freeze([...candidate.permissions]), sourceResults: Object.freeze(Object.fromEntries(Object.entries(candidate.sourceResults).map(([id, result]) => [id, DataSourceBindingResultSchema.parse(result)]))), stateHistory: history, timeline: candidate.timeline === null ? null : DataSourceBindingResultSchema.parse(candidate.timeline), watermark: candidate.watermark });
+    const history = stateHistory(candidate.stateHistory); const selection = projectionSelection(candidate.selection); if (history === undefined || selection === undefined) return undefined;
+    return Object.freeze({ document: prepareUiRuntimeDocument(candidate.document), permissions: Object.freeze([...candidate.permissions]), selection, sourceResults: Object.freeze(Object.fromEntries(Object.entries(candidate.sourceResults).map(([id, result]) => [id, DataSourceBindingResultSchema.parse(result)]))), stateHistory: history, timeline: candidate.timeline === null ? null : DataSourceBindingResultSchema.parse(candidate.timeline), watermark: candidate.watermark });
   } catch { return undefined; }
 }
 
-export function RegisteredSalesRouteRuntime({ initialProjection, routeId, routeParams }: Readonly<{ initialProjection: Projection; routeId: string; routeParams?: Readonly<{ id: string }> }>) {
+function savedViewMutationPair(value: unknown, status: "active" | "archived"): Readonly<{ "saved-view-id": number; "expected-revision": number }> | undefined {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const result = value as Record<string, unknown>;
+  if (!isSalesRecordId(result.id) || !Number.isSafeInteger(result.revision) || (result.revision as number) < 1 || result.status !== status) return undefined;
+  return Object.freeze({ "saved-view-id": Number(result.id), "expected-revision": result.revision as number });
+}
+
+export function salesLocationSelection(routeId: string, search: string): Readonly<Record<string, unknown>> | undefined {
+  const raw: Record<string, unknown> = {};
+  const query = new URLSearchParams(search);
+  for (const key of query.keys()) {
+    if (query.getAll(key).length !== 1 || !["mode", "saved-view-id", "expected-revision"].includes(key)) return undefined;
+    const value = query.get(key)!;
+    if (key === "mode") raw.mode = value;
+    else if (!/^[1-9][0-9]{0,15}$/u.test(value) || !Number.isSafeInteger(Number(value))) return undefined;
+    else raw[key] = Number(value);
+  }
+  const keys = Object.keys(raw).sort().join("\\0");
+  if (routeId === "sales.route.opportunities") {
+    if (keys === "" || keys === "mode" && raw.mode === "table") return Object.freeze({});
+    if (keys === "mode" && raw.mode === "kanban") return Object.freeze({ mode: "kanban" });
+    if (keys === "expected-revision\\0mode\\0saved-view-id" && raw.mode === "kanban") return Object.freeze(raw);
+    return undefined;
+  }
+  if (routeId === "sales.route.calendar" || routeId === "sales.route.saved-views") return keys === "" || keys === "expected-revision\\0saved-view-id" ? Object.freeze(raw) : undefined;
+  return keys === "" ? Object.freeze({}) : undefined;
+}
+
+export function savedViewMutationSelection(selection: Readonly<Record<string, unknown>>, actionId: string, result: unknown): Readonly<Record<string, unknown>> | undefined {
+  if (actionId === "sales.saved-view.create" || actionId === "sales.saved-view.update") {
+    const pair = savedViewMutationPair(result, "active");
+    return pair === undefined ? undefined : Object.freeze({ ...(selection.mode === "kanban" ? { mode: "kanban" } : {}), ...pair });
+  }
+  if (actionId === "sales.saved-view.archive") return savedViewMutationPair(result, "archived") === undefined ? undefined : Object.freeze(selection.mode === "kanban" ? { mode: "kanban" } : {});
+  return selection;
+}
+
+export function salesSelectionHref(pathname: string, selection: Readonly<Record<string, unknown>>): string {
+  const query = new URLSearchParams(); for (const [key, value] of Object.entries(selection)) query.set(key, String(value));
+  return pathname + (query.size === 0 ? "" : "?" + query.toString());
+}
+
+export function RegisteredSalesRouteRuntime({ initialProjection, initialSelection, routeId, routeParams }: Readonly<{ initialProjection: Projection; initialSelection: Readonly<Record<string, unknown>>; routeId: string; routeParams?: Readonly<{ id: string }> }>) {
   const [current, setCurrent] = useState<Projection | undefined>(initialProjection);
+  const [selection, setSelection] = useState(initialProjection.selection);
   const [listPage, setListPage] = useState(1);
   const [timelinePage, setTimelinePage] = useState(1);
   const [pageRefreshing, setPageRefreshing] = useState(false);
+  const replaceSelection = useCallback((next: Readonly<Record<string, unknown>>) => {
+    window.history.replaceState(null, "", salesSelectionHref(window.location.pathname, next));
+    setListPage(1); setPageRefreshing(true); setSelection(next);
+  }, []);
   const dispatchAction = useCallback(async (request: UiRuntimeActionDispatchRequest) => {
-    const response = await fetch("/api/k-nex/sales/actions/" + encodeURIComponent(request.action.id), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ input: request.input, idempotencyKey: "sales-route-action-" + crypto.randomUUID() }) });
+    const response = await fetch("/api/k-nex/sales/actions/" + encodeURIComponent(request.action.id), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ routeId, nodeId: request.nodeId, input: request.input, selection, idempotencyKey: "sales-route-action-" + crypto.randomUUID() }) });
     const body = await response.json();
     if (!response.ok) throw new Error(body.code ?? "Sales action failed.");
+    const nextSelection = savedViewMutationSelection(selection, request.action.id, body.data);
+    if (nextSelection === undefined) throw new Error("Sales Saved View action result is invalid.");
+    if (nextSelection !== selection) replaceSelection(nextSelection);
     return body.data;
-  }, []);
-  useEffect(() => { setCurrent(initialProjection); setListPage(1); setTimelinePage(1); }, [initialProjection, routeId, routeParams?.id]);
+  }, [replaceSelection, routeId, selection]);
+  useEffect(() => { setCurrent(initialProjection); setSelection(initialProjection.selection); if (canonicalJson(initialProjection.selection) !== canonicalJson(initialSelection)) window.history.replaceState(null, "", salesSelectionHref(window.location.pathname, initialProjection.selection)); setListPage(1); setTimelinePage(1); }, [initialProjection, initialSelection, routeId, routeParams?.id]);
+  useEffect(() => {
+    if (routeId !== "sales.route.saved-views") return;
+    const select = (event: Event) => {
+      const detail = (event as CustomEvent<unknown>).detail;
+      if (detail === null || typeof detail !== "object" || Array.isArray(detail) || Object.keys(detail).sort().join("\\0") !== "expectedRevision\\0savedViewId") return;
+      const { savedViewId, expectedRevision } = detail as Record<string, unknown>;
+      if (!Number.isSafeInteger(savedViewId) || (savedViewId as number) < 1 || !Number.isSafeInteger(expectedRevision) || (expectedRevision as number) < 1) return;
+      replaceSelection({ "saved-view-id": savedViewId as number, "expected-revision": expectedRevision as number });
+    };
+    window.addEventListener("k-nex:saved-view-select", select); return () => window.removeEventListener("k-nex:saved-view-select", select);
+  }, [replaceSelection, routeId]);
+  useEffect(() => {
+    const changePage = (event: Event) => {
+      const detail = (event as CustomEvent<unknown>).detail;
+      if (detail === null || typeof detail !== "object" || Array.isArray(detail) || Object.keys(detail).sort().join("\\0") !== "nodeId\\0page") return;
+      const { nodeId, page } = detail as Record<string, unknown>;
+      if (typeof nodeId !== "string" || nodeId.length < 1 || nodeId.length > 128 || nodeId !== nodeId.normalize("NFC") || nodeId.includes("\\0") || !Number.isSafeInteger(page) || (page as number) < 1 || (page as number) > 1_000_000) return;
+      let admitted = false; const visit = (node: UiDocument["regions"][string][number]): void => { if (node.id === nodeId && ["sales.saved-view.table", "sales.saved-view.kanban", "sales.saved-view.calendar"].includes(node.bindings?.source?.source.id ?? "")) admitted = true; node.children?.forEach(visit); };
+      if (current !== undefined) Object.values(current.document.regions).forEach((region) => region.forEach(visit));
+      if (admitted) { setPageRefreshing(true); setListPage(page as number); }
+    };
+    window.addEventListener("k-nex:sales-page-change", changePage); return () => window.removeEventListener("k-nex:sales-page-change", changePage);
+  }, [current]);
+  useEffect(() => {
+    const restore = () => { const next = salesLocationSelection(routeId, window.location.search); if (next !== undefined) { setListPage(1); setPageRefreshing(true); setSelection(next); } };
+    window.addEventListener("popstate", restore); return () => window.removeEventListener("popstate", restore);
+  }, [routeId]);
   useEffect(() => {
     let active = true;
     const scheduler = createSalesRouteRefreshScheduler(async (signal) => {
-      const query = routeParams === undefined ? "?page=" + listPage : "?id=" + encodeURIComponent(routeParams.id) + "&timelinePage=" + timelinePage;
-      const response = await fetch("/api/k-nex/sales/routes/" + encodeURIComponent(routeId) + query, { cache: "no-store", signal }).catch(() => undefined);
+      const query = new URLSearchParams();
+      if (routeParams === undefined) query.set("page", String(listPage)); else { query.set("id", routeParams.id); query.set("timelinePage", String(timelinePage)); }
+      for (const [key, value] of Object.entries(selection)) query.set(key, String(value));
+      const response = await fetch("/api/k-nex/sales/routes/" + encodeURIComponent(routeId) + "?" + query, { cache: "no-store", signal }).catch(() => undefined);
       const next = response?.ok ? projection(await response.json().catch(() => undefined)) : undefined;
-      if (active && !signal.aborted) { setCurrent(next); setPageRefreshing(false); }
+      if (active && !signal.aborted) { setCurrent(next); if (next !== undefined && canonicalJson(next.selection) !== canonicalJson(selection)) { window.history.replaceState(null, "", salesSelectionHref(window.location.pathname, next.selection)); setSelection(next.selection); } setPageRefreshing(false); }
     });
     const topics = new Set(routeTopics[routeId] ?? []);
     const socket = topics.size === 0 ? undefined : io({ transports: ["websocket"], withCredentials: true, reconnection: true });
@@ -1143,7 +1288,7 @@ export function RegisteredSalesRouteRuntime({ initialProjection, routeId, routeP
     // bounded loss fallback, deliberately slower than an admitted invalidation.
     const timer = setInterval(() => { scheduler.refresh(); }, 5_000);
     return () => { active = false; scheduler.dispose(); clearInterval(timer); for (const topicId of topics) void socket?.emitWithAck("k-nex:unsubscribe", { topicId, params: {} }).catch(() => undefined); socket?.disconnect(); };
-  }, [routeId, routeParams?.id, listPage, timelinePage]);
+  }, [routeId, routeParams?.id, listPage, timelinePage, selection]);
   const result = useMemo(() => current === undefined ? undefined : runtime.render({
     document: current.document, surface: "workspace", actor: { authenticated: true, permissions: new Set(current.permissions) }, sourceResults: current.sourceResults,
     dispatchAction
@@ -1154,7 +1299,9 @@ export function RegisteredSalesRouteRuntime({ initialProjection, routeId, routeP
   const timeline = current?.timeline as unknown as DataTableRequestState | null | undefined;
   const timelineElement = timeline === null || timeline === undefined || current === undefined ? undefined : <SalesTimeline requestState={timeline} permissions={current.permissions} dispatchAction={dispatchAction} />;
   const historyElement = current === undefined ? undefined : <SalesStateHistory entries={current.stateHistory} />;
-  return <SalesFixedDetailRouteProvider timeline={timelineElement} history={historyElement} pagination={pagination} hostOwnsRouteChrome><h1>{title}</h1>{pageRefreshing ? <p role="status" aria-live="polite">Refreshing page…</p> : null}{presentUiRuntimeReact(presentUiRuntimeResult(result))}</SalesFixedDetailRouteProvider>;
+  const mode = selection.mode === "kanban" ? "kanban" : "table";
+  const switchMode = routeId === "sales.route.opportunities" ? <nav aria-label="Opportunity view"><button type="button" aria-pressed={mode === "table"} onClick={() => replaceSelection({})}>Table</button><button type="button" aria-pressed={mode === "kanban"} onClick={() => replaceSelection({ mode: "kanban" })}>Kanban</button></nav> : null;
+  return <SalesFixedDetailRouteProvider timeline={timelineElement} history={historyElement} pagination={pagination} hostOwnsRouteChrome><h1>{title}</h1>{switchMode}{pageRefreshing ? <p role="status" aria-live="polite">Refreshing page…</p> : null}{presentUiRuntimeReact(presentUiRuntimeResult(result))}</SalesFixedDetailRouteProvider>;
 }
 `;
 }
@@ -1168,16 +1315,19 @@ import { notFound } from "next/navigation";
 
 import { bootKnexApplication } from "${source}boot.js";
 import { kNexRequestContext } from "${source}k-nex-authority.js";
-import { loadRegisteredSalesRoute } from "${source}k-nex-sales-routes.js";
+import { loadRegisteredSalesRoute, salesRouteSelectionFromSearchParams } from "${source}k-nex-sales-routes.js";
 import { RegisteredSalesRouteRuntime } from "${components}components/k-nex-sales-route-runtime.js";
 
 export const dynamic = "force-dynamic";
 
-export default async function SalesRoute(${parameterized ? `{ params }: Readonly<{ params: Promise<{ id: string }> }>` : ""}) {
+export default async function SalesRoute({${parameterized ? " params," : ""} searchParams }: Readonly<{${parameterized ? " params: Promise<{ id: string }>;" : ""} searchParams: Promise<Record<string, string | string[] | undefined>> }>) {
   const payload = await bootKnexApplication("workspace-web");
   const headers = await getHeaders();
   const context = kNexRequestContext(headers, "sales-route");
-  ${parameterized ? `const routeParams = Object.freeze({ id: (await params).id });\n  ` : ""}try { return <RegisteredSalesRouteRuntime routeId={${JSON.stringify(routeId)}}${parameterized ? " routeParams={routeParams}" : ""} initialProjection={await loadRegisteredSalesRoute(payload, context, ${JSON.stringify(routeId)}${parameterized ? ", routeParams" : ""})} />; } catch { return notFound(); }
+  ${parameterized ? `const routeParams = Object.freeze({ id: (await params).id });\n  ` : ""}try {
+    const selection = salesRouteSelectionFromSearchParams(${JSON.stringify(routeId)}, await searchParams);
+    return <RegisteredSalesRouteRuntime routeId={${JSON.stringify(routeId)}}${parameterized ? " routeParams={routeParams}" : ""} initialSelection={selection} initialProjection={await loadRegisteredSalesRoute(payload, context, ${JSON.stringify(routeId)}, ${parameterized ? "routeParams" : "undefined"}, Object.freeze({}), selection)} />;
+  } catch { return notFound(); }
 }
 `;
 }
@@ -1187,7 +1337,7 @@ function salesRouteProjectionRouteSource(): string {
 
 import { bootKnexApplication } from "../../../../../../boot.js";
 import { kNexRequestContext } from "../../../../../../k-nex-authority.js";
-import { loadRegisteredSalesRoute } from "../../../../../../k-nex-sales-routes.js";
+import { loadRegisteredSalesRoute, salesRouteSelectionFromSearchParams } from "../../../../../../k-nex-sales-routes.js";
 
 export const dynamic = "force-dynamic";
 
@@ -1200,16 +1350,16 @@ export async function GET(request: Request, { params }: Readonly<{ params: Promi
   try {
     const payload = await bootKnexApplication("workspace-web");
     const headers = await getHeaders();
+    const routeId = (await params).routeId;
     const query = new URL(request.url).searchParams;
+    for (const key of new Set(query.keys())) if (query.getAll(key).length !== 1) throw new TypeError("Sales route parameters are invalid.");
     const id = query.get("id"); const page = query.get("page"); const timelinePage = query.get("timelinePage");
-    const defaultListQuery = query.size === 0;
-    const listQuery = query.size === 1 && page !== null;
-    const defaultDetailQuery = query.size === 1 && id !== null;
-    const detailQuery = query.size === 2 && id !== null && timelinePage !== null;
-    if (!defaultListQuery && !listQuery && !defaultDetailQuery && !detailQuery) throw new TypeError("Sales route parameters are invalid.");
-    const routeParams = defaultDetailQuery || detailQuery ? Object.freeze({ id: id ?? "" }) : undefined;
-    const pagination = listQuery ? Object.freeze({ listPage: pageNumber(page, 1_000_000) }) : detailQuery ? Object.freeze({ timelinePage: pageNumber(timelinePage, 4) }) : Object.freeze({});
-    return Response.json(await loadRegisteredSalesRoute(payload, kNexRequestContext(headers, "sales-route-projection"), (await params).routeId, routeParams, pagination), { headers: { "cache-control": "no-store" } });
+    if (id !== null && page !== null || id === null && timelinePage !== null) throw new TypeError("Sales route parameters are invalid.");
+    const routeParams = id === null ? undefined : Object.freeze({ id });
+    const pagination = page !== null ? Object.freeze({ listPage: pageNumber(page, 1_000_000) }) : timelinePage !== null ? Object.freeze({ timelinePage: pageNumber(timelinePage, 4) }) : Object.freeze({});
+    const selectionRecord = Object.fromEntries([...query.entries()].filter(([key]) => !["id", "page", "timelinePage"].includes(key)));
+    const selection = salesRouteSelectionFromSearchParams(routeId, selectionRecord);
+    return Response.json(await loadRegisteredSalesRoute(payload, kNexRequestContext(headers, "sales-route-projection"), routeId, routeParams, pagination, selection), { headers: { "cache-control": "no-store" } });
   } catch { return Response.json({ code: "NOT_FOUND" }, { status: 404, headers: { "cache-control": "no-store" } }); }
 }
 `;
@@ -1224,10 +1374,10 @@ export const dynamic = "force-dynamic";
 export async function POST(request: Request, { params }: Readonly<{ params: Promise<{ actionId: string }> }>) {
   try {
     const { payload, context, body } = await openWorkspaceJson(request, "sales-route-action");
-    if (body === null || typeof body !== "object" || Array.isArray(body) || Object.keys(body).sort().join("\\0") !== "idempotencyKey\\0input") throw new TypeError("Sales route action body is invalid.");
+    if (body === null || typeof body !== "object" || Array.isArray(body) || Object.keys(body).sort().join("\\0") !== "idempotencyKey\\0input\\0nodeId\\0routeId\\0selection") throw new TypeError("Sales route action body is invalid.");
     const value = body as Record<string, unknown>;
-    if (typeof value.idempotencyKey !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._:-]{7,159}$/u.test(value.idempotencyKey)) throw new TypeError("Sales route idempotency key is invalid.");
-    const result = await executeRegisteredSalesRouteAction(payload, context, (await params).actionId, value.input, value.idempotencyKey, request.signal);
+    if (typeof value.routeId !== "string" || typeof value.nodeId !== "string" || typeof value.idempotencyKey !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._:-]{7,159}$/u.test(value.idempotencyKey)) throw new TypeError("Sales route idempotency key is invalid.");
+    const result = await executeRegisteredSalesRouteAction(payload, context, value.routeId, value.nodeId, (await params).actionId, value.input, value.selection, value.idempotencyKey, request.signal);
     return Response.json(result.body, { status: result.status, headers: { "cache-control": "no-store" } });
   } catch (error) { return workspaceMutationError(error); }
 }
@@ -1486,7 +1636,7 @@ import { ApplicationManifestSchema, PackageReleaseManifestSchema, PluginManifest
 import manifestJson from "@k-nex/module-sales/manifest" with { type: "json" };
 import realtimeManifestJson from "@k-nex/provider-realtime-socketio/manifest" with { type: "json" };
 import { NodeHttpsAdministrationOperatorClient, type RuntimeExtensionPool } from "@k-nex/payload-adapter";
-import { assertExactProtectedRoleBaselineState, assertMigrationReadiness, currentProtectedPlatformRoleBaselineRelease, protectedRoleBootstrapId } from "@k-nex/runtime";
+import { assertExactProtectedRoleBaselineState, assertMigrationReadiness, canonicalIana, currentProtectedPlatformRoleBaselineRelease, protectedRoleBootstrapId } from "@k-nex/runtime";
 import { ${themeResolver} as resolveSelectedThemeProfile } from "@k-nex/theme-${theme}";
 import type { Payload } from "payload";
 
@@ -1509,7 +1659,8 @@ const expectedMigrationNames = Object.freeze([
   "20260903_000027_event_outbox",
   "20260904_000028_workspace_sidebar_preferences",
   "20260905_000027_crm_core",
-  "20260906_000029_attachment_upload_admissions"
+  "20260906_000029_attachment_upload_admissions",
+  "20260907_000030_pipeline_saved_views"
 ]);
 const expectedRouteSources = Object.freeze([
   "src/app/(auth)/forbidden/page.tsx",
@@ -1520,6 +1671,7 @@ const expectedRouteSources = Object.freeze([
   "src/app/(workspace)/page.tsx",
   "src/app/(workspace)/sales/accounts/[id]/page.tsx",
   "src/app/(workspace)/sales/accounts/page.tsx",
+  "src/app/(workspace)/sales/calendar/page.tsx",
   "src/app/(workspace)/sales/contacts/[id]/page.tsx",
   "src/app/(workspace)/sales/contacts/page.tsx",
   "src/app/(workspace)/sales/leads/[id]/page.tsx",
@@ -1528,7 +1680,9 @@ const expectedRouteSources = Object.freeze([
   "src/app/(workspace)/sales/opportunities/page.tsx",
   "src/app/(workspace)/sales/page.tsx",
   "src/app/(workspace)/sales/settings/page.tsx",
+  "src/app/(workspace)/sales/settings/pipeline/page.tsx",
   "src/app/(workspace)/sales/tasks/page.tsx",
+  "src/app/(workspace)/sales/views/page.tsx",
   "src/app/(workspace)/system/access/assignments/page.tsx",
   "src/app/(workspace)/system/access/audit/page.tsx",
   "src/app/(workspace)/system/access/permissions/page.tsx",
@@ -1673,7 +1827,7 @@ function reconcileSource(root: string) {
   if (application.application.id !== kNexIdentity.applicationId || application.application.type !== "customer-platform") fail("Application identity mismatch.");
 
   const salesRelease = release.packages.find((entry) => entry.package === "@k-nex/module-sales" && entry.role === "plugin");
-  const realtimeRelease = release.packages.find((entry) => entry.package === "@k-nex/provider-realtime-socketio" && entry.role === "plugin");
+  const realtimeRelease = release.packages.find((entry) => entry.package === "@k-nex/provider-realtime-socketio" && entry.role === "provider");
   const builderRelease = release.packages.find((entry) => entry.package === "@k-nex/builder-puck" && entry.role === "builder");
   const themeRelease = release.packages.find((entry) => entry.package === "@k-nex/theme-${theme}" && entry.role === "theme");
   const salesPlugin = application.plugins.find((plugin) => plugin.id === "module.sales");
@@ -1726,7 +1880,7 @@ function reconcileSource(root: string) {
     !same(salesInventory.find((entry) => entry.id === salesManifest.id)?.contributions, expectedContributions) || !same(realtimeInventory.contributions, {}) ||
     Object.values(kNexSalesRegistry.scopedRegistration.contributions as Readonly<Record<string, readonly { pluginId: string }[]>>).flat().some((entry) => entry.pluginId !== salesManifest.id && entry.pluginId !== realtimeManifest.id) ||
     Object.values(kNexSalesRegistry.scopedRegistration.bindings as Readonly<Record<string, readonly { pluginId: string }[]>>).flat().some((entry) => entry.pluginId !== salesManifest.id && entry.pluginId !== realtimeManifest.id)) fail("Sales static registration identity mismatch.");
-  if (!same(kNexSalesRegistry.collectionSlugs, ["sales-accounts", "sales-contacts", "sales-leads", "sales-pipelines", "sales-pipeline-stages", "sales-activities", "sales-opportunities", "sales-tasks", "sales-notes", "sales-attachment-references"]) ||
+  if (!same(kNexSalesRegistry.collectionSlugs, ["sales-accounts", "sales-contacts", "sales-leads", "sales-pipelines", "sales-pipeline-stages", "sales-activities", "sales-opportunities", "sales-tasks", "sales-notes", "sales-attachment-references", "sales-saved-views"]) ||
     !same(kNexSalesRegistry.collections.map(({ slug }) => slug), kNexSalesRegistry.collectionSlugs) ||
     kNexSalesRegistry.readiness.currentRevision !== 3 || !same(kNexSalesRegistry.readiness.predecessorRevisions, [1, 2])) fail("Sales registry readiness mismatch.");
   if (typeof createAuthorizedPuckBuilderProfile !== "function" || typeof resolveSelectedThemeProfile !== "function" ||
@@ -1742,12 +1896,13 @@ async function assertSalesSchema(pool: RuntimeExtensionPool): Promise<void> {
     sales_contacts: ["account_id", "display_name", "given_name", "email", "phone", "status", "merged_into_id", "merge_lineage"],
     sales_leads: ["display_name", "source", "email", "phone", "status", "archive_status", "decided_at", "qualified_at", "disqualified_at", "qualified_account_id", "qualified_contact_id", "qualified_opportunity_id"],
     sales_pipelines: ["name", "ordered_stage_ids", "is_active", "status"],
-    sales_pipeline_stages: ["pipeline_id", "stage_id", "name", "semantic", "position", "probability_basis_points", "allowed_transitions", "status"],
+    sales_pipeline_stages: ["pipeline_id", "stage_id", "name", "semantic", "position", "probability_basis_points", "allowed_transition_stage_ids", "required_field_ids", "status"],
     sales_activities: ["type", "subject", "actor_id", "scheduled_at", "occurred_at", "related_record_id", "related_record_type", "supersedes_activity_id", "provider_metadata", "status"],
     sales_opportunities: ["name", "account_id", "primary_contact_id", "pipeline_id", "stage_id", "amount", "currency", "expected_close_date", "closed_at", "loss_reason", "archive_status"],
     sales_tasks: ["title", "due_date", "related_record_id", "related_record_type", "status", "archive_status"],
     sales_notes: ["body", "author_id", "occurred_at", "related_record_id", "related_record_type", "replaces_note_id", "status"],
-    sales_attachment_references: ["storage_reference", "filename", "media_type", "byte_size", "uploader_id", "related_record_id", "related_record_type", "status"]
+    sales_attachment_references: ["storage_reference", "filename", "media_type", "byte_size", "uploader_id", "related_record_id", "related_record_type", "status"],
+    sales_saved_views: ["name", "visibility", "visibility_team_id", "view_kind", "target_object_id", "definition", "status"]
   } as const;
   const tables = Object.keys(required);
   const columns = await pool.query<{ table_name: string; column_name: string }>(
@@ -1763,7 +1918,15 @@ async function assertSalesSchema(pool: RuntimeExtensionPool): Promise<void> {
   })) fail("Sales table schema mismatch.");
   const legacy = actual.get("sales_opportunities");
   const legacyTasks = actual.get("sales_tasks");
-  if (legacy?.has("stage") || legacy?.has("value") || legacyTasks?.has("potential_revenue") || legacyTasks?.has("private_note")) fail("Sales legacy schema was not retired.");
+  const legacyStages = actual.get("sales_pipeline_stages");
+  if (legacy?.has("stage") || legacy?.has("value") || legacyTasks?.has("potential_revenue") || legacyTasks?.has("private_note") || legacyStages?.has("allowed_transitions")) fail("Sales legacy schema was not retired.");
+}
+
+async function assertReportingTimezone(pool: RuntimeExtensionPool): Promise<void> {
+  const state = await pool.query<{ settings_revision: number }>("select settings_revision from k_nex_system_settings_state where application_id=$1 and environment=$2", [kNexIdentity.applicationId, kNexIdentity.environment]);
+  const documents = await pool.query<{ descriptor_schema_version: number; owner_scope_key: string; owner_kind: string; owner_namespace: string | null; owner_delivery_class: string | null; owner_extension_id: string | null; owner_generation: number | null; document_revision: number; settings_revision: number; values_json: unknown }>("select descriptor_schema_version,owner_scope_key,owner_kind,owner_namespace,owner_delivery_class,owner_extension_id,owner_generation,document_revision,settings_revision,values_json from k_nex_system_settings_documents where application_id=$1 and environment=$2 and descriptor_id='system.general'", [kNexIdentity.applicationId, kNexIdentity.environment]);
+  const row = documents.rows[0]; const values = row?.values_json;
+  if (state.rows.length !== 1 || !Number.isSafeInteger(state.rows[0]?.settings_revision) || state.rows[0]!.settings_revision < 1 || documents.rows.length !== 1 || row?.descriptor_schema_version !== 2 || row.owner_scope_key !== "platform:system" || row.owner_kind !== "platform" || row.owner_namespace !== "system" || row.owner_delivery_class !== null || row.owner_extension_id !== null || row.owner_generation !== null || !Number.isSafeInteger(row.document_revision) || row.document_revision < 1 || !Number.isSafeInteger(row.settings_revision) || row.settings_revision < 1 || row.settings_revision > state.rows[0]!.settings_revision || values === null || typeof values !== "object" || Array.isArray(values) || !canonicalIana((values as Record<string, unknown>).reportingTimezone)) fail("Application reporting timezone readiness mismatch.");
 }
 
 export async function reconcileKnexReadiness(payload: Payload) {
@@ -1773,6 +1936,7 @@ export async function reconcileKnexReadiness(payload: Payload) {
   const pool = payload.db.pool as RuntimeExtensionPool;
   await assertMigrationReadiness({ pool, applicationId: kNexIdentity.applicationId, artifactRevision: 1, releaseRevision: "platform-" + release.release.version + "-bootstrap" });
   await assertSalesSchema(pool);
+  await assertReportingTimezone(pool);
   await bootstrapApplicationTheme(payload);
   await resolveApplicationTheme(payload);
   const authority = kNexAuthority(payload);
@@ -2100,6 +2264,9 @@ export function applicationAuthFiles(options: ApplicationAuthFilesOptions): Read
     "src/app/(workspace)/sales/opportunities/page.tsx": salesRoutePageSource("sales.route.opportunities", "sales/opportunities"),
     "src/app/(workspace)/sales/opportunities/[id]/page.tsx": salesRoutePageSource("sales.route.opportunity-detail", "sales/opportunities/[id]", true),
     "src/app/(workspace)/sales/settings/page.tsx": salesRoutePageSource("sales.route.settings", "sales/settings"),
+    "src/app/(workspace)/sales/settings/pipeline/page.tsx": salesRoutePageSource("sales.route.pipeline-settings", "sales/settings/pipeline"),
+    "src/app/(workspace)/sales/views/page.tsx": salesRoutePageSource("sales.route.saved-views", "sales/views"),
+    "src/app/(workspace)/sales/calendar/page.tsx": salesRoutePageSource("sales.route.calendar", "sales/calendar"),
     "src/app/api/k-nex/inventory/route.ts": inventoryRouteSource(),
     "src/app/api/k-nex/navigation/revision/route.ts": navigationRevisionRouteSource(),
     "src/app/api/k-nex/navigation/sidebar/route.ts": navigationSidebarPreferenceRouteSource(),

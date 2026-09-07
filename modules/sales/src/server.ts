@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import {
   canonicalJson,
+  TableRecordsSchema,
   type RuntimeSchema,
   type DataSourceDefinition,
   type DataSourceQueryControls
@@ -28,6 +29,7 @@ import {
   salesOpportunitiesCollection as salesOpportunitiesCoreCollection,
   salesPipelinesCollection,
   salesPipelineStagesCollection,
+  salesSavedViewsCollection,
   salesCoreCollectionSlugs,
   salesRelatedRecordTypes,
   salesTasksCollection as salesTasksCoreCollection
@@ -72,6 +74,7 @@ import {
   salesRealtimeTopicDescriptors,
   salesReferenceMetadata,
   isSalesRecordId,
+  isSalesBoundedNfcText,
   salesRouteDescriptors,
   salesSearchTasksDescriptor,
   salesTaskCreateDescriptor,
@@ -88,6 +91,35 @@ import {
   salesUpdateTaskInputRuntimeSchema,
   salesUpdateTaskOutputRuntimeSchema,
   salesWorkspaceSettingsDescriptor,
+  canonicalSalesCalendarRange,
+  canonicalSalesSavedViewJson,
+  compileSalesSavedViewDefinition,
+  parseSalesSavedViewBindingInput,
+  salesPipelineSnapshotDescriptor,
+  salesPipelineSnapshotFields,
+  salesSavedViewCalendarDescriptor,
+  salesSavedViewCalendarFields,
+  salesSavedViewDetailDescriptor,
+  salesSavedViewDetailFields,
+  salesSavedViewKanbanDescriptor,
+  salesSavedViewKanbanFields,
+  salesSavedViewListDescriptor,
+  salesSavedViewListFields,
+  salesSavedViewTableDescriptor,
+  salesSavedViewTableFields,
+  salesPipelineUpdateDescriptor,
+  salesPipelineArchiveDescriptor,
+  salesSavedViewCreateDescriptor,
+  salesSavedViewUpdateDescriptor,
+  salesSavedViewArchiveDescriptor,
+  salesWorkflowActionInputRuntimeSchemas,
+  salesWorkflowActionOutputRuntimeSchemas,
+  validateSalesPipelineSnapshotInput,
+  type SalesSavedViewBindingInput,
+  type SalesSavedViewDefinition,
+  type SalesReportingTimezone,
+  type SalesSavedViewSourceId,
+  type SalesSavedViewVisibility,
   type CreateTaskInput,
   type CreateTaskOutput,
   type UpdateOpportunityStageInput,
@@ -144,10 +176,11 @@ interface SalesPayloadRequest {
   };
   readonly locale?: string;
   readonly transactionID?: number | string;
+  readonly salesSavedViewExecutionAuthority?: Readonly<{ metadataScope: SalesSavedViewMetadataScope; targetRecordScope: SalesSavedViewTargetRecordScope; fieldAuthority: readonly SalesSavedViewFieldAuthority[]; reportingTimezone?: SalesReportingTimezone }>;
 }
 
 interface SalesFindOptions {
-  readonly collection: "sales-tasks" | "sales-opportunities" | "sales-accounts" | "sales-contacts" | "sales-leads" | "sales-pipelines" | "sales-pipeline-stages" | "sales-activities" | "sales-notes" | "sales-attachment-references";
+  readonly collection: "sales-tasks" | "sales-opportunities" | "sales-accounts" | "sales-contacts" | "sales-leads" | "sales-pipelines" | "sales-pipeline-stages" | "sales-activities" | "sales-notes" | "sales-attachment-references" | "sales-saved-views";
   readonly depth: 0;
   readonly overrideAccess: true;
   readonly pagination: true;
@@ -174,6 +207,8 @@ interface SalesTaskDocument {
   readonly dueDate?: unknown;
   readonly title?: unknown;
   readonly status?: unknown;
+  readonly visibility?: unknown;
+  readonly visibilityTeamId?: unknown;
   readonly revision?: unknown;
   readonly audit?: unknown;
 }
@@ -182,6 +217,12 @@ interface SalesOpportunityDocument {
   readonly id?: string | number;
   readonly name?: unknown;
   readonly stageId?: unknown;
+  readonly pipelineId?: unknown;
+  readonly allowedTransitionStageIds?: unknown;
+  readonly orderedStageIds?: unknown;
+  readonly requiredFieldIds?: unknown;
+  readonly position?: unknown;
+  readonly probabilityBasisPoints?: unknown;
   readonly archiveStatus?: unknown;
   readonly amount?: unknown;
   readonly currency?: unknown;
@@ -200,6 +241,8 @@ interface SalesWorkflowDocument {
   readonly displayName?: unknown;
   readonly source?: unknown;
   readonly status?: unknown;
+  readonly visibility?: unknown;
+  readonly visibilityTeamId?: unknown;
   readonly archiveStatus?: unknown;
   readonly revision?: unknown;
   readonly audit?: unknown;
@@ -208,6 +251,11 @@ interface SalesWorkflowDocument {
   readonly isActive?: unknown;
   readonly semantic?: unknown;
   readonly stageId?: unknown;
+  readonly allowedTransitionStageIds?: unknown;
+  readonly orderedStageIds?: unknown;
+  readonly requiredFieldIds?: unknown;
+  readonly position?: unknown;
+  readonly probabilityBasisPoints?: unknown;
   readonly email?: unknown;
   readonly phone?: unknown;
   readonly qualifiedAccountId?: unknown;
@@ -230,7 +278,7 @@ interface SalesWorkflowDocument {
 }
 
 interface SalesCreateOptions {
-  readonly collection: "sales-tasks" | "sales-opportunities" | "sales-accounts" | "sales-contacts" | "sales-leads" | "sales-activities" | "sales-notes" | "sales-attachment-references";
+  readonly collection: "sales-tasks" | "sales-opportunities" | "sales-accounts" | "sales-contacts" | "sales-leads" | "sales-activities" | "sales-notes" | "sales-attachment-references" | "sales-saved-views";
   readonly data: Readonly<Record<string, unknown>>;
   readonly depth: 0;
   readonly overrideAccess: true;
@@ -245,10 +293,11 @@ interface SalesCreatedTask {
   readonly status?: unknown;
   readonly revision?: unknown;
   readonly audit?: unknown;
+  readonly name?: unknown;
 }
 
 interface SalesUpdateOptions {
-  readonly collection: "sales-tasks" | "sales-opportunities" | "sales-accounts" | "sales-contacts" | "sales-leads" | "sales-activities" | "sales-notes" | "sales-attachment-references";
+  readonly collection: "sales-tasks" | "sales-opportunities" | "sales-accounts" | "sales-contacts" | "sales-leads" | "sales-activities" | "sales-notes" | "sales-attachment-references" | "sales-pipelines" | "sales-pipeline-stages" | "sales-saved-views";
   readonly id: string;
   readonly data: Readonly<Record<string, unknown>>;
   readonly depth: 0;
@@ -259,7 +308,7 @@ interface SalesUpdateOptions {
 }
 
 interface SalesConditionalUpdateOptions extends Omit<SalesUpdateOptions, "id"> {
-  readonly collection: "sales-tasks" | "sales-opportunities" | "sales-accounts" | "sales-contacts" | "sales-leads" | "sales-activities" | "sales-notes" | "sales-attachment-references";
+  readonly collection: SalesUpdateOptions["collection"];
   readonly where: unknown;
 }
 
@@ -287,6 +336,12 @@ interface SalesTaskScope {
   readonly where?: unknown;
 }
 
+export interface SalesSavedViewMutationAuthority {
+  readonly ownerId: string;
+  readonly visibility: "personal" | "team";
+  readonly visibilityTeamId: string | null;
+}
+
 interface SalesWriteAuthorization {
   readonly actionId: string;
   readonly applicationId: string;
@@ -304,6 +359,10 @@ interface SalesWriteAuthorization {
   readonly linkedRecordAdmissions?: readonly Readonly<{ recordType: "sales.account" | "sales.contact"; recordId: string; applicationId: string; environment: string }>[];
   readonly protectedFieldAdmissions?: readonly Readonly<{ fieldId: "email" | "phone" | "amount"; permissionId: "sales.contacts.channels.read" | "sales.leads.channels.read" | "sales.opportunities.amount.read" }>[];
   readonly noteReplacementAdmission?: Readonly<{ recordId: string; applicationId: string; environment: string; relatedRecordType: TimelineTargetType; relatedRecordId: string }>;
+  readonly savedViewCurrent?: SalesSavedViewMutationAuthority;
+  readonly savedViewDestination?: SalesSavedViewMutationAuthority;
+  readonly reportingTimezone?: SalesReportingTimezone;
+  readonly recheckReportingTimezone?: () => Promise<SalesReportingTimezone | undefined>;
   readonly resolveAttachmentUpload?: (input: Readonly<{ applicationId: string; environmentId: string; actorId: string; storageRef: string }>) => Promise<unknown>;
 }
 
@@ -358,6 +417,8 @@ function salesEventContract(actionId: string, collection: string): Readonly<{ ty
   if (collection === "sales-activities" && ["sales.activity.create", "sales.activity.complete", "sales.activity.cancel"].includes(actionId)) return { type: "sales.event.timeline-changed", stateField: "status" };
   if (collection === "sales-notes" && actionId === "sales.note.create") return { type: "sales.event.timeline-changed", stateField: "status" };
   if (collection === "sales-attachment-references" && ["sales.attachment.link", "sales.attachment.remove"].includes(actionId)) return { type: "sales.event.timeline-changed", stateField: "status" };
+  if (collection === "sales-pipelines" && actionId === "sales.pipeline.update") return { type: "sales.event.opportunity-changed", stateField: "status" };
+  if (collection === "sales-saved-views" && ["sales.saved-view.create", "sales.saved-view.update", "sales.saved-view.archive"].includes(actionId)) return { type: "sales.event.opportunity-changed", stateField: "status" };
   return undefined;
 }
 
@@ -466,6 +527,95 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+export const salesPipelineStageNamespace = "13f5fa89-b465-5a7a-a19d-74ed6c5d1ef4";
+export const salesPipelineStageSemantics = Object.freeze(["qualification", "discovery", "proposal", "negotiation", "won", "lost"] as const);
+const pipelineStageUuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
+const trustedStageTransitions: Readonly<Record<typeof salesPipelineStageSemantics[number], readonly typeof salesPipelineStageSemantics[number][]>> = Object.freeze({ qualification: ["discovery", "lost"], discovery: ["proposal", "lost"], proposal: ["negotiation", "lost"], negotiation: ["won", "lost"], won: [], lost: [] });
+
+/** Exact ADR-0028 UUIDv5 derivation; stage names never participate in identity. */
+export function salesPipelineStageId(applicationId: string, environment: string, pipelineStableId: number, semantic: typeof salesPipelineStageSemantics[number]): string {
+  const bounded = (value: string, max: number) => value.length > 0 && !value.includes("\0") && Buffer.byteLength(value.normalize("NFC")) <= max;
+  if (!bounded(applicationId, 128) || !bounded(environment, 64) || !Number.isSafeInteger(pipelineStableId) || pipelineStableId < 1 || pipelineStableId > 2_147_483_647 || !salesPipelineStageSemantics.includes(semantic)) throw new TypeError("Sales pipeline stage identity input is invalid.");
+  const namespace = Buffer.from(salesPipelineStageNamespace.replaceAll("-", ""), "hex");
+  const name = ["phase13/pipeline-stage/v1", applicationId, environment, String(pipelineStableId), semantic].map((value) => value.normalize("NFC")).join("\0");
+  const digest = createHash("sha1").update(namespace).update(Buffer.from(name, "utf8")).digest();
+  const bytes = Buffer.from(digest.subarray(0, 16)); bytes[6] = (bytes[6]! & 0x0f) | 0x50; bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+  const hex = bytes.toString("hex"); return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+function trustedPipelineStage(document: SalesWorkflowDocument | undefined, applicationId: string, environment: string, pipelineId: number): typeof salesPipelineStageSemantics[number] | undefined {
+  const semantic = document?.semantic;
+  if (typeof semantic !== "string" || !salesPipelineStageSemantics.includes(semantic as typeof salesPipelineStageSemantics[number]) || document?.stageId !== salesPipelineStageId(applicationId, environment, pipelineId, semantic as typeof salesPipelineStageSemantics[number]) ||
+    !Array.isArray(document.requiredFieldIds) || canonicalJson(document.requiredFieldIds) !== canonicalJson(semantic === "lost" ? ["lossReason"] : [])) return undefined;
+  return semantic as typeof salesPipelineStageSemantics[number];
+}
+
+function trustedPipelineTransition(source: SalesWorkflowDocument | undefined, destination: SalesWorkflowDocument | undefined, applicationId: string, environment: string, pipelineId: number, destinationStageId: string): boolean {
+  const sourceSemantic = trustedPipelineStage(source, applicationId, environment, pipelineId); const destinationSemantic = trustedPipelineStage(destination, applicationId, environment, pipelineId);
+  return sourceSemantic !== undefined && destinationSemantic !== undefined && Array.isArray(source?.allowedTransitionStageIds) && source.allowedTransitionStageIds.includes(destinationStageId) && trustedStageTransitions[sourceSemantic].includes(destinationSemantic);
+}
+
+export interface SalesPersistedSavedView {
+  readonly id: number; readonly revision: number; readonly applicationId: string; readonly environment: string; readonly ownerId: string;
+  readonly visibility: SalesSavedViewVisibility; readonly definition: SalesSavedViewDefinition; readonly status: "active" | "archived";
+}
+export interface SalesSavedViewMetadataScope { readonly applicationId: string; readonly environment: string; readonly savedViewId: number; readonly savedViewRevision: number; readonly ownerId: string; readonly visibility: SalesSavedViewVisibility; }
+export interface SalesSavedViewTargetRecordScope { readonly kind: "sales.accounts" | "sales.contacts" | "sales.leads" | "sales.opportunities" | "sales.tasks" | "sales.activities"; readonly where: unknown; }
+export interface SalesSavedViewFieldAuthority { readonly fieldId: string; readonly select: boolean; readonly filter: boolean; readonly sort: boolean; }
+export interface SalesSavedViewExecutionPersistence {
+  readonly lockSavedView: (id: number) => Promise<SalesPersistedSavedView | undefined>;
+  readonly resolveDefaultSavedView: (sourceId: SalesSavedViewSourceId) => Promise<SalesPersistedSavedView | undefined>;
+  readonly authorizationRevision: () => Promise<number>;
+  readonly sourceRevision: (sourceId: SalesSavedViewSourceId) => Promise<number>;
+  readonly authorizeView: (view: SalesPersistedSavedView) => Promise<boolean>;
+  readonly authorizeTarget: (view: SalesPersistedSavedView) => Promise<boolean>;
+  readonly authorizeFields: (view: SalesPersistedSavedView) => Promise<boolean>;
+  readonly targetRecordScope: (view: SalesPersistedSavedView) => Promise<SalesSavedViewTargetRecordScope | undefined>;
+  readonly fieldAuthority: (view: SalesPersistedSavedView) => Promise<readonly SalesSavedViewFieldAuthority[]>;
+  readonly reportingTimezone: () => Promise<SalesReportingTimezone>;
+}
+export interface SalesSavedViewExecutionRequest {
+  readonly sourceId: SalesSavedViewSourceId; readonly bindingInput: SalesSavedViewBindingInput; readonly selectedFields: readonly string[]; readonly pageNumber: number;
+  readonly applicationId: string; readonly environment: string; readonly actorId: string; readonly persistence: SalesSavedViewExecutionPersistence;
+}
+export interface SalesSavedViewExecutionFence { readonly savedViewId: number; readonly savedViewRevision: number; readonly sourceId: SalesSavedViewSourceId; readonly sourceRevision: number; readonly authorizationRevision: number; readonly targetRecordScope: SalesSavedViewTargetRecordScope; readonly fieldAuthority: readonly SalesSavedViewFieldAuthority[]; readonly reportingTimezone?: SalesReportingTimezone; }
+export type SalesResolvedSavedViewExecution = Readonly<{
+  gatewayInput: SalesSavedViewBindingInput; targetObjectId?: SalesSavedViewDefinition["targetObjectId"]; metadataScope?: SalesSavedViewMetadataScope; targetRecordScope?: SalesSavedViewTargetRecordScope; fieldAuthority?: readonly SalesSavedViewFieldAuthority[]; selectedFields: readonly string[]; query: DataSourceQueryControls; fence?: SalesSavedViewExecutionFence; empty: boolean;
+}>;
+
+/** Locks current visibility/target/field authority and returns one request-local execution plan. */
+export async function resolveSalesSavedViewExecution(input: SalesSavedViewExecutionRequest): Promise<SalesResolvedSavedViewExecution> {
+  const binding = parseSalesSavedViewBindingInput(input.bindingInput);
+  const view = binding.savedViewId === undefined ? await input.persistence.resolveDefaultSavedView(input.sourceId) : await input.persistence.lockSavedView(binding.savedViewId);
+  if (view === undefined) {
+    const query = Object.freeze({ filters: [], sort: [], page: { number: input.pageNumber, size: 25 } });
+    return Object.freeze({ gatewayInput: {}, selectedFields: Object.freeze([...input.selectedFields]), query, empty: true });
+  }
+  if (view.status !== "active" || view.applicationId !== input.applicationId || view.environment !== input.environment || binding.expectedRevision !== undefined && binding.expectedRevision !== view.revision || view.definition.source.id !== input.sourceId ||
+    !await input.persistence.authorizeView(view) || !await input.persistence.authorizeTarget(view) || !await input.persistence.authorizeFields(view)) throw new DataSourceGatewayError("SOURCE_FORBIDDEN", 403, "Sales saved view is unavailable.");
+  const [authorizationRevision, sourceRevision, targetRecordScope, fieldAuthority, reportingTimezone] = await Promise.all([input.persistence.authorizationRevision(), input.persistence.sourceRevision(input.sourceId), input.persistence.targetRecordScope(view), input.persistence.fieldAuthority(view), input.sourceId === "sales.saved-view.calendar" ? input.persistence.reportingTimezone() : undefined]);
+  if (!positiveExecutionRevision(authorizationRevision) || !positiveExecutionRevision(sourceRevision)) throw new DataSourceGatewayError("SOURCE_FORBIDDEN", 403, "Sales saved-view revision fence is invalid.");
+  const compiled = compileSalesSavedViewDefinition(view.definition, input.sourceId, input.selectedFields, input.pageNumber, { ...(reportingTimezone === undefined ? {} : { reportingTimezone }) });
+  const expectedScopeKind = ({ "sales.object.account": "sales.accounts", "sales.object.contact": "sales.contacts", "sales.object.lead": "sales.leads", "sales.object.opportunity": "sales.opportunities", "sales.object.task": "sales.tasks", "sales.object.activity": "sales.activities" } as const)[view.definition.targetObjectId];
+  const selected = new Set(compiled.selectedFields); const filtered = new Set(compiled.query.filters.map(({ field }) => field)); const sorted = new Set(compiled.query.sort.map(({ field }) => field));
+  if (targetRecordScope?.kind !== expectedScopeKind || !isRecord(targetRecordScope.where) || fieldAuthority.length !== new Set(fieldAuthority.map(({ fieldId }) => fieldId)).size || fieldAuthority.some((entry) => !selected.has(entry.fieldId) || !entry.select || filtered.has(entry.fieldId) && !entry.filter || sorted.has(entry.fieldId) && !entry.sort)) throw new DataSourceGatewayError("SOURCE_FORBIDDEN", 403, "Sales saved-view target authority is unavailable.");
+  const metadataScope = Object.freeze({ applicationId: view.applicationId, environment: view.environment, savedViewId: view.id, savedViewRevision: view.revision, ownerId: view.ownerId, visibility: view.visibility });
+  const authorityFields = Object.freeze(fieldAuthority.map((entry) => Object.freeze({ ...entry })));
+  const fence = Object.freeze({ savedViewId: view.id, savedViewRevision: view.revision, sourceId: input.sourceId, sourceRevision, authorizationRevision, targetRecordScope, fieldAuthority: authorityFields, ...(reportingTimezone === undefined ? {} : { reportingTimezone }) });
+  return Object.freeze({ gatewayInput: Object.freeze({ "saved-view-id": view.id, "expected-revision": view.revision }), targetObjectId: view.definition.targetObjectId, metadataScope, targetRecordScope, fieldAuthority: authorityFields, selectedFields: compiled.selectedFields, query: compiled.query, empty: false, fence });
+}
+const positiveExecutionRevision = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) > 0;
+
+/** Must run after gateway execution and before cache/result publication. */
+export async function recheckSalesSavedViewExecution(input: Readonly<{ fence: SalesSavedViewExecutionFence; applicationId: string; environment: string; persistence: SalesSavedViewExecutionPersistence }>): Promise<void> {
+  const [view, authorizationRevision, sourceRevision, reportingTimezone] = await Promise.all([input.persistence.lockSavedView(input.fence.savedViewId), input.persistence.authorizationRevision(), input.persistence.sourceRevision(input.fence.sourceId), input.fence.sourceId === "sales.saved-view.calendar" ? input.persistence.reportingTimezone() : undefined]);
+  const reportingTimezoneMatches = reportingTimezone === undefined && input.fence.reportingTimezone === undefined || reportingTimezone !== undefined && input.fence.reportingTimezone !== undefined && canonicalJson(reportingTimezone) === canonicalJson(input.fence.reportingTimezone);
+  if (view === undefined || view.status !== "active" || view.applicationId !== input.applicationId || view.environment !== input.environment || view.revision !== input.fence.savedViewRevision || view.definition.source.id !== input.fence.sourceId || authorizationRevision !== input.fence.authorizationRevision || sourceRevision !== input.fence.sourceRevision ||
+    !reportingTimezoneMatches || !await input.persistence.authorizeView(view) || !await input.persistence.authorizeTarget(view) || !await input.persistence.authorizeFields(view)) throw new DataSourceGatewayError("SOURCE_STALE", 409, "Sales saved-view execution changed before publication.");
+  const [targetRecordScope, fieldAuthority] = await Promise.all([input.persistence.targetRecordScope(view), input.persistence.fieldAuthority(view)]);
+  if (canonicalJson(targetRecordScope) !== canonicalJson(input.fence.targetRecordScope) || canonicalJson(fieldAuthority) !== canonicalJson(input.fence.fieldAuthority)) throw new DataSourceGatewayError("SOURCE_STALE", 409, "Sales saved-view authority changed before publication.");
+}
+
 function salesRequest(value: unknown): SalesPayloadRequest {
   if (!isRecord(value) || !isRecord(value.payload) || typeof value.payload.find !== "function") {
     throw new Error("The Sales source requires a capability-scoped Payload request.");
@@ -474,21 +624,39 @@ function salesRequest(value: unknown): SalesPayloadRequest {
 }
 
 const salesScopeFields = new Set(["ownerId", "teamId", "status", "stageId", "id"]);
+const salesSavedViewScopeFields = new Set(["ownerId", "teamId", "status", "id", "visibility", "visibilityTeamId"]);
 
-function closedScopePredicate(value: unknown, depth = 0): boolean {
+function closedScopePredicate(value: unknown, depth = 0, fields = salesScopeFields): boolean {
   if (!isRecord(value) || depth > 4) return false;
   const entries = Object.entries(value);
   if (entries.length !== 1) return false;
   const [field, condition] = entries[0]!;
   if (field === "and" || field === "or") {
     return Array.isArray(condition) && condition.length > 0 && condition.length <= 32 &&
-      condition.every((entry) => closedScopePredicate(entry, depth + 1));
+      condition.every((entry) => closedScopePredicate(entry, depth + 1, fields));
   }
-  if (!salesScopeFields.has(field) || !isRecord(condition) || Object.keys(condition).length !== 1) return false;
+  if (!fields.has(field) || !isRecord(condition) || Object.keys(condition).length !== 1) return false;
   if (typeof condition.equals === "string") return condition.equals.length > 0 && condition.equals.length <= 160;
-  return field === "teamId" && Array.isArray(condition.in) && condition.in.length > 0 && condition.in.length <= 32 &&
+  return (field === "teamId" || field === "visibilityTeamId") && Array.isArray(condition.in) && condition.in.length > 0 && condition.in.length <= 32 &&
     condition.in.every((teamId) => typeof teamId === "string" && teamId.length > 0 && teamId.length <= 160) &&
     new Set(condition.in).size === condition.in.length;
+}
+
+function exactSavedViewMetadataPredicate(value: unknown): boolean {
+  if (!isRecord(value) || !Array.isArray(value.or) || value.or.length < 1 || value.or.length > 2 || Object.keys(value).length !== 1) return false;
+  let personal = 0; let team = 0;
+  for (const branch of value.or) {
+    if (!isRecord(branch) || !Array.isArray(branch.and) || branch.and.length !== 2 || Object.keys(branch).length !== 1) return false;
+    const clauses = branch.and;
+    const personalOwner = clauses.some((clause) => isRecord(clause) && isRecord(clause.ownerId) && typeof clause.ownerId.equals === "string" && clause.ownerId.equals.length > 0 && Object.keys(clause.ownerId).length === 1 && Object.keys(clause).length === 1);
+    const personalVisibility = clauses.some((clause) => isRecord(clause) && isRecord(clause.visibility) && clause.visibility.equals === "personal" && Object.keys(clause.visibility).length === 1 && Object.keys(clause).length === 1);
+    const teamIds = clauses.some((clause) => isRecord(clause) && isRecord(clause.visibilityTeamId) && Array.isArray(clause.visibilityTeamId.in) && clause.visibilityTeamId.in.length > 0 && clause.visibilityTeamId.in.length <= 32 && clause.visibilityTeamId.in.every((id) => typeof id === "string" && id.length > 0 && id.length <= 160) && new Set(clause.visibilityTeamId.in).size === clause.visibilityTeamId.in.length && Object.keys(clause.visibilityTeamId).length === 1 && Object.keys(clause).length === 1);
+    const teamVisibility = clauses.some((clause) => isRecord(clause) && isRecord(clause.visibility) && clause.visibility.equals === "team" && Object.keys(clause.visibility).length === 1 && Object.keys(clause).length === 1);
+    if (personalOwner && personalVisibility) personal += 1;
+    else if (teamIds && teamVisibility) team += 1;
+    else return false;
+  }
+  return personal === 1 && team === value.or.length - 1;
 }
 
 function sourceIdentity(request: unknown): Readonly<{ applicationId: string; environment: string }> {
@@ -507,12 +675,17 @@ function scopeWhere(value: unknown, identity: Readonly<{ applicationId: string; 
   }
   let application = 0;
   let environment = 0;
+  let activeStatus = 0;
+  const authorityClauses: unknown[] = [];
   for (const clause of value.where.and) {
     if (isRecord(clause) && isRecord(clause.applicationId) && Object.keys(clause.applicationId).length === 1 && clause.applicationId.equals === identity.applicationId && Object.keys(clause).length === 1) { application += 1; continue; }
     if (isRecord(clause) && isRecord(clause.environment) && Object.keys(clause.environment).length === 1 && clause.environment.equals === identity.environment && Object.keys(clause).length === 1) { environment += 1; continue; }
-    if (!closedScopePredicate(clause)) throw new Error("The Sales source requires a closed application and environment record scope.");
+    if (expectedKind === "sales.saved-views" && isRecord(clause) && isRecord(clause.status) && Object.keys(clause.status).length === 1 && clause.status.equals === "active" && Object.keys(clause).length === 1) { activeStatus += 1; continue; }
+    if (!closedScopePredicate(clause, 0, expectedKind === "sales.saved-views" ? salesSavedViewScopeFields : salesScopeFields)) throw new Error("The Sales source requires a closed application and environment record scope.");
+    authorityClauses.push(clause);
   }
   if (application !== 1 || environment !== 1) throw new Error("The Sales source requires a closed application and environment record scope.");
+  if (expectedKind === "sales.saved-views" && (activeStatus !== 1 || authorityClauses.length !== 1 || !exactSavedViewMetadataPredicate(authorityClauses[0]))) throw new Error("The Sales saved-view source requires exact active personal-owner or authorized-team metadata authority.");
   return value.where;
 }
 
@@ -710,17 +883,17 @@ async function tasksTable(context: DataSourceHandlerRequest): Promise<unknown> {
   };
 }
 
-const opportunityStorage = { name: "name", "stage-id": "stageId", revision: "revision", amount: "amount" } as const;
+const opportunityStorage = { name: "name", "pipeline-id": "pipelineId", "pipeline-revision": "pipelineRevision", "stage-id": "stageId", "stage-name": "stageName", "stage-semantic": "stageSemantic", "stage-revision": "stageRevision", revision: "revision", amount: "amount" } as const;
 
-function opportunityCell(fieldId: string, document: SalesOpportunityDocument): Record<string, unknown> | null {
+function opportunityCell(fieldId: string, document: Readonly<Record<string, unknown>>): Record<string, unknown> | null {
   const value = document[opportunityStorage[fieldId as keyof typeof opportunityStorage]];
   if (fieldId === "amount") return moneyCell(value, document.currency);
-  if (fieldId === "revision") {
+  if (["revision", "pipeline-id", "pipeline-revision", "stage-revision"].includes(fieldId)) {
     if (!Number.isSafeInteger(value) || (value as number) < 1) throw new Error("Sales opportunity revision is invalid.");
     return { kind: "integer", value };
   }
   if (typeof value !== "string" || value.length === 0) throw new Error(`Sales opportunity ${fieldId} is invalid.`);
-  return { kind: fieldId === "stage-id" ? "status" : "text", value };
+  return { kind: fieldId === "stage-id" ? "status" : fieldId === "stage-semantic" ? "enum" : "text", value };
 }
 
 async function opportunitiesTable(context: DataSourceHandlerRequest): Promise<unknown> {
@@ -734,17 +907,27 @@ async function opportunitiesTable(context: DataSourceHandlerRequest): Promise<un
   const base = requestOptions(context, {
     page: context.query.page.number,
     limit: context.query.page.size,
-    select: { id: true, ...Object.fromEntries(selected.map((field) => [opportunityStorage[field as keyof typeof opportunityStorage], true])), ...(selected.includes("amount") ? { currency: true } : {}) },
+    select: { id: true, name: true, pipelineId: true, stageId: true, revision: true, ...(selected.includes("amount") ? { amount: true, currency: true } : {}) },
     sort: ["id"],
     where: scopeWhere(context.recordScope, sourceIdentity(context.request), "sales.opportunities")
   });
   const result = await salesRequest(context.request).payload.find({ ...base, collection: "sales-opportunities" });
   const documents = result.docs as readonly SalesOpportunityDocument[];
+  const pipelineIds = [...new Set(documents.map(({ pipelineId }) => pipelineId).filter((id): id is string | number => typeof id === "string" || typeof id === "number"))];
+  const identity = sourceIdentity(context.request); const request = salesRequest(context.request);
+  const [pipelines, stages] = await Promise.all([
+    request.payload.find({ ...requestOptions(context, { page: 1, limit: Math.max(1, pipelineIds.length), where: { and: [{ applicationId: { equals: identity.applicationId } }, { environment: { equals: identity.environment } }, { id: { in: pipelineIds } }, { status: { equals: "active" } }] } }), collection: "sales-pipelines" }),
+    request.payload.find({ ...requestOptions(context, { page: 1, limit: Math.max(1, pipelineIds.length * 6), where: { and: [{ applicationId: { equals: identity.applicationId } }, { environment: { equals: identity.environment } }, { pipelineId: { in: pipelineIds } }, { status: { equals: "active" } }] } }), collection: "sales-pipeline-stages" })
+  ]);
+  const pipelineById = new Map(pipelines.docs.map((row) => [String(row.id), row as SalesWorkflowDocument])); const stageById = new Map(stages.docs.map((row) => [`${String((row as SalesWorkflowDocument).pipelineId)}:${String((row as SalesWorkflowDocument).stageId)}`, row as SalesWorkflowDocument]));
   return {
     fields: selected,
     rows: documents.map((document) => {
       if (document.id === undefined || document.id === null) throw new Error("Sales opportunity rows require stable IDs.");
-      return { key: String(document.id), values: Object.fromEntries(selected.map((field) => [field, opportunityCell(field, document)])) };
+      const pipeline = pipelineById.get(String(document.pipelineId)); const stage = stageById.get(`${String(document.pipelineId)}:${String(document.stageId)}`);
+      if (pipeline === undefined || stage === undefined) throw new DataSourceGatewayError("INVALID_SOURCE_OUTPUT", 500, "Sales opportunity pipeline projection is incomplete.");
+      const projected = { ...document, pipelineRevision: pipeline.revision, stageName: stage.name, stageSemantic: stage.semantic, stageRevision: stage.revision } as Readonly<Record<string, unknown>>;
+      return { key: String(document.id), values: Object.fromEntries(selected.map((field) => [field, opportunityCell(field, projected)])) };
     }),
     page: { number: context.query.page.number, pageSize: context.query.page.size, hasNext: result.hasNextPage ?? false }
   };
@@ -938,6 +1121,235 @@ export const salesLeadDetailDefinition: DataSourceDefinition = { descriptor: sal
 export const salesOpportunityDetailDefinition: DataSourceDefinition = { descriptor: salesOpportunityDetailDescriptor, inputSchema: salesCrmDetailInputRuntimeSchema, outputSchema: salesOpportunityDetailOutputRuntimeSchema };
 export const salesTimelineDefinition: DataSourceDefinition = { descriptor: salesTimelineDescriptor, inputSchema: salesTimelineInputRuntimeSchema, outputSchema: salesTimelineOutputRuntimeSchema };
 
+const savedBindingRuntime: RuntimeSchema<SalesSavedViewBindingInput> = { safeParse(value) { try {
+  const parsed = parseSalesSavedViewBindingInput(value); return { success: true as const, data: parsed.savedViewId === undefined ? {} : { "saved-view-id": parsed.savedViewId, "expected-revision": parsed.expectedRevision! } };
+} catch (error) { return invalidOutput(error instanceof Error ? error.message : "Sales saved-view input is invalid."); } } };
+const savedDetailInputRuntime: RuntimeSchema<Readonly<{ "saved-view-id"?: number }>> = { safeParse(value) {
+  if (!isRecord(value) || Object.keys(value).length > 1 || Object.keys(value).some((key) => key !== "saved-view-id") || value["saved-view-id"] !== undefined && !positiveExecutionRevision(value["saved-view-id"])) return invalidOutput("Sales saved-view detail input is invalid.");
+  return { success: true as const, data: value as Readonly<{ "saved-view-id"?: number }> };
+} };
+function exactP134Cell(sourceId: string, field: NonNullable<typeof salesPipelineSnapshotDescriptor.outputFields>[number], cell: unknown): boolean {
+  if (cell === null) return field.nullable;
+  if (!isRecord(cell) || cell.kind !== field.kind) return false;
+  if (field.kind === "money") return exactKeys(cell, ["kind", "value", "currency", "scale"]) && typeof cell.value === "string" && decimalPattern.test(cell.value) && typeof cell.currency === "string" && /^[A-Z]{3}$/u.test(cell.currency) && Number.isSafeInteger(cell.scale) && (cell.scale as number) >= 0 && (cell.scale as number) <= 18;
+  if (!exactKeys(cell, ["kind", "value"])) return false;
+  if (field.kind === "integer") return Number.isSafeInteger(cell.value) && (cell.value as number) >= -2_147_483_648 && (cell.value as number) <= 2_147_483_647;
+  if (["number", "percentage", "duration"].includes(field.kind)) return typeof cell.value === "number" && Number.isFinite(cell.value);
+  if (field.kind === "boolean") return typeof cell.value === "boolean";
+  if (typeof cell.value !== "string") return false;
+  if ((sourceId === salesPipelineSnapshotDescriptor.id && ["pipeline-name", "stage-name"].includes(field.id) || [salesSavedViewListDescriptor.id, salesSavedViewDetailDescriptor.id].includes(sourceId) && ["name", "team-id"].includes(field.id)) && !isSalesBoundedNfcText(cell.value)) return false;
+  if (field.kind === "date") return /^\d{4}-\d{2}-\d{2}$/u.test(cell.value) && !Number.isNaN(Date.parse(`${cell.value}T00:00:00.000Z`));
+  if (field.kind === "datetime") return validAuditTimestamp(cell.value);
+  return Buffer.byteLength(cell.value, "utf8") <= 16_384;
+}
+
+function exactP134RowIdentity(sourceId: string, row: Readonly<{ key: string; values: Readonly<Record<string, unknown>> }>): boolean {
+  const scalar = (field: string) => isRecord(row.values[field]) ? row.values[field].value : undefined;
+  if (sourceId === salesPipelineSnapshotDescriptor.id) return typeof scalar("stage-id") === "string" && row.key === `stage:${scalar("stage-id")}` && pipelineStageUuidPattern.test(scalar("stage-id") as string);
+  if (sourceId === salesSavedViewListDescriptor.id) return Number.isSafeInteger(scalar("id")) && row.key === String(scalar("id"));
+  if (sourceId === salesSavedViewDetailDescriptor.id) return Number.isSafeInteger(scalar("id")) && Number.isSafeInteger(scalar("chunk-index")) && row.key === `saved-view:${scalar("id")}:chunk:${scalar("chunk-index")}`;
+  if (sourceId === salesSavedViewKanbanDescriptor.id) return scalar("row-kind") === "stage" ? typeof scalar("stage-id") === "string" && row.key === `stage:${scalar("stage-id")}` : scalar("row-kind") === "opportunity" && /^opportunity:[1-9][0-9]*$/u.test(row.key);
+  return /^[1-9][0-9]*$/u.test(row.key);
+}
+
+const p134Output = (sourceId: string, fields: readonly NonNullable<typeof salesPipelineSnapshotDescriptor.outputFields>[number][]): RuntimeSchema<ReturnType<typeof TableRecordsSchema.parse>> => ({ safeParse(value) {
+  const parsed = TableRecordsSchema.safeParse(value); if (!parsed.success) return parsed;
+  const declared = new Map(fields.map((field) => [field.id, field])); const required = fields.filter(({ binding }) => binding === "required").map(({ id }) => id);
+  if (parsed.data.fields.some((id) => !declared.has(id)) || required.some((id) => !parsed.data.fields.includes(id)) || parsed.data.rows.some((row) =>
+    Object.keys(row.values).join("\0") !== parsed.data.fields.join("\0") || parsed.data.fields.some((id) => !exactP134Cell(sourceId, declared.get(id)!, row.values[id])) || !exactP134RowIdentity(sourceId, row))) return invalidOutput("Sales configuration source output is invalid.");
+  if (sourceId === salesPipelineSnapshotDescriptor.id) {
+    const scalar = (row: typeof parsed.data.rows[number], field: string) => {
+      const cell = row.values[field];
+      return isRecord(cell) ? (cell as Readonly<Record<string, unknown>>).value : undefined;
+    };
+    if (parsed.data.rows.length !== 6 || parsed.data.page.number !== 1 || parsed.data.page.pageSize !== 6 || parsed.data.page.hasNext !== false) return invalidOutput("Sales pipeline snapshot is invalid.");
+    const stageIds = parsed.data.rows.map((row) => scalar(row, "stage-id"));
+    const semantics = parsed.data.rows.map((row) => scalar(row, "semantic"));
+    const pipelineId = scalar(parsed.data.rows[0]!, "pipeline-id"); const pipelineRevision = scalar(parsed.data.rows[0]!, "pipeline-revision");
+    if (!positiveExecutionRevision(pipelineId) || !positiveExecutionRevision(pipelineRevision) || new Set(stageIds).size !== 6 || new Set(semantics.slice(0, 4)).size !== 4 || semantics.slice(0, 4).some((semantic) => !salesPipelineStageSemantics.slice(0, 4).includes(semantic as never)) || semantics[4] !== "won" || semantics[5] !== "lost") return invalidOutput("Sales pipeline snapshot is invalid.");
+    for (const [index, row] of parsed.data.rows.entries()) {
+      const semantic = semantics[index] as typeof salesPipelineStageSemantics[number];
+      let transitions: unknown; let requiredFields: unknown;
+      try { transitions = JSON.parse(String(scalar(row, "allowed-transition-stage-ids"))); requiredFields = JSON.parse(String(scalar(row, "required-field-ids"))); } catch { return invalidOutput("Sales pipeline snapshot is invalid."); }
+      const expectedRequired = semantic === "lost" ? ["lossReason"] : [];
+      if (!Array.isArray(transitions) || new Set(transitions).size !== transitions.length || transitions.some((target) => { const targetIndex = stageIds.indexOf(target); return targetIndex < 0 || !trustedStageTransitions[semantic].includes(semantics[targetIndex] as never); }) || scalar(row, "pipeline-id") !== pipelineId || scalar(row, "pipeline-revision") !== pipelineRevision || !positiveExecutionRevision(scalar(row, "stage-revision")) || scalar(row, "position") !== index || scalar(row, "status") !== "active" || !isSalesBoundedNfcText(String(scalar(row, "pipeline-name"))) || !isSalesBoundedNfcText(String(scalar(row, "stage-name"))) || !Number.isSafeInteger(scalar(row, "probability-basis-points")) || Number(scalar(row, "probability-basis-points")) < 0 || Number(scalar(row, "probability-basis-points")) > 10_000 || JSON.stringify(transitions) !== String(scalar(row, "allowed-transition-stage-ids")) || JSON.stringify(requiredFields) !== String(scalar(row, "required-field-ids")) || JSON.stringify(requiredFields) !== JSON.stringify(expectedRequired)) return invalidOutput("Sales pipeline snapshot is invalid.");
+    }
+  }
+  if (sourceId === salesSavedViewKanbanDescriptor.id) {
+    const scalar = (row: typeof parsed.data.rows[number], field: string) => {
+      const cell = row.values[field];
+      return isRecord(cell) ? (cell as Readonly<Record<string, unknown>>).value : undefined;
+    };
+    const stages = parsed.data.rows.filter((row) => scalar(row, "row-kind") === "stage"); const opportunities = parsed.data.rows.filter((row) => scalar(row, "row-kind") === "opportunity");
+    const stageIds = new Set<string>(); const stageSemantics: unknown[] = []; let pipelineId: number | undefined; let pipelineRevision: number | undefined;
+    if (stages.length !== 6 || parsed.data.rows.slice(0, 6).some((row) => scalar(row, "row-kind") !== "stage")) return invalidOutput("Sales Kanban snapshot is invalid.");
+    for (const [index, row] of stages.entries()) {
+      const stageId = scalar(row, "stage-id"); const raw = scalar(row, "stage-metadata"); if (typeof stageId !== "string" || typeof raw !== "string") return invalidOutput("Sales Kanban snapshot is invalid.");
+      let metadata: unknown; try { metadata = JSON.parse(raw); } catch { return invalidOutput("Sales Kanban snapshot is invalid."); }
+      if (!isRecord(metadata) || Object.keys(metadata).join("\0") !== "pipelineId\0pipelineRevision\0stageName\0stageRevision\0stageSemantic" || JSON.stringify(metadata) !== raw || !positiveExecutionRevision(metadata.pipelineId) || !positiveExecutionRevision(metadata.pipelineRevision) || !positiveExecutionRevision(metadata.stageRevision) || metadata.stageName !== scalar(row, "name") || !isSalesBoundedNfcText(String(metadata.stageName)) || !salesPipelineStageSemantics.includes(metadata.stageSemantic as never) || stageIds.has(stageId)) return invalidOutput("Sales Kanban snapshot is invalid.");
+      pipelineId ??= metadata.pipelineId; pipelineRevision ??= metadata.pipelineRevision;
+      if (metadata.pipelineId !== pipelineId || metadata.pipelineRevision !== pipelineRevision) return invalidOutput("Sales Kanban snapshot is invalid.");
+      stageSemantics.push(metadata.stageSemantic);
+      stageIds.add(stageId);
+    }
+    if (new Set(stageSemantics.slice(0, 4)).size !== 4 || stageSemantics.slice(0, 4).some((semantic) => !salesPipelineStageSemantics.slice(0, 4).includes(semantic as never)) || stageSemantics[4] !== "won" || stageSemantics[5] !== "lost") return invalidOutput("Sales Kanban snapshot is invalid.");
+    if (opportunities.some((row) => !stageIds.has(String(scalar(row, "stage-id"))) || scalar(row, "stage-metadata") !== undefined && scalar(row, "stage-metadata") !== null)) return invalidOutput("Sales Kanban snapshot is invalid.");
+  }
+  return parsed;
+} });
+export const salesPipelineSnapshotOutputRuntimeSchema = p134Output(salesPipelineSnapshotDescriptor.id, salesPipelineSnapshotFields);
+export const salesSavedViewListOutputRuntimeSchema = p134Output(salesSavedViewListDescriptor.id, salesSavedViewListFields);
+export const salesSavedViewDetailOutputRuntimeSchema = p134Output(salesSavedViewDetailDescriptor.id, salesSavedViewDetailFields);
+export const salesSavedViewTableOutputRuntimeSchema = p134Output(salesSavedViewTableDescriptor.id, salesSavedViewTableFields);
+export const salesSavedViewKanbanOutputRuntimeSchema = p134Output(salesSavedViewKanbanDescriptor.id, salesSavedViewKanbanFields);
+export const salesSavedViewCalendarOutputRuntimeSchema = p134Output(salesSavedViewCalendarDescriptor.id, salesSavedViewCalendarFields);
+export const salesPipelineSnapshotDefinition: DataSourceDefinition = { descriptor: salesPipelineSnapshotDescriptor, inputSchema: salesEmptyInputRuntimeSchema, outputSchema: salesPipelineSnapshotOutputRuntimeSchema };
+export const salesSavedViewListDefinition: DataSourceDefinition = { descriptor: salesSavedViewListDescriptor, inputSchema: salesEmptyInputRuntimeSchema, outputSchema: salesSavedViewListOutputRuntimeSchema };
+export const salesSavedViewDetailDefinition: DataSourceDefinition = { descriptor: salesSavedViewDetailDescriptor, inputSchema: savedDetailInputRuntime, outputSchema: salesSavedViewDetailOutputRuntimeSchema };
+export const salesSavedViewTableDefinition: DataSourceDefinition = { descriptor: salesSavedViewTableDescriptor, inputSchema: savedBindingRuntime, outputSchema: salesSavedViewTableOutputRuntimeSchema };
+export const salesSavedViewKanbanDefinition: DataSourceDefinition = { descriptor: salesSavedViewKanbanDescriptor, inputSchema: savedBindingRuntime, outputSchema: salesSavedViewKanbanOutputRuntimeSchema };
+export const salesSavedViewCalendarDefinition: DataSourceDefinition = { descriptor: salesSavedViewCalendarDescriptor, inputSchema: savedBindingRuntime, outputSchema: salesSavedViewCalendarOutputRuntimeSchema };
+
+function p134Values(selected: readonly string[], raw: Readonly<Record<string, unknown>>, fields: readonly NonNullable<typeof salesPipelineSnapshotDescriptor.outputFields>[number][]): Record<string, unknown> {
+  return Object.fromEntries(selected.map((fieldId) => { const field = fields.find(({ id }) => id === fieldId)!; const value = raw[fieldId]; return [fieldId, value === null || value === undefined && field.nullable ? null : { kind: field.kind, value }]; }));
+}
+function compactSourceStringArray(value: unknown): string {
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) throw new DataSourceGatewayError("INVALID_SOURCE_OUTPUT", 500, "Sales pipeline stage arrays are invalid.");
+  return JSON.stringify(value);
+}
+export const salesPipelineSnapshotHandler: DataSourceHandler = async (context) => {
+  const request = salesRequest(context.request); const identity = sourceIdentity(context.request); const where = scopeWhere(context.recordScope, identity, "sales.pipelines");
+  const pipelines = await request.payload.find({ ...requestOptions(context, { where: { and: [where, { status: { equals: "active" } }, { isActive: { equals: true } }] }, limit: 2, page: 1, select: { id: true, revision: true, name: true, orderedStageIds: true, status: true, isActive: true } }), collection: "sales-pipelines" });
+  if (pipelines.docs.length !== 1) throw new DataSourceGatewayError("INVALID_SOURCE_OUTPUT", 500, "Sales requires exactly one active pipeline.");
+  const pipeline = pipelines.docs[0] as SalesWorkflowDocument & { orderedStageIds?: unknown }; const stages = await request.payload.find({ ...requestOptions(context, { where: { and: [where, { pipelineId: { equals: pipeline.id } }, { status: { equals: "active" } }] }, limit: 7, page: 1, sort: ["position"] }), collection: "sales-pipeline-stages" });
+  if (stages.docs.length !== 6 || !Array.isArray(pipeline.orderedStageIds)) throw new DataSourceGatewayError("INVALID_SOURCE_OUTPUT", 500, "Sales pipeline snapshot is incomplete.");
+  const stageRows = stages.docs as readonly SalesWorkflowDocument[]; const pipelineId = Number(pipeline.id);
+  const orderedStageIds = pipeline.orderedStageIds as readonly unknown[];
+  try {
+    if (pipeline.status !== "active" || pipeline.isActive !== true || stageRows.some((stage) => stage.status !== "active")) throw new TypeError();
+    validateSalesPipelineSnapshotInput({ id: pipelineId, expectedRevision: pipeline.revision, name: pipeline.name, orderedStageIds, stages: stageRows.map((stage) => ({ stageId: stage.stageId, expectedRevision: stage.revision, semantic: stage.semantic, name: stage.name, position: stage.position, probabilityBasisPoints: stage.probabilityBasisPoints, allowedTransitionStageIds: stage.allowedTransitionStageIds, requiredFieldIds: stage.requiredFieldIds })) }, identity.applicationId, identity.environment, salesPipelineStageId);
+  } catch { throw new DataSourceGatewayError("INVALID_SOURCE_OUTPUT", 500, "Sales pipeline snapshot is inconsistent."); }
+  const rows = stageRows.map((stage) => ({ key: `stage:${String(stage.stageId)}`, values: p134Values(context.selectedFields, { "pipeline-id": pipeline.id, "pipeline-revision": pipeline.revision, "pipeline-name": pipeline.name, "stage-id": stage.stageId, "stage-revision": stage.revision, semantic: stage.semantic, "stage-name": stage.name, position: (stage as Record<string, unknown>).position, "probability-basis-points": (stage as Record<string, unknown>).probabilityBasisPoints, "allowed-transition-stage-ids": compactSourceStringArray(stage.allowedTransitionStageIds), "required-field-ids": compactSourceStringArray((stage as Record<string, unknown>).requiredFieldIds), status: stage.status }, salesPipelineSnapshotFields) }));
+  return { fields: [...context.selectedFields], rows, page: { number: 1, pageSize: 6, hasNext: false } };
+};
+
+async function visibleSavedViews(context: DataSourceHandlerRequest, oneId?: number) {
+  const request = salesRequest(context.request); const identity = sourceIdentity(context.request); const where = scopeWhere(context.recordScope, identity, "sales.saved-views");
+  const page = context.query.page; if (oneId === undefined && page === undefined) throw new DataSourceGatewayError("INVALID_QUERY_INPUT", 400, "Sales saved-view list requires offset pagination.");
+  return await request.payload.find({ ...requestOptions(context, { where: { and: [where, ...(oneId === undefined ? [] : [{ id: { equals: oneId } }])] }, limit: oneId === undefined ? page!.size : 2, page: oneId === undefined ? page!.number : 1, ...(oneId === undefined ? { sort: ["visibility", "id"] } : {}) }), collection: "sales-saved-views" });
+}
+export const salesSavedViewListHandler: DataSourceHandler = async (context) => {
+  const page = context.query.page; if (page === undefined) throw new DataSourceGatewayError("INVALID_QUERY_INPUT", 400, "Sales saved-view list requires offset pagination.");
+  const found = await visibleSavedViews(context); const rows = (found.docs as readonly SalesWorkflowDocument[]).map((view) => ({ key: String(view.id), values: p134Values(context.selectedFields, { id: view.id, name: view.name, visibility: (view as Record<string, unknown>).visibility, "team-id": (view as Record<string, unknown>).visibilityTeamId ?? null, "target-object-id": (view as Record<string, unknown>).targetObjectId, "view-kind": (view as Record<string, unknown>).viewKind, revision: view.revision, status: view.status }, salesSavedViewListFields) }));
+  return { fields: [...context.selectedFields], rows, page: { number: page.number, pageSize: page.size, hasNext: found.hasNextPage } };
+};
+export const salesSavedViewDetailHandler: DataSourceHandler = async (context) => {
+  const id = isRecord(context.input) ? context.input["saved-view-id"] : undefined; if (!positiveExecutionRevision(id)) return { fields: [...context.selectedFields], rows: [], page: { number: 1, pageSize: 33, hasNext: false } };
+  const found = await visibleSavedViews(context, id); if (found.docs.length !== 1) return { fields: [...context.selectedFields], rows: [], page: { number: 1, pageSize: 33, hasNext: false } };
+  const view = found.docs[0] as SalesWorkflowDocument; const definition = canonicalSalesSavedViewJson((view as Record<string, unknown>).definition); const chunks: string[] = []; let chunk = ""; let bytes = 0;
+  for (const scalar of definition) { const scalarBytes = Buffer.byteLength(scalar, "utf8"); if (bytes + scalarBytes > 512) { chunks.push(chunk); chunk = ""; bytes = 0; } chunk += scalar; bytes += scalarBytes; }
+  chunks.push(chunk);
+  if (chunks.length > 33 || chunks.some((value) => Buffer.byteLength(value, "utf8") > 512)) throw new DataSourceGatewayError("INVALID_SOURCE_OUTPUT", 500, "Sales saved-view definition chunking exceeded its bound.");
+  const rows = chunks.map((value, index) => ({ key: `saved-view:${id}:chunk:${index}`, values: p134Values(context.selectedFields, { id, name: view.name, visibility: (view as Record<string, unknown>).visibility, "team-id": (view as Record<string, unknown>).visibilityTeamId ?? null, "chunk-index": index, "chunk-count": chunks.length, "definition-chunk": value, "target-object-id": (view as Record<string, unknown>).targetObjectId, "view-kind": (view as Record<string, unknown>).viewKind, revision: view.revision, status: view.status }, salesSavedViewDetailFields) }));
+  return { fields: [...context.selectedFields], rows, page: { number: 1, pageSize: 33, hasNext: false } };
+};
+
+const savedTargetSpecs = Object.freeze({
+  "sales.object.account": { scope: "sales.accounts", collection: "sales-accounts", storage: { name: "name", "owner-id": "ownerId", "team-id": "teamId", status: "status", revision: "revision" } },
+  "sales.object.contact": { scope: "sales.contacts", collection: "sales-contacts", storage: { "display-name": "displayName", "owner-id": "ownerId", "team-id": "teamId", "account-id": "accountId", status: "status", revision: "revision", email: "email", phone: "phone" } },
+  "sales.object.lead": { scope: "sales.leads", collection: "sales-leads", storage: { "display-name": "displayName", source: "source", "owner-id": "ownerId", "team-id": "teamId", status: "status", "archive-status": "archiveStatus", revision: "revision", email: "email", phone: "phone" } },
+  "sales.object.opportunity": { scope: "sales.opportunities", collection: "sales-opportunities", storage: { name: "name", "owner-id": "ownerId", "team-id": "teamId", "account-id": "accountId", "primary-contact-id": "primaryContactId", "pipeline-id": "pipelineId", "stage-id": "stageId", "expected-close-date": "expectedCloseDate", amount: "amount", "archive-status": "archiveStatus", revision: "revision" } },
+  "sales.object.task": { scope: "sales.tasks", collection: "sales-tasks", storage: { title: "title", "owner-id": "ownerId", "team-id": "teamId", status: "status", "archive-status": "archiveStatus", "due-date": "dueDate", "related-record-type": "relatedRecordType", "related-record-id": "relatedRecordId", revision: "revision" } },
+  "sales.object.activity": { scope: "sales.activities", collection: "sales-activities", storage: { type: "type", subject: "subject", "owner-id": "ownerId", "team-id": "teamId", status: "status", "scheduled-at": "scheduledAt", "occurred-at": "occurredAt", "related-record-type": "relatedRecordType", "related-record-id": "relatedRecordId", revision: "revision" } }
+} as const);
+
+async function savedViewExecution(context: DataSourceHandlerRequest, sourceId: SalesSavedViewSourceId) {
+  const binding = parseSalesSavedViewBindingInput(context.input);
+  const request = salesRequest(context.request); const authority = request.salesSavedViewExecutionAuthority; const identity = sourceIdentity(context.request);
+  if (binding.savedViewId === undefined || binding.expectedRevision === undefined || context.query.page === undefined) throw new DataSourceGatewayError("INVALID_QUERY_INPUT", 400, "Sales saved-view execution requires an exact ephemeral binding and page.");
+  const metadata = authority?.metadataScope;
+  if (metadata === undefined || metadata.applicationId !== identity.applicationId || metadata.environment !== identity.environment || metadata.savedViewId !== binding.savedViewId || metadata.savedViewRevision !== binding.expectedRevision ||
+    typeof metadata.ownerId !== "string" || metadata.ownerId.length < 1 || !isRecord(metadata.visibility) || metadata.visibility.kind !== "personal" && metadata.visibility.kind !== "team" || metadata.visibility.kind === "team" && (typeof metadata.visibility.teamId !== "string" || metadata.visibility.teamId.length < 1)) {
+    throw new DataSourceGatewayError("SOURCE_FORBIDDEN", 403, "Sales saved-view metadata authority is invalid.");
+  }
+  const user = payloadUser(context.actor); const visibility = metadata.visibility.kind === "personal"
+    ? { and: [{ ownerId: { equals: metadata.ownerId } }, { visibility: { equals: "personal" } }] }
+    : { and: [{ visibilityTeamId: { equals: metadata.visibility.teamId } }, { visibility: { equals: "team" } }] };
+  const found = await request.payload.find({ collection: "sales-saved-views", depth: 0, overrideAccess: true, pagination: true, page: 1, limit: 2,
+    where: { and: [{ applicationId: { equals: identity.applicationId } }, { environment: { equals: identity.environment } }, { id: { equals: binding.savedViewId } }, { revision: { equals: binding.expectedRevision } }, { status: { equals: "active" } }, visibility] },
+    ...(user === undefined ? {} : { user }), req: request });
+  if (found.docs.length !== 1) throw new DataSourceGatewayError("SOURCE_FORBIDDEN", 403, "Sales saved view is unavailable.");
+  const row = found.docs[0] as SalesWorkflowDocument; const definition = (row as Record<string, unknown>).definition;
+  if (row.revision !== binding.expectedRevision || (row as Record<string, unknown>).status !== "active") throw new DataSourceGatewayError("SOURCE_STALE", 409, "Sales saved view changed before execution.");
+  const reportingTimezone = authority?.reportingTimezone;
+  const compiled = compileSalesSavedViewDefinition(definition, sourceId, context.selectedFields, context.query.page.number, { ...(reportingTimezone === undefined ? {} : { reportingTimezone }) });
+  if (canonicalJson(compiled.query) !== canonicalJson(context.query)) throw new DataSourceGatewayError("INVALID_QUERY_INPUT", 400, "Sales saved-view compiled query does not match its persisted definition.");
+  const expectedMetadata = { applicationId: sourceIdentity(context.request).applicationId, environment: sourceIdentity(context.request).environment, savedViewId: binding.savedViewId, savedViewRevision: binding.expectedRevision, ownerId: row.ownerId, visibility: (row as Record<string, unknown>).visibility === "team" ? { kind: "team", teamId: (row as Record<string, unknown>).visibilityTeamId } : { kind: "personal" } };
+  const selected = new Set(context.selectedFields); const filtered = new Set(context.query.filters.map(({ field }) => field)); const sorted = new Set(context.query.sort.map(({ field }) => field));
+  if (authority === undefined || canonicalJson(authority.metadataScope) !== canonicalJson(expectedMetadata) || canonicalJson(authority.targetRecordScope) !== canonicalJson(context.recordScope) || authority.fieldAuthority.length !== selected.size || authority.fieldAuthority.length !== new Set(authority.fieldAuthority.map(({ fieldId }) => fieldId)).size || authority.fieldAuthority.some((field) => !selected.has(field.fieldId) || !field.select || filtered.has(field.fieldId) && !field.filter || sorted.has(field.fieldId) && !field.sort)) throw new DataSourceGatewayError("SOURCE_FORBIDDEN", 403, "Sales saved-view execution authority is invalid.");
+  return Object.freeze({ definition: definition as SalesSavedViewDefinition, binding });
+}
+
+function savedCell(field: NonNullable<typeof salesSavedViewTableDescriptor.outputFields>[number], value: unknown, currency?: unknown): Record<string, unknown> | null {
+  if (field.kind === "money") return moneyCell(value, currency);
+  if (value === null || value === undefined) { if (field.nullable) return null; throw new DataSourceGatewayError("INVALID_SOURCE_OUTPUT", 500, `Sales saved-view ${field.id} is absent.`); }
+  if (field.kind === "integer") { const parsed = typeof value === "string" ? Number(value) : value; if (!Number.isSafeInteger(parsed)) throw new DataSourceGatewayError("INVALID_SOURCE_OUTPUT", 500, `Sales saved-view ${field.id} is invalid.`); return { kind: field.kind, value: parsed }; }
+  if (field.kind === "number" || field.kind === "percentage" || field.kind === "duration") { if (typeof value !== "number" || !Number.isFinite(value)) throw new DataSourceGatewayError("INVALID_SOURCE_OUTPUT", 500, `Sales saved-view ${field.id} is invalid.`); return { kind: field.kind, value }; }
+  if (typeof value !== "string") throw new DataSourceGatewayError("INVALID_SOURCE_OUTPUT", 500, `Sales saved-view ${field.id} is invalid.`);
+  return { kind: field.kind, value };
+}
+
+function savedFilter(field: string, operator: string, value: unknown): Record<string, unknown> {
+  if (operator === "neq") return { [field]: { not_equals: value } };
+  if (operator === "not-in") return { [field]: { not_in: value } };
+  if (operator === "starts-with") return { [field]: { like: `${String(value)}%` } };
+  if (operator === "is-null") return { [field]: { exists: false } };
+  if (operator === "is-not-null") return { [field]: { exists: true } };
+  return whereClause(field, operator, value);
+}
+
+async function savedViewRows(context: DataSourceHandlerRequest, sourceId: SalesSavedViewSourceId, fields: readonly NonNullable<typeof salesSavedViewTableDescriptor.outputFields>[number][]) {
+  const execution = await savedViewExecution(context, sourceId); const spec = savedTargetSpecs[execution.definition.targetObjectId];
+  const identity = sourceIdentity(context.request); const targetScope = scopeWhere(context.recordScope, identity, spec.scope);
+  const selected = [...context.selectedFields]; const byId = new Map(fields.map((field) => [field.id, field]));
+  if (selected.some((field) => !Object.hasOwn(spec.storage, field) && field !== "row-kind" && field !== "stage-metadata")) throw new DataSourceGatewayError("SOURCE_FORBIDDEN", 403, "Sales saved-view field is unavailable for its target.");
+  const request = salesRequest(context.request); const user = payloadUser(context.actor); const page = context.query.page!; const kanban = sourceId === "sales.saved-view.kanban";
+  let pipeline: SalesWorkflowDocument | undefined; let kanbanStages: readonly SalesWorkflowDocument[] = [];
+  if (kanban) {
+    const pipelines = await request.payload.find({ collection: "sales-pipelines", depth: 0, overrideAccess: true, pagination: true, page: 1, limit: 2, where: { and: [{ applicationId: { equals: identity.applicationId } }, { environment: { equals: identity.environment } }, { status: { equals: "active" } }, { isActive: { equals: true } }] }, select: { id: true, revision: true, name: true, orderedStageIds: true, status: true, isActive: true }, ...(user === undefined ? {} : { user }), req: request });
+    if (pipelines.docs.length !== 1) throw new DataSourceGatewayError("INVALID_SOURCE_OUTPUT", 500, "Sales saved Kanban requires one active pipeline.");
+    pipeline = pipelines.docs[0] as SalesWorkflowDocument;
+    const stages = await request.payload.find({ collection: "sales-pipeline-stages", depth: 0, overrideAccess: true, pagination: true, page: 1, limit: 7, sort: ["position"], where: { and: [{ applicationId: { equals: identity.applicationId } }, { environment: { equals: identity.environment } }, { pipelineId: { equals: pipeline.id } }, { status: { equals: "active" } }] }, select: { stageId: true, revision: true, name: true, semantic: true, position: true, probabilityBasisPoints: true, allowedTransitionStageIds: true, requiredFieldIds: true, status: true }, ...(user === undefined ? {} : { user }), req: request });
+    kanbanStages = stages.docs as readonly SalesWorkflowDocument[];
+    try {
+      if (kanbanStages.length !== 6 || pipeline.status !== "active" || pipeline.isActive !== true || kanbanStages.some((stage) => stage.status !== "active")) throw new TypeError();
+      validateSalesPipelineSnapshotInput({ id: pipeline.id, expectedRevision: pipeline.revision, name: pipeline.name, orderedStageIds: pipeline.orderedStageIds, stages: kanbanStages.map((stage) => ({ stageId: stage.stageId, expectedRevision: stage.revision, semantic: stage.semantic, name: stage.name, position: stage.position, probabilityBasisPoints: stage.probabilityBasisPoints, allowedTransitionStageIds: stage.allowedTransitionStageIds, requiredFieldIds: stage.requiredFieldIds })) }, identity.applicationId, identity.environment, salesPipelineStageId);
+    } catch { throw new DataSourceGatewayError("INVALID_SOURCE_OUTPUT", 500, "Sales saved Kanban pipeline is incomplete."); }
+  }
+  const where = { and: [targetScope, ...(pipeline === undefined ? [] : [{ pipelineId: { equals: pipeline.id } }]), ...context.query.filters.map((filter) => { const storage = spec.storage[filter.field as keyof typeof spec.storage]; if (typeof storage !== "string") throw new DataSourceGatewayError("INVALID_QUERY_INPUT", 400, "Sales saved-view filter is unavailable for its target."); return savedFilter(storage, filter.operator, filter.value); })] };
+  const sort = [...context.query.sort.map((item) => { const storage = spec.storage[item.field as keyof typeof spec.storage]; if (typeof storage !== "string") throw new DataSourceGatewayError("INVALID_QUERY_INPUT", 400, "Sales saved-view sort is unavailable for its target."); return item.direction === "desc" ? `-${storage}` : storage; }), "id"];
+  const result = await request.payload.find({ collection: spec.collection, depth: 0, overrideAccess: true, pagination: true, page: page.number, limit: kanban ? page.size - 6 : page.size, select: { id: true, ...(kanban ? { stageId: true, pipelineId: true } : {}), ...(selected.includes("amount") ? { currency: true } : {}), ...Object.fromEntries(selected.flatMap((field) => { const storage = spec.storage[field as keyof typeof spec.storage]; return typeof storage === "string" ? [[storage, true]] : []; })) }, sort, where, ...(user === undefined ? {} : { user }), req: request });
+  const stageIds = new Set(kanbanStages.map((stage) => String(stage.stageId)));
+  if (kanban && result.docs.some((document) => String((document as Record<string, unknown>).pipelineId) !== String(pipeline!.id) || !stageIds.has(String((document as Record<string, unknown>).stageId)))) throw new DataSourceGatewayError("INVALID_SOURCE_OUTPUT", 500, "Sales saved Kanban opportunity is outside its pipeline snapshot.");
+  const rows = result.docs.map((document) => ({ key: `${kanban ? "opportunity:" : ""}${String(document.id)}`, values: Object.fromEntries(selected.map((fieldId) => {
+    const field = byId.get(fieldId)!; const raw = document as unknown as Record<string, unknown>;
+    const value = fieldId === "row-kind" ? "opportunity" : fieldId === "stage-metadata" ? null : raw[spec.storage[fieldId as keyof typeof spec.storage] as string];
+    return [fieldId, savedCell(field, value, raw.currency)];
+  })) }));
+  if (kanban) {
+    const snapshotPipeline = pipeline!;
+    rows.unshift(...kanbanStages.map((stage) => ({ key: `stage:${String(stage.stageId)}`, values: Object.fromEntries(selected.map((fieldId) => {
+      const field = byId.get(fieldId)!; const value = fieldId === "row-kind" ? "stage" : fieldId === "name" ? stage.name : fieldId === "stage-id" ? stage.stageId : fieldId === "stage-metadata" ? JSON.stringify({ pipelineId: snapshotPipeline.id, pipelineRevision: snapshotPipeline.revision, stageName: stage.name, stageRevision: stage.revision, stageSemantic: stage.semantic }) : null;
+      return [fieldId, savedCell(field, value)];
+    })) })));
+  }
+  return { fields: selected, rows, page: { number: page.number, pageSize: page.size, hasNext: result.hasNextPage ?? false } };
+}
+
+export const salesSavedViewTableHandler: DataSourceHandler = async (context) => await savedViewRows(context, "sales.saved-view.table", salesSavedViewTableFields);
+export const salesSavedViewKanbanHandler: DataSourceHandler = async (context) => await savedViewRows(context, "sales.saved-view.kanban", salesSavedViewKanbanFields);
+export const salesSavedViewCalendarHandler: DataSourceHandler = async (context) => await savedViewRows(context, "sales.saved-view.calendar", salesSavedViewCalendarFields);
+
 export const salesTasksHandler: DataSourceHandler = tasksTable;
 export const salesOpportunitiesHandler: DataSourceHandler = opportunitiesTable;
 
@@ -1081,7 +1493,7 @@ function validActionAudit(entry: Readonly<Record<string, unknown>>): entry is Re
     entry.environment.length > 64 || !environmentPattern.test(entry.environment) || entry.actorId.length > 160 || !actorIdPattern.test(entry.actorId) || !durableIdPattern.test(entry.idempotencyKey)) return false;
   return entry.actionId === salesTaskCreateDescriptor.id ? entry.revision === 1 && entry.fromState === "absent" && entry.toState === "open"
     : entry.actionId === salesTaskUpdateDescriptor.id ? entry.fromState === "open" && ["completed", "cancelled"].includes(entry.toState)
-      : entry.actionId === salesOpportunityStageUpdateDescriptor.id ? ({ qualification: "discovery", discovery: "proposal", proposal: "negotiation" } as Record<string, string>)[entry.fromState] === entry.toState
+      : entry.actionId === salesOpportunityStageUpdateDescriptor.id ? pipelineStageUuidPattern.test(entry.fromState) && pipelineStageUuidPattern.test(entry.toState) && entry.fromState !== entry.toState
         : false;
 }
 
@@ -1203,7 +1615,7 @@ async function auditForMutation(
   if (lastAction !== undefined ? lastAction.revision !== currentRevision || lastAction.toState !== expectedState : !migrationOrigin || migrationState(history[0]!, collection) !== expectedState) {
     throw new ActionGatewayError("STALE_RECORD", 409, "Sales audit history is not current.");
   }
-  return history;
+  return history as readonly Readonly<Record<string, unknown>>[];
 }
 
 export const salesTaskCreateHandler: ActionHandler<CreateTaskInput, CreateTaskOutput> = async ({ actor, request, authorizationContext, input, idempotencyKey, signal }) => {
@@ -1298,18 +1710,32 @@ export const salesOpportunityStageUpdateHandler: ActionHandler<UpdateOpportunity
   const eventId = durableActionEventId(authorization, idempotencyKey);
   const revision = parsed.data.expectedRevision + 1;
   const current = await workflowCurrent(payloadRequest, authorization, "sales-opportunities", parsed.data.id, parsed.data.expectedRevision, "stageId", user);
-  if (current.document.archiveStatus !== "active" || current.state !== parsed.data.expectedStage || !legalWorkflowTransition(salesOpportunityStageUpdateDescriptor.id, "sales-opportunities", current.state, parsed.data.stage, false)) throw new ActionGatewayError("STALE_RECORD", 409, "Sales opportunity changed before the stage update.");
-  const transition = auditEntry(authorization, salesOpportunityStageUpdateDescriptor.id, parsed.data.id, revision, parsed.data.expectedStage, parsed.data.stage, eventId);
+  const identityWhere = { and: [{ applicationId: { equals: authorization.applicationId } }, { environment: { equals: authorization.environment } }] };
+  const [pipeline, sourceStage, destinationStage] = await Promise.all([
+    payloadRequest.payload.find({ collection: "sales-pipelines", where: { and: [...identityWhere.and, { id: { equals: parsed.data.expectedPipelineId } }, { revision: { equals: parsed.data.expectedPipelineRevision } }, { status: { equals: "active" } }, { isActive: { equals: true } }] }, limit: 2, pagination: true, depth: 0, overrideAccess: true }),
+    payloadRequest.payload.find({ collection: "sales-pipeline-stages", where: { and: [...identityWhere.and, { pipelineId: { equals: parsed.data.expectedPipelineId } }, { stageId: { equals: parsed.data.expectedSourceStageId } }, { revision: { equals: parsed.data.expectedSourceStageRevision } }, { status: { equals: "active" } }] }, limit: 2, pagination: true, depth: 0, overrideAccess: true }),
+    payloadRequest.payload.find({ collection: "sales-pipeline-stages", where: { and: [...identityWhere.and, { pipelineId: { equals: parsed.data.expectedPipelineId } }, { stageId: { equals: parsed.data.destinationStageId } }, { revision: { equals: parsed.data.expectedDestinationStageRevision } }, { status: { equals: "active" } }] }, limit: 2, pagination: true, depth: 0, overrideAccess: true })
+  ]);
+  const source = sourceStage.docs[0] as SalesWorkflowDocument | undefined; const destination = destinationStage.docs[0] as SalesWorkflowDocument | undefined;
+  if (current.document.archiveStatus !== "active" || String(current.document.pipelineId) !== parsed.data.expectedPipelineId || current.state !== parsed.data.expectedSourceStageId || pipeline.docs.length !== 1 || sourceStage.docs.length !== 1 || destinationStage.docs.length !== 1 ||
+    !trustedPipelineTransition(source, destination, authorization.applicationId, authorization.environment, Number(parsed.data.expectedPipelineId), parsed.data.destinationStageId) || ["won", "lost"].includes(String(destination?.semantic))) throw new ActionGatewayError("STALE_RECORD", 409, "Sales opportunity or pipeline changed before the stage update.");
+  const transition = auditEntry(authorization, salesOpportunityStageUpdateDescriptor.id, parsed.data.id, revision, parsed.data.expectedSourceStageId, parsed.data.destinationStageId, eventId);
   const update = await payloadRequest.payload.update({
     collection: "sales-opportunities",
     where: current.where,
-    data: { stageId: parsed.data.stage, updatedBy: authorization.actorId, revision, audit: appendWorkflowAudit(current.audit, transition, "sales-opportunities", parsed.data.stage, "stageId", current.document.ownerId as string, typeof current.document.teamId === "string" ? current.document.teamId : null) }, depth: 0, overrideAccess: true,
+    data: { stageId: parsed.data.destinationStageId, updatedBy: authorization.actorId, revision, audit: appendWorkflowAudit(current.audit, transition, "sales-opportunities", parsed.data.destinationStageId, "stageId", current.document.ownerId as string, typeof current.document.teamId === "string" ? current.document.teamId : null) }, depth: 0, overrideAccess: true,
     ...(user === undefined ? {} : { user }), req: payloadRequest,
     context: eventContext("sales.event.opportunity-changed", transition)
   });
   if (update.errors.length > 0 || update.docs.length !== 1) throw new ActionGatewayError("STALE_RECORD", 409, "Sales opportunity changed before the stage update.");
+  const [pipelineFence, sourceFence, destinationFence] = await Promise.all([
+    payloadRequest.payload.find({ collection: "sales-pipelines", where: { and: [...identityWhere.and, { id: { equals: parsed.data.expectedPipelineId } }, { revision: { equals: parsed.data.expectedPipelineRevision } }, { status: { equals: "active" } }, { isActive: { equals: true } }] }, limit: 2, pagination: true, depth: 0, overrideAccess: true }),
+    payloadRequest.payload.find({ collection: "sales-pipeline-stages", where: { and: [...identityWhere.and, { pipelineId: { equals: parsed.data.expectedPipelineId } }, { stageId: { equals: parsed.data.expectedSourceStageId } }, { revision: { equals: parsed.data.expectedSourceStageRevision } }, { status: { equals: "active" } }] }, limit: 2, pagination: true, depth: 0, overrideAccess: true }),
+    payloadRequest.payload.find({ collection: "sales-pipeline-stages", where: { and: [...identityWhere.and, { pipelineId: { equals: parsed.data.expectedPipelineId } }, { stageId: { equals: parsed.data.destinationStageId } }, { revision: { equals: parsed.data.expectedDestinationStageRevision } }, { status: { equals: "active" } }] }, limit: 2, pagination: true, depth: 0, overrideAccess: true })
+  ]);
+  if (pipelineFence.docs.length !== 1 || sourceFence.docs.length !== 1 || destinationFence.docs.length !== 1) throw new ActionGatewayError("STALE_RECORD", 409, "Sales pipeline changed during the stage update.");
   const updated = update.docs[0]!;
-  const result = { id: String(updated.id), name: updated.name, stage: updated.stageId, revision: updated.revision };
+  const result = { id: String(updated.id), pipelineId: parsed.data.expectedPipelineId, stageId: updated.stageId, revision: updated.revision };
   const validated = salesOpportunityStageOutputRuntimeSchema.safeParse(result);
   if (!validated.success) throw validated.error;
   return validated.data;
@@ -1341,7 +1767,7 @@ const workflowActions = Object.freeze({
 
 type WorkflowActionId = keyof typeof workflowActions;
 type WorkflowActionInput = Readonly<Record<string, unknown>>;
-type WorkflowActionOutput = Readonly<{ id: string; revision: number; status: string; accountId?: string; contactId?: string; opportunityId?: string }>;
+type WorkflowActionOutput = Readonly<{ id: string; revision: number; status?: string; pipelineId?: string; stageId?: string; accountId?: string; contactId?: string; opportunityId?: string }>;
 type WorkflowCollection = typeof workflowActions[WorkflowActionId]["collection"];
 
 function isWorkflowActionId(value: string): value is WorkflowActionId { return Object.hasOwn(workflowActions, value); }
@@ -1434,15 +1860,15 @@ function exactWorkflowInput(actionId: WorkflowActionId, value: unknown): Workflo
     "sales.account.create": ["name"], "sales.account.update": ["id", "expectedRevision", "name"], "sales.account.archive": ["id", "expectedRevision"],
     "sales.contact.create": ["accountId", "displayName", "email", "phone"], "sales.contact.update": ["id", "expectedRevision", "displayName", "emailMode", "email", "phoneMode", "phone"], "sales.contact.archive": ["id", "expectedRevision"],
     "sales.lead.create": ["displayName", "source", "email", "phone"], "sales.lead.update": ["id", "expectedRevision", "displayName", "source", "emailMode", "email", "phoneMode", "phone"], "sales.lead.qualify": ["id", "expectedRevision", "accountMode", "accountName", "accountId", "contactMode", "contactName", "contactId", "opportunityName", "pipelineId"], "sales.lead.disqualify": ["id", "expectedRevision"], "sales.lead.archive": ["id", "expectedRevision"],
-    "sales.opportunity.create": ["name", "accountId", "pipelineId", "stageId", "primaryContactId", "amount", "expectedCloseDate"], "sales.opportunity.update": ["id", "expectedRevision", "name", "primaryContactMode", "primaryContactId", "amountMode", "amount", "expectedCloseDateMode", "expectedCloseDate"], "sales.opportunity.close": ["id", "expectedRevision", "expectedStage", "stage", "lossReason"], "sales.opportunity.archive": ["id", "expectedRevision"],
+    "sales.opportunity.create": ["name", "accountId", "pipelineId", "expectedPipelineRevision", "stageId", "expectedStageRevision", "primaryContactId", "amount", "expectedCloseDate"], "sales.opportunity.update": ["id", "expectedRevision", "name", "primaryContactMode", "primaryContactId", "amountMode", "amount", "expectedCloseDateMode", "expectedCloseDate"], "sales.opportunity.close": ["id", "expectedRevision", "expectedPipelineId", "expectedPipelineRevision", "expectedSourceStageId", "expectedSourceStageRevision", "destinationStageId", "expectedDestinationStageRevision", "lossReason"], "sales.opportunity.archive": ["id", "expectedRevision"],
     "sales.activity.create": ["relatedRecordType", "relatedRecordId", "type", "subject", "scheduledAt", "supersedesActivityId"], "sales.activity.complete": ["id", "expectedRevision"], "sales.activity.cancel": ["id", "expectedRevision"],
     "sales.note.create": ["relatedRecordType", "relatedRecordId", "body", "replacesNoteId"], "sales.attachment.link": ["relatedRecordType", "relatedRecordId", "storageReference", "filename", "mediaType", "byteSize"], "sales.attachment.remove": ["id", "expectedRevision"]
   };
   const keys = Object.keys(value);
   if (keys.some((key) => !allowed[actionId].includes(key))) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales action input is invalid.");
-  const required = actionId === "sales.opportunity.create" ? ["name", "accountId", "pipelineId", "stageId"]
+  const required = actionId === "sales.opportunity.create" ? ["name", "accountId", "pipelineId", "expectedPipelineRevision", "stageId", "expectedStageRevision"]
       : actionId.endsWith(".create") ? allowed[actionId].filter((key) => !["email", "phone", "supersedesActivityId", "replacesNoteId"].includes(key))
-    : actionId === "sales.opportunity.close" ? ["id", "expectedRevision", "expectedStage", "stage"]
+    : actionId === "sales.opportunity.close" ? ["id", "expectedRevision", "expectedPipelineId", "expectedPipelineRevision", "expectedSourceStageId", "expectedSourceStageRevision", "destinationStageId", "expectedDestinationStageRevision"]
       : actionId === "sales.lead.qualify" ? ["id", "expectedRevision", "accountMode", "contactMode", "opportunityName", "pipelineId"]
         : actionId === "sales.opportunity.update" ? ["id", "expectedRevision", "name", "primaryContactMode", "amountMode", "expectedCloseDateMode"]
           : actionId === "sales.contact.update" ? ["id", "expectedRevision", "displayName", "emailMode", "phoneMode"]
@@ -1462,8 +1888,8 @@ function exactWorkflowInput(actionId: WorkflowActionId, value: unknown): Workflo
   if (actionId === "sales.opportunity.create" || actionId === "sales.opportunity.update") {
     workflowText(value.name, "opportunity name");
     if (actionId === "sales.opportunity.create") {
-      workflowId(value.accountId, "account ID"); workflowId(value.pipelineId, "pipeline ID");
-      if (value.stageId !== "qualification") throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales opportunities must begin in qualification.");
+      workflowId(value.accountId, "account ID"); workflowId(value.pipelineId, "pipeline ID"); workflowRevision(value.expectedPipelineRevision); workflowRevision(value.expectedStageRevision);
+      if (typeof value.stageId !== "string" || !pipelineStageUuidPattern.test(value.stageId)) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales opportunity stage identity is invalid.");
       if (value.primaryContactId !== undefined) workflowId(value.primaryContactId, "primary contact ID");
     } else {
       workflowId(value.id, "opportunity ID"); workflowRevision(value.expectedRevision);
@@ -1475,6 +1901,11 @@ function exactWorkflowInput(actionId: WorkflowActionId, value: unknown): Workflo
     }
     if (value.amount !== undefined) workflowOpportunityMoney(value.amount);
     if (value.expectedCloseDate !== undefined) workflowCalendarDate(value.expectedCloseDate);
+  }
+  if (actionId === "sales.opportunity.close") {
+    workflowId(value.id, "opportunity ID"); workflowRevision(value.expectedRevision); workflowId(value.expectedPipelineId, "pipeline ID"); workflowRevision(value.expectedPipelineRevision); workflowRevision(value.expectedSourceStageRevision); workflowRevision(value.expectedDestinationStageRevision);
+    for (const key of ["expectedSourceStageId", "destinationStageId"] as const) if (typeof value[key] !== "string" || !pipelineStageUuidPattern.test(value[key])) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales opportunity stage identity is invalid.");
+    if (value.lossReason !== undefined && (typeof value.lossReason !== "string" || Buffer.byteLength(value.lossReason.trim()) < 1 || Buffer.byteLength(value.lossReason.trim()) > 500)) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales loss reason is invalid.");
   }
   if (actionId === "sales.contact.update" || actionId === "sales.lead.update") {
     for (const [modeKey, valueKey] of [["emailMode", "email"], ["phoneMode", "phone"]] as const) {
@@ -1502,6 +1933,11 @@ const workflowOutputStatuses: Readonly<Record<WorkflowActionId, readonly string[
 
 function workflowOutput(actionId: WorkflowActionId, value: unknown): WorkflowActionOutput {
   const qualification = actionId === "sales.lead.qualify";
+  const opportunityPipelineResult = actionId === "sales.opportunity.create" || actionId === "sales.opportunity.close";
+  if (opportunityPipelineResult) {
+    if (!isRecord(value) || !exactKeys(value, ["id", "revision", "pipelineId", "stageId"]) || !isSalesRecordId(value.id) || !isSalesRecordId(value.pipelineId) || typeof value.stageId !== "string" || !pipelineStageUuidPattern.test(value.stageId) || !Number.isSafeInteger(value.revision) || (value.revision as number) < 1 || (value.revision as number) > 1_000_000_000) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales action output is invalid.");
+    return Object.freeze(value as WorkflowActionOutput);
+  }
   const allowedKeys = qualification ? ["id", "revision", "status", "accountId", "contactId", "opportunityId"] : ["id", "revision", "status"];
   if (!isRecord(value) || !exactKeys(value, allowedKeys) || !isSalesRecordId(value.id) || typeof value.status !== "string" || !workflowOutputStatuses[actionId].includes(value.status) || !Number.isSafeInteger(value.revision) || (value.revision as number) < 1 || (value.revision as number) > 1_000_000_000 ||
     qualification && ["accountId", "contactId", "opportunityId"].some((key) => !isSalesRecordId(value[key]))) {
@@ -1585,15 +2021,17 @@ async function assertActivityRelatedRecord(payloadRequest: SalesPayloadRequest, 
   return await assertRelatedRecord(payloadRequest, authorization, task.relatedRecordType as TimelineTargetType, persistedWorkflowId(task.relatedRecordId, "task parent record ID"), user);
 }
 
-async function assertPipelineReference(payloadRequest: SalesPayloadRequest, authorization: SalesWriteAuthorization, value: unknown, user: ReturnType<typeof payloadUser>) {
+async function assertPipelineReference(payloadRequest: SalesPayloadRequest, authorization: SalesWriteAuthorization, value: unknown, user: ReturnType<typeof payloadUser>, fence?: Readonly<{ pipelineRevision: number; stageId: string; stageRevision: number }>) {
   const id = workflowId(value, "pipeline ID");
   const scope = [{ applicationId: { equals: authorization.applicationId } }, { environment: { equals: authorization.environment } }, { pipelineId: { equals: id } }];
   const [pipeline, qualification] = await Promise.all([
-    payloadRequest.payload.find({ collection: "sales-pipelines", depth: 0, overrideAccess: true, pagination: true, page: 1, limit: 1, select: { id: true, isActive: true }, sort: ["id"], where: { and: [{ applicationId: { equals: authorization.applicationId } }, { environment: { equals: authorization.environment } }, { id: { equals: id } }, { isActive: { equals: true } }] }, ...(user === undefined ? {} : { user }), req: payloadRequest }),
-    payloadRequest.payload.find({ collection: "sales-pipeline-stages", depth: 0, overrideAccess: true, pagination: true, page: 1, limit: 1, select: { id: true, stageId: true, semantic: true }, sort: ["id"], where: { and: [...scope, { stageId: { equals: "qualification" } }, { semantic: { equals: "qualification" } }] }, ...(user === undefined ? {} : { user }), req: payloadRequest })
+    payloadRequest.payload.find({ collection: "sales-pipelines", depth: 0, overrideAccess: true, pagination: true, page: 1, limit: 1, select: { id: true, revision: true, isActive: true, status: true }, sort: ["id"], where: { and: [{ applicationId: { equals: authorization.applicationId } }, { environment: { equals: authorization.environment } }, { id: { equals: id } }, { status: { equals: "active" } }, { isActive: { equals: true } }, ...(fence === undefined ? [] : [{ revision: { equals: fence.pipelineRevision } }])] }, ...(user === undefined ? {} : { user }), req: payloadRequest }),
+    payloadRequest.payload.find({ collection: "sales-pipeline-stages", depth: 0, overrideAccess: true, pagination: true, page: 1, limit: 1, select: { id: true, stageId: true, semantic: true, revision: true }, sort: ["id"], where: { and: [...scope, ...(fence === undefined ? [] : [{ stageId: { equals: fence.stageId } }, { revision: { equals: fence.stageRevision } }]), { semantic: { equals: "qualification" } }, { status: { equals: "active" } }] }, ...(user === undefined ? {} : { user }), req: payloadRequest })
   ]);
   if (pipeline.docs.length !== 1 || qualification.docs.length !== 1) throw new ActionGatewayError("STALE_RECORD", 409, "Sales pipeline is unavailable.");
-  return id;
+  const stageId = (qualification.docs[0] as SalesWorkflowDocument).stageId;
+  if (typeof stageId !== "string" || stageId !== salesPipelineStageId(authorization.applicationId, authorization.environment, Number(id), "qualification") || trustedPipelineStage(qualification.docs[0] as SalesWorkflowDocument, authorization.applicationId, authorization.environment, Number(id)) !== "qualification") throw new ActionGatewayError("STALE_RECORD", 409, "Sales qualification stage identity is invalid.");
+  return Object.freeze({ pipelineId: id, stageId });
 }
 
 async function assertActivitySupersession(payloadRequest: SalesPayloadRequest, authorization: SalesWriteAuthorization, relatedRecordType: TimelineTargetType, relatedRecordId: string, value: unknown, user: ReturnType<typeof payloadUser>) {
@@ -1667,11 +2105,11 @@ async function workflowCreate(payloadRequest: SalesPayloadRequest, authorization
     Object.assign(data, { ownerId: account.ownerId, teamId: account.teamId });
   }
   if (actionId === "sales.opportunity.create") {
-    if (input.stageId !== "qualification") throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales opportunities must begin in qualification.");
     const account = await assertRelatedRecord(payloadRequest, authorization, "sales.account", workflowId(input.accountId, "account ID"), user, true);
     if (typeof account.teamId !== "string" || account.teamId.length === 0) throw new ActionGatewayError("STALE_RECORD", 409, "Sales opportunity requires an assigned active Account team.");
     Object.assign(data, { ownerId: account.ownerId, teamId: account.teamId });
-    await assertPipelineReference(payloadRequest, authorization, input.pipelineId, user);
+    const pipeline = await assertPipelineReference(payloadRequest, authorization, input.pipelineId, user, { pipelineRevision: workflowRevision(input.expectedPipelineRevision), stageId: workflowText(input.stageId, "opportunity stage"), stageRevision: workflowRevision(input.expectedStageRevision) });
+    Object.assign(data, { pipelineId: Number(pipeline.pipelineId), stageId: pipeline.stageId, status: pipeline.stageId });
     if (input.primaryContactId !== undefined) {
       const contact = await assertRelatedRecord(payloadRequest, authorization, "sales.contact", workflowId(input.primaryContactId, "primary contact ID"), user, true, false);
       if (String(contact.accountId) !== workflowId(input.accountId, "account ID")) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales opportunity contact does not belong to its Account.");
@@ -1680,13 +2118,16 @@ async function workflowCreate(payloadRequest: SalesPayloadRequest, authorization
   const created = await authorizedPersistence(payloadRequest.payload.create({ collection: spec.collection, data, depth: 0, overrideAccess: true, ...(user === undefined ? {} : { user }), req: payloadRequest, context: Object.freeze({}) })) as SalesWorkflowDocument;
   if (created.id === undefined || created.id === null) throw new ActionGatewayError("STALE_RECORD", 409, "Sales record creation failed.");
   const id = String(created.id);
+  if (actionId === "sales.opportunity.create") await assertPipelineReference(payloadRequest, authorization, input.pipelineId, user, { pipelineRevision: workflowRevision(input.expectedPipelineRevision), stageId: workflowText(input.stageId, "opportunity stage"), stageRevision: workflowRevision(input.expectedStageRevision) });
   const state = workflowState(created, spec.stateField);
   if (typeof created.ownerId !== "string" || created.ownerId.length === 0) throw new ActionGatewayError("STALE_RECORD", 409, "Sales record ownership is invalid.");
   const audit = withOwnershipGenesis(auditEntry(authorization, actionId, id, 1, "absent", state, eventId), created.ownerId, typeof created.teamId === "string" ? created.teamId : null);
   const finalized = await payloadRequest.payload.update({ collection: spec.collection, id, data: { audit: appendWorkflowAudit([], audit, spec.collection, state, spec.stateField, created.ownerId, typeof created.teamId === "string" ? created.teamId : null) }, depth: 0, overrideAccess: true, ...(user === undefined ? {} : { user }), req: payloadRequest, context: eventContext(workflowEvent(actionId), audit, spec.stateField) }) as SalesWorkflowDocument;
   if (String(finalized.id) !== id || finalized.revision !== 1) throw new ActionGatewayError("STALE_RECORD", 409, "Sales audit finalization failed.");
   if (signal.aborted) throw signal.reason;
-  return workflowOutput(actionId, { id, revision: 1, status: state });
+  return actionId === "sales.opportunity.create"
+    ? workflowOutput(actionId, { id, revision: 1, pipelineId: workflowId(input.pipelineId, "pipeline ID"), stageId: state })
+    : workflowOutput(actionId, { id, revision: 1, status: state });
 }
 
 function workflowAuditStateField(actionId: string, collection: WorkflowCollection): "status" | "stageId" | "archiveStatus" {
@@ -1698,16 +2139,16 @@ function workflowAuditStateField(actionId: string, collection: WorkflowCollectio
 
 function legalWorkflowTransition(actionId: string, collection: WorkflowCollection, from: string, to: string, genesis: boolean): boolean {
   if (genesis) {
-    if (actionId === "sales.lead.qualify") return from === "absent" && (collection === "sales-opportunities" ? to === "qualification" : to === "active");
-    const initial = ({ "sales.account.create": "active", "sales.contact.create": "active", "sales.lead.create": "new", "sales.opportunity.create": "qualification", "sales.activity.create": "scheduled", "sales.note.create": "recorded", "sales.attachment.link": "active" } as Record<string, string>)[actionId];
+    if (actionId === "sales.lead.qualify") return from === "absent" && (collection === "sales-opportunities" ? pipelineStageUuidPattern.test(to) : to === "active");
+    if (actionId === "sales.opportunity.create") return from === "absent" && pipelineStageUuidPattern.test(to);
+    const initial = ({ "sales.account.create": "active", "sales.contact.create": "active", "sales.lead.create": "new", "sales.activity.create": "scheduled", "sales.note.create": "recorded", "sales.attachment.link": "active" } as Record<string, string>)[actionId];
     return initial !== undefined && from === "absent" && to === initial;
   }
   if (actionId === "sales.account.update" || actionId === "sales.contact.update" || actionId === "sales.opportunity.update") return from === to;
   if (actionId === "sales.lead.update") return from === "new" && to === "working" || from === "working" && to === "working";
   if (actionId === "sales.lead.qualify") return ["new", "working"].includes(from) && to === "qualified";
   if (actionId === "sales.lead.disqualify") return ["new", "working"].includes(from) && to === "disqualified";
-  if (actionId === salesOpportunityStageUpdateDescriptor.id) return ({ qualification: "discovery", discovery: "proposal", proposal: "negotiation" } as Record<string, string>)[from] === to;
-  if (actionId === "sales.opportunity.close") return to === "lost" && ["qualification", "discovery", "proposal", "negotiation"].includes(from) || from === "negotiation" && to === "won";
+  if (actionId === salesOpportunityStageUpdateDescriptor.id || actionId === "sales.opportunity.close") return pipelineStageUuidPattern.test(from) && pipelineStageUuidPattern.test(to) && from !== to;
   if (actionId === "sales.activity.complete") return from === "scheduled" && to === "completed";
   if (actionId === "sales.activity.cancel") return from === "scheduled" && to === "cancelled";
   if (actionId === "sales.attachment.remove") return from === "active" && to === "removed";
@@ -1728,7 +2169,8 @@ function workflowAuditHistory(value: unknown, collection: WorkflowCollection, id
       const genesis = ownershipSnapshot(record.ownershipGenesis);
       if (genesis === undefined) throw new ActionGatewayError("STALE_RECORD", 409, "Sales ownership genesis is invalid.");
       migration = true;
-      states.set("stageId", migrationState(record, "sales-opportunities")!);
+      const successor = bounded[1]; const translatedState = isRecord(successor) && typeof successor.fromState === "string" && pipelineStageUuidPattern.test(successor.fromState) ? successor.fromState : currentState;
+      states.set("stageId", translatedState);
       lastOwnership = genesis;
       continue;
     }
@@ -1807,7 +2249,7 @@ export function projectSalesStateHistory(input: Readonly<{ audit: unknown; colle
 
 async function workflowCurrent(payloadRequest: SalesPayloadRequest, authorization: SalesWriteAuthorization, collection: WorkflowCollection, id: string, expectedRevision: number, stateField: "status" | "stageId" | "archiveStatus", user: ReturnType<typeof payloadUser>, relatedAuthority = false) {
   const where = relatedAuthority ? { and: [{ applicationId: { equals: authorization.applicationId } }, { environment: { equals: authorization.environment } }, { id: { equals: id } }, { revision: { equals: expectedRevision } }] } : workflowWhere(authorization, id, expectedRevision);
-  const found = await payloadRequest.payload.find({ collection, depth: 0, overrideAccess: true, pagination: true, page: 1, limit: 1, select: { id: true, revision: true, audit: true, status: true, archiveStatus: true, stageId: true, name: true, displayName: true, ownerId: true, teamId: true, accountId: true, primaryContactId: true, relatedRecordType: true, relatedRecordId: true }, sort: ["id"], where, ...(user === undefined ? {} : { user }), req: payloadRequest });
+  const found = await payloadRequest.payload.find({ collection, depth: 0, overrideAccess: true, pagination: true, page: 1, limit: 1, select: { id: true, revision: true, audit: true, status: true, archiveStatus: true, pipelineId: true, stageId: true, name: true, displayName: true, ownerId: true, teamId: true, accountId: true, primaryContactId: true, relatedRecordType: true, relatedRecordId: true }, sort: ["id"], where, ...(user === undefined ? {} : { user }), req: payloadRequest });
   if (found.docs.length !== 1) throw new ActionGatewayError("STALE_RECORD", 409, "Sales record changed before the update.");
   const document = found.docs[0] as SalesWorkflowDocument;
   if (String(document.id) !== id || document.revision !== expectedRevision) throw new ActionGatewayError("STALE_RECORD", 409, "Sales record revision is invalid.");
@@ -1827,9 +2269,9 @@ function updateData(actionId: WorkflowActionId, input: WorkflowActionInput, stat
     ...(input.amountMode === "set" ? workflowOpportunityMoney(input.amount) : input.amountMode === "clear" ? { amount: null, currency: null } : {}),
     ...(input.expectedCloseDateMode === "set" ? { expectedCloseDate: workflowCalendarDate(input.expectedCloseDate) } : input.expectedCloseDateMode === "clear" ? { expectedCloseDate: null } : {}) };
   if (actionId === "sales.opportunity.close") {
-    const stage = workflowText(input.stage, "opportunity stage");
-    if (stage === "lost" && input.lossReason === undefined) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales loss reason is required.");
-    return { ...base, stageId: stage, closedAt: new Date().toISOString(), ...(stage === "lost" ? { lossReason: workflowText(input.lossReason, "loss reason") } : {}) };
+    const stage = workflowText(input.destinationStageId, "opportunity stage");
+    if (input.destinationSemantic === "lost" && input.lossReason === undefined) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales loss reason is required.");
+    return { ...base, stageId: stage, closedAt: new Date().toISOString(), ...(input.destinationSemantic === "lost" ? { lossReason: workflowText(input.lossReason, "loss reason") } : {}) };
   }
   if (actionId === "sales.lead.disqualify") return { ...base, status: "disqualified", decidedAt: new Date().toISOString(), disqualifiedAt: new Date().toISOString() };
   if (actionId === "sales.activity.complete") return { ...base, status: "completed", occurredAt: new Date().toISOString() };
@@ -1862,7 +2304,7 @@ async function qualifyLead(payloadRequest: SalesPayloadRequest, authorization: S
   const current = await workflowCurrent(payloadRequest, authorization, "sales-leads", id, expectedRevision, "status", user);
   if (current.document.archiveStatus !== "active" || !["new", "working"].includes(current.state)) throw new ActionGatewayError("STALE_RECORD", 409, "Sales lead cannot be qualified from its current state.");
   if (typeof current.document.ownerId !== "string" || typeof current.document.teamId !== "string") throw new ActionGatewayError("STALE_RECORD", 409, "Sales lead requires active ownership before qualification.");
-  const pipelineId = await assertPipelineReference(payloadRequest, authorization, input.pipelineId, user);
+  const pipeline = await assertPipelineReference(payloadRequest, authorization, input.pipelineId, user);
   const inheritedBase = (state: string) => ({ ...workflowBase(authorization, state), ownerId: current.document.ownerId, teamId: current.document.teamId });
   const accountId = input.accountMode === "create"
     ? await createConversionRecord(payloadRequest, authorization, "sales-accounts", { ...inheritedBase("active"), name: workflowText(input.accountName, "account name") }, "sales.lead.qualify", eventId, user)
@@ -1875,7 +2317,7 @@ async function qualifyLead(payloadRequest: SalesPayloadRequest, authorization: S
     const contact = await assertRelatedRecord(payloadRequest, authorization, "sales.contact", contactId, user, true, false);
     if (persistedWorkflowId(contact.accountId, "contact account ID") !== accountId) throw new ActionGatewayError("STALE_RECORD", 409, "Sales contact does not belong to the qualified account.");
   }
-  const opportunityId = await createConversionRecord(payloadRequest, authorization, "sales-opportunities", { ...inheritedBase("qualification"), name: workflowText(input.opportunityName, "opportunity name"), accountId: Number(accountId), primaryContactId: Number(contactId), pipelineId: Number(pipelineId), stageId: "qualification" }, "sales.lead.qualify", eventId, user);
+  const opportunityId = await createConversionRecord(payloadRequest, authorization, "sales-opportunities", { ...inheritedBase(pipeline.stageId), name: workflowText(input.opportunityName, "opportunity name"), accountId: Number(accountId), primaryContactId: Number(contactId), pipelineId: Number(pipeline.pipelineId), stageId: pipeline.stageId }, "sales.lead.qualify", eventId, user);
   const revision = expectedRevision + 1;
   const transition = auditEntry(authorization, "sales.lead.qualify", id, revision, current.state, "qualified", eventId);
   const context = eventContext("sales.event.lead-changed", transition, "status");
@@ -1919,18 +2361,213 @@ export const salesWorkflowActionHandler: ActionHandler<WorkflowActionInput, Work
     if (String(contact.accountId) !== accountId) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales opportunity contact does not belong to its Account.");
   }
   if (["sales.contact.update", "sales.lead.update", "sales.opportunity.update"].includes(actionId)) protectedFieldAdmissions(authorization, actionId, parsed);
-  if (actionId === "sales.opportunity.close" && current.state !== workflowText(parsed.expectedStage, "opportunity stage")) throw new ActionGatewayError("STALE_RECORD", 409, "Sales opportunity changed before close.");
-  if (actionId === "sales.opportunity.close" && ["won", "lost"].includes(current.state)) throw new ActionGatewayError("STALE_RECORD", 409, "Sales opportunity is already closed.");
-  if (actionId === "sales.opportunity.close" && parsed.stage === "won" && current.state !== "negotiation") throw new ActionGatewayError("STALE_RECORD", 409, "Sales opportunity can only be won from negotiation.");
+  let destinationSemantic: "won" | "lost" | undefined;
+  let opportunityReferenceFence: (() => Promise<void>) | undefined;
+  if (actionId === "sales.opportunity.close") {
+    const identity = [{ applicationId: { equals: authorization.applicationId } }, { environment: { equals: authorization.environment } }];
+    const [pipeline, sourceStage, destinationStage] = await Promise.all([
+      payloadRequest.payload.find({ collection: "sales-pipelines", depth: 0, overrideAccess: true, pagination: true, page: 1, limit: 2, where: { and: [...identity, { id: { equals: parsed.expectedPipelineId } }, { revision: { equals: parsed.expectedPipelineRevision } }, { status: { equals: "active" } }, { isActive: { equals: true } }] }, ...(user === undefined ? {} : { user }), req: payloadRequest }),
+      payloadRequest.payload.find({ collection: "sales-pipeline-stages", depth: 0, overrideAccess: true, pagination: true, page: 1, limit: 2, where: { and: [...identity, { pipelineId: { equals: parsed.expectedPipelineId } }, { stageId: { equals: parsed.expectedSourceStageId } }, { revision: { equals: parsed.expectedSourceStageRevision } }, { status: { equals: "active" } }] }, ...(user === undefined ? {} : { user }), req: payloadRequest }),
+      payloadRequest.payload.find({ collection: "sales-pipeline-stages", depth: 0, overrideAccess: true, pagination: true, page: 1, limit: 2, where: { and: [...identity, { pipelineId: { equals: parsed.expectedPipelineId } }, { stageId: { equals: parsed.destinationStageId } }, { revision: { equals: parsed.expectedDestinationStageRevision } }, { status: { equals: "active" } }] }, ...(user === undefined ? {} : { user }), req: payloadRequest })
+    ]);
+    const source = sourceStage.docs[0] as SalesWorkflowDocument | undefined; const destination = destinationStage.docs[0] as SalesWorkflowDocument | undefined;
+    if (pipeline.docs.length !== 1 || sourceStage.docs.length !== 1 || destinationStage.docs.length !== 1 || String(current.document.pipelineId) !== parsed.expectedPipelineId || current.state !== parsed.expectedSourceStageId || !trustedPipelineTransition(source, destination, authorization.applicationId, authorization.environment, Number(parsed.expectedPipelineId), String(parsed.destinationStageId)) || !["won", "lost"].includes(String(destination?.semantic))) throw new ActionGatewayError("STALE_RECORD", 409, "Sales opportunity or pipeline changed before close.");
+    destinationSemantic = destination!.semantic as "won" | "lost";
+    if (destinationSemantic === "lost" ? parsed.lossReason === undefined : parsed.lossReason !== undefined) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales close fields do not match the destination stage.");
+    opportunityReferenceFence = async () => {
+      const [pipelineFence, sourceFence, destinationFence] = await Promise.all([
+        payloadRequest.payload.find({ collection: "sales-pipelines", depth: 0, overrideAccess: true, pagination: true, page: 1, limit: 2, where: { and: [...identity, { id: { equals: parsed.expectedPipelineId } }, { revision: { equals: parsed.expectedPipelineRevision } }, { status: { equals: "active" } }, { isActive: { equals: true } }] }, ...(user === undefined ? {} : { user }), req: payloadRequest }),
+        payloadRequest.payload.find({ collection: "sales-pipeline-stages", depth: 0, overrideAccess: true, pagination: true, page: 1, limit: 2, where: { and: [...identity, { pipelineId: { equals: parsed.expectedPipelineId } }, { stageId: { equals: parsed.expectedSourceStageId } }, { revision: { equals: parsed.expectedSourceStageRevision } }, { status: { equals: "active" } }] }, ...(user === undefined ? {} : { user }), req: payloadRequest }),
+        payloadRequest.payload.find({ collection: "sales-pipeline-stages", depth: 0, overrideAccess: true, pagination: true, page: 1, limit: 2, where: { and: [...identity, { pipelineId: { equals: parsed.expectedPipelineId } }, { stageId: { equals: parsed.destinationStageId } }, { revision: { equals: parsed.expectedDestinationStageRevision } }, { status: { equals: "active" } }] }, ...(user === undefined ? {} : { user }), req: payloadRequest })
+      ]);
+      if (pipelineFence.docs.length !== 1 || sourceFence.docs.length !== 1 || destinationFence.docs.length !== 1) throw new ActionGatewayError("STALE_RECORD", 409, "Sales pipeline changed during close.");
+    };
+  }
   if (actionId === "sales.lead.disqualify" && !["new", "working"].includes(current.state)) throw new ActionGatewayError("STALE_RECORD", 409, "Sales lead cannot be disqualified from its current state.");
   if (actionId.endsWith(".archive") && current.state === "archived") throw new ActionGatewayError("STALE_RECORD", 409, "Sales record is already archived.");
   const revision = expectedRevision + 1;
-  const nextState = actionId === "sales.opportunity.close" ? workflowText(parsed.stage, "opportunity stage") : actionId === "sales.lead.update" && current.state === "new" ? "working" : ("state" in spec ? spec.state : current.state);
+  const nextState = actionId === "sales.opportunity.close" ? workflowText(parsed.destinationStageId, "opportunity stage") : actionId === "sales.lead.update" && current.state === "new" ? "working" : ("state" in spec ? spec.state : current.state);
   const transition = auditEntry(authorization, actionId, id, revision, current.state, nextState, eventId);
   const audit = appendWorkflowAudit(current.audit, transition, spec.collection, nextState, spec.stateField, current.document.ownerId as string, typeof current.document.teamId === "string" ? current.document.teamId : null);
-  const update = await payloadRequest.payload.update({ collection: spec.collection, where: current.where, data: updateData(actionId, parsed, current.state, authorization, revision, audit), depth: 0, overrideAccess: true, ...(user === undefined ? {} : { user }), req: payloadRequest, context: eventContext(workflowEvent(actionId), transition, spec.stateField) });
+  const update = await payloadRequest.payload.update({ collection: spec.collection, where: current.where, data: updateData(actionId, destinationSemantic === undefined ? parsed : { ...parsed, destinationSemantic }, current.state, authorization, revision, audit), depth: 0, overrideAccess: true, ...(user === undefined ? {} : { user }), req: payloadRequest, context: eventContext(workflowEvent(actionId), transition, spec.stateField) });
   if (update.errors.length > 0 || update.docs.length !== 1) throw new ActionGatewayError("STALE_RECORD", 409, "Sales record changed before update.");
-  return workflowOutput(actionId, { id, revision, status: nextState });
+  if (opportunityReferenceFence !== undefined) await opportunityReferenceFence();
+  return actionId === "sales.opportunity.close"
+    ? workflowOutput(actionId, { id, revision, pipelineId: workflowId(parsed.expectedPipelineId, "pipeline ID"), stageId: nextState })
+    : workflowOutput(actionId, { id, revision, status: nextState });
+};
+
+const salesConfigurationDescriptors = Object.freeze([salesPipelineUpdateDescriptor, salesPipelineArchiveDescriptor, salesSavedViewCreateDescriptor, salesSavedViewUpdateDescriptor, salesSavedViewArchiveDescriptor]);
+type SalesConfigurationActionId = typeof salesConfigurationDescriptors[number]["id"];
+export const salesConfigurationActionDefinitions: readonly ActionDefinition[] = Object.freeze(salesConfigurationDescriptors.map((descriptor) => ({ descriptor, inputSchema: salesWorkflowActionInputRuntimeSchemas[descriptor.id]!, outputSchema: salesWorkflowActionOutputRuntimeSchemas[descriptor.id]! })));
+
+function savedVisibility(value: unknown): Readonly<{ visibility: "personal" | "team"; visibilityTeamId: string | null }> {
+  if (!isRecord(value) || !exactKeys(value, value.kind === "team" ? ["kind", "teamId"] : ["kind"]) || value.kind !== "personal" && value.kind !== "team" || value.kind === "team" && !isSalesBoundedNfcText(value.teamId)) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales saved-view visibility is invalid.");
+  return Object.freeze({ visibility: value.kind, visibilityTeamId: value.kind === "team" ? value.teamId as string : null });
+}
+function savedViewName(value: unknown): string {
+  if (typeof value !== "string" || !isSalesBoundedNfcText(value.trim())) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales saved-view name is invalid.");
+  return value.trim();
+}
+function savedMutationAuthority(value: unknown): SalesSavedViewMutationAuthority | undefined {
+  if (!isRecord(value) || !exactKeys(value, ["ownerId", "visibility", "visibilityTeamId"]) || typeof value.ownerId !== "string" || value.ownerId.length < 1 ||
+    value.visibility !== "personal" && value.visibility !== "team" || value.visibility === "personal" && value.visibilityTeamId !== null ||
+    value.visibility === "team" && !isSalesBoundedNfcText(value.visibilityTeamId)) return undefined;
+  return value as unknown as SalesSavedViewMutationAuthority;
+}
+function assertSavedMutationAuthority(authorization: SalesWriteAuthorization, current: SalesWorkflowDocument | undefined, requested: unknown, mode: "create" | "update" | "archive"): void {
+  const currentAuthority = savedMutationAuthority(authorization.savedViewCurrent); const destinationAuthority = savedMutationAuthority(authorization.savedViewDestination);
+  if (mode === "create") {
+    const visibility = savedVisibility(requested);
+    if (currentAuthority !== undefined || destinationAuthority?.ownerId !== authorization.actorId || destinationAuthority.visibility !== visibility.visibility || destinationAuthority.visibilityTeamId !== visibility.visibilityTeamId) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales saved-view destination authority is invalid.");
+    return;
+  }
+  const rowVisibility = current?.visibility; const rowTeam = (current as Record<string, unknown> | undefined)?.visibilityTeamId ?? null;
+  if (currentAuthority === undefined || current === undefined || currentAuthority.ownerId !== current.ownerId || current.ownerId !== authorization.ownerId || currentAuthority.visibility !== rowVisibility || currentAuthority.visibilityTeamId !== rowTeam) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales saved-view current authority is invalid.");
+  if (mode === "archive") {
+    if (destinationAuthority !== undefined) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales saved-view archive authority is invalid.");
+    return;
+  }
+  const visibility = savedVisibility(requested);
+  if (destinationAuthority?.ownerId !== current.ownerId || destinationAuthority.visibility !== visibility.visibility || destinationAuthority.visibilityTeamId !== visibility.visibilityTeamId) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales saved-view destination authority is invalid.");
+}
+
+function trustedReportingTimezone(value: unknown): SalesReportingTimezone | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value) || !exactKeys(value, ["timezone", "revision"]) || typeof value.timezone !== "string" || !Number.isSafeInteger(value.revision) || (value.revision as number) < 1) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales reporting timezone authority is invalid.");
+  const result = Object.freeze({ timezone: value.timezone, revision: value.revision as number });
+  try { canonicalSalesCalendarRange(result); } catch { throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales reporting timezone authority is invalid."); }
+  return result;
+}
+async function recheckSavedViewReportingTimezone(authorization: SalesWriteAuthorization, definition: SalesSavedViewDefinition, expected: SalesReportingTimezone | undefined): Promise<void> {
+  if (definition.kind !== "calendar") return;
+  if (expected === undefined || typeof authorization.recheckReportingTimezone !== "function") throw new ActionGatewayError("STALE_RECORD", 409, "Sales reporting timezone authority is unavailable.");
+  const current = trustedReportingTimezone(await authorization.recheckReportingTimezone());
+  if (current === undefined || canonicalJson(current) !== canonicalJson(expected)) throw new ActionGatewayError("STALE_RECORD", 409, "Sales reporting timezone changed during mutation.");
+}
+
+function validatedSavedDefinition(value: unknown, reportingTimezone: SalesReportingTimezone | undefined, create = false): SalesSavedViewDefinition {
+  if (!isRecord(value) || !isRecord(value.source) || typeof value.source.id !== "string" || !["sales.saved-view.table", "sales.saved-view.kanban", "sales.saved-view.calendar"].includes(value.source.id) || !Array.isArray(value.fields)) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales saved-view definition is invalid.");
+  const candidate = create && value.source.id === "sales.saved-view.calendar" && value.calendarRange === undefined && reportingTimezone !== undefined ? { ...value, calendarRange: canonicalSalesCalendarRange(reportingTimezone) } : value;
+  try { compileSalesSavedViewDefinition(candidate, value.source.id as SalesSavedViewSourceId, value.fields.filter((field): field is string => typeof field === "string"), 1, { ...(reportingTimezone === undefined ? {} : { reportingTimezone }) }); }
+  catch { throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales saved-view definition is invalid."); }
+  return candidate as unknown as SalesSavedViewDefinition;
+}
+
+type ConfigurationAuditCollection = "sales-pipelines" | "sales-pipeline-stages" | "sales-saved-views";
+function configurationAuditHistory(value: unknown, collection: ConfigurationAuditCollection, identity: Readonly<{ resourceId: string; applicationId: string; environment: string; revision: number; ownerId?: string; state: "active" | "archived" }>): readonly Readonly<Record<string, unknown>>[] {
+  const history = boundedAuditArray(value) as readonly Readonly<Record<string, unknown>>[]; const seen = new Set<string>(); let priorState: string | undefined; let identityMigrationSeen = false;
+  for (const [index, raw] of history.entries()) {
+    if (!isRecord(raw)) throw new ActionGatewayError("STALE_RECORD", 409, "Sales configuration audit history is invalid.");
+    if (collection !== "sales-saved-views" && index === 0 && (exactKeys(raw, ["kind", "receiptDigest"]) && raw.kind === "phase-13-legacy-import" && typeof raw.receiptDigest === "string" && /^sha256:[0-9a-f]{64}$/u.test(raw.receiptDigest) || exactKeys(raw, ["kind"]) && raw.kind === "phase-13-settings-migration")) { priorState = "active"; continue; }
+    if (collection !== "sales-saved-views" && raw.kind === "phase-13-pipeline-stage-identity") {
+      if (identityMigrationSeen || !exactKeys(raw, ["kind", "receiptDigest", "sourceRevision", "targetRevision"]) || typeof raw.receiptDigest !== "string" || !/^sha256:[0-9a-f]{64}$/u.test(raw.receiptDigest) || raw.sourceRevision !== index || raw.targetRevision !== index + 1) throw new ActionGatewayError("STALE_RECORD", 409, "Sales pipeline identity migration audit is invalid.");
+      identityMigrationSeen = true; priorState = "active"; continue;
+    }
+    const genesisKeys = raw.ownershipGenesis === undefined ? [] : ["ownershipGenesis"];
+    if (!exactKeys(raw, ["actionId", "resourceId", "applicationId", "environment", "fromState", "toState", "occurredAt", "actorId", "revision", "idempotencyKey", ...genesisKeys]) ||
+      typeof raw.actionId !== "string" || typeof raw.resourceId !== "string" || typeof raw.applicationId !== "string" || typeof raw.environment !== "string" || typeof raw.fromState !== "string" || typeof raw.toState !== "string" || typeof raw.occurredAt !== "string" || typeof raw.actorId !== "string" || typeof raw.idempotencyKey !== "string" || !Number.isSafeInteger(raw.revision) || !validAuditTimestamp(raw.occurredAt) || !durableIdPattern.test(raw.idempotencyKey) || seen.has(raw.idempotencyKey) ||
+      raw.resourceId !== identity.resourceId || raw.applicationId !== identity.applicationId || raw.environment !== identity.environment || raw.revision !== index + 1 || raw.fromState !== (priorState ?? "absent") ||
+      (collection !== "sales-saved-views" ? raw.actionId !== salesPipelineUpdateDescriptor.id || raw.toState !== "active" : ![salesSavedViewCreateDescriptor.id, salesSavedViewUpdateDescriptor.id, salesSavedViewArchiveDescriptor.id].includes(raw.actionId) || raw.toState !== (raw.actionId === salesSavedViewArchiveDescriptor.id ? "archived" : "active"))) {
+      throw new ActionGatewayError("STALE_RECORD", 409, "Sales configuration audit history is invalid.");
+    }
+    if (collection === "sales-saved-views" && index === 0 && (raw.actionId !== salesSavedViewCreateDescriptor.id || identity.ownerId === undefined || ownershipSnapshot(raw.ownershipGenesis)?.ownerId !== identity.ownerId)) throw new ActionGatewayError("STALE_RECORD", 409, "Sales saved-view audit genesis is invalid.");
+    if (collection !== "sales-saved-views" && raw.ownershipGenesis !== undefined || collection === "sales-saved-views" && index > 0 && raw.ownershipGenesis !== undefined) throw new ActionGatewayError("STALE_RECORD", 409, "Sales configuration audit history is invalid.");
+    seen.add(raw.idempotencyKey); priorState = raw.toState;
+  }
+  if (history.length !== identity.revision || priorState !== identity.state || collection !== "sales-saved-views" && !identityMigrationSeen) throw new ActionGatewayError("STALE_RECORD", 409, "Sales configuration audit history is not current.");
+  return history;
+}
+
+function appendConfigurationAudit(history: unknown, collection: ConfigurationAuditCollection, identity: Parameters<typeof configurationAuditHistory>[2], entry: SalesAuditEntry): readonly Readonly<Record<string, unknown>>[] {
+  const validated = configurationAuditHistory(history, collection, identity);
+  if (validated.length >= maxAuditEntries || validated.some((raw) => raw.idempotencyKey === entry.idempotencyKey)) throw new ActionGatewayError("STALE_RECORD", 409, "Sales configuration audit history cannot append this action.");
+  const appended = Object.freeze([...validated, entry as unknown as Readonly<Record<string, unknown>>]);
+  configurationAuditHistory(appended, collection, { ...identity, revision: entry.revision, state: entry.toState as "active" | "archived" });
+  return appended;
+}
+
+/** Configuration mutations execute inside the action endpoint's already-open Postgres transaction. */
+export const salesConfigurationActionHandler: ActionHandler = async ({ actor, request, authorizationContext, input, idempotencyKey, signal }) => {
+  if (signal.aborted) throw signal.reason;
+  const decision = isRecord(authorizationContext) && isRecord(authorizationContext.decision) ? authorizationContext.decision : authorizationContext;
+  const actionId = isRecord(decision) && typeof decision.actionId === "string" ? decision.actionId as SalesConfigurationActionId : undefined;
+  const descriptor = salesConfigurationDescriptors.find((candidate) => candidate.id === actionId);
+  if (descriptor === undefined) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales configuration action is unavailable.");
+  const runtime = salesWorkflowActionInputRuntimeSchemas[descriptor.id]!; const parsed = runtime.safeParse(input); if (!parsed.success) throw parsed.error;
+  const authorization = writeAuthorization(authorizationContext, descriptor.id, typeof parsed.data.id === "number" || typeof parsed.data.id === "string" ? String(parsed.data.id) : undefined);
+  const reportingTimezone = trustedReportingTimezone(authorization.reportingTimezone);
+  const replay = idempotencyReplay(authorization, salesWorkflowActionOutputRuntimeSchemas[descriptor.id]!); if (replay !== undefined) return replay;
+  const eventId = durableActionEventId(authorization, idempotencyKey);
+  const payloadRequest = workflowPayload(request); const user = payloadUser(actor); const common = { depth: 0 as const, overrideAccess: true as const, ...(user === undefined ? {} : { user }), req: payloadRequest, context: Object.freeze({}) };
+  if (descriptor.id === salesPipelineArchiveDescriptor.id) throw new ActionGatewayError("ACTIVE_PIPELINE_REQUIRED", 409, "The sole active Sales pipeline cannot be archived.");
+  if (descriptor.id === salesPipelineUpdateDescriptor.id) {
+    const snapshot = validateSalesPipelineSnapshotInput(parsed.data, authorization.applicationId, authorization.environment, salesPipelineStageId);
+    const pipelineId = Number(snapshot.id); const id = String(pipelineId); const expectedRevision = snapshot.expectedRevision as number; const stages = snapshot.stages as readonly Record<string, unknown>[];
+    const current = await payloadRequest.payload.find({ collection: "sales-pipelines", ...common, pagination: true, page: 1, limit: 2, where: { and: [{ applicationId: { equals: authorization.applicationId } }, { environment: { equals: authorization.environment } }, { status: { equals: "active" } }, { isActive: { equals: true } }] } });
+    const pipelineDocument = current.docs[0] as SalesWorkflowDocument | undefined;
+    if (current.docs.length !== 1 || pipelineDocument === undefined) throw new ActionGatewayError("STALE_RECORD", 409, "Sales pipeline changed before update (active snapshot count).");
+    if (String(pipelineDocument?.id) !== id) throw new ActionGatewayError("STALE_RECORD", 409, "Sales pipeline changed before update (identity).");
+    if (pipelineDocument.revision !== expectedRevision) throw new ActionGatewayError("STALE_RECORD", 409, "Sales pipeline changed before update (revision).");
+    const persistedStages = await payloadRequest.payload.find({ collection: "sales-pipeline-stages", ...common, pagination: true, page: 1, limit: 7, where: { and: [{ applicationId: { equals: authorization.applicationId } }, { environment: { equals: authorization.environment } }, { pipelineId: { equals: pipelineId } }, { status: { equals: "active" } }] } });
+    if (persistedStages.docs.length !== 6 || stages.some((stage) => !persistedStages.docs.some((candidate) => { const row = candidate as SalesWorkflowDocument; return row.stageId === stage.stageId && row.revision === stage.expectedRevision && row.semantic === stage.semantic; }))) throw new ActionGatewayError("STALE_RECORD", 409, "Sales pipeline stages changed before update.");
+    for (const stage of stages) {
+      const persisted = persistedStages.docs.find((candidate) => (candidate as SalesWorkflowDocument).stageId === stage.stageId) as SalesWorkflowDocument;
+      configurationAuditHistory(persisted.audit, "sales-pipeline-stages", { resourceId: String(stage.stageId), applicationId: authorization.applicationId, environment: authorization.environment, revision: Number(stage.expectedRevision), state: "active" });
+    }
+    const pipelineRevision = expectedRevision + 1;
+    const pipelineTransition = auditEntry(authorization, descriptor.id, id, pipelineRevision, "active", "active", eventId);
+    const pipelineAudit = appendConfigurationAudit(pipelineDocument.audit, "sales-pipelines", { resourceId: id, applicationId: authorization.applicationId, environment: authorization.environment, revision: expectedRevision, state: "active" }, pipelineTransition);
+    const updatedPipeline = await payloadRequest.payload.update({ collection: "sales-pipelines", id, data: { name: snapshot.name, orderedStageIds: snapshot.orderedStageIds, revision: pipelineRevision, updatedBy: authorization.actorId, audit: pipelineAudit }, ...common, context: eventContext("sales.event.opportunity-changed", pipelineTransition, "status") });
+    if (String(updatedPipeline.id) !== id || updatedPipeline.revision !== pipelineRevision || canonicalJson((updatedPipeline as SalesWorkflowDocument).audit) !== canonicalJson(pipelineAudit)) throw new ActionGatewayError("STALE_RECORD", 409, "Sales pipeline changed during CAS update.");
+    const outputStages: Record<string, unknown>[] = [];
+    for (const stage of stages) {
+      const revision = Number(stage.expectedRevision) + 1; const persisted = persistedStages.docs.find((candidate) => (candidate as SalesWorkflowDocument).stageId === stage.stageId) as SalesWorkflowDocument;
+      const stageTransition: SalesAuditEntry = Object.freeze({ ...pipelineTransition, resourceId: String(stage.stageId), revision });
+      const stageAudit = appendConfigurationAudit(persisted.audit, "sales-pipeline-stages", { resourceId: String(stage.stageId), applicationId: authorization.applicationId, environment: authorization.environment, revision: Number(stage.expectedRevision), state: "active" }, stageTransition);
+      const updated = await payloadRequest.payload.update({ collection: "sales-pipeline-stages", where: { and: [{ applicationId: { equals: authorization.applicationId } }, { environment: { equals: authorization.environment } }, { pipelineId: { equals: pipelineId } }, { stageId: { equals: stage.stageId } }, { revision: { equals: stage.expectedRevision } }] }, data: { name: stage.name, position: stage.position, probabilityBasisPoints: stage.probabilityBasisPoints, allowedTransitionStageIds: stage.allowedTransitionStageIds, requiredFieldIds: stage.requiredFieldIds, revision, updatedBy: authorization.actorId, audit: stageAudit }, ...common });
+      if (updated.errors.length > 0 || updated.docs.length !== 1) throw new ActionGatewayError("STALE_RECORD", 409, "Sales pipeline stage changed before update.");
+      if (canonicalJson((updated.docs[0] as SalesWorkflowDocument | undefined)?.audit) !== canonicalJson(stageAudit)) throw new ActionGatewayError("STALE_RECORD", 409, "Sales pipeline stage audit changed during update.");
+      outputStages.push({ stageId: stage.stageId, revision, semantic: stage.semantic, name: stage.name, position: stage.position, probabilityBasisPoints: stage.probabilityBasisPoints, allowedTransitionStageIds: stage.allowedTransitionStageIds, requiredFieldIds: stage.requiredFieldIds, status: "active" });
+    }
+    const [finalPipelineResult, finalStageResult] = await Promise.all([
+      payloadRequest.payload.find({ collection: "sales-pipelines", ...common, pagination: true, page: 1, limit: 2, where: { and: [{ applicationId: { equals: authorization.applicationId } }, { environment: { equals: authorization.environment } }, { id: { equals: pipelineId } }, { revision: { equals: pipelineRevision } }, { status: { equals: "active" } }, { isActive: { equals: true } }] } }),
+      payloadRequest.payload.find({ collection: "sales-pipeline-stages", ...common, pagination: true, page: 1, limit: 7, where: { and: [{ applicationId: { equals: authorization.applicationId } }, { environment: { equals: authorization.environment } }, { pipelineId: { equals: pipelineId } }, { status: { equals: "active" } }] } })
+    ]);
+    const finalPipeline = finalPipelineResult.docs[0] as SalesWorkflowDocument | undefined;
+    if (finalPipelineResult.docs.length !== 1 || canonicalJson((finalPipeline as Record<string, unknown> | undefined)?.orderedStageIds) !== canonicalJson(snapshot.orderedStageIds) || finalPipeline?.revision !== pipelineRevision || finalStageResult.docs.length !== 6 || stages.some((stage) => !finalStageResult.docs.some((candidate) => {
+      const row = candidate as SalesWorkflowDocument & Readonly<Record<string, unknown>>;
+      if (row.stageId !== stage.stageId || row.revision !== Number(stage.expectedRevision) + 1 || row.semantic !== stage.semantic || row.name !== stage.name || row.position !== stage.position || row.probabilityBasisPoints !== stage.probabilityBasisPoints || canonicalJson(row.allowedTransitionStageIds) !== canonicalJson(stage.allowedTransitionStageIds) || canonicalJson(row.requiredFieldIds) !== canonicalJson(stage.requiredFieldIds)) return false;
+      configurationAuditHistory(row.audit, "sales-pipeline-stages", { resourceId: String(stage.stageId), applicationId: authorization.applicationId, environment: authorization.environment, revision: Number(stage.expectedRevision) + 1, state: "active" }); return true;
+    }))) throw new ActionGatewayError("STALE_RECORD", 409, "Sales pipeline changed during final revision fence.");
+    return { id, revision: expectedRevision + 1, name: snapshot.name, orderedStageIds: snapshot.orderedStageIds, stages: outputStages, status: "active" };
+  }
+  const create = descriptor.id === salesSavedViewCreateDescriptor.id; const archive = descriptor.id === salesSavedViewArchiveDescriptor.id;
+  if (create) {
+    const definition = validatedSavedDefinition(parsed.data.definition, reportingTimezone, true); const visibility = savedVisibility(parsed.data.visibility);
+    assertSavedMutationAuthority(authorization, undefined, parsed.data.visibility, "create");
+    const name = savedViewName(parsed.data.name);
+    const created = await payloadRequest.payload.create({ collection: "sales-saved-views", data: { applicationId: authorization.applicationId, environment: authorization.environment, ownerId: authorization.actorId, ...(authorization.teamId === undefined ? {} : { teamId: authorization.teamId }), createdBy: authorization.actorId, updatedBy: authorization.actorId, revision: 1, audit: [], name, ...visibility, viewKind: definition.kind, targetObjectId: definition.targetObjectId, definition, status: "active" }, ...common });
+    const id = String(created.id); const transition = withOwnershipGenesis(auditEntry(authorization, descriptor.id, id, 1, "absent", "active", eventId), authorization.actorId, authorization.teamId ?? null);
+    const audit = [transition]; configurationAuditHistory(audit, "sales-saved-views", { resourceId: id, applicationId: authorization.applicationId, environment: authorization.environment, revision: 1, ownerId: authorization.actorId, state: "active" });
+    const finalized = await payloadRequest.payload.update({ collection: "sales-saved-views", where: { and: [{ applicationId: { equals: authorization.applicationId } }, { environment: { equals: authorization.environment } }, { id: { equals: id } }, { revision: { equals: 1 } }] }, data: { audit }, ...common, context: eventContext("sales.event.opportunity-changed", transition, "status") });
+    if (finalized.errors.length > 0 || finalized.docs.length !== 1 || canonicalJson((finalized.docs[0] as SalesWorkflowDocument | undefined)?.audit) !== canonicalJson(audit)) throw new ActionGatewayError("STALE_RECORD", 409, "Sales saved-view audit finalization failed.");
+    await recheckSavedViewReportingTimezone(authorization, definition, reportingTimezone);
+    return { id, revision: 1, name: created.name, visibility: parsed.data.visibility, definition, status: "active" };
+  }
+  const id = workflowId(parsed.data.id, "saved-view ID"); const expectedRevision = workflowRevision(parsed.data.expectedRevision); const revision = expectedRevision + 1;
+  const locked = await payloadRequest.payload.find({ collection: "sales-saved-views", ...common, pagination: true, page: 1, limit: 2, where: { and: [{ applicationId: { equals: authorization.applicationId } }, { environment: { equals: authorization.environment } }, { id: { equals: id } }, { revision: { equals: expectedRevision } }, { status: { equals: "active" } }] } });
+  if (locked.docs.length !== 1) throw new ActionGatewayError("STALE_RECORD", 409, "Sales saved view changed before mutation.");
+  const currentView = locked.docs[0] as SalesWorkflowDocument;
+  assertSavedMutationAuthority(authorization, currentView, parsed.data.visibility, archive ? "archive" : "update");
+  const transition = auditEntry(authorization, descriptor.id, id, revision, "active", archive ? "archived" : "active", eventId);
+  const audit = appendConfigurationAudit(currentView.audit, "sales-saved-views", { resourceId: id, applicationId: authorization.applicationId, environment: authorization.environment, revision: expectedRevision, ownerId: String(currentView.ownerId), state: "active" }, transition);
+  let updatedDefinition: SalesSavedViewDefinition | undefined;
+  const data = archive ? { status: "archived", revision, updatedBy: authorization.actorId, audit } : (() => { const definition = validatedSavedDefinition(parsed.data.definition, reportingTimezone); updatedDefinition = definition; return { name: savedViewName(parsed.data.name), ...savedVisibility(parsed.data.visibility), viewKind: definition.kind, targetObjectId: definition.targetObjectId, definition, revision, updatedBy: authorization.actorId, audit }; })();
+  const updated = await payloadRequest.payload.update({ collection: "sales-saved-views", where: { and: [{ applicationId: { equals: authorization.applicationId } }, { environment: { equals: authorization.environment } }, { id: { equals: id } }, { revision: { equals: expectedRevision } }, { status: { equals: "active" } }] }, data, ...common, context: eventContext("sales.event.opportunity-changed", transition, "status") });
+  if (updated.errors.length > 0 || updated.docs.length !== 1 || canonicalJson((updated.docs[0] as SalesWorkflowDocument | undefined)?.audit) !== canonicalJson(audit)) throw new ActionGatewayError("STALE_RECORD", 409, "Sales saved view changed before mutation.");
+  if (!archive) await recheckSavedViewReportingTimezone(authorization, updatedDefinition!, reportingTimezone);
+  return archive ? { id, revision, status: "archived" } : { id, revision, name: (data as { name: string }).name, visibility: parsed.data.visibility, definition: updatedDefinition, status: "active" };
 };
 
 type OwnershipRecordType = "sales.account" | "sales.contact" | "sales.lead" | "sales.opportunity";
@@ -1987,18 +2624,21 @@ export const salesLeadsCollectionWithEvents: CollectionConfig = { ...salesLeadsC
 export const salesActivitiesCollectionWithEvents: CollectionConfig = { ...salesActivitiesCollection, hooks: { afterChange: [salesEventAfterChange] } };
 export const salesNotesCollectionWithEvents: CollectionConfig = { ...salesNotesCollection, hooks: { afterChange: [salesEventAfterChange] } };
 export const salesAttachmentReferencesCollectionWithEvents: CollectionConfig = { ...salesAttachmentReferencesCollection, hooks: { afterChange: [salesEventAfterChange] } };
+export const salesPipelinesCollectionWithEvents: CollectionConfig = { ...salesPipelinesCollection, hooks: { afterChange: [salesEventAfterChange] } };
+export const salesSavedViewsCollectionWithEvents: CollectionConfig = { ...salesSavedViewsCollection, hooks: { afterChange: [salesEventAfterChange] } };
 export { salesAccountsCollection, salesActivitiesCollection, salesAttachmentReferencesCollection, salesContactsCollection, salesLeadsCollection, salesNotesCollection, salesPipelinesCollection, salesPipelineStagesCollection, salesCoreCollectionSlugs, salesRelatedRecordTypes };
 export const salesCoreCollections: readonly CollectionConfig[] = Object.freeze([
   salesAccountsCollectionWithEvents,
   salesContactsCollectionWithEvents,
   salesLeadsCollectionWithEvents,
-  salesPipelinesCollection,
+  salesPipelinesCollectionWithEvents,
   salesPipelineStagesCollection,
   salesActivitiesCollectionWithEvents,
   salesOpportunitiesCollection,
   salesTasksCollection,
   salesNotesCollectionWithEvents,
-  salesAttachmentReferencesCollectionWithEvents
+  salesAttachmentReferencesCollectionWithEvents,
+  salesSavedViewsCollectionWithEvents
 ]);
 
 export const salesDefaultSettings = projectSystemSettingsValues(salesWorkspaceSettingsDescriptor);
@@ -2057,10 +2697,17 @@ export const salesRegistration = definePluginRegistration({
     context.register("sources", salesLeadDetailDescriptor.id, salesLeadDetailDefinition);
     context.register("sources", salesOpportunityDetailDescriptor.id, salesOpportunityDetailDefinition);
     context.register("sources", salesTimelineDescriptor.id, salesTimelineDefinition);
+    context.register("sources", salesPipelineSnapshotDescriptor.id, salesPipelineSnapshotDefinition);
+    context.register("sources", salesSavedViewListDescriptor.id, salesSavedViewListDefinition);
+    context.register("sources", salesSavedViewDetailDescriptor.id, salesSavedViewDetailDefinition);
+    context.register("sources", salesSavedViewTableDescriptor.id, salesSavedViewTableDefinition);
+    context.register("sources", salesSavedViewKanbanDescriptor.id, salesSavedViewKanbanDefinition);
+    context.register("sources", salesSavedViewCalendarDescriptor.id, salesSavedViewCalendarDefinition);
     context.register("actions", salesTaskCreateDescriptor.id, salesTaskCreateDefinition);
     context.register("actions", salesTaskUpdateDescriptor.id, salesTaskUpdateDefinition);
     context.register("actions", salesOpportunityStageUpdateDescriptor.id, salesOpportunityStageUpdateDefinition);
     for (const definition of salesWorkflowActionDefinitions) context.register("actions", definition.descriptor.id, definition);
+    for (const definition of salesConfigurationActionDefinitions) context.register("actions", definition.descriptor.id, definition);
     context.register("actions", salesOwnershipAssignDescriptor.id, salesOwnershipAssignDefinition);
     context.register("tools", salesSearchTasksDescriptor.id, salesSearchTasksDescriptor);
     context.register("tools", salesCreateTaskToolDescriptor.id, salesCreateTaskToolDescriptor);
@@ -2072,13 +2719,14 @@ export const salesRegistration = definePluginRegistration({
       ["sales.accounts.collection", salesAccountsCollectionWithEvents],
       ["sales.contacts.collection", salesContactsCollectionWithEvents],
       ["sales.leads.collection", salesLeadsCollectionWithEvents],
-      ["sales.pipelines.collection", salesPipelinesCollection],
+      ["sales.pipelines.collection", salesPipelinesCollectionWithEvents],
       ["sales.pipeline-stages.collection", salesPipelineStagesCollection],
       ["sales.activities.collection", salesActivitiesCollectionWithEvents],
       ["sales.opportunities.collection", salesOpportunitiesCollection],
       ["sales.tasks.collection", salesTasksCollection],
       ["sales.notes.collection", salesNotesCollectionWithEvents],
-      ["sales.attachment-references.collection", salesAttachmentReferencesCollectionWithEvents]
+      ["sales.attachment-references.collection", salesAttachmentReferencesCollectionWithEvents],
+      ["sales.saved-views.collection", salesSavedViewsCollectionWithEvents]
     ] as const;
     for (const [id, collection] of collections) context.register("schema", id, { type: "payload.collection", collection });
     context.register("migrations", salesReferenceMetadata.migration.id, salesReferenceMetadata.migration);
@@ -2102,10 +2750,17 @@ export const salesRegistration = definePluginRegistration({
     context.bind("sources", salesLeadDetailDescriptor.id, salesLeadDetailHandler);
     context.bind("sources", salesOpportunityDetailDescriptor.id, salesOpportunityDetailHandler);
     context.bind("sources", salesTimelineDescriptor.id, salesTimelineHandler);
+    context.bind("sources", salesPipelineSnapshotDescriptor.id, salesPipelineSnapshotHandler);
+    context.bind("sources", salesSavedViewListDescriptor.id, salesSavedViewListHandler);
+    context.bind("sources", salesSavedViewDetailDescriptor.id, salesSavedViewDetailHandler);
+    context.bind("sources", salesSavedViewTableDescriptor.id, salesSavedViewTableHandler);
+    context.bind("sources", salesSavedViewKanbanDescriptor.id, salesSavedViewKanbanHandler);
+    context.bind("sources", salesSavedViewCalendarDescriptor.id, salesSavedViewCalendarHandler);
     context.bind("actions", salesTaskCreateDescriptor.id, salesTaskCreateHandler as ActionHandler);
     context.bind("actions", salesTaskUpdateDescriptor.id, salesTaskUpdateHandler as ActionHandler);
     context.bind("actions", salesOpportunityStageUpdateDescriptor.id, salesOpportunityStageUpdateHandler as ActionHandler);
     for (const definition of salesWorkflowActionDefinitions) context.bind("actions", definition.descriptor.id, salesWorkflowActionHandler as ActionHandler);
+    for (const definition of salesConfigurationActionDefinitions) context.bind("actions", definition.descriptor.id, salesConfigurationActionHandler as ActionHandler);
     context.bind("actions", salesOwnershipAssignDescriptor.id, salesOwnershipAssignHandler as ActionHandler);
     for (const descriptor of salesEventDescriptors) context.bind("events", descriptor.id, salesEventAfterChange as (...args: never[]) => unknown);
     for (const descriptor of salesRealtimeTopicDescriptors) context.bind("realtimeTopics", descriptor.id, createSalesRealtimeRelay as (...args: never[]) => unknown);

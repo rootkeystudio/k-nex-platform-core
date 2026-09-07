@@ -6,10 +6,10 @@ import { createPuckBuilderProfileRegistry } from "@k-nex/builder-puck";
 import { createUiDocumentRuntime, createUiRuntimeRegistry, type BrowserDataTransport } from "@k-nex/ui-runtime";
 import { createGenericPuckBlockBridges } from "@k-nex/ui-builder-blocks";
 import { salesCreateTaskMutation, salesWorkflowMutations } from "../src/browser.js";
-import { salesAccountDetailDescriptor, salesAccountsDescriptor, salesContactDetailDescriptor, salesContactsDescriptor, salesLeadDetailDescriptor, salesLeadsDescriptor, salesOpportunityDetailDescriptor, salesPageTemplates, salesOpportunitiesDescriptor, salesOpportunityStageUpdateDescriptor, salesTaskCreateDescriptor, salesTaskUpdateDescriptor, salesTasksDescriptor } from "../src/contracts.js";
+import { salesAccountDetailDescriptor, salesAccountsDescriptor, salesContactDetailDescriptor, salesContactsDescriptor, salesLeadDetailDescriptor, salesLeadsDescriptor, salesOpportunityDetailDescriptor, salesPageTemplates, salesOpportunitiesDescriptor, salesOpportunityStageUpdateDescriptor, salesSavedViewCalendarDescriptor, salesSavedViewKanbanDescriptor, salesTaskCreateDescriptor, salesTaskUpdateDescriptor, salesTasksDescriptor } from "../src/contracts.js";
 import { salesPuckBlockBridges } from "../src/puck.js";
 
-const sources = [salesTasksDescriptor, salesOpportunitiesDescriptor, salesOpportunityDetailDescriptor, salesAccountsDescriptor, salesAccountDetailDescriptor, salesContactsDescriptor, salesContactDetailDescriptor, salesLeadsDescriptor, salesLeadDetailDescriptor];
+const sources = [salesTasksDescriptor, salesOpportunitiesDescriptor, salesOpportunityDetailDescriptor, salesAccountsDescriptor, salesAccountDetailDescriptor, salesContactsDescriptor, salesContactDetailDescriptor, salesLeadsDescriptor, salesLeadDetailDescriptor, salesSavedViewCalendarDescriptor, salesSavedViewKanbanDescriptor];
 
 const profile = {
   id: "workspace" as const,
@@ -45,11 +45,11 @@ describe("Sales Puck block library", () => {
   it("inserts the Kanban with its trusted existing source and action bindings", () => {
     const resolved = createPuckBuilderProfileRegistry({ blocks: salesPuckBlockBridges, sources, profiles: [profile] }).resolve("workspace")!;
     const data = resolved.adapter.toPuckData({ id: "workspace.custom", version: 1, schemaVersion: 1, profile: "workspace", regions: { main: [] } });
-    const component = resolved.adapter.config.components["sales.opportunity-kanban__v2"]!;
-    const inserted = { ...data, content: [{ type: "sales.opportunity-kanban__v2", props: { id: "kanban", ...component.defaultProps } }] };
+    const component = resolved.adapter.config.components["sales.opportunity-kanban__v3"]!;
+    const inserted = { ...data, content: [{ type: "sales.opportunity-kanban__v3", props: { id: "kanban", ...component.defaultProps } }] };
     const document = resolved.adapter.fromPuckData(inserted);
     expect(document.regions.main[0]?.bindings).toEqual({
-      source: { source: { id: salesOpportunitiesDescriptor.id, version: salesOpportunitiesDescriptor.version }, input: {}, structuralCompatibilityHash: salesOpportunitiesDescriptor.structuralCompatibilityHash, selectedFields: ["name", "stage-id", "revision"] },
+      source: { source: { id: salesSavedViewKanbanDescriptor.id, version: salesSavedViewKanbanDescriptor.version }, input: {}, structuralCompatibilityHash: salesSavedViewKanbanDescriptor.structuralCompatibilityHash, selectedFields: ["row-kind", "name", "stage-id", "stage-metadata", "revision"] },
       action: { id: salesOpportunityStageUpdateDescriptor.id, version: salesOpportunityStageUpdateDescriptor.version }
     });
     expect(resolved.validateDocument(document).regions.main[0]?.type).toBe("sales.opportunity-kanban");

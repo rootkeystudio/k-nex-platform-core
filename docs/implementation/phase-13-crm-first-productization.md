@@ -97,7 +97,11 @@ The existing Sales task/opportunity records are migrated or adapted deliberately
 
 Phase 12's bounded Kanban becomes a real CRM view.
 
-A pipeline is customer data, not executable policy. It may define:
+A pipeline is customer data, not executable policy. Stage IDs are host/server-generated lowercase RFC 4122 UUIDv5 values with one fixed namespace. Their executable name bytes are NFC-normalized UTF-8 `phase13/pipeline-stage/v1`, application ID, environment, durable positive-int32 pipeline stable ID, and semantic, joined by literal `0x00` separators; inputs reject NUL and contract golden vectors pin the result. An Opportunity derives state only from its locked referenced stage semantic, never from an ID spelling. P13.4 receipt-bound migration atomically rewrites only mutable Stage IDs and allowed-transition references, pipeline order, Opportunity, current Saved View, and current editable page-binding references. It byte-preserves historical audit/idempotency request/result/published revision evidence and treats old contracts as non-executable, appends translation evidence, makes exact replay a no-op, and fails closed on any preflight/fencing mismatch. Gate 13 has exactly one active pipeline per application/environment, so archiving that sole pipeline is rejected: there is no create/replacement path in this phase.
+
+The only configuration mutation is a full atomic snapshot CAS over the expected pipeline revision and every affected stage revision. The snapshot contains exactly one each of `qualification`, `discovery`, `proposal`, `negotiation`, `won`, and `lost`; semantic is immutable and each stage ID is re-derived from its original semantic tuple; presentation names; configurable open ordering and probability; graph edges that are a subset of the trusted graph; and closed transition-required field IDs. Update returns one closed active pipeline with exactly six closed active-stage results. A stage move carries expected Opportunity, pipeline, source-stage, and destination-stage revisions. Pointer and keyboard Kanban movement call that same action. Opportunity close admits optional `lossReason` input, requires its trimmed 1–500 UTF-8 bytes only for locked `lost`, and forbids it for locked `won`.
+
+A pipeline may define:
 
 ```text
 name
@@ -111,7 +115,7 @@ archive state
 
 The transition service remains trusted code and enforces current record/action authority, expected record revision, current pipeline revision, and server-owned transition rules.
 
-Saved views support bounded, schema-owned:
+Saved views are personal to their owner or visible to one exact team; they are never public or application-wide. They support bounded, schema-owned:
 
 ```text
 table
@@ -119,9 +123,13 @@ kanban
 calendar/activity
 ```
 
-configuration. They may select declared fields, filters, sorts, groupings, pagination, and presentation options. They cannot author SQL, Payload paths, policy code, arbitrary expressions, or unbounded queries.
+configuration. Tables target Account, Contact, Lead, Opportunity, Task, or Activity; Kanban targets Opportunity and groups by stage; calendar targets Activity by `scheduledAt` or `occurredAt`. Three dedicated v1 saved-view DataSources use exact platform descriptors and existing structural-hash projection, leaving shipped record sources unchanged. Definitions use only declared platform field kinds/operators; every target field freezes independent select/filter/sort/group/calendar permission, with at most eight operators per field. They are capped at 8 fields, 8 filters, 2 sorts, one grouping, page size 100, name length 120, 16 KiB canonical JSON, and a 31-day calendar window. Presentation is table/Kanban `comfortable | compact` or calendar `agenda | month`. They cannot author SQL, Payload paths, policy code, arbitrary expressions, or unbounded queries.
 
-Custom Phase 12 pages may embed these saved views through registered Sales blocks.
+Custom Phase 12 pages may embed these saved views through registered Sales blocks. Canonical route/page/block IDs are `calendar/calendar/calendar`, `pipeline-settings/pipeline-settings/pipeline-settings`, and `saved-views/saved-views/saved-views` under their `sales.route.*`, `sales.page.*`, and `sales.*` namespaces. Native and embedded execution both bind `savedViewId` plus `expectedRevision` and invoke the same server compiler/runtime; current visibility, target record, source, and field-operation authority may only narrow results. Query controls use standard `filters`, `sort`, and `{ number, size }` page shape; result is exact `TableRecords` only.
+
+P13.4 registers only one globally unique block contribution for each canonical route/page/block triple. Full route/page/block descriptors close versions, permissions, source/action policies, required states, and dependencies. The compiler requires selected fields to equal persisted definition fields and include all descriptor-required/group/date/filter/sort fields; canonical filters/sorts enforce exact kind/nullability, 512-character strings, homogeneous arrays, and six user calendar filters plus two range predicates. Stable ordering fixes null placement and appends canonical ID ascending, while publication rechecks saved-view/source/authorization revisions.
+
+Closed `sales.pipeline.snapshot`, `sales.saved-view.list`, and `sales.saved-view.detail` sources serve native administration; detail definitions use at most 33 ordered Unicode-safe platform text chunks and preserve the full 16 KiB canonical definition. The UUID migration retires `sales.opportunities@2` and `sales.opportunity.detail@1` for exact `@3`/`@2` schemas/hashes, advances the actual source-bound `sales.list.opportunities@2` to `@3`, and rewrites only current mutable dependent bindings. `sales.settings.workspace` schema v2 removes editable `pipelineStages`, migrates it once to the canonical pipeline, and thereafter renders pipeline stage order read-only.
 
 ## 5. Daily record experience
 
@@ -324,11 +332,20 @@ Implement table, Kanban, and activity/calendar saved views plus pipeline/stage a
 
 Acceptance:
 
-- transition graph and revision fencing;
-- pointer and keyboard Kanban movement;
-- saved filter/sort/field configuration stays bounded;
-- page-embedded and native views share the same definition/runtime;
-- stale stage or pipeline changes fail closed.
+- opaque-stage predecessor migration rewrites only mutable references atomically with receipt or fails closed; historical audit/idempotency/published evidence is byte-preserved;
+- exactly-one active-pipeline snapshot CAS, trusted-graph subset, closed transition requirements, and sole-pipeline archive denial;
+- Opportunity/pipeline/source-stage/destination-stage revision fences; pointer and keyboard Kanban movement share one action;
+- personal/exact-team-only saved-view visibility with closed kind/date-field/presentation discriminators, dedicated source structural hashes, bounded declared platform field-kind operators, and presentation;
+- page-embedded and native views share the same saved-view compiler/runtime and authority only narrows;
+- stale, forged, unbounded, expression, and authority-expansion attempts fail closed.
+
+P13.4 executable topology binds one source per node: calendar and Kanban use deterministic authorized defaults when the saved-view pair is omitted, explicit deep links/embedded nodes use the exact ID/revision pair, and saved-view management splits list/detail nodes. Kanban uses one composite TableRecords source for six ordered stage rows plus opportunities; bounded canonical-JSON stage metadata fails closed. Opportunity revision/presentation fields require existing Opportunity read authority without disclosing pipeline configuration. Pipeline snapshot and worst-case 33-row saved-view detail each freeze the real evaluator maximum at 14. Migration maps actual predecessor transition field names and newly populates required fields from the trusted semantic rule. Full successor page/contribution descriptors and mutable binding rewrites are exact.
+
+Implementation freezes `SavedViewBindingInput` as exact empty-or-positive-safe-integer kebab pair; embedded camelCase maps to it. Host resolves/locks/authorizes definition before gateway, creates one request-local effective document for both load/render, compiles exact fields/filters/sorts/page, then rechecks view/source/auth revisions before publication. No default produces canonical empty `TableRecords`; no runtime path persists overrides. Saved View list selection updates exact query pair and refetches.
+
+Kanban uses `stage:<uuid>` and `opportunity:<id>` keys. Six stage rows lead every page; opportunity-only filters/sorts use offset `(number-1)*(size-6)` and remaining-opportunity `hasNext`. Exact row nulls/token extraction, canonical JSON text arrays, chunk keys/order/digest, size-6 pipeline and size-33 detail loaders, source-aware detail assembly, five singular action nodes, and route `mode=table|kanban` are executable-route assertions. Only active mode loads; switch resets its page; pointer/keyboard reuse platform paginator. Update authorizes locked current Saved View scope and destination independently, keeps owner immutable, and atomically commits CAS/audit/outbox/idempotency or zero effects.
+
+Raw embed props freeze Kanban `{title}` plus optional complete reserved ID/revision pair and calendar/table empty plus optional pair. Host strips/maps reserved props before exact contribution validation. Default-empty execution uses full node fields and numeric page size 25. Detail assembly requires every chunk key/cell to match one locked Saved View; trusted owner/digest remain resolver metadata. Kanban cross-row validation closes six unique stages, key/cell UUIDs, shared pipeline tokens, names/revisions/semantics, opportunity membership, and derivation of all eight `sales.opportunity.stage.update@3` inputs.
 
 ### P13.5 — Add import, export, dedupe, and merge
 

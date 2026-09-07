@@ -134,6 +134,28 @@ describe("Payload MCP adapter", () => {
     expect(tool?.parameters.rank?.safeParse(3).success).toBe(false);
   });
 
+  it("preserves exact-one public schema branches and UTF-8 limits in MCP parameters", () => {
+    const constrainedTool = {
+      ...readTool,
+      inputSchema: {
+        type: "object" as const,
+        properties: {
+          visibility: { oneOf: [
+            { type: "object" as const, properties: { kind: { type: "string" as const, enum: ["personal"] } }, required: ["kind"], additionalProperties: false as const },
+            { type: "object" as const, properties: { kind: { type: "string" as const, enum: ["team"] }, teamId: { type: "string" as const, maxUtf8Bytes: 120 } }, required: ["kind", "teamId"], additionalProperties: false as const }
+          ] }
+        },
+        required: ["visibility"],
+        additionalProperties: false as const
+      }
+    } satisfies AgentToolDescriptor;
+    const parameter = createPayloadMcpPluginConfig(options({ tools: [constrainedTool] })).mcp?.tools?.[0]?.parameters.visibility;
+    expect(parameter?.safeParse({ kind: "personal" }).success).toBe(true);
+    expect(parameter?.safeParse({ kind: "team", teamId: "team-a" }).success).toBe(true);
+    expect(parameter?.safeParse({ kind: "personal", teamId: "forbidden" }).success).toBe(false);
+    expect(parameter?.safeParse({ kind: "team", teamId: "é".repeat(61) }).success).toBe(false);
+  });
+
   it("intersects API-key capability toggles with actor/delegation-filtered catalog visibility", async () => {
     const setup = options();
     const config = createPayloadMcpPluginConfig(setup);

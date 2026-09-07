@@ -83,6 +83,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function schemaMatches(schema: AgentToolJsonSchema, value: unknown): boolean {
+  if ("oneOf" in schema) return schema.oneOf.filter((branch) => schemaMatches(branch, value)).length === 1;
   if (schema.enum !== undefined && !schema.enum.some((candidate) => Object.is(candidate, value))) return false;
   switch (schema.type) {
     case "object": {
@@ -98,7 +99,8 @@ function schemaMatches(schema: AgentToolJsonSchema, value: unknown): boolean {
         schema.items !== undefined && value.every((item) => schemaMatches(schema.items!, item));
     case "string":
       return typeof value === "string" && (schema.minLength === undefined || value.length >= schema.minLength) &&
-        (schema.maxLength === undefined || value.length <= schema.maxLength);
+        (schema.maxLength === undefined || value.length <= schema.maxLength) &&
+        (schema.maxUtf8Bytes === undefined || new TextEncoder().encode(value).byteLength <= schema.maxUtf8Bytes);
     case "number":
       return typeof value === "number" && Number.isFinite(value) &&
         (schema.minimum === undefined || value >= schema.minimum) && (schema.maximum === undefined || value <= schema.maximum);

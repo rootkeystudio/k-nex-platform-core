@@ -10,7 +10,8 @@ export const salesCoreCollectionSlugs = Object.freeze([
   "sales-opportunities",
   "sales-tasks",
   "sales-notes",
-  "sales-attachment-references"
+  "sales-attachment-references",
+  "sales-saved-views"
 ] as const);
 
 const deny = () => false;
@@ -96,8 +97,19 @@ export const salesPipelineStagesCollection = collection("sales-pipeline-stages",
   select("semantic", ["qualification", "discovery", "proposal", "negotiation", "won", "lost"]),
   { name: "position", type: "number", required: true, min: 0 },
   { name: "probabilityBasisPoints", type: "number", required: true, min: 0, max: 10_000 },
-  { name: "allowedTransitions", type: "json", required: true, defaultValue: () => [] }
+  { name: "allowedTransitionStageIds", type: "json", required: true, defaultValue: () => [] },
+  { name: "requiredFieldIds", type: "json", required: true, defaultValue: () => [] }
 ], [{ fields: ["applicationId", "environment", "pipelineId", "stageId"], unique: true }]);
+
+export const salesSavedViewsCollection = collection("sales-saved-views", [
+  ...salesCommonFields({ ownerRequired: true, lifecycle: ["active", "archived"] }),
+  text("name", true),
+  select("visibility", ["personal", "team"]),
+  text("visibilityTeamId"),
+  select("viewKind", ["table", "kanban", "calendar"]),
+  select("targetObjectId", ["sales.object.account", "sales.object.contact", "sales.object.lead", "sales.object.opportunity", "sales.object.task", "sales.object.activity"]),
+  { name: "definition", type: "json", required: true, access: protectedFieldAccess }
+], [{ fields: ["applicationId", "environment", "ownerId", "status"] }, { fields: ["applicationId", "environment", "visibilityTeamId", "status"] }]);
 
 export const salesActivitiesCollection = collection("sales-activities", [
   ...salesCommonFields({ ownerRequired: true, teamRequired: true, lifecycle: ["scheduled", "completed", "cancelled"] }),
@@ -152,5 +164,6 @@ export const salesCoreCollections: readonly CollectionConfig[] = Object.freeze([
   salesOpportunitiesCollection,
   salesTasksCollection,
   salesNotesCollection,
-  salesAttachmentReferencesCollection
+  salesAttachmentReferencesCollection,
+  salesSavedViewsCollection
 ]);

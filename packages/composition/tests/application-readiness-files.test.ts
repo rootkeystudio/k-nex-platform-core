@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import ts from "typescript";
 
 import { applicationAuthFiles } from "../src/application-auth-files.js";
 
@@ -34,6 +35,7 @@ describe("generated application readiness", () => {
       "Generated migration inventory mismatch.",
       "Sales table schema mismatch.",
       "Sales legacy schema was not retired.",
+      "Application reporting timezone readiness mismatch.",
       "Administration operator configuration is missing.",
       "Administration operator credential is unreadable.",
       "Administration operator configuration is invalid.",
@@ -42,13 +44,26 @@ describe("generated application readiness", () => {
       "Bootstrap owner assignment mismatch.",
       "Sales authorization generation mismatch."
     ]) expect(readiness).toContain(guard);
+    expect(readiness).toContain('entry.package === "@k-nex/provider-realtime-socketio" && entry.role === "provider"');
+    expect(readiness).toContain("async function assertReportingTimezone");
+    expect(readiness).toContain("documents.rows.length !== 1");
+    expect(readiness).toContain("row?.descriptor_schema_version !== 2");
+    expect(readiness).toContain("row.settings_revision > state.rows[0]!.settings_revision");
+    expect(readiness).toContain('row.owner_kind !== "platform"');
+    expect(readiness).toContain('row.owner_namespace !== "system"');
+    expect(readiness).toContain("row.owner_delivery_class !== null");
+    expect(readiness.indexOf("await assertSalesSchema(pool)")).toBeLessThan(readiness.indexOf("await assertReportingTimezone(pool)"));
     expect(readiness).toContain('"sales-accounts"');
     expect(readiness).toContain('"sales-attachment-references"');
+    expect(readiness).toContain('"allowed_transition_stage_ids", "required_field_ids"');
+    expect(readiness).toContain('legacyStages?.has("allowed_transitions")');
     expect(readiness).toContain("currentRevision !== 3");
     expect(readiness).toContain("predecessorRevisions, [1, 2]");
     expect(readiness).toContain("ApplicationManifestSchema.parse");
     expect(readiness).toContain("PackageReleaseManifestSchema.parse");
     expect(readiness).toContain("assertMigrationReadiness");
+    expect(readiness.indexOf("await assertMigrationReadiness")).toBeLessThan(readiness.indexOf("await assertSalesSchema(pool)"));
+    expect(doctor.indexOf("await reconcileKnexReadiness(payload)")).toBeLessThan(doctor.indexOf("console.log(kNexApplicationReadyMarker)"));
     expect(readiness).toContain("new NodeHttpsAdministrationOperatorClient");
     expect(readiness).toContain("assertExactProtectedRoleBaselineState");
     expect(readiness).toContain("currentProtectedPlatformRoleBaselineRelease");
@@ -89,5 +104,17 @@ describe("generated application readiness", () => {
     expect(route).not.toContain("readProtectedRoleBaselineReceipt");
     expect(doctor).not.toContain("const missing =");
     expect(doctor).not.toContain("readState(");
+  });
+
+  it("executes readiness against the persisted general document revision and owner", async () => {
+    const readiness = applicationAuthFiles({ applicationId: "customer-alpha" })["src/k-nex-readiness.ts"]!;
+    const body = readiness.slice(readiness.indexOf("async function assertReportingTimezone"), readiness.indexOf("export async function reconcileKnexReadiness"));
+    const executable = ts.transpileModule(`${body}\nreturn assertReportingTimezone;`, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText;
+    const validate = new Function("kNexIdentity", "canonicalIana", "fail", executable)({ applicationId: "app", environment: "production" }, (value: unknown) => value === "UTC", (message: string) => { throw new Error(message); }) as (pool: unknown) => Promise<void>;
+    const document = { descriptor_schema_version: 2, owner_scope_key: "platform:system", owner_kind: "platform", owner_namespace: "system", owner_delivery_class: null, owner_extension_id: null, owner_generation: null, document_revision: 4, settings_revision: 3, values_json: { reportingTimezone: "UTC" } };
+    const pool = (stateRevision: number, row: unknown) => ({ query: async (statement: string) => ({ rows: statement.includes("k_nex_system_settings_state") ? [{ settings_revision: stateRevision }] : [row] }) });
+    await expect(validate(pool(5, document))).resolves.toBeUndefined();
+    await expect(validate(pool(2, document))).rejects.toThrow("readiness mismatch");
+    await expect(validate(pool(5, { ...document, owner_kind: "extension" }))).rejects.toThrow("readiness mismatch");
   });
 });
