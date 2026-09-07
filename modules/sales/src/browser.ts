@@ -50,6 +50,19 @@ import {
   salesPipelineArchiveDescriptor,
   salesPipelineUpdateDescriptor,
   salesPipelineSnapshotDescriptor,
+  salesDedupeCandidatesDescriptor,
+  salesDataMovementActionInputRuntimeSchemas,
+  salesDataMovementActionOutputRuntimeSchemas,
+  salesExportCancelDescriptor,
+  salesExportCreateDescriptor,
+  salesExportJobDetailDescriptor,
+  salesExportJobListDescriptor,
+  salesImportCancelDescriptor,
+  salesImportCommitDescriptor,
+  salesImportDryRunDescriptor,
+  salesImportJobDetailDescriptor,
+  salesImportJobListDescriptor,
+  salesMergeCommitDescriptor,
   salesSavedViewCalendarDescriptor,
   salesSavedViewDetailDescriptor,
   salesSavedViewKanbanDescriptor,
@@ -129,6 +142,24 @@ export const salesSavedViewDetailQuery = savedViewQuery(salesSavedViewDetailDesc
   if (value === null || typeof value !== "object" || Array.isArray(value) || Object.keys(value as object).length !== 1 || !Number.isSafeInteger((value as Record<string, unknown>)["saved-view-id"])) return { success: false as const, error: new Error("Sales saved-view selection is invalid.") };
   return { success: true as const, data: value as Readonly<{ "saved-view-id": number }> };
 } }, { "saved-view-id": 1 });
+
+const dataMovementSelectionInput = (id: "import-job-id" | "export-job-id"): RuntimeSchema<Readonly<Record<string, number>>> => ({ safeParse(value) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return { success: false as const, error: new Error("Sales job selection is invalid.") };
+  const record = value as Record<string, unknown>; const keys = Object.keys(record).sort().join("\u0000");
+  if (keys !== "" && keys !== `${id}\u0000expected-revision` || keys !== "" && (!Number.isSafeInteger(record[id]) || (record[id] as number) < 1 || !Number.isSafeInteger(record["expected-revision"]) || (record["expected-revision"] as number) < 1)) return { success: false as const, error: new Error("Sales job selection is invalid.") };
+  return { success: true as const, data: record as Readonly<Record<string, number>> };
+} });
+const dedupeSelectionInput: RuntimeSchema<Readonly<Record<string, unknown>>> = { safeParse(value) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return { success: false as const, error: new Error("Sales duplicate selection is invalid.") };
+  const record = value as Record<string, unknown>; const keys = Object.keys(record).sort().join("\u0000");
+  if (keys !== "" && keys !== "expected-revision\u0000id\u0000target-object-type" || keys !== "" && (record["target-object-type"] !== "sales.object.account" && record["target-object-type"] !== "sales.object.contact" || !Number.isSafeInteger(record.id) || (record.id as number) < 1 || !Number.isSafeInteger(record["expected-revision"]) || (record["expected-revision"] as number) < 1)) return { success: false as const, error: new Error("Sales duplicate selection is invalid.") };
+  return { success: true as const, data: record as Readonly<Record<string, unknown>> };
+} };
+export const salesImportJobListQuery = savedViewQuery(salesImportJobListDescriptor, ["id", "target-object-type", "state", "accepted-rows", "rejected-rows", "revision"], salesEmptyInputRuntimeSchema);
+export const salesImportJobDetailQuery = savedViewQuery(salesImportJobDetailDescriptor, ["id", "state", "diagnostic-code", "artifact-expires-at", "revision"], dataMovementSelectionInput("import-job-id"));
+export const salesExportJobListQuery = savedViewQuery(salesExportJobListDescriptor, ["id", "target-object-type", "state", "row-count", "revision"], salesEmptyInputRuntimeSchema);
+export const salesExportJobDetailQuery = savedViewQuery(salesExportJobDetailDescriptor, ["id", "state", "artifact-id", "artifact-expires-at", "revision"], dataMovementSelectionInput("export-job-id"));
+export const salesDedupeCandidatesQuery = savedViewQuery(salesDedupeCandidatesDescriptor, ["candidate-id", "candidate-revision", "match-kind"], dedupeSelectionInput);
 
 const crmListQuery = (
   descriptor: typeof salesAccountsDescriptor,
@@ -235,6 +266,18 @@ export const salesSavedViewCreateMutation = workflowMutation(salesSavedViewCreat
 export const salesSavedViewUpdateMutation = workflowMutation(salesSavedViewUpdateDescriptor, savedViewSources);
 export const salesSavedViewArchiveMutation = workflowMutation(salesSavedViewArchiveDescriptor, savedViewSources);
 
+function dataMovementMutation(descriptor: { readonly id: string; readonly version: number }, invalidates: readonly string[]) {
+  return defineActionMutation({ action: { id: descriptor.id, version: descriptor.version }, input: salesDataMovementActionInputRuntimeSchemas[descriptor.id]!, output: salesDataMovementActionOutputRuntimeSchemas[descriptor.id]!, invalidates });
+}
+const importSources = [salesImportJobListDescriptor.id, salesImportJobDetailDescriptor.id];
+const exportSources = [salesExportJobListDescriptor.id, salesExportJobDetailDescriptor.id];
+export const salesImportDryRunMutation = dataMovementMutation(salesImportDryRunDescriptor, importSources);
+export const salesImportCommitMutation = dataMovementMutation(salesImportCommitDescriptor, importSources);
+export const salesImportCancelMutation = dataMovementMutation(salesImportCancelDescriptor, importSources);
+export const salesExportCreateMutation = dataMovementMutation(salesExportCreateDescriptor, exportSources);
+export const salesExportCancelMutation = dataMovementMutation(salesExportCancelDescriptor, exportSources);
+export const salesMergeCommitMutation = dataMovementMutation(salesMergeCommitDescriptor, [salesDedupeCandidatesDescriptor.id, salesAccountsDescriptor.id, salesAccountDetailDescriptor.id, salesContactsDescriptor.id, salesContactDetailDescriptor.id]);
+
 export const salesBrowserContract = Object.freeze({
   pluginId: "module.sales" as const,
   sourceIds: Object.freeze([
@@ -249,12 +292,17 @@ export const salesBrowserContract = Object.freeze({
     salesOpportunityDetailDescriptor.id,
     salesOpportunitiesDescriptor.id,
     salesPipelineSnapshotDescriptor.id,
+    salesImportJobListDescriptor.id,
+    salesImportJobDetailDescriptor.id,
+    salesExportJobListDescriptor.id,
+    salesExportJobDetailDescriptor.id,
+    salesDedupeCandidatesDescriptor.id,
     salesSavedViewCalendarDescriptor.id,
     salesSavedViewDetailDescriptor.id,
     salesSavedViewKanbanDescriptor.id,
     salesSavedViewListDescriptor.id,
     salesSavedViewTableDescriptor.id
   ].sort()),
-  actionIds: Object.freeze([salesTaskCreateDescriptor.id, salesTaskUpdateDescriptor.id, salesOpportunityStageUpdateDescriptor.id, salesPipelineUpdateDescriptor.id, salesPipelineArchiveDescriptor.id, salesSavedViewCreateDescriptor.id, salesSavedViewUpdateDescriptor.id, salesSavedViewArchiveDescriptor.id, ...salesWorkflowMutations.map(({ action }) => action.id)].sort()),
+  actionIds: Object.freeze([salesTaskCreateDescriptor.id, salesTaskUpdateDescriptor.id, salesOpportunityStageUpdateDescriptor.id, salesPipelineUpdateDescriptor.id, salesPipelineArchiveDescriptor.id, salesSavedViewCreateDescriptor.id, salesSavedViewUpdateDescriptor.id, salesSavedViewArchiveDescriptor.id, salesImportDryRunDescriptor.id, salesImportCommitDescriptor.id, salesImportCancelDescriptor.id, salesExportCreateDescriptor.id, salesExportCancelDescriptor.id, salesMergeCommitDescriptor.id, ...salesWorkflowMutations.map(({ action }) => action.id)].sort()),
   routeIds: Object.freeze(salesRouteDescriptors.map(({ id }) => id))
 });

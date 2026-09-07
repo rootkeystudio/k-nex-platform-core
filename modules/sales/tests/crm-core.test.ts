@@ -34,8 +34,8 @@ const field = (collection: { readonly fields: readonly { readonly name?: string 
 const selectValues = (collection: { readonly fields: readonly { readonly name?: string; readonly options?: unknown }[] }, name: string) => ((collection.fields.find((candidate) => candidate.name === name)?.options ?? []) as readonly { readonly value: string }[]).map(({ value }) => value);
 
 describe("P13.2 CRM core", () => {
-  it("registers eleven deterministic internal-only collections", async () => {
-    expect(salesCoreCollectionSlugs).toEqual(["sales-accounts", "sales-contacts", "sales-leads", "sales-pipelines", "sales-pipeline-stages", "sales-activities", "sales-opportunities", "sales-tasks", "sales-notes", "sales-attachment-references", "sales-saved-views"]);
+  it("registers deterministic internal-only collections", async () => {
+    expect(salesCoreCollectionSlugs).toEqual(["sales-accounts", "sales-contacts", "sales-leads", "sales-pipelines", "sales-pipeline-stages", "sales-activities", "sales-opportunities", "sales-tasks", "sales-notes", "sales-attachment-references", "sales-saved-views", "sales-import-jobs", "sales-import-rows", "sales-import-chunks", "sales-export-jobs", "sales-merge-lineage"]);
     for (const collection of [salesAccountsCollection, salesLeadsCollection, salesOpportunitiesCollection, salesTasksCollection]) {
       expect(await collection.access?.create?.({} as never)).toBe(false);
       expect(await collection.access?.read?.({} as never)).toBe(false);
@@ -140,7 +140,9 @@ describe("P13.2 CRM core", () => {
     expect(Object.keys(manifest.contributions.actions ?? {}).sort()).toEqual([
       "sales.account.archive", "sales.account.create", "sales.account.update",
       "sales.contact.archive", "sales.contact.create", "sales.contact.update",
+      "sales.export.cancel", "sales.export.create", "sales.import.cancel", "sales.import.commit", "sales.import.dry-run",
       "sales.lead.archive", "sales.lead.create", "sales.lead.disqualify", "sales.lead.qualify", "sales.lead.update",
+      "sales.merge.commit",
       "sales.opportunity.archive", "sales.opportunity.close", "sales.opportunity.create", "sales.opportunity.stage.update", "sales.opportunity.update",
       "sales.activity.cancel", "sales.activity.complete", "sales.activity.create", "sales.note.create", "sales.attachment.link", "sales.attachment.remove", "sales.ownership.assign", "sales.pipeline.archive", "sales.pipeline.update", "sales.saved-view.archive", "sales.saved-view.create", "sales.saved-view.update",
       "sales.task.create", "sales.task.update"

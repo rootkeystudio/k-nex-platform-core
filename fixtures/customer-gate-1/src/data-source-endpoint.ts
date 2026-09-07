@@ -21,6 +21,7 @@ import { sql } from "@payloadcms/db-postgres";
 import { activePayloadPostgresTransaction, createPayloadPersistenceCapability, CurrentAuthorityPayloadPersistenceAuthorizer, PayloadRequestAuthenticator } from "@k-nex/payload-adapter";
 import type { Endpoint, PayloadRequest } from "payload";
 import type { FixtureAuthorityContext, FixtureCurrentAuthority, FixtureDurableSalesAuthority, FixtureSalesProfile } from "./current-authority.js";
+import { FixtureSalesDataMovementStore } from "./data-movement-host.js";
 
 interface QueryBody {
   readonly sourceId?: unknown;
@@ -104,6 +105,12 @@ function salesPolicy(authority: FixtureCurrentAuthority, resolve: (value: unknow
             : descriptor.id === "sales.opportunity.detail" ? { kind: descriptor.id, fields: ["name", "owner-id", "team-id", "account-id", "primary-contact-id", "pipeline-id", "stage-id", "archive-status", "expected-close-date", "revision", "amount"] }
             : descriptor.id === "sales.timeline" ? { kind: "sales.timeline", fields: ["kind", "subject", "status", "occurred-at", "revision", "body"] } : undefined;
     if (crm !== undefined) return { sourceAllowed: true, recordScope: { kind: crm.kind, where: durableCrmScope(durable) }, allowedFields: crm.fields };
+    const movement = descriptor.id === "sales.import-job.list" ? ["id", "target-object-type", "state", "accepted-rows", "rejected-rows", "revision"]
+      : descriptor.id === "sales.import-job.detail" ? ["id", "state", "diagnostic-code", "artifact-expires-at", "revision"]
+        : descriptor.id === "sales.export-job.list" ? ["id", "target-object-type", "state", "row-count", "revision"]
+          : descriptor.id === "sales.export-job.detail" ? ["id", "state", "artifact-id", "artifact-expires-at", "revision"]
+            : descriptor.id === "sales.dedupe.candidates" ? ["candidate-id", "candidate-revision", "match-kind"] : undefined;
+    if (movement !== undefined) return { sourceAllowed: true, recordScope: { kind: descriptor.id, where: durableCrmScope(durable) }, allowedFields: movement };
     return {
       sourceAllowed: false,
       recordScope: { kind: "sales.denied", where: { id: { equals: "__denied__" } } },
@@ -142,7 +149,7 @@ function queryGateway(registration: RegistrationResult, authority: FixtureCurren
     const current = authorityContexts.get(request) ?? context(request, request.headers.get("x-correlation-id") ?? "fixture-query", authority);
     authorityContexts.set(request, current);
     const durable = authority.durableSalesAuthority(request);
-    const cacheContext = Object.freeze({ permissionFingerprint: `${current.permissionFingerprint}:a${durable.authorizationRevision}:l${durable.lifecycleRevision}:s${durable.scopeRevision}:${durable.recordScope}:${durable.applicationWide}:${durable.authorizedTeamIds.join(",")}` });
+    const cacheContext = Object.freeze({ permissionFingerprint: `${current.permissionFingerprint}:a${durable.authorizationRevision}:l${durable.lifecycleRevision}:s${durable.scopeRevision}:${durable.recordScope}:${durable.applicationWide}:${durable.authorizedTeamIds.join(",")}`, dataMovement: new FixtureSalesDataMovementStore(request, durable) });
     durableContexts.set(cacheContext, durable);
     return cacheContext;
   };
@@ -168,7 +175,7 @@ function queryGateway(registration: RegistrationResult, authority: FixtureCurren
         const current = authorityContexts.get(request) ?? context(request, request.headers.get("x-correlation-id") ?? "fixture-query", authority);
         authorityContexts.set(request, current);
         const durable = authority.durableSalesAuthority(request);
-        return createPayloadPersistenceCapability(request, [
+        const persistence = createPayloadPersistenceCapability(request, [
           { collection: "sales-tasks", operations: ["find"] },
           { collection: "sales-opportunities", operations: ["find"] },
           { collection: "sales-accounts", operations: ["find"] },
@@ -180,6 +187,7 @@ function queryGateway(registration: RegistrationResult, authority: FixtureCurren
         ], new CurrentAuthorityPayloadPersistenceAuthorizer(authority.adapter, current, ({ collection, operation }) => authority.payload(collection, operation)), {
           guard: async () => durableFence(request, durable)
         });
+        return Object.freeze({ ...persistence, dataMovement: new FixtureSalesDataMovementStore(request, durable) });
       }
     }),
     catalog: catalog(registration),

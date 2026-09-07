@@ -300,6 +300,95 @@ describe("P0.4 executable repository validation", () => {
     terminalInput.destination = "terminal semantic won or lost only";
     expect(validatePhase13ProductContract(terminalStageUpdate).map(({ code }) => code)).toContain("PHASE13_PRODUCT_CONTRACT_INVALID");
 
+    const missingDataMovement = structuredClone(await phase13Contract());
+    delete (missingDataMovement.dataSemantics as Record<string, unknown>).dataMovement;
+    expect(validatePhase13ProductContract(missingDataMovement).map(({ code }) => code)).toContain("PHASE13_PRODUCT_CONTRACT_INVALID");
+
+    const unsafeImportFormula = structuredClone(await phase13Contract());
+    const unsafeSchema = (((unsafeImportFormula.dataSemantics as Record<string, unknown>).dataMovement as Record<string, unknown>).importSchema as Record<string, unknown>);
+    unsafeSchema.formulaLeading = ["="];
+    expect(validatePhase13ProductContract(unsafeImportFormula).map(({ code }) => code)).toContain("PHASE13_PRODUCT_CONTRACT_INVALID");
+
+    const unsafeImportChunk = structuredClone(await phase13Contract());
+    const unsafeLimits = (((((unsafeImportChunk.dataSemantics as Record<string, unknown>).dataMovement as Record<string, unknown>).csv as Record<string, unknown>).limits as Record<string, unknown>));
+    unsafeLimits.workerChunkRows = 251;
+    expect(validatePhase13ProductContract(unsafeImportChunk).map(({ code }) => code)).toContain("PHASE13_PRODUCT_CONTRACT_INVALID");
+
+    const unsafeCandidateLeak = structuredClone(await phase13Contract());
+    const unsafeCandidates = (((((unsafeCandidateLeak.dataSemantics as Record<string, unknown>).dataMovement as Record<string, unknown>).dedupeAndMerge as Record<string, unknown>).candidateSource as Record<string, unknown>));
+    unsafeCandidates.authority = "show candidate count";
+    expect(validatePhase13ProductContract(unsafeCandidateLeak).map(({ code }) => code)).toContain("PHASE13_PRODUCT_CONTRACT_INVALID");
+
+    const unsafeMergeRewrite = structuredClone(await phase13Contract());
+    const unsafeRewrite = ((((((unsafeMergeRewrite.dataSemantics as Record<string, unknown>).dataMovement as Record<string, unknown>).dedupeAndMerge as Record<string, unknown>).merge as Record<string, unknown>).relatedRewriteSets as Record<string, unknown>)["sales.object.account"] as string[]);
+    unsafeRewrite.pop();
+    expect(validatePhase13ProductContract(unsafeMergeRewrite).map(({ code }) => code)).toContain("PHASE13_PRODUCT_CONTRACT_INVALID");
+
+    const unsafeActionEnvelope = structuredClone(await phase13Contract());
+    const unsafeInput = (((((unsafeActionEnvelope.dataSemantics as Record<string, unknown>).dataMovement as Record<string, unknown>).descriptors as Record<string, unknown>).actions as Record<string, unknown>)["sales.import.commit"] as Record<string, unknown>).inputSchema as Record<string, unknown>;
+    unsafeInput.additionalProperties = true;
+    expect(validatePhase13ProductContract(unsafeActionEnvelope).map(({ code }) => code)).toContain("PHASE13_PRODUCT_CONTRACT_INVALID");
+
+    const unsafePurge = structuredClone(await phase13Contract());
+    const unsafePurgeSet = ((((unsafePurge.dataSemantics as Record<string, unknown>).dataMovement as Record<string, unknown>).purge as Record<string, unknown>).delete as string[]);
+    unsafePurgeSet.pop();
+    expect(validatePhase13ProductContract(unsafePurge).map(({ code }) => code)).toContain("PHASE13_PRODUCT_CONTRACT_INVALID");
+
+    const unsafeDedupeOrder = structuredClone(await phase13Contract());
+    (((unsafeDedupeOrder.dataSemantics as Record<string, unknown>).dataMovement as Record<string, unknown>).dedupeSchema as Record<string, unknown>).order = "database order";
+    expect(validatePhase13ProductContract(unsafeDedupeOrder).map(({ code }) => code)).toContain("PHASE13_PRODUCT_CONTRACT_INVALID");
+
+    const unsafeContactMerge = structuredClone(await phase13Contract());
+    (((unsafeContactMerge.dataSemantics as Record<string, unknown>).dataMovement as Record<string, unknown>).mergeSchema as Record<string, unknown>).contactAccount = "any contact";
+    expect(validatePhase13ProductContract(unsafeContactMerge).map(({ code }) => code)).toContain("PHASE13_PRODUCT_CONTRACT_INVALID");
+
+    const p135Mutations: Array<[string, (movement: Record<string, unknown>) => void]> = [
+      ["idempotency duplicated inside input", (movement) => { const actions = ((movement.descriptors as Record<string, unknown>).actions as Record<string, unknown>); const input = ((actions["sales.import.commit"] as Record<string, unknown>).inputSchema as Record<string, unknown>); ((input.properties as Record<string, unknown>).idempotencyKey) = { type: "string" }; }],
+      ["array item schema removed", (movement) => { const actions = ((movement.descriptors as Record<string, unknown>).actions as Record<string, unknown>); const input = ((actions["sales.import.dry-run"] as Record<string, unknown>).inputSchema as Record<string, unknown>); const request = ((input.properties as Record<string, unknown>).request as Record<string, unknown>); const branch = (request.oneOf as Array<Record<string, unknown>>)[0]!; delete (((branch.properties as Record<string, unknown>).columnMapping as Record<string, unknown>).items); }],
+      ["output schema opened", (movement) => { const actions = ((movement.descriptors as Record<string, unknown>).actions as Record<string, unknown>); ((actions["sales.merge.commit"] as Record<string, unknown>).outputSchema as Record<string, unknown>).additionalProperties = true; }],
+      ["source structural hash drift", (movement) => { const sources = ((movement.descriptors as Record<string, unknown>).sources as Record<string, unknown>); (sources["sales.dedupe.candidates"] as Record<string, unknown>).structuralCompatibilityHash = `sha256:${"0".repeat(64)}`; }],
+      ["fatal dry-run persistence", (movement) => { (movement.workerProtocol as Record<string, unknown>).genesis = "persist fatal job"; }],
+      ["lease expiry removed", (movement) => { const persistence = (((movement.import as Record<string, unknown>).persistence as Record<string, unknown>).importChunk as string[]); persistence.splice(persistence.indexOf("leaseExpiresAt"), 1); }],
+      ["snapshot identity removed", (movement) => { const persistence = (((movement.export as Record<string, unknown>).persistence as Record<string, unknown>).snapshotRow as string[]); persistence.splice(persistence.indexOf("recordId"), 1); }],
+      ["contact relation rewrite removed", (movement) => { const merge = ((movement.dedupeAndMerge as Record<string, unknown>).merge as Record<string, unknown>); const rewrites = ((merge.relatedRewriteSets as Record<string, unknown>)["sales.object.contact"] as string[]); rewrites.pop(); }],
+      ["match-kind mismatch", (movement) => { const candidate = ((movement.dedupeAndMerge as Record<string, unknown>).candidateSource as Record<string, unknown>); (candidate.matchKinds as string[])[3] = "contact-both"; }],
+      ["merge revision rule removed", (movement) => { (movement.mergeSchema as Record<string, unknown>).output = "revisions unspecified"; }],
+      ["raw payload retained", (movement) => { const purge = movement.purge as Record<string, unknown>; (purge.delete as string[]).splice((purge.delete as string[]).indexOf("canonicalMappedJson"), 1); }],
+      ["record policy substitution", (movement) => { const actions = ((movement.descriptors as Record<string, unknown>).actions as Record<string, unknown>); (actions["sales.import.commit"] as Record<string, unknown>).policy = "sales.imports.execute.policy"; }],
+      ["wrong target field", (movement) => { const actions = ((movement.descriptors as Record<string, unknown>).actions as Record<string, unknown>); const input = ((actions["sales.import.dry-run"] as Record<string, unknown>).inputSchema as Record<string, unknown>); const request = ((input.properties as Record<string, unknown>).request as Record<string, unknown>); const branch = (request.oneOf as Array<Record<string, unknown>>)[0]!; const mapping = ((branch.properties as Record<string, unknown>).columnMapping as Record<string, unknown>); const item = mapping.items as Record<string, unknown>; ((((item.properties as Record<string, unknown>).fieldId as Record<string, unknown>).enum as string[])).push("name"); }],
+      ["mismatched export source", (movement) => { const actions = ((movement.descriptors as Record<string, unknown>).actions as Record<string, unknown>); const input = ((actions["sales.export.create"] as Record<string, unknown>).inputSchema as Record<string, unknown>); const request = ((input.properties as Record<string, unknown>).request as Record<string, unknown>); const branch = (request.oneOf as Array<Record<string, unknown>>)[0]!; (((branch.properties as Record<string, unknown>).sourceId as Record<string, unknown>).enum as string[])[0] = "sales.accounts"; }],
+      ["duplicate field enum", (movement) => { const actions = ((movement.descriptors as Record<string, unknown>).actions as Record<string, unknown>); const input = ((actions["sales.export.create"] as Record<string, unknown>).inputSchema as Record<string, unknown>); const request = ((input.properties as Record<string, unknown>).request as Record<string, unknown>); const branch = (request.oneOf as Array<Record<string, unknown>>)[0]!; const fields = ((((branch.properties as Record<string, unknown>).selectedFields as Record<string, unknown>).items as Record<string, unknown>).enum as string[]); fields.push(fields[0]!); }],
+      ["unsafe integer bound", (movement) => { const actions = ((movement.descriptors as Record<string, unknown>).actions as Record<string, unknown>); const input = ((actions["sales.import.commit"] as Record<string, unknown>).inputSchema as Record<string, unknown>); (((input.properties as Record<string, unknown>).importJobId as Record<string, unknown>).maximum) = 9007199254740992; }],
+      ["selection mapping drift", (movement) => { ((movement.selectionResolver as Record<string, unknown>).mapping as Record<string, unknown>).recordId = "record-id"; }],
+      ["export worker fence removed", (movement) => { const worker = ((movement.export as Record<string, unknown>).worker as Record<string, unknown>); delete worker.cancelRace; }],
+      ["referenced error undeclared", (movement) => { (movement.publicErrors as string[]).splice((movement.publicErrors as string[]).indexOf("IMPORT_WORKER_RETRY_EXHAUSTED"), 1); }],
+      ["merge relation ID widened", (movement) => { const actions = ((movement.descriptors as Record<string, unknown>).actions as Record<string, unknown>); const output = ((actions["sales.merge.commit"] as Record<string, unknown>).outputSchema as Record<string, unknown>); const counts = ((output.properties as Record<string, unknown>).rewrittenRelationCounts as Record<string, unknown>); const item = counts.items as Record<string, unknown>; ((((item.properties as Record<string, unknown>).relationId as Record<string, unknown>).enum as string[])).push("sales_unknown.id"); }],
+      ["action permission drift", (movement) => { const actions = ((movement.descriptors as Record<string, unknown>).actions as Record<string, unknown>); (actions["sales.export.create"] as Record<string, unknown>).permission = "sales.imports.execute"; }],
+      ["node action binding drift", (movement) => { const pages = ((movement.descriptors as Record<string, unknown>).pages as Array<Record<string, unknown>>); const page = pages[0]!; const nodes = ((((page.document as Record<string, unknown>).regions as Record<string, unknown>).main) as Array<Record<string, unknown>>); (((nodes[0]!.bindings as Record<string, unknown>).action as Record<string, unknown>).id) = "sales.import.cancel"; }],
+      ["page permission drift", (movement) => { const pages = ((movement.descriptors as Record<string, unknown>).pages as Array<Record<string, unknown>>); pages[0]!.permission = "sales.exports.read"; }],
+      ["selected field requirement drift", (movement) => { const pages = ((movement.descriptors as Record<string, unknown>).pages as Array<Record<string, unknown>>); const nodes = (((pages[0]!.document as Record<string, unknown>).regions as Record<string, unknown>).main) as Array<Record<string, unknown>>; (((nodes[0]!.bindings as Record<string, unknown>).source as Record<string, unknown>).selectedFields as string[]).pop(); }],
+      ["runtime rule drift", (movement) => { (movement.runtimeSchemaChecks as Record<string, unknown>).digests = "any digest"; }],
+      ["invalid empty table", (movement) => { const tables = ((movement.selectionResolver as Record<string, unknown>).emptyTables as Record<string, unknown>); const table = tables["sales.dedupe.candidates"] as Record<string, unknown>; table.page = { mode: "cursor", hasNext: false }; }],
+      ["flat import mapping prose", (movement) => { (movement.csv as Record<string, unknown>).mapping = "dry-run input is flat"; }],
+      ["merge direction removed", (movement) => { (movement.mergeSchema as Record<string, unknown>).direction = "either survives"; }],
+      ["merge audit action drift", (movement) => { const audit = ((movement.mergeSchema as Record<string, unknown>).audit as Record<string, unknown>); audit.winner = "sales.record.merge-survivor"; }],
+      ["header-only import admitted", (movement) => { (movement.csv as Record<string, unknown>).header = "exactly one first record"; }],
+      ["export reclaim fence handoff removed", (movement) => { const worker = ((movement.export as Record<string, unknown>).worker as Record<string, unknown>); worker.reclaim = "expired lease uses same current fence at most 3"; }],
+      ["duplicate contribution identity", (movement) => { const contributions = ((movement.descriptors as Record<string, unknown>).contributions as Array<Record<string, unknown>>); contributions[1] = structuredClone(contributions[0]!); }],
+      ["duplicate page identity", (movement) => { const pages = ((movement.descriptors as Record<string, unknown>).pages as Array<Record<string, unknown>>); pages[1] = structuredClone(pages[0]!); }]
+    ];
+    for (const [name, mutate] of p135Mutations) {
+      const invalid = structuredClone(await phase13Contract());
+      const movement = ((invalid.dataSemantics as Record<string, unknown>).dataMovement as Record<string, unknown>);
+      mutate(movement);
+      const descriptors = movement.descriptors as Record<string, unknown>;
+      const descriptorDigests = descriptors.descriptorDigests as Record<string, unknown>;
+      for (const key of Object.keys(descriptorDigests)) descriptorDigests[key] = `sha256:${createHash("sha256").update(canonicalJson(descriptors[key])).digest("hex")}`;
+      const semanticDigests = movement.semanticDigests as Record<string, unknown>;
+      for (const key of Object.keys(semanticDigests)) semanticDigests[key] = `sha256:${createHash("sha256").update(canonicalJson(movement[key])).digest("hex")}`;
+      expect(validatePhase13ProductContract(invalid).map(({ code }) => code), name).toContain("PHASE13_PRODUCT_CONTRACT_INVALID");
+    }
+
     const p134Mutations: Array<(contract: Record<string, unknown>) => void> = [
       (contract) => { const registry = (((contract.dataSemantics as Record<string, unknown>).savedViewConfiguration as Record<string, unknown>).registries as Record<string, unknown>); ((registry.contributions as Array<Record<string, unknown>>)[1]!).id = "sales.calendar"; },
       (contract) => { const sources = ((((contract.dataSemantics as Record<string, unknown>).pipelineConfiguration as Record<string, unknown>).successorContracts as Record<string, unknown>).sources as Record<string, unknown>); (sources["sales.opportunities"] as Record<string, unknown>).structuralCompatibilityHash = `sha256:${"0".repeat(64)}`; },
@@ -375,6 +464,7 @@ describe("P0.4 executable repository validation", () => {
       ,["saved-view public visibility widening", (contract) => { ((contract.dataSemantics as Record<string, unknown>).savedViewConfiguration as Record<string, unknown>).visibility = "public"; }]
       ,["stage semantic source drift", (contract) => { ((contract.objects as Array<Record<string, unknown>>).find(({ id }) => id === "sales.object.opportunity")!).stateSource = "stage ID spelling"; }]
       ,["pipeline attack delivery drift", (contract) => { ((contract.attacks as Array<Record<string, unknown>>).find(({ id }) => id === "P13-ATK-03")!).deliveryTasks = ["P13.5"]; }]
+      ,["P13.5 receipt-retention drift", (contract) => { ((contract.dataSemantics as Record<string, unknown>).dataMovement as Record<string, unknown>).retention = "delete receipts"; }]
     ];
     for (const [name, mutate] of driftMutations) {
       const changed = structuredClone(await phase13Contract());

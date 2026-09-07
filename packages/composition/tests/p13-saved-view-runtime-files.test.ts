@@ -73,6 +73,8 @@ describe("generated P13.4 Saved View runtime closure", () => {
     expect(emitted.savedViewMutationSelection({}, "sales.saved-view.create", { id: "8", revision: 1, status: "archived" })).toBeUndefined();
     expect(emitted.savedViewMutationSelection({}, "sales.saved-view.create", { id: 8, revision: 1, status: "active" })).toBeUndefined();
     expect(emitted.savedViewMutationSelection({}, "sales.saved-view.create", { id: "2147483648", revision: 1, status: "active" })).toBeUndefined();
+    expect(emitted.savedViewMutationSelection({}, "sales.import.dry-run", { importJobId: 9, revision: 2, state: "validated" })).toEqual({ "import-job-id": 9, "expected-revision": 2 });
+    expect(emitted.savedViewMutationSelection({}, "sales.export.create", { exportJobId: 10, revision: 1, state: "queued" })).toEqual({ "export-job-id": 10, "expected-revision": 1 });
     expect(emitted.salesSelectionHref("/sales/views", {})).toBe("/sales/views");
     expect(emitted.salesSelectionHref("/sales/views", { "saved-view-id": 8, "expected-revision": 1 })).toBe("/sales/views?saved-view-id=8&expected-revision=1");
   });
@@ -187,8 +189,10 @@ describe("generated P13.4 Saved View runtime closure", () => {
     const client = { queries: [] as string[], async query(text: string) { this.queries.push(text); return { rows: [] }; }, release() {} };
     const current = { request: {}, authorization: { effectiveActor: { id: "actor" }, salesScope: { revision: 8 } } };
     states.set(document, { client, current, persistence: {}, plans: new Map([["sales-opportunity-kanban", plan]]) });
-    const load = new Function("sourceNodes", "savedViewExecutionStates", "actor", "sources", "workspaceSalesGateway", "canonicalJson", "readSalesScope", "recheckSalesSavedViewExecution", "DataSourceGatewayError", executable)(
+    const load = new Function("sourceNodes", "dataMovementSources", "salesRecordDetailSources", "savedViewExecutionStates", "actor", "sources", "workspaceSalesGateway", "canonicalJson", "readSalesScope", "recheckSalesSavedViewExecution", "DataSourceGatewayError", executable)(
       (value: any) => value.regions.main,
+      new Set(["sales.import-job.list", "sales.import-job.detail", "sales.export-job.list", "sales.export-job.detail", "sales.dedupe.candidates"]),
+      new Set(["sales.account.detail", "sales.contact.detail", "sales.lead.detail", "sales.opportunity.detail"]),
       states,
       async () => current,
       new Map([["sales.saved-view.kanban", { definition: { descriptor: { id: "sales.saved-view.kanban", version: 1, structuralCompatibilityHash: "kanban-hash", primaryContract: { id: "table.records" } } } }]]),
@@ -280,7 +284,7 @@ describe("generated P13.4 Saved View runtime closure", () => {
 
   it("executes emitted personal, team, and application scope separation", () => {
     const sales = workspacePageApplicationFiles({ applicationId: "customer-alpha" })["src/k-nex-sales-workspace.ts"]!;
-    const recordBody = sales.slice(sales.indexOf("function salesRecordWhere"), sales.indexOf("function salesActionGrant"));
+    const recordBody = sales.slice(sales.indexOf("function salesRecordWhere"), sales.indexOf("export async function resolveMergedSalesDetailRedirect"));
     const metadataBody = sales.slice(sales.indexOf("function savedViewMetadataWhere"), sales.indexOf("const workspaceCurrentSalesPolicy"));
     const executable = ts.transpileModule(`${recordBody}\n${metadataBody}\nreturn { salesRecordWhere, savedViewMetadataWhere };`, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText;
     const emitted = new Function("kNexIdentity", executable)({ applicationId: "app", environment: "production" }) as { salesRecordWhere(current: any): any; savedViewMetadataWhere(current: any): any };
@@ -361,7 +365,7 @@ describe("generated P13.4 Saved View runtime closure", () => {
     expect(sales).toContain("const query = savedViewPlan?.query");
     expect(sales).toContain('rows: [], page: { number: page.number, pageSize: page.size, hasNext: false }');
     expect(sales).toContain('descriptor.id === "sales.pipeline.snapshot" ? 6 : descriptor.id === "sales.saved-view.detail" ? 33');
-    expect(sales).toContain('descriptor.id.endsWith(".detail") && descriptor.id !== "sales.saved-view.detail"');
+    expect(sales).toContain("const detail = salesRecordDetailSources.has(descriptor.id)");
     expect(sales).toContain("recheckSalesSavedViewExecution({ fence: plan.fence");
     expect(sales).toContain("new ApplicationReportingTimezoneResolver(new EffectiveSettingsProvider");
     expect(sales).toContain("descriptor_id='system.general' and descriptor_schema_version=2");
@@ -387,6 +391,8 @@ describe("generated P13.4 Saved View runtime closure", () => {
     expect(client).toContain('onClick={() => replaceSelection({ mode: "kanban" })}');
     expect(client).toContain('window.addEventListener("popstate", restore)');
     expect(client).toContain("savedViewMutationSelection(selection, request.action.id, body.data)");
+    expect(client).toContain('requestLocal: true');
+    expect(client).toContain('window.dispatchEvent(new CustomEvent("k-nex:sales-import-select"');
     expect(files["src/app/(workspace)/sales/calendar/page.tsx"]).toBeDefined();
     expect(files["src/app/(workspace)/sales/settings/pipeline/page.tsx"]).toBeDefined();
     expect(files["src/app/(workspace)/sales/views/page.tsx"]).toBeDefined();

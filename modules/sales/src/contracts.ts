@@ -235,6 +235,22 @@ export const salesPipelineSnapshotDescriptor = p134Source("sales.pipeline.snapsh
 export const salesSavedViewListDescriptor = p134Source("sales.saved-view.list", "Sales saved views", "sha256:21cb975945b4b96ce9e239ef091cf64d2b7249f4015481f45d38fc11c5cd0dbd", salesSavedViewListFields, { ...salesAdministrationSourceLimits, maxFilters: 2, maxSorts: 1, maxCost: 20 });
 export const salesSavedViewDetailDescriptor = p134Source("sales.saved-view.detail", "Sales saved view detail", "sha256:52bcebb4b05acf5db95f83c21a9a95dc5d6c8f5db70cd56cf2204fbba9baaf76", salesSavedViewDetailFields, { ...salesAdministrationSourceLimits, maxSelectedFields: 11, maxPageSize: 33, maxFilters: 0, maxSorts: 0, maxCost: 14 }, [{ id: "saved-view-id", kind: "integer", required: false, nullable: false }]);
 
+const movementField = (id: string, kind: SalesSourceField["kind"], permission: string, nullable = false): SalesSourceField => ({ id, kind, binding: nullable ? "optional" : "required", nullable, permission, sortable: false, filterOperators: [] });
+export const salesImportJobListFields = Object.freeze([movementField("id", "integer", "sales.imports.read"), movementField("target-object-type", "enum", "sales.imports.read"), movementField("state", "status", "sales.imports.read"), movementField("accepted-rows", "integer", "sales.imports.read"), movementField("rejected-rows", "integer", "sales.imports.read"), movementField("revision", "integer", "sales.imports.read")]);
+export const salesImportJobDetailFields = Object.freeze([movementField("id", "integer", "sales.imports.read"), movementField("state", "status", "sales.imports.read"), movementField("diagnostic-code", "enum", "sales.imports.read", true), movementField("artifact-expires-at", "datetime", "sales.imports.read", true), movementField("revision", "integer", "sales.imports.read")]);
+export const salesExportJobListFields = Object.freeze([movementField("id", "integer", "sales.exports.read"), movementField("target-object-type", "enum", "sales.exports.read"), movementField("state", "status", "sales.exports.read"), movementField("row-count", "integer", "sales.exports.read"), movementField("revision", "integer", "sales.exports.read")]);
+export const salesExportJobDetailFields = Object.freeze([movementField("id", "integer", "sales.exports.read"), movementField("state", "status", "sales.exports.read"), movementField("artifact-id", "resource", "sales.exports.read", true), movementField("artifact-expires-at", "datetime", "sales.exports.read", true), movementField("revision", "integer", "sales.exports.read")]);
+export const salesDedupeCandidateFields = Object.freeze([movementField("candidate-id", "integer", "sales.records.merge"), movementField("candidate-revision", "integer", "sales.records.merge"), movementField("match-kind", "enum", "sales.records.merge")]);
+const movementInput = (prefix: "import" | "export"): DataSourceDescriptor["inputFields"] => [{ id: `${prefix}-job-id`, kind: "integer", required: false, nullable: false }, { id: "expected-revision", kind: "integer", required: false, nullable: false }];
+function movementSource(id: string, title: string, permission: string, hash: string, fields: readonly SalesSourceField[], inputFields: DataSourceDescriptor["inputFields"] = [], paginationModes: DataSourceDescriptor["paginationModes"] = ["offset"], cacheClass: DataSourceDescriptor["cacheClass"] = "authorization-context"): DataSourceDescriptor {
+  return { id, version: 1, ownerPluginId: "module.sales", primaryContract: { id: "table.records", version: 1 }, sourceSchema: { id: `${id}.output`, version: 1 }, audience: "authenticated", surfaces: ["workspace"], permission, structuralCompatibilityHash: hash, presentationMetadataRevision: 1, title, inputFields, outputFields: [...fields], paginationModes, limits: { ...salesSourceLimits, maxSelectedFields: fields.length, maxFilters: 0, maxSorts: 0, ratePerMinute: 120, burst: 12, costClass: id === "sales.dedupe.candidates" ? "medium" : "low", maxCost: id === "sales.dedupe.candidates" ? 100 : 20 }, cacheClass };
+}
+export const salesImportJobListDescriptor = movementSource("sales.import-job.list", "Sales import jobs", "sales.imports.read", "sha256:197b274aa0761c87f01d61114184073f3a7a298c16b7cca032fda801f06360b1", salesImportJobListFields);
+export const salesImportJobDetailDescriptor = movementSource("sales.import-job.detail", "Sales import job detail", "sales.imports.read", "sha256:a9605b199390aff854f3b4f950b2c33f8076d54fac01e66d4401a8a0119ed5f0", salesImportJobDetailFields, movementInput("import"));
+export const salesExportJobListDescriptor = movementSource("sales.export-job.list", "Sales export jobs", "sales.exports.read", "sha256:2eeb257f1987b2e2e611ad69fad1463db4fa09bdac135b15a6b7b268d54bd726", salesExportJobListFields);
+export const salesExportJobDetailDescriptor = movementSource("sales.export-job.detail", "Sales export job detail", "sales.exports.read", "sha256:393a540189c9a65fa3a678dba311b61c05156742fb2640e7957672419225f54a", salesExportJobDetailFields, movementInput("export"));
+export const salesDedupeCandidatesDescriptor = movementSource("sales.dedupe.candidates", "Sales duplicate candidates", "sales.records.merge", "sha256:288bd0c42e139d0b3b96eb76d01afee731b5d023f5546b8ef0d1dae634a53f57", salesDedupeCandidateFields, [{ id: "target-object-type", kind: "enum", required: false, nullable: false }, { id: "id", kind: "integer", required: false, nullable: false }, { id: "expected-revision", kind: "integer", required: false, nullable: false }], ["cursor"], "no-store");
+
 export type SalesSavedViewSourceId = "sales.saved-view.table" | "sales.saved-view.kanban" | "sales.saved-view.calendar";
 export type SalesSavedViewVisibility = Readonly<{ kind: "personal" } | { kind: "team"; teamId: string }>;
 export interface SalesSavedViewSourceBinding { readonly id: SalesSavedViewSourceId; readonly version: 1; readonly sourceSchema: Readonly<{ id: string; version: 1 }>; readonly structuralCompatibilityHash: string; }
@@ -399,14 +415,30 @@ export const salesTimelineDescriptor = crmSource("sales.timeline", 1, "sales.act
 
 function crmCell(field: SalesSourceField, cell: unknown): boolean {
   if (cell === null) return field.nullable;
-  if (!salesRecord(cell) || cell.kind !== field.kind || Object.keys(cell).join("\u0000") !== "kind\u0000value") return false;
-  if (field.kind === "integer") return Number.isSafeInteger(cell.value) && (cell.value as number) >= 1 && (cell.value as number) <= 2_147_483_647;
+  if (!salesRecord(cell) || cell.kind !== field.kind) return false;
+  if (field.kind === "resource") return true;
+  if (Object.keys(cell).join("\u0000") !== "kind\u0000value") return false;
+  if (field.kind === "integer") {
+    const minimum = field.id === "accepted-rows" || field.id === "rejected-rows" || field.id === "row-count" ? 0 : 1;
+    const maximum = ["sales.imports.read", "sales.exports.read", "sales.records.merge"].includes(field.permission) ? Number.MAX_SAFE_INTEGER : 2_147_483_647;
+    return Number.isSafeInteger(cell.value) && (cell.value as number) >= minimum && (cell.value as number) <= maximum;
+  }
   if (field.kind === "status") {
     const allowed = field.permission === "sales.accounts.read" || field.permission === "sales.contacts.read" ? ["active", "archived", "merged"]
       : field.permission === "sales.leads.read" ? field.id === "archive-status" ? ["active", "archived"] : ["new", "working", "qualified", "disqualified"]
+      : field.permission === "sales.imports.read" ? ["draft", "validated", "queued", "running", "succeeded", "partially-failed", "failed", "cancelled"]
+      : field.permission === "sales.exports.read" ? ["queued", "running", "succeeded", "failed", "cancelled"]
       : undefined;
     return typeof cell.value === "string" && (allowed === undefined ? cell.value.length > 0 && cell.value.length <= 64 : allowed.includes(cell.value));
   }
+  if (field.kind === "enum") {
+    const allowed = field.id === "target-object-type" ? ["sales.object.lead", "sales.object.account", "sales.object.contact"]
+      : field.id === "match-kind" ? ["account-name", "contact-email", "contact-phone", "contact-email-and-phone"]
+      : field.id === "diagnostic-code" ? ["IMPORT_INVALID_ENCODING", "IMPORT_INVALID_CSV", "IMPORT_UNSAFE_FORMULA", "IMPORT_LIMIT_EXCEEDED", "IMPORT_PROTECTED_FIELD", "IMPORT_MAPPING_INVALID", "IMPORT_UPLOAD_BINDING_INVALID", "IMPORT_REQUIRED_VALUE", "IMPORT_VALUE_INVALID", "IMPORT_CONTACT_ACCOUNT_FORBIDDEN", "IMPORT_ROW_CONFLICT", "IMPORT_WORKER_RETRY_EXHAUSTED", "DEDUPE_CANDIDATE_LIMIT", "STALE_RECORD", "ACTION_FORBIDDEN", "NOT_FOUND", "ARTIFACT_EXPIRED", "ARTIFACT_FORBIDDEN", "IDEMPOTENCY_CONFLICT"]
+      : undefined;
+    return typeof cell.value === "string" && allowed !== undefined && allowed.includes(cell.value);
+  }
+  if (field.kind === "datetime") return typeof cell.value === "string" && isCanonicalUtcInstant(cell.value);
   return typeof cell.value === "string" && cell.value.length > 0 && cell.value.length <= 10_000;
 }
 function crmTableSchema(fields: readonly SalesSourceField[]): RuntimeSchema<TableRecords> {
@@ -438,6 +470,26 @@ export const salesLeadDetailOutputRuntimeSchema: RuntimeSchema<TableRecords> = {
   return parsed;
 } };
 export const salesTimelineOutputRuntimeSchema = crmTableSchema(salesTimelineFields);
+export const salesImportJobListOutputRuntimeSchema = crmTableSchema(salesImportJobListFields);
+export const salesImportJobDetailOutputRuntimeSchema = crmTableSchema(salesImportJobDetailFields);
+export const salesExportJobListOutputRuntimeSchema = crmTableSchema(salesExportJobListFields);
+export const salesExportJobDetailOutputRuntimeSchema = crmTableSchema(salesExportJobDetailFields);
+export const salesDedupeCandidatesOutputRuntimeSchema = crmTableSchema(salesDedupeCandidateFields);
+
+const movementPairInput = (job: "import-job-id" | "export-job-id"): RuntimeSchema<Readonly<Record<string, number>>> => ({ safeParse(value) {
+  if (!salesRecord(value)) return invalidRuntimeValue("Sales job source input is invalid.");
+  if (Object.keys(value).length === 0) return { success: true as const, data: Object.freeze({}) };
+  if (!exactObject(value, [job, "expected-revision"], [job, "expected-revision"]) || !positiveSafeInteger(value[job]) || !positiveSafeInteger(value["expected-revision"])) return invalidRuntimeValue("Sales job source input is invalid.");
+  return { success: true as const, data: Object.freeze({ [job]: value[job] as number, "expected-revision": value["expected-revision"] as number }) };
+} });
+export const salesImportJobDetailInputRuntimeSchema = movementPairInput("import-job-id");
+export const salesExportJobDetailInputRuntimeSchema = movementPairInput("export-job-id");
+export const salesDedupeCandidatesInputRuntimeSchema: RuntimeSchema<Readonly<Record<string, unknown>>> = { safeParse(value) {
+  if (!salesRecord(value)) return invalidRuntimeValue("Sales dedupe input is invalid.");
+  if (Object.keys(value).length === 0) return { success: true as const, data: Object.freeze({}) };
+  if (!exactObject(value, ["target-object-type", "id", "expected-revision"], ["target-object-type", "id", "expected-revision"]) || !["sales.object.account", "sales.object.contact"].includes(String(value["target-object-type"])) || !positiveSafeInteger(value.id) || !positiveSafeInteger(value["expected-revision"])) return invalidRuntimeValue("Sales dedupe input is invalid.");
+  return { success: true as const, data: Object.freeze({ ...value }) };
+} };
 
 export const salesCrmDetailInputRuntimeSchema: RuntimeSchema<Readonly<{ id: string }>> = {
   safeParse(value) {
@@ -807,6 +859,12 @@ export const salesNoteCreateDescriptor = workflowActionDescriptor("sales.note.cr
 export const salesAttachmentLinkDescriptor = workflowActionDescriptor("sales.attachment.link");
 export const salesAttachmentRemoveDescriptor = workflowActionDescriptor("sales.attachment.remove");
 export const salesOwnershipAssignDescriptor = workflowActionDescriptor("sales.ownership.assign");
+export const salesImportDryRunDescriptor = workflowActionDescriptor("sales.import.dry-run");
+export const salesImportCommitDescriptor = workflowActionDescriptor("sales.import.commit");
+export const salesImportCancelDescriptor = workflowActionDescriptor("sales.import.cancel");
+export const salesExportCreateDescriptor = workflowActionDescriptor("sales.export.create");
+export const salesExportCancelDescriptor = workflowActionDescriptor("sales.export.cancel");
+export const salesMergeCommitDescriptor = workflowActionDescriptor("sales.merge.commit");
 
 function actionRuntime(descriptor: ActionDescriptor): RuntimeSchema<Readonly<Record<string, unknown>>> {
   return { safeParse(value) {
@@ -886,6 +944,44 @@ export const salesWorkflowActionOutputRuntimeSchemas = Object.freeze(Object.from
   salesOpportunityCreateDescriptor, salesOpportunityUpdateDescriptor, salesOpportunityCloseDescriptor, salesOpportunityArchiveDescriptor, salesPipelineUpdateDescriptor, salesPipelineArchiveDescriptor, salesSavedViewCreateDescriptor, salesSavedViewUpdateDescriptor, salesSavedViewArchiveDescriptor,
   salesActivityCreateDescriptor, salesActivityCompleteDescriptor, salesActivityCancelDescriptor, salesNoteCreateDescriptor, salesAttachmentLinkDescriptor, salesAttachmentRemoveDescriptor, salesOwnershipAssignDescriptor
 ].map((descriptor) => [descriptor.id, actionOutputRuntime(descriptor)])) as Readonly<Record<string, RuntimeSchema<Readonly<Record<string, unknown>>>>>) ;
+
+const salesDataMovementActionDescriptors = Object.freeze([salesImportDryRunDescriptor, salesImportCommitDescriptor, salesImportCancelDescriptor, salesExportCreateDescriptor, salesExportCancelDescriptor, salesMergeCommitDescriptor]);
+function movementActionRuntime(descriptor: ActionDescriptor): RuntimeSchema<Readonly<Record<string, unknown>>> {
+  const base = actionRuntime(descriptor);
+  return { safeParse(value) {
+    const parsed = base.safeParse(value); if (!parsed.success) return parsed;
+    const request = parsed.data.request;
+    if (salesRecord(request) && Array.isArray(request.columnMapping)) {
+      const mappings = request.columnMapping as readonly Record<string, unknown>[];
+      const headers = mappings.map(({ header }) => header); const fields = mappings.map(({ fieldId }) => fieldId);
+      if (new Set(headers).size !== headers.length || new Set(fields).size !== fields.length) return invalidRuntimeValue("Sales import mapping is invalid.");
+      const required = request.targetObjectType === "sales.object.lead" ? ["displayName", "source"] : request.targetObjectType === "sales.object.account" ? ["name"] : ["displayName", "accountId"];
+      if (required.some((field) => !fields.includes(field))) return invalidRuntimeValue("Sales import mapping is invalid.");
+    }
+    if (salesRecord(request) && Array.isArray(request.selectedFields) && new Set(request.selectedFields).size !== request.selectedFields.length) return invalidRuntimeValue("Sales export fields are invalid.");
+    if (descriptor.id === "sales.merge.commit" && parsed.data.winnerId === parsed.data.loserId) return invalidRuntimeValue("Sales merge direction is invalid.");
+    return parsed;
+  } };
+}
+export const salesDataMovementActionInputRuntimeSchemas = Object.freeze(Object.fromEntries(salesDataMovementActionDescriptors.map((descriptor) => [descriptor.id, movementActionRuntime(descriptor)])) as Readonly<Record<string, RuntimeSchema<Readonly<Record<string, unknown>>>>>) ;
+const sha256DigestPattern = /^sha256:[0-9a-f]{64}$/u;
+function movementActionOutputRuntime(descriptor: ActionDescriptor): RuntimeSchema<Readonly<Record<string, unknown>>> {
+  const base = actionOutputRuntime(descriptor);
+  return { safeParse(value) {
+    const parsed = base.safeParse(value); if (!parsed.success) return parsed;
+    if (Object.entries(parsed.data).some(([key, item]) => key.endsWith("Digest") && (typeof item !== "string" || !sha256DigestPattern.test(item)))) return invalidRuntimeValue("Sales action output digest is invalid.");
+    if (descriptor.id === "sales.import.dry-run" && (parsed.data.acceptedRows as number) + (parsed.data.rejectedRows as number) > 10_000) return invalidRuntimeValue("Sales import output counts are invalid.");
+    if (descriptor.id === "sales.merge.commit") {
+      const counts = parsed.data.rewrittenRelationCounts;
+      const relationIds = Array.isArray(counts) ? counts.map((entry) => salesRecord(entry) ? entry.relationId : undefined) : [];
+      const accountRelations = ["sales_contacts.account_id", "sales_opportunities.account_id", "sales_leads.qualified_account_id", "sales_activities.related_record_id where related_record_type=sales.account", "sales_notes.related_record_id where related_record_type=sales.account", "sales_attachment_references.related_record_id where related_record_type=sales.account", "sales_tasks.related_record_id where related_record_type=sales.account"];
+      const contactRelations = ["sales_opportunities.primary_contact_id", "sales_leads.qualified_contact_id", "sales_activities.related_record_id where related_record_type=sales.contact", "sales_notes.related_record_id where related_record_type=sales.contact", "sales_attachment_references.related_record_id where related_record_type=sales.contact", "sales_tasks.related_record_id where related_record_type=sales.contact"];
+      if (parsed.data.winnerId === parsed.data.loserId || canonicalJson(relationIds) !== canonicalJson(relationIds.length === 7 ? accountRelations : contactRelations)) return invalidRuntimeValue("Sales merge output is invalid.");
+    }
+    return parsed;
+  } };
+}
+export const salesDataMovementActionOutputRuntimeSchemas = Object.freeze(Object.fromEntries(salesDataMovementActionDescriptors.map((descriptor) => [descriptor.id, movementActionOutputRuntime(descriptor)])) as Readonly<Record<string, RuntimeSchema<Readonly<Record<string, unknown>>>>>) ;
 
 export const salesSearchTasksDescriptor: AgentToolDescriptor = {
   id: "sales.tools.search-tasks",
@@ -1034,7 +1130,7 @@ export const salesRouteDescriptors = Object.freeze([
   {
     id: "sales.route.opportunity-detail", ownerPluginId: "module.sales", path: "/sales/opportunities/:id", parameters: { id: { type: "string" } }, surface: "workspace", audience: "authenticated", permission: "sales.opportunities.read", viewId: "sales.page.opportunity-detail"
   },
-  ...salesCrmRouteDescriptors.filter(({ id }) => ["sales.route.calendar", "sales.route.pipeline-settings", "sales.route.saved-views"].includes(id))
+  ...salesCrmRouteDescriptors.filter(({ id }) => ["sales.route.calendar", "sales.route.pipeline-settings", "sales.route.saved-views", "sales.route.imports", "sales.route.exports"].includes(id))
 ] satisfies readonly PluginRouteDescriptor[]);
 
 export const salesNavigationDescriptors = Object.freeze([
@@ -1219,12 +1315,22 @@ export const salesSavedViewsPageTemplate = p134Page({ id: "sales.page.saved-view
   { nodeId: "saved-view-detail", id: "sales.saved-views", source: salesSavedViewDetailDescriptor, fields: salesSavedViewDetailFields.map(({ id }) => id), action: salesSavedViewUpdateDescriptor },
   { nodeId: "saved-view-archive", id: "sales.saved-views", source: salesSavedViewDetailDescriptor, fields: salesSavedViewDetailFields.map(({ id }) => id), action: salesSavedViewArchiveDescriptor }
 ] });
+export const salesImportsPageTemplate = p134Page({ id: "sales.page.imports", routeId: "sales.route.imports", permission: "sales.imports.read", sources: [salesImportJobListDescriptor, salesImportJobDetailDescriptor, salesDedupeCandidatesDescriptor], actions: [salesImportDryRunDescriptor, salesImportCommitDescriptor, salesImportCancelDescriptor, salesMergeCommitDescriptor], blocks: [
+  { nodeId: "import-list", id: "sales.imports", source: salesImportJobListDescriptor, fields: salesImportJobListFields.map(({ id }) => id), action: salesImportDryRunDescriptor },
+  { nodeId: "import-detail", id: "sales.imports", source: salesImportJobDetailDescriptor, fields: salesImportJobDetailFields.map(({ id }) => id), action: salesImportCommitDescriptor },
+  { nodeId: "import-cancel", id: "sales.imports", action: salesImportCancelDescriptor },
+  { nodeId: "dedupe", id: "sales.imports", source: salesDedupeCandidatesDescriptor, fields: salesDedupeCandidateFields.map(({ id }) => id), action: salesMergeCommitDescriptor }
+] });
+export const salesExportsPageTemplate = p134Page({ id: "sales.page.exports", routeId: "sales.route.exports", permission: "sales.exports.read", sources: [salesExportJobListDescriptor, salesExportJobDetailDescriptor], actions: [salesExportCreateDescriptor, salesExportCancelDescriptor], blocks: [
+  { nodeId: "export-list", id: "sales.exports", source: salesExportJobListDescriptor, fields: salesExportJobListFields.map(({ id }) => id), action: salesExportCreateDescriptor },
+  { nodeId: "export-detail", id: "sales.exports", source: salesExportJobDetailDescriptor, fields: salesExportJobDetailFields.map(({ id }) => id), action: salesExportCancelDescriptor }
+] });
 
 export const salesPageTemplates = Object.freeze([
   salesOverviewPageTemplate, salesTaskPageTemplate, salesOpportunitiesPageTemplate, salesSettingsPageTemplate,
   salesAccountsPageTemplate, salesAccountDetailPageTemplate, salesContactsPageTemplate, salesContactDetailPageTemplate,
   salesLeadsPageTemplate, salesLeadDetailPageTemplate, salesOpportunityDetailPageTemplate,
-  salesCalendarPageTemplate, salesPipelineSettingsPageTemplate, salesSavedViewsPageTemplate
+  salesCalendarPageTemplate, salesPipelineSettingsPageTemplate, salesSavedViewsPageTemplate, salesImportsPageTemplate, salesExportsPageTemplate
 ]);
 
 const salesTaskUiPolicy: Omit<PluginUiContributionDescriptor, "id" | "version" | "ownerPluginId" | "kind"> = {
@@ -1327,6 +1433,8 @@ export const salesContactListBlockDescriptor = crmUiBlock("sales.contact-list", 
 export const salesContactDetailBlockDescriptor = crmUiBlock("sales.contact-detail", "sales.contacts.read", ["display-name", "owner-id", "team-id", "account-id", "status", "revision"], [salesContactUpdateDescriptor, salesContactArchiveDescriptor, salesOwnershipAssignDescriptor, ...salesInteractionActions]);
 export const salesLeadListBlockDescriptor = crmUiBlock("sales.lead-list", "sales.leads.read", ["display-name", "owner-id", "status", "archive-status", "revision"], [salesLeadCreateDescriptor]);
 export const salesLeadDetailBlockDescriptor = crmUiBlock("sales.lead-detail", "sales.leads.read", ["display-name", "source", "owner-id", "team-id", "status", "archive-status", "revision", "decided-at", "qualified-at", "disqualified-at", "qualified-account-id", "qualified-contact-id", "qualified-opportunity-id"], [salesLeadUpdateDescriptor, salesLeadQualifyDescriptor, salesLeadDisqualifyDescriptor, salesLeadArchiveDescriptor, salesOwnershipAssignDescriptor, ...salesInteractionActions]);
+export const salesImportsBlockDescriptor: PluginUiContributionDescriptor = { ...uiContribution("sales.imports", "block", "sales.imports.read", { required: false, contracts: [{ id: "table.records", version: 1 }], requiredFields: [] }, { required: false, actions: [salesImportDryRunDescriptor, salesImportCommitDescriptor, salesImportCancelDescriptor, salesMergeCommitDescriptor].map(({ id, version }) => ({ id, version })) }), version: 1, propsSchema: { type: "object", properties: {}, additionalProperties: false } };
+export const salesExportsBlockDescriptor: PluginUiContributionDescriptor = { ...uiContribution("sales.exports", "block", "sales.exports.read", { required: false, contracts: [{ id: "table.records", version: 1 }], requiredFields: [] }, { required: false, actions: [salesExportCreateDescriptor, salesExportCancelDescriptor].map(({ id, version }) => ({ id, version })) }), version: 1, propsSchema: { type: "object", properties: {}, additionalProperties: false } };
 
 export const salesUiComponentDescriptors: readonly PluginUiContributionDescriptor[] = Object.freeze([
   salesTaskTableComponentDescriptor, salesQuickCreateComponentDescriptor,
@@ -1337,7 +1445,7 @@ export const salesUiBlockDescriptors: readonly PluginUiContributionDescriptor[] 
   salesTaskTableBlockDescriptor, salesQuickCreateBlockDescriptor,
   salesOpportunityListBlockDescriptor, salesOpportunityDetailBlockDescriptor, salesOpportunityKanbanBlockDescriptor, salesSettingsSummaryBlockDescriptor,
   salesAccountListBlockDescriptor, salesAccountDetailBlockDescriptor, salesContactListBlockDescriptor, salesContactDetailBlockDescriptor, salesLeadListBlockDescriptor, salesLeadDetailBlockDescriptor,
-  salesCalendarBlockDescriptor, salesPipelineSettingsBlockDescriptor, salesSavedViewsBlockDescriptor, salesSavedViewTableBlockDescriptor
+  salesCalendarBlockDescriptor, salesPipelineSettingsBlockDescriptor, salesSavedViewsBlockDescriptor, salesSavedViewTableBlockDescriptor, salesImportsBlockDescriptor, salesExportsBlockDescriptor
 ]);
 
 export const salesEventDescriptors = Object.freeze([
@@ -1346,6 +1454,8 @@ export const salesEventDescriptors = Object.freeze([
   { id: "sales.event.account-changed", version: 1, ownerPluginId: "module.sales", eventClass: "durable-integration", sourceId: "sales.accounts" },
   { id: "sales.event.contact-changed", version: 1, ownerPluginId: "module.sales", eventClass: "durable-integration", sourceId: "sales.contacts" },
   { id: "sales.event.lead-changed", version: 1, ownerPluginId: "module.sales", eventClass: "durable-integration", sourceId: "sales.leads" },
+  { id: "sales.event.import-job-changed", version: 1, ownerPluginId: "module.sales", eventClass: "durable-integration", sourceId: "sales.import-job.list" },
+  { id: "sales.event.export-job-changed", version: 1, ownerPluginId: "module.sales", eventClass: "durable-integration", sourceId: "sales.export-job.list" },
   { id: "sales.event.timeline-changed", version: 1, ownerPluginId: "module.sales", eventClass: "durable-integration", sourceId: "sales.timeline" }
 ]);
 
@@ -1355,6 +1465,8 @@ export const salesRealtimeTopicDescriptors = Object.freeze([
   { id: "sales.realtime.accounts", version: 1, ownerPluginId: "module.sales", eventId: "sales.event.account-changed", sourceId: "sales.accounts", permission: "sales.accounts.read" },
   { id: "sales.realtime.contacts", version: 1, ownerPluginId: "module.sales", eventId: "sales.event.contact-changed", sourceId: "sales.contacts", permission: "sales.contacts.read" },
   { id: "sales.realtime.leads", version: 1, ownerPluginId: "module.sales", eventId: "sales.event.lead-changed", sourceId: "sales.leads", permission: "sales.leads.read" },
+  { id: "sales.realtime.import-jobs", version: 1, ownerPluginId: "module.sales", eventId: "sales.event.import-job-changed", sourceId: "sales.import-job.list", permission: "sales.imports.read" },
+  { id: "sales.realtime.export-jobs", version: 1, ownerPluginId: "module.sales", eventId: "sales.event.export-job-changed", sourceId: "sales.export-job.list", permission: "sales.exports.read" },
   { id: "sales.realtime.timeline", version: 1, ownerPluginId: "module.sales", eventId: "sales.event.timeline-changed", sourceId: "sales.timeline", permission: "sales.activities.read" }
 ]);
 

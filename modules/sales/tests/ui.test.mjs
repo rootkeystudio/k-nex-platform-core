@@ -434,7 +434,7 @@ test("Sales UI contributions expose labelled semantic regions", () => {
 });
 
 test("Sales public UI inventory reconciles every canonical source action route page component and block", () => {
-  assert.deepEqual(salesWorkspaceUiContract.sourceIds, ["sales.account.detail", "sales.accounts", "sales.contact.detail", "sales.contacts", "sales.lead.detail", "sales.leads", "sales.opportunities", "sales.opportunity.detail", "sales.pipeline.snapshot", "sales.saved-view.calendar", "sales.saved-view.detail", "sales.saved-view.kanban", "sales.saved-view.list", "sales.saved-view.table", "sales.tasks", "sales.timeline"]);
+  assert.deepEqual(salesWorkspaceUiContract.sourceIds, ["sales.account.detail", "sales.accounts", "sales.contact.detail", "sales.contacts", "sales.dedupe.candidates", "sales.export-job.detail", "sales.export-job.list", "sales.import-job.detail", "sales.import-job.list", "sales.lead.detail", "sales.leads", "sales.opportunities", "sales.opportunity.detail", "sales.pipeline.snapshot", "sales.saved-view.calendar", "sales.saved-view.detail", "sales.saved-view.kanban", "sales.saved-view.list", "sales.saved-view.table", "sales.tasks", "sales.timeline"]);
   assert.equal(salesWorkspaceUiContract.actionIds.includes("sales.lead.qualify"), true);
   assert.equal(salesWorkspaceUiContract.pageTemplateIds.includes("sales.page.account-detail"), true);
   assert.equal(salesWorkspaceUiContract.routeIds.length >= 10, true);

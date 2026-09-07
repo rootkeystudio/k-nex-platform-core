@@ -11,7 +11,12 @@ export const salesCoreCollectionSlugs = Object.freeze([
   "sales-tasks",
   "sales-notes",
   "sales-attachment-references",
-  "sales-saved-views"
+  "sales-saved-views",
+  "sales-import-jobs",
+  "sales-import-rows",
+  "sales-import-chunks",
+  "sales-export-jobs",
+  "sales-merge-lineage"
 ] as const);
 
 const deny = () => false;
@@ -154,6 +159,63 @@ export const salesAttachmentReferencesCollection = collection("sales-attachment-
   text("relatedRecordId", true), select("relatedRecordType", salesRelatedRecordTypes)
 ], [{ fields: ["applicationId", "environment", "relatedRecordType", "relatedRecordId", "status"] }]);
 
+export const salesImportJobsCollection = collection("sales-import-jobs", [
+  { name: "applicationId", type: "text", required: true, index: true, access: protectedFieldAccess },
+  { name: "environment", type: "text", required: true, index: true, access: protectedFieldAccess },
+  { name: "actorId", type: "text", required: true, index: true, access: protectedFieldAccess },
+  select("targetObjectType", ["sales.object.lead", "sales.object.account", "sales.object.contact"]),
+  text("uploadArtifactId", true), text("uploadDigest", true),
+  { name: "mappingCanonicalJson", type: "json", access: protectedFieldAccess }, text("mappingDigest", true),
+  { name: "schemaRevision", type: "number", required: true, min: 1, access: protectedFieldAccess },
+  { name: "authorizationRevision", type: "number", required: true, min: 1, access: protectedFieldAccess },
+  { name: "lifecycleRevision", type: "number", required: true, min: 0, access: protectedFieldAccess },
+  { name: "scopeRevision", type: "number", required: true, min: 1, access: protectedFieldAccess },
+  { name: "fieldGrants", type: "json", required: true, access: protectedFieldAccess },
+  { name: "permissionGrants", type: "json", required: true, access: protectedFieldAccess },
+  select("state", ["draft", "validated", "queued", "running", "succeeded", "partially-failed", "failed", "cancelled"]),
+  { name: "revision", type: "number", required: true, min: 1, access: protectedFieldAccess },
+  { name: "acceptedRows", type: "number", required: true, min: 0 }, { name: "rejectedRows", type: "number", required: true, min: 0 },
+  text("diagnosticArtifactId"), text("diagnosticDigest"), text("receiptId")
+], [{ fields: ["applicationId", "environment", "actorId", "state"] }]);
+
+export const salesImportRowsCollection = collection("sales-import-rows", [
+  { name: "importJobId", type: "number", required: true, min: 1, index: true }, { name: "oneBasedDataRow", type: "number", required: true, min: 1 },
+  text("rowDigest", true), { name: "canonicalMappedJson", type: "json", access: protectedFieldAccess }, text("mappedDigest"),
+  select("outcome", ["pending", "accepted", "rejected"], "pending"), { name: "targetRecordId", type: "number", min: 1, access: protectedFieldAccess }, text("diagnosticCode")
+], [{ fields: ["importJobId", "oneBasedDataRow"], unique: true }]);
+
+export const salesImportChunksCollection = collection("sales-import-chunks", [
+  { name: "importJobId", type: "number", required: true, min: 1, index: true }, { name: "chunkIndex", type: "number", required: true, min: 0 },
+  { name: "rowStart", type: "number", required: true, min: 0 }, { name: "rowEndExclusive", type: "number", required: true, min: 1 }, text("inputDigest", true),
+  select("state", ["queued", "claimed", "completed", "failed"], "queued"), { name: "attempt", type: "number", required: true, min: 0, max: 3 },
+  text("workerGenerationId"), { name: "workerFencingToken", type: "number", min: 1 }, { name: "workerPromotionRevision", type: "number", min: 0 }, text("workerLeaseOwner"),
+  { name: "leaseRevision", type: "number", required: true, min: 0 }, { name: "leaseExpiresAt", type: "date" }, { name: "completedAt", type: "date" }, text("resultDigest")
+], [{ fields: ["importJobId", "chunkIndex"], unique: true }]);
+
+export const salesExportJobsCollection = collection("sales-export-jobs", [
+  { name: "applicationId", type: "text", required: true, index: true, access: protectedFieldAccess },
+  { name: "environment", type: "text", required: true, index: true, access: protectedFieldAccess },
+  { name: "actorId", type: "text", required: true, index: true, access: protectedFieldAccess },
+  select("targetObjectType", ["sales.object.lead", "sales.object.account", "sales.object.contact"]), text("sourceId", true),
+  { name: "sourceVersion", type: "number", required: true, min: 1, access: protectedFieldAccess }, { name: "sourceSchemaVersion", type: "number", required: true, min: 1, access: protectedFieldAccess },
+  { name: "queryCanonicalJson", type: "json", access: protectedFieldAccess }, text("queryDigest", true), { name: "selectedFields", type: "json", required: true, access: protectedFieldAccess },
+  { name: "authorizationRevision", type: "number", required: true, min: 1, access: protectedFieldAccess }, { name: "lifecycleRevision", type: "number", required: true, min: 0, access: protectedFieldAccess }, { name: "scopeRevision", type: "number", required: true, min: 1, access: protectedFieldAccess },
+  { name: "fieldGrants", type: "json", required: true, access: protectedFieldAccess }, { name: "permissionGrants", type: "json", required: true, access: protectedFieldAccess }, { name: "snapshotRevision", type: "number", required: true, min: 1 }, text("snapshotDigest", true),
+  select("state", ["queued", "running", "succeeded", "failed", "cancelled"], "queued"), { name: "revision", type: "number", required: true, min: 1, access: protectedFieldAccess }, { name: "rowCount", type: "number", required: true, min: 0 },
+  text("workerGenerationId"), { name: "workerFencingToken", type: "number", min: 1 }, { name: "workerPromotionRevision", type: "number", min: 0 }, text("workerLeaseOwner"), { name: "leaseRevision", type: "number", required: true, min: 0 },
+  { name: "leaseExpiresAt", type: "date" }, { name: "attempt", type: "number", required: true, min: 0, max: 3 }, text("artifactId"), text("artifactDigest"), text("receiptId")
+], [{ fields: ["applicationId", "environment", "actorId", "state"] }]);
+
+export const salesMergeLineageCollection = collection("sales-merge-lineage", [
+  { name: "applicationId", type: "text", required: true, index: true, access: protectedFieldAccess }, { name: "environment", type: "text", required: true, index: true, access: protectedFieldAccess },
+  text("lineageId", true), select("targetObjectType", ["sales.object.account", "sales.object.contact"]),
+  { name: "winnerId", type: "number", required: true, min: 1 }, { name: "winnerPreRevision", type: "number", required: true, min: 1 }, { name: "winnerPostRevision", type: "number", required: true, min: 2 },
+  { name: "loserId", type: "number", required: true, min: 1 }, { name: "loserPreRevision", type: "number", required: true, min: 1 }, { name: "loserPostRevision", type: "number", required: true, min: 2 },
+  select("matchKind", ["account-name", "contact-email", "contact-phone", "contact-email-and-phone"]), text("normalizerVersion", true), text("actorId", true),
+  { name: "authorizationRevision", type: "number", required: true, min: 1 }, text("winnerPreDigest", true), text("winnerPostDigest", true), text("loserPreDigest", true), text("loserPostDigest", true),
+  { name: "rewrittenRelationCounts", type: "json", required: true, access: protectedFieldAccess }, { name: "committedAt", type: "date", required: true, access: protectedFieldAccess }, text("lineageDigest", true)
+], [{ fields: ["applicationId", "environment", "lineageId"], unique: true }]);
+
 export const salesCoreCollections: readonly CollectionConfig[] = Object.freeze([
   salesAccountsCollection,
   salesContactsCollection,
@@ -165,5 +227,10 @@ export const salesCoreCollections: readonly CollectionConfig[] = Object.freeze([
   salesTasksCollection,
   salesNotesCollection,
   salesAttachmentReferencesCollection,
-  salesSavedViewsCollection
+  salesSavedViewsCollection,
+  salesImportJobsCollection,
+  salesImportRowsCollection,
+  salesImportChunksCollection,
+  salesExportJobsCollection,
+  salesMergeLineageCollection
 ]);

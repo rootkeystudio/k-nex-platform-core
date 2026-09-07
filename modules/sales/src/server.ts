@@ -30,6 +30,11 @@ import {
   salesPipelinesCollection,
   salesPipelineStagesCollection,
   salesSavedViewsCollection,
+  salesImportJobsCollection,
+  salesImportRowsCollection,
+  salesImportChunksCollection,
+  salesExportJobsCollection,
+  salesMergeLineageCollection,
   salesCoreCollectionSlugs,
   salesRelatedRecordTypes,
   salesTasksCollection as salesTasksCoreCollection
@@ -112,6 +117,27 @@ import {
   salesSavedViewCreateDescriptor,
   salesSavedViewUpdateDescriptor,
   salesSavedViewArchiveDescriptor,
+  salesImportJobListDescriptor,
+  salesImportJobDetailDescriptor,
+  salesExportJobListDescriptor,
+  salesExportJobDetailDescriptor,
+  salesDedupeCandidatesDescriptor,
+  salesImportJobListOutputRuntimeSchema,
+  salesImportJobDetailOutputRuntimeSchema,
+  salesExportJobListOutputRuntimeSchema,
+  salesExportJobDetailOutputRuntimeSchema,
+  salesDedupeCandidatesOutputRuntimeSchema,
+  salesImportJobDetailInputRuntimeSchema,
+  salesExportJobDetailInputRuntimeSchema,
+  salesDedupeCandidatesInputRuntimeSchema,
+  salesImportDryRunDescriptor,
+  salesImportCommitDescriptor,
+  salesImportCancelDescriptor,
+  salesExportCreateDescriptor,
+  salesExportCancelDescriptor,
+  salesMergeCommitDescriptor,
+  salesDataMovementActionInputRuntimeSchemas,
+  salesDataMovementActionOutputRuntimeSchemas,
   salesWorkflowActionInputRuntimeSchemas,
   salesWorkflowActionOutputRuntimeSchemas,
   validateSalesPipelineSnapshotInput,
@@ -135,6 +161,299 @@ import {
   salesCrmRouteDescriptors
 } from "./crm-authority.js";
 import { salesUiBlockDefinitions, salesUiComponentDefinitions } from "./ui.js";
+
+export const salesDataMovementErrorCodes = Object.freeze([
+  "IMPORT_INVALID_ENCODING", "IMPORT_INVALID_CSV", "IMPORT_UNSAFE_FORMULA", "IMPORT_LIMIT_EXCEEDED", "IMPORT_PROTECTED_FIELD", "IMPORT_MAPPING_INVALID", "IMPORT_UPLOAD_BINDING_INVALID",
+  "IMPORT_REQUIRED_VALUE", "IMPORT_VALUE_INVALID", "IMPORT_CONTACT_ACCOUNT_FORBIDDEN", "IMPORT_ROW_CONFLICT", "IMPORT_WORKER_RETRY_EXHAUSTED", "DEDUPE_CANDIDATE_LIMIT", "STALE_RECORD", "ACTION_FORBIDDEN", "NOT_FOUND", "ARTIFACT_EXPIRED", "ARTIFACT_FORBIDDEN", "IDEMPOTENCY_CONFLICT"
+] as const);
+export type SalesDataMovementErrorCode = typeof salesDataMovementErrorCodes[number];
+export class SalesDataMovementError extends Error {
+  constructor(readonly code: SalesDataMovementErrorCode) { super(code); this.name = "SalesDataMovementError"; }
+}
+export type SalesImportTarget = "sales.object.lead" | "sales.object.account" | "sales.object.contact";
+export type SalesDedupeTarget = Extract<SalesImportTarget, "sales.object.account" | "sales.object.contact">;
+export type SalesDedupeMatchKind = "account-name" | "contact-email" | "contact-phone" | "contact-email-and-phone";
+export type SalesDataMovementObjectEventType = "sales.event.account-changed" | "sales.event.contact-changed" | "sales.event.lead-changed";
+export const salesDedupeNormalizerVersion = "node24.19-unicode17-v1" as const;
+const movementWhitespace = /^[\u0000-\u0020\u007f-\u009f\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]*/u;
+const movementWhitespaceTrailing = /[\u0000-\u0020\u007f-\u009f\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]*$/u;
+const movementWhitespaceRun = /[\u0000-\u0020\u007f-\u009f\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+/gu;
+const digest = (value: string | Uint8Array): string => `sha256:${createHash("sha256").update(value).digest("hex")}`;
+const movementTargets = Object.freeze({
+  "sales.object.lead": Object.freeze({ required: ["displayName", "source"], fields: ["displayName", "source", "email", "phone"] }),
+  "sales.object.account": Object.freeze({ required: ["name"], fields: ["name"] }),
+  "sales.object.contact": Object.freeze({ required: ["displayName", "accountId"], fields: ["displayName", "accountId", "email", "phone"] })
+} as const);
+const protectedImportFields = new Set(["ownerId", "teamId", "applicationId", "environment", "createdBy", "updatedBy", "audit", "revision", "status", "archiveStatus", "mergedIntoId", "mergeLineage"]);
+
+/** The data-movement worker reuses the registered object invalidations; it never invents a parallel event class. */
+export function salesDataMovementObjectEvent(targetObjectType: SalesImportTarget): SalesDataMovementObjectEventType {
+  return targetObjectType === "sales.object.account" ? "sales.event.account-changed" : targetObjectType === "sales.object.contact" ? "sales.event.contact-changed" : "sales.event.lead-changed";
+}
+
+export type SalesDataMovementJobKind = "import" | "export";
+export type SalesDataMovementJobEventType = "sales.event.import-job-changed" | "sales.event.export-job-changed";
+export type SalesDataMovementJobAudit = Readonly<{
+  actionId: "sales.import.commit" | "sales.import.cancel" | "sales.export.create" | "sales.export.cancel";
+  resourceId: string;
+  applicationId: string;
+  environment: string;
+  fromState: string;
+  toState: string;
+  occurredAt: string;
+  actorId: string;
+  revision: number;
+  idempotencyKey: string;
+  dataMovement: Readonly<{ kind: SalesDataMovementJobKind; jobId: number }>;
+}>;
+
+export const salesDataMovementJobTransitions = Object.freeze({
+  import: Object.freeze([
+    Object.freeze({ actionId: "sales.import.commit", fromState: "queued", toState: "running" }),
+    Object.freeze({ actionId: "sales.import.commit", fromState: "running", toState: "succeeded" }),
+    Object.freeze({ actionId: "sales.import.commit", fromState: "running", toState: "partially-failed" }),
+    Object.freeze({ actionId: "sales.import.commit", fromState: "running", toState: "failed" }),
+    Object.freeze({ actionId: "sales.import.cancel", fromState: "validated", toState: "cancelled" }),
+    Object.freeze({ actionId: "sales.import.cancel", fromState: "queued", toState: "cancelled" })
+  ]),
+  export: Object.freeze([
+    Object.freeze({ actionId: "sales.export.create", fromState: "queued", toState: "running" }),
+    Object.freeze({ actionId: "sales.export.create", fromState: "running", toState: "succeeded" }),
+    Object.freeze({ actionId: "sales.export.create", fromState: "running", toState: "failed" }),
+    Object.freeze({ actionId: "sales.export.cancel", fromState: "queued", toState: "cancelled" })
+  ])
+});
+
+function validJobTransition(input: Readonly<{ kind: SalesDataMovementJobKind; actionId: string; fromState: string; toState: string }>): input is Readonly<{ kind: SalesDataMovementJobKind; actionId: SalesDataMovementJobAudit["actionId"]; fromState: string; toState: string }> {
+  return salesDataMovementJobTransitions[input.kind].some((transition) => transition.actionId === input.actionId && transition.fromState === input.fromState && transition.toState === input.toState);
+}
+
+/** Canonical audit evidence for every persisted job state transition, including queued-to-running. */
+export function createSalesDataMovementJobAudit(input: Readonly<{ kind: SalesDataMovementJobKind; jobId: number; actionId: SalesDataMovementJobAudit["actionId"]; applicationId: string; environment: string; fromState: string; toState: string; occurredAt: string; actorId: string; revision: number; idempotencyKey: string }>): SalesDataMovementJobAudit {
+  if (!Number.isSafeInteger(input.jobId) || input.jobId < 1 || !validJobTransition(input)) throw new SalesDataMovementError("ACTION_FORBIDDEN");
+  dataMovementAuditIdentity({ ...input, resourceId: String(input.jobId) });
+  return Object.freeze({ actionId: input.actionId, resourceId: String(input.jobId), applicationId: input.applicationId, environment: input.environment, fromState: input.fromState, toState: input.toState, occurredAt: input.occurredAt, actorId: input.actorId, revision: input.revision, idempotencyKey: input.idempotencyKey, dataMovement: Object.freeze({ kind: input.kind, jobId: input.jobId }) });
+}
+
+/** Registered job event payload. Environment stays top-level for the outbox consumer predicate. */
+export function createSalesDataMovementJobOutbox(input: SalesDataMovementJobAudit & Readonly<{ targetObjectType: SalesImportTarget; authorizationRevision: number; lifecycleRevision: number; scopeRevision: number }>): Readonly<{ type: SalesDataMovementJobEventType; payload: Readonly<{ environment: string; jobId: number; state: string; revision: number; actionId: string; targetObjectType: SalesImportTarget; authorizationRevision: number; lifecycleRevision: number; scopeRevision: number }> }> {
+  if (!Number.isSafeInteger(input.authorizationRevision) || input.authorizationRevision < 1 || !Number.isSafeInteger(input.lifecycleRevision) || input.lifecycleRevision < 0 || !Number.isSafeInteger(input.scopeRevision) || input.scopeRevision < 1) throw new SalesDataMovementError("ACTION_FORBIDDEN");
+  const kind = input.dataMovement.kind;
+  const type: SalesDataMovementJobEventType = kind === "import" ? "sales.event.import-job-changed" : "sales.event.export-job-changed";
+  return Object.freeze({ type, payload: Object.freeze({ environment: input.environment, jobId: input.dataMovement.jobId, state: input.toState, revision: input.revision, actionId: input.actionId, targetObjectType: input.targetObjectType, authorizationRevision: input.authorizationRevision, lifecycleRevision: input.lifecycleRevision, scopeRevision: input.scopeRevision }) });
+}
+
+function dataMovementAuditIdentity(input: Readonly<{ resourceId: string; applicationId: string; environment: string; actorId: string; idempotencyKey: string; occurredAt: string; revision: number }>): void {
+  if (!isSalesRecordId(input.resourceId) || !applicationIdPattern.test(input.applicationId) || input.applicationId.length > 128 || !environmentPattern.test(input.environment) || input.environment.length > 64 ||
+    !actorIdPattern.test(input.actorId) || input.actorId.length > 160 || !durableIdPattern.test(input.idempotencyKey) || !validAuditTimestamp(input.occurredAt) || !Number.isSafeInteger(input.revision) || input.revision < 1 || input.revision > 1_000_000_000) {
+    throw new SalesDataMovementError("ACTION_FORBIDDEN");
+  }
+}
+
+function dataMovementDigest(value: unknown): string {
+  if (typeof value !== "string" || !/^sha256:[0-9a-f]{64}$/u.test(value)) throw new SalesDataMovementError("ACTION_FORBIDDEN");
+  return value;
+}
+
+function dataMovementOwnership(ownerId: string, teamId: string | null): Readonly<{ ownerId: string; teamId: string | null }> {
+  const ownership = ownershipSnapshot({ ownerId, teamId });
+  if (ownership === undefined) throw new SalesDataMovementError("ACTION_FORBIDDEN");
+  return ownership;
+}
+
+export type SalesDataMovementObjectAudit = Readonly<{
+  actionId: "sales.import.commit" | "sales.merge.commit";
+  resourceId: string;
+  applicationId: string;
+  environment: string;
+  fromState: "absent" | "active";
+  toState: "new" | "active" | "merged";
+  occurredAt: string;
+  actorId: string;
+  revision: number;
+  idempotencyKey: string;
+  ownershipGenesis?: Readonly<{ ownerId: string; teamId: string | null }>;
+  dataMovement: Readonly<{ kind: "import"; importJobId: number; oneBasedDataRow: number; rowDigest: string } | { kind: "merge"; role: "survivor" | "merged"; lineageId: string }>;
+}>;
+
+/** Canonical revision-one audit for records created by a fenced import worker. */
+export function createSalesImportGenesisAudit(input: Readonly<{ targetObjectType: SalesImportTarget; resourceId: string; applicationId: string; environment: string; ownerId: string; teamId: string | null; actorId: string; idempotencyKey: string; occurredAt: string; importJobId: number; oneBasedDataRow: number; rowDigest: string }>): SalesDataMovementObjectAudit {
+  dataMovementAuditIdentity({ ...input, revision: 1 });
+  if (!Number.isSafeInteger(input.importJobId) || input.importJobId < 1 || !Number.isSafeInteger(input.oneBasedDataRow) || input.oneBasedDataRow < 1 || input.oneBasedDataRow > 10_000) throw new SalesDataMovementError("ACTION_FORBIDDEN");
+  const toState = input.targetObjectType === "sales.object.lead" ? "new" : "active";
+  return Object.freeze({ actionId: "sales.import.commit", resourceId: input.resourceId, applicationId: input.applicationId, environment: input.environment, fromState: "absent", toState,
+    occurredAt: input.occurredAt, actorId: input.actorId, revision: 1, idempotencyKey: input.idempotencyKey, ownershipGenesis: dataMovementOwnership(input.ownerId, input.teamId),
+    dataMovement: Object.freeze({ kind: "import", importJobId: input.importJobId, oneBasedDataRow: input.oneBasedDataRow, rowDigest: dataMovementDigest(input.rowDigest) }) });
+}
+
+/** Canonical survivor/merged audit transition, bound to immutable lineage identity before post-row digests exist. */
+export function createSalesMergeAuditTransition(input: Readonly<{ resourceId: string; applicationId: string; environment: string; actorId: string; idempotencyKey: string; occurredAt: string; preRevision: number; role: "survivor" | "merged"; lineageId: string }>): SalesDataMovementObjectAudit {
+  if (!Number.isSafeInteger(input.preRevision) || input.preRevision < 1 || input.preRevision >= 1_000_000_000 || typeof input.lineageId !== "string" || input.lineageId.length < 1 || input.lineageId.length > 128 || !/^[a-zA-Z0-9][a-zA-Z0-9._:-]*$/u.test(input.lineageId)) throw new SalesDataMovementError("ACTION_FORBIDDEN");
+  dataMovementAuditIdentity({ ...input, revision: input.preRevision + 1 });
+  return Object.freeze({ actionId: "sales.merge.commit", resourceId: input.resourceId, applicationId: input.applicationId, environment: input.environment, fromState: "active", toState: input.role === "survivor" ? "active" : "merged",
+    occurredAt: input.occurredAt, actorId: input.actorId, revision: input.preRevision + 1, idempotencyKey: input.idempotencyKey,
+    dataMovement: Object.freeze({ kind: "merge", role: input.role, lineageId: input.lineageId }) });
+}
+
+export type SalesImportMapping = Readonly<{ header: string; fieldId: string }>;
+export type SalesParsedImportRow = Readonly<{ oneBasedDataRow: number; values: Readonly<Record<string, string | number | null>>; rowDigest: string; state: "pending" }>;
+export type SalesImportDiagnostic = Readonly<{ oneBasedDataRow: number; code: "IMPORT_REQUIRED_VALUE" | "IMPORT_VALUE_INVALID" }>;
+export type SalesImportDryRun = Readonly<{ headers: readonly string[]; rows: readonly SalesParsedImportRow[]; diagnostics: readonly SalesImportDiagnostic[]; chunks: readonly Readonly<{ chunkIndex: number; rowStart: number; rowEndExclusive: number; state: "queued"; attempt: 0; leaseRevision: 1 }>[]; uploadDigest: string; diagnosticDigest: string; acceptedRows: number; rejectedRows: number }>;
+
+function parseRfc4180(text: string): string[][] {
+  const records: string[][] = []; let record: string[] = []; let cell = ""; let quoted = false; let afterQuote = false;
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index]!;
+    if (quoted) {
+      if (character === '"') { if (text[index + 1] === '"') { cell += '"'; index += 1; } else { quoted = false; afterQuote = true; } }
+      else cell += character;
+      continue;
+    }
+    if (afterQuote && character !== "," && character !== "\r") throw new SalesDataMovementError("IMPORT_INVALID_CSV");
+    if (character === '"') { if (cell !== "" || afterQuote) throw new SalesDataMovementError("IMPORT_INVALID_CSV"); quoted = true; continue; }
+    if (character === ",") { record.push(cell); cell = ""; afterQuote = false; continue; }
+    if (character === "\r") {
+      if (text[index + 1] !== "\n") throw new SalesDataMovementError("IMPORT_INVALID_CSV");
+      record.push(cell); records.push(record); record = []; cell = ""; afterQuote = false; index += 1; continue;
+    }
+    if (character === "\n") throw new SalesDataMovementError("IMPORT_INVALID_CSV");
+    if (afterQuote) throw new SalesDataMovementError("IMPORT_INVALID_CSV");
+    cell += character;
+  }
+  if (quoted || record.length !== 0 || cell !== "" || afterQuote) throw new SalesDataMovementError("IMPORT_INVALID_CSV");
+  return records;
+}
+
+/** Strict UTF-8/RFC4180 validation; fatal input never produces a durable job. */
+export function parseSalesImportCsv(bytes: Uint8Array, target: SalesImportTarget, mapping: readonly SalesImportMapping[]): SalesImportDryRun {
+  if (!(bytes instanceof Uint8Array)) throw new SalesDataMovementError("IMPORT_LIMIT_EXCEEDED");
+  const content = bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf ? bytes.subarray(3) : bytes;
+  if (content.byteLength > 16_777_216) throw new SalesDataMovementError("IMPORT_LIMIT_EXCEEDED");
+  let text: string; try { text = new TextDecoder("utf-8", { fatal: true }).decode(content); } catch { throw new SalesDataMovementError("IMPORT_INVALID_ENCODING"); }
+  const records = parseRfc4180(text); if (records.length < 2 || records.length > 10_001) throw new SalesDataMovementError(records.length > 10_001 ? "IMPORT_LIMIT_EXCEEDED" : "IMPORT_INVALID_CSV");
+  const headers = records[0]!.map((value) => value.normalize("NFC"));
+  if (headers.length < 1 || headers.length > 64 || new Set(headers).size !== headers.length || headers.some((header) => header.length === 0 || new TextEncoder().encode(header).byteLength > 120)) throw new SalesDataMovementError(headers.length > 64 ? "IMPORT_LIMIT_EXCEEDED" : "IMPORT_INVALID_CSV");
+  if (headers.some((header) => /^[=+\-@]/u.test(header.replace(movementWhitespace, "")))) throw new SalesDataMovementError("IMPORT_UNSAFE_FORMULA");
+  if (!Array.isArray(mapping) || mapping.length !== headers.length || mapping.some((item) => typeof item !== "object" || item === null || Object.keys(item).sort().join("\0") !== "fieldId\0header" || typeof item.header !== "string" || typeof item.fieldId !== "string" || item.header.normalize("NFC") !== item.header)) throw new SalesDataMovementError("IMPORT_MAPPING_INVALID");
+  const targetSchema = movementTargets[target]; const mappedHeaders = mapping.map(({ header }) => header); const mappedFields = mapping.map(({ fieldId }) => fieldId);
+  if (mappedFields.some((field) => protectedImportFields.has(field))) throw new SalesDataMovementError("IMPORT_PROTECTED_FIELD");
+  if (new Set(mappedHeaders).size !== headers.length || new Set(mappedFields).size !== mappedFields.length || headers.some((header) => !mappedHeaders.includes(header)) || mappedFields.some((field) => !(targetSchema.fields as readonly string[]).includes(field)) || targetSchema.required.some((field) => !mappedFields.includes(field))) throw new SalesDataMovementError("IMPORT_MAPPING_INVALID");
+  const diagnostics: SalesImportDiagnostic[] = []; const rows: SalesParsedImportRow[] = [];
+  for (let rowIndex = 1; rowIndex < records.length; rowIndex += 1) {
+    const cells = records[rowIndex]!; if (cells.length !== headers.length) throw new SalesDataMovementError("IMPORT_INVALID_CSV");
+    if (cells.some((cell) => new TextEncoder().encode(cell).byteLength > 16_384)) throw new SalesDataMovementError("IMPORT_LIMIT_EXCEEDED");
+    if (cells.some((cell) => /^[=+\-@]/u.test(cell.replace(movementWhitespace, "")))) throw new SalesDataMovementError("IMPORT_UNSAFE_FORMULA");
+    const values: Record<string, string | number | null> = {}; let rowCode: SalesImportDiagnostic["code"] | undefined;
+    for (const { header, fieldId } of mapping) {
+      const value = cells[headers.indexOf(header)]!.normalize("NFC");
+      if (value === "") { values[fieldId] = null; if ((targetSchema.required as readonly string[]).includes(fieldId)) rowCode = "IMPORT_REQUIRED_VALUE"; continue; }
+      const max = fieldId === "email" ? 320 : fieldId === "phone" ? 64 : 120;
+      if (fieldId === "accountId") { if (!/^[1-9][0-9]{0,15}$/u.test(value) || !Number.isSafeInteger(Number(value))) rowCode = "IMPORT_VALUE_INVALID"; else values[fieldId] = Number(value); }
+      else if (new TextEncoder().encode(value).byteLength > max) rowCode = "IMPORT_VALUE_INVALID";
+      else values[fieldId] = value;
+    }
+    const oneBasedDataRow = rowIndex;
+    if (rowCode !== undefined) diagnostics.push(Object.freeze({ oneBasedDataRow, code: rowCode }));
+    else rows.push(Object.freeze({ oneBasedDataRow, values: Object.freeze(values), rowDigest: digest(canonicalJson({ targetObjectType: target, values, oneBasedDataRow })), state: "pending" }));
+  }
+  const chunks = Array.from({ length: Math.ceil(records.length === 1 ? 0 : (records.length - 1) / 250) }, (_, chunkIndex) => Object.freeze({ chunkIndex, rowStart: chunkIndex * 250, rowEndExclusive: Math.min((chunkIndex + 1) * 250, records.length - 1), state: "queued" as const, attempt: 0 as const, leaseRevision: 1 }));
+  return Object.freeze({ headers: Object.freeze(headers), rows: Object.freeze(rows), diagnostics: Object.freeze(diagnostics), chunks: Object.freeze(chunks), uploadDigest: digest(content), diagnosticDigest: digest(canonicalJson(diagnostics)), acceptedRows: rows.length, rejectedRows: diagnostics.length });
+}
+
+export function normalizeSalesDedupeValue(kind: "account-name" | "contact-email" | "contact-phone", value: string): string | null {
+  if (process.versions.node !== "24.19.0" || process.versions.unicode !== "17.0" || process.versions.icu !== "78.3") throw new SalesDataMovementError("ACTION_FORBIDDEN");
+  const normalized = value.normalize("NFC");
+  if (kind === "contact-phone") { const phone = normalized.replace(/[^0-9]/gu, ""); return phone.length >= 7 && phone.length <= 15 ? phone : null; }
+  if (kind === "account-name") return normalized.replace(movementWhitespace, "").replace(movementWhitespaceTrailing, "").replace(movementWhitespaceRun, " ").toLowerCase();
+  return normalized.replace(movementWhitespace, "").replace(movementWhitespaceTrailing, "").toLowerCase();
+}
+
+export function salesDedupeMatch(target: SalesDedupeTarget, subject: Readonly<Record<string, unknown>>, candidate: Readonly<Record<string, unknown>>): SalesDedupeMatchKind | null {
+  if (target === "sales.object.account") return normalizeSalesDedupeValue("account-name", String(subject.name ?? "")) !== "" && normalizeSalesDedupeValue("account-name", String(subject.name ?? "")) === normalizeSalesDedupeValue("account-name", String(candidate.name ?? "")) ? "account-name" : null;
+  const email = typeof subject.email === "string" && typeof candidate.email === "string" && normalizeSalesDedupeValue("contact-email", subject.email) !== "" && normalizeSalesDedupeValue("contact-email", subject.email) === normalizeSalesDedupeValue("contact-email", candidate.email);
+  const subjectPhone = typeof subject.phone === "string" ? normalizeSalesDedupeValue("contact-phone", subject.phone) : null; const candidatePhone = typeof candidate.phone === "string" ? normalizeSalesDedupeValue("contact-phone", candidate.phone) : null; const phone = subjectPhone !== null && subjectPhone === candidatePhone;
+  return email && phone ? "contact-email-and-phone" : email ? "contact-email" : phone ? "contact-phone" : null;
+}
+
+const csvCell = (value: unknown, neutralize: boolean): string => { let text = value === null || value === undefined ? "" : String(value); if (neutralize && /^[=+\-@]/u.test(text.replace(movementWhitespace, ""))) text = `'${text}`; return /[",\r\n]/u.test(text) ? `"${text.replaceAll('"', '""')}"` : text; };
+export function buildSalesExportCsv(selectedFields: readonly string[], rows: readonly Readonly<Record<string, unknown>>[]): Uint8Array {
+  if (selectedFields.length < 1 || selectedFields.length > 8 || new Set(selectedFields).size !== selectedFields.length || rows.length > 10_000) throw new SalesDataMovementError("IMPORT_LIMIT_EXCEEDED");
+  const header = `${selectedFields.map((field) => csvCell(field, false)).join(",")}\r\n`; const output = rows.length === 0 ? header : `${header}${rows.map((row) => selectedFields.map((field) => csvCell(row[field], true)).join(",")).join("\r\n")}\r\n`; const bytes = new TextEncoder().encode(output);
+  if (bytes.byteLength > 16_777_216) throw new SalesDataMovementError("IMPORT_LIMIT_EXCEEDED"); return bytes;
+}
+
+export const salesMergeRelationIds = Object.freeze({
+  "sales.object.account": Object.freeze(["sales_contacts.account_id", "sales_opportunities.account_id", "sales_leads.qualified_account_id", "sales_activities.related_record_id where related_record_type=sales.account", "sales_notes.related_record_id where related_record_type=sales.account", "sales_attachment_references.related_record_id where related_record_type=sales.account", "sales_tasks.related_record_id where related_record_type=sales.account"]),
+  "sales.object.contact": Object.freeze(["sales_opportunities.primary_contact_id", "sales_leads.qualified_contact_id", "sales_activities.related_record_id where related_record_type=sales.contact", "sales_notes.related_record_id where related_record_type=sales.contact", "sales_attachment_references.related_record_id where related_record_type=sales.contact", "sales_tasks.related_record_id where related_record_type=sales.contact"])
+});
+export function planSalesMerge(input: Readonly<{ targetObjectType: SalesDedupeTarget; winner: Readonly<Record<string, unknown>>; winnerExpectedRevision: number; loser: Readonly<Record<string, unknown>>; loserExpectedRevision: number; actorId: string; authorizationRevision: number; lineageId: string; committedAt: string; relationCounts: Readonly<Record<string, number>> }>) {
+  const { winner, loser } = input; const winnerId = Number(winner.id); const loserId = Number(loser.id); const winnerRevision = Number(winner.revision); const loserRevision = Number(loser.revision);
+  if (![winnerId, loserId, winnerRevision, loserRevision, input.winnerExpectedRevision, input.loserExpectedRevision, input.authorizationRevision].every((value) => Number.isSafeInteger(value) && value > 0) || winnerRevision >= Number.MAX_SAFE_INTEGER || loserRevision >= Number.MAX_SAFE_INTEGER || winnerRevision !== input.winnerExpectedRevision || loserRevision !== input.loserExpectedRevision || winnerId === loserId || winner.status !== "active" || loser.status !== "active" || Object.hasOwn(winner, "mergedIntoId") || Object.hasOwn(loser, "mergedIntoId") || typeof winner.applicationId !== "string" || winner.applicationId.length === 0 || typeof winner.environment !== "string" || winner.environment.length === 0 || winner.applicationId !== loser.applicationId || winner.environment !== loser.environment || Object.hasOwn(winner, "targetObjectType") && winner.targetObjectType !== input.targetObjectType || Object.hasOwn(loser, "targetObjectType") && loser.targetObjectType !== input.targetObjectType) throw new SalesDataMovementError("STALE_RECORD");
+  if (typeof input.actorId !== "string" || input.actorId.length < 1 || input.actorId.length > 160 || typeof input.lineageId !== "string" || input.lineageId.length < 1 || input.lineageId.length > 128 || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u.test(input.committedAt) || new Date(input.committedAt).toISOString() !== input.committedAt) throw new SalesDataMovementError("ACTION_FORBIDDEN");
+  if (input.targetObjectType === "sales.object.contact" && (!Number.isSafeInteger(winner.accountId) || (winner.accountId as number) < 1 || winner.accountId !== loser.accountId)) throw new SalesDataMovementError("ACTION_FORBIDDEN");
+  const matchKind = salesDedupeMatch(input.targetObjectType, winner, loser); if (matchKind === null) throw new SalesDataMovementError("ACTION_FORBIDDEN");
+  const relationIds = salesMergeRelationIds[input.targetObjectType];
+  if (canonicalJson(Object.keys(input.relationCounts).sort()) !== canonicalJson([...relationIds].sort())) throw new SalesDataMovementError("ACTION_FORBIDDEN");
+  const rewrittenRelationCounts = relationIds.map((relationId) => { const count = input.relationCounts[relationId]; if (!Number.isSafeInteger(count) || (count as number) < 0) throw new SalesDataMovementError("ACTION_FORBIDDEN"); return Object.freeze({ relationId, count: count as number }); });
+  const winnerPost = { ...winner, revision: winnerRevision + 1 }; const loserPost = { ...loser, revision: loserRevision + 1, status: "merged", mergedIntoId: winnerId };
+  const lineage = Object.freeze({ lineageId: input.lineageId, applicationId: winner.applicationId, environment: winner.environment, targetObjectType: input.targetObjectType, winnerId, winnerPreRevision: winnerRevision, winnerPostRevision: winnerRevision + 1, loserId, loserPreRevision: loserRevision, loserPostRevision: loserRevision + 1, matchKind, normalizerVersion: salesDedupeNormalizerVersion, actorId: input.actorId, authorizationRevision: input.authorizationRevision, winnerPreDigest: digest(canonicalJson(winner)), winnerPostDigest: digest(canonicalJson(winnerPost)), loserPreDigest: digest(canonicalJson(loser)), loserPostDigest: digest(canonicalJson(loserPost)), rewrittenRelationCounts, committedAt: input.committedAt });
+  return Object.freeze({ winnerPost: Object.freeze(winnerPost), loserPost: Object.freeze(loserPost), lineage, lineageDigest: digest(canonicalJson(lineage)) });
+}
+
+type MovementActionCall = Readonly<{ input: Readonly<Record<string, unknown>>; idempotencyKey: string; signal: AbortSignal }>;
+type MovementSourceCall = Readonly<{ input: Readonly<Record<string, unknown>>; query: DataSourceQueryControls; selectedFields: readonly string[]; signal: AbortSignal }>;
+/** Request-scoped persistence authority. The host owns transactions, locks, reauthorization, leases, and artifact storage. */
+export interface SalesDataMovementStore {
+  dryRunImport(call: MovementActionCall): Promise<unknown>;
+  commitImport(call: MovementActionCall): Promise<unknown>;
+  cancelImport(call: MovementActionCall): Promise<unknown>;
+  createExport(call: MovementActionCall): Promise<unknown>;
+  cancelExport(call: MovementActionCall): Promise<unknown>;
+  mergeRecords(call: MovementActionCall): Promise<unknown>;
+  listImportJobs(call: MovementSourceCall): Promise<unknown>;
+  getImportJob(call: MovementSourceCall): Promise<unknown>;
+  listExportJobs(call: MovementSourceCall): Promise<unknown>;
+  getExportJob(call: MovementSourceCall): Promise<unknown>;
+  findDedupeCandidates(call: MovementSourceCall): Promise<unknown>;
+}
+function movementStore(value: unknown): SalesDataMovementStore {
+  if (typeof value !== "object" || value === null || !("dataMovement" in value)) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales data movement authority is unavailable.");
+  return (value as { readonly dataMovement: SalesDataMovementStore }).dataMovement;
+}
+const movementActionMethods = Object.freeze({ "sales.import.dry-run": "dryRunImport", "sales.import.commit": "commitImport", "sales.import.cancel": "cancelImport", "sales.export.create": "createExport", "sales.export.cancel": "cancelExport", "sales.merge.commit": "mergeRecords" } as const);
+export const salesDataMovementActionHandler: ActionHandler = async ({ authorizationContext, input, idempotencyKey, signal }) => {
+  const actionId = (authorizationContext as { readonly actionId?: string } | undefined)?.actionId;
+  if (actionId === undefined || !(actionId in movementActionMethods) || typeof idempotencyKey !== "string" || idempotencyKey.length === 0) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales data movement action is forbidden.");
+  const store = movementStore(authorizationContext); const method = movementActionMethods[actionId as keyof typeof movementActionMethods];
+  const output = await store[method]({ input: input as Readonly<Record<string, unknown>>, idempotencyKey, signal });
+  const parsed = salesDataMovementActionOutputRuntimeSchemas[actionId]!.safeParse(output);
+  if (!parsed.success) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales data movement result is invalid.");
+  const result = parsed.data; const actionInput = input as Readonly<Record<string, unknown>>;
+  const bound = actionId === "sales.import.commit" || actionId === "sales.import.cancel" ? result.importJobId === actionInput.importJobId
+    : actionId === "sales.export.cancel" ? result.exportJobId === actionInput.exportJobId
+    : actionId === "sales.merge.commit" ? result.winnerId === actionInput.winnerId && result.loserId === actionInput.loserId && result.winnerRevision === (actionInput.winnerExpectedRevision as number) + 1 && result.loserRevision === (actionInput.loserExpectedRevision as number) + 1 && canonicalJson((result.rewrittenRelationCounts as readonly Readonly<{ relationId: string }>[]).map(({ relationId }) => relationId)) === canonicalJson(salesMergeRelationIds[actionInput.targetObjectType as SalesDedupeTarget])
+    : true;
+  if (!bound) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales data movement result does not match its request.");
+  return result;
+};
+const movementActionDescriptors = Object.freeze([salesImportDryRunDescriptor, salesImportCommitDescriptor, salesImportCancelDescriptor, salesExportCreateDescriptor, salesExportCancelDescriptor, salesMergeCommitDescriptor]);
+export const salesDataMovementActionDefinitions: readonly ActionDefinition[] = Object.freeze(movementActionDescriptors.map((descriptor) => ({ descriptor, inputSchema: salesDataMovementActionInputRuntimeSchemas[descriptor.id]!, outputSchema: salesDataMovementActionOutputRuntimeSchemas[descriptor.id]! })));
+
+function movementSourceHandler(method: keyof Pick<SalesDataMovementStore, "listImportJobs" | "getImportJob" | "listExportJobs" | "getExportJob" | "findDedupeCandidates">): DataSourceHandler {
+  return async ({ request, input, query, selectedFields, signal }) => {
+    return await movementStore(request)[method]({ input: input as Readonly<Record<string, unknown>>, query, selectedFields, signal }) as never;
+  };
+}
+export const salesImportJobListHandler = movementSourceHandler("listImportJobs");
+export const salesImportJobDetailHandler = movementSourceHandler("getImportJob");
+export const salesExportJobListHandler = movementSourceHandler("listExportJobs");
+export const salesExportJobDetailHandler = movementSourceHandler("getExportJob");
+export const salesDedupeCandidatesHandler = movementSourceHandler("findDedupeCandidates");
+export const salesImportJobListDefinition: DataSourceDefinition = { descriptor: salesImportJobListDescriptor, inputSchema: salesEmptyInputRuntimeSchema, outputSchema: salesImportJobListOutputRuntimeSchema };
+export const salesImportJobDetailDefinition: DataSourceDefinition = { descriptor: salesImportJobDetailDescriptor, inputSchema: salesImportJobDetailInputRuntimeSchema, outputSchema: salesImportJobDetailOutputRuntimeSchema };
+export const salesExportJobListDefinition: DataSourceDefinition = { descriptor: salesExportJobListDescriptor, inputSchema: salesEmptyInputRuntimeSchema, outputSchema: salesExportJobListOutputRuntimeSchema };
+export const salesExportJobDetailDefinition: DataSourceDefinition = { descriptor: salesExportJobDetailDescriptor, inputSchema: salesExportJobDetailInputRuntimeSchema, outputSchema: salesExportJobDetailOutputRuntimeSchema };
+export const salesDedupeCandidatesDefinition: DataSourceDefinition = { descriptor: salesDedupeCandidatesDescriptor, inputSchema: salesDedupeCandidatesInputRuntimeSchema, outputSchema: salesDedupeCandidatesOutputRuntimeSchema };
 
 export {
   salesCreateTaskToolDescriptor,
@@ -394,6 +713,7 @@ interface SalesAuditEntry {
   readonly idempotencyKey: string;
   readonly ownershipGenesis?: Readonly<{ ownerId: string; teamId: string | null }>;
   readonly ownership?: Readonly<{ oldOwnerId: string; newOwnerId: string; oldTeamId: string | null; newTeamId: string | null }>;
+  readonly dataMovement?: Readonly<{ kind: "import"; importJobId: number; oneBasedDataRow: number; rowDigest: string } | { kind: "merge"; role: "survivor" | "merged"; lineageId: string }>;
 }
 
 function eventContext(type: SalesEventContext["type"], transition: SalesAuditEntry, stateField: SalesEventContext["stateField"] = type === "sales.event.opportunity-changed" ? "stageId" : "status"): { readonly kNexSalesEvent: SalesEventContext } {
@@ -478,13 +798,17 @@ export function createSalesRealtimeRelay(gateway: Parameters<typeof createOutbox
           : event.type === "sales.event.account-changed" ? "sales.realtime.accounts"
               : event.type === "sales.event.contact-changed" ? "sales.realtime.contacts"
               : event.type === "sales.event.lead-changed" ? "sales.realtime.leads"
+                : event.type === "sales.event.import-job-changed" ? "sales.realtime.import-jobs"
+                  : event.type === "sales.event.export-job-changed" ? "sales.realtime.export-jobs"
                 : event.type === "sales.event.timeline-changed" ? "sales.realtime.timeline" : undefined;
       if (topicId === undefined) return null;
       const sourceId = topicId === "sales.realtime.tasks" ? "sales.tasks"
         : topicId === "sales.realtime.opportunities" ? "sales.opportunities"
-          : topicId === "sales.realtime.accounts" ? "sales.accounts"
-            : topicId === "sales.realtime.contacts" ? "sales.contacts"
-            : topicId === "sales.realtime.leads" ? "sales.leads" : "sales.timeline";
+            : topicId === "sales.realtime.accounts" ? "sales.accounts"
+              : topicId === "sales.realtime.contacts" ? "sales.contacts"
+              : topicId === "sales.realtime.leads" ? "sales.leads"
+                : topicId === "sales.realtime.import-jobs" ? "sales.import-job.list"
+                  : topicId === "sales.realtime.export-jobs" ? "sales.export-job.list" : "sales.timeline";
       // Realtime is an invalidation channel. The authoritative projection is
       // always re-read through the source boundary; record/state facts stay in
       // the durable outbox and never cross the socket transport.
@@ -2131,19 +2455,37 @@ async function workflowCreate(payloadRequest: SalesPayloadRequest, authorization
 }
 
 function workflowAuditStateField(actionId: string, collection: WorkflowCollection): "status" | "stageId" | "archiveStatus" {
+  if (actionId === "sales.import.commit" || actionId === "sales.merge.commit") return "status";
   if (actionId === "sales.lead.qualify") return collection === "sales-opportunities" ? "stageId" : "status";
   if (actionId === salesOpportunityStageUpdateDescriptor.id) return "stageId";
   if (actionId === salesOwnershipAssignDescriptor.id) return collection === "sales-opportunities" ? "stageId" : "status";
   return workflowActions[actionId as WorkflowActionId].stateField;
 }
 
+function validDataMovementAudit(value: unknown, collection: WorkflowCollection, genesis: boolean, actionId: unknown, fromState: unknown, toState: unknown): boolean {
+  if (!isRecord(value)) return false;
+  if (actionId === "sales.import.commit") {
+    return genesis && exactKeys(value, ["kind", "importJobId", "oneBasedDataRow", "rowDigest"]) && value.kind === "import" &&
+      Number.isSafeInteger(value.importJobId) && (value.importJobId as number) > 0 && Number.isSafeInteger(value.oneBasedDataRow) && (value.oneBasedDataRow as number) >= 1 && (value.oneBasedDataRow as number) <= 10_000 &&
+      typeof value.rowDigest === "string" && /^sha256:[0-9a-f]{64}$/u.test(value.rowDigest) && fromState === "absent" &&
+      (collection === "sales-accounts" || collection === "sales-contacts" ? toState === "active" : collection === "sales-leads" && toState === "new");
+  }
+  return actionId === "sales.merge.commit" && !genesis && (collection === "sales-accounts" || collection === "sales-contacts") &&
+    exactKeys(value, ["kind", "lineageId", "role"]) && value.kind === "merge" && (value.role === "survivor" || value.role === "merged") &&
+    typeof value.lineageId === "string" && value.lineageId.length >= 1 && value.lineageId.length <= 128 && /^[a-zA-Z0-9][a-zA-Z0-9._:-]*$/u.test(value.lineageId) &&
+    fromState === "active" &&
+    (value.role === "survivor" ? toState === "active" : toState === "merged");
+}
+
 function legalWorkflowTransition(actionId: string, collection: WorkflowCollection, from: string, to: string, genesis: boolean): boolean {
   if (genesis) {
+    if (actionId === "sales.import.commit") return from === "absent" && (collection === "sales-accounts" || collection === "sales-contacts" ? to === "active" : collection === "sales-leads" && to === "new");
     if (actionId === "sales.lead.qualify") return from === "absent" && (collection === "sales-opportunities" ? pipelineStageUuidPattern.test(to) : to === "active");
     if (actionId === "sales.opportunity.create") return from === "absent" && pipelineStageUuidPattern.test(to);
     const initial = ({ "sales.account.create": "active", "sales.contact.create": "active", "sales.lead.create": "new", "sales.activity.create": "scheduled", "sales.note.create": "recorded", "sales.attachment.link": "active" } as Record<string, string>)[actionId];
     return initial !== undefined && from === "absent" && to === initial;
   }
+  if (actionId === "sales.merge.commit") return (collection === "sales-accounts" || collection === "sales-contacts") && from === "active" && (to === "active" || to === "merged");
   if (actionId === "sales.account.update" || actionId === "sales.contact.update" || actionId === "sales.opportunity.update") return from === to;
   if (actionId === "sales.lead.update") return from === "new" && to === "working" || from === "working" && to === "working";
   if (actionId === "sales.lead.qualify") return ["new", "working"].includes(from) && to === "qualified";
@@ -2186,10 +2528,12 @@ function workflowAuditHistory(value: unknown, collection: WorkflowCollection, id
     const ownership = record?.actionId === salesOwnershipAssignDescriptor.id;
     const genesis = index === 0 && !migration;
     const genesisFacts = ownershipSnapshot(record?.ownershipGenesis);
-    const allowedKeys = ["actionId", "resourceId", "applicationId", "environment", "fromState", "toState", "occurredAt", "actorId", "revision", "idempotencyKey", ...(genesis ? ["ownershipGenesis"] : []), ...(ownership ? ["ownership"] : [])];
+    const dataMovement = record?.actionId === "sales.import.commit" || record?.actionId === "sales.merge.commit";
+    const allowedKeys = ["actionId", "resourceId", "applicationId", "environment", "fromState", "toState", "occurredAt", "actorId", "revision", "idempotencyKey", ...(genesis ? ["ownershipGenesis"] : []), ...(ownership ? ["ownership"] : []), ...(dataMovement ? ["dataMovement"] : [])];
     const actionAllowed = typeof record?.actionId === "string" && (isWorkflowActionId(record.actionId) ? workflowActions[record.actionId].collection === collection || qualifyGenesis
       : record.actionId === salesOpportunityStageUpdateDescriptor.id ? collection === "sales-opportunities"
-        : ownership && ["sales-accounts", "sales-contacts", "sales-leads", "sales-opportunities"].includes(collection));
+        : dataMovement ? validDataMovementAudit(record.dataMovement, collection, genesis, record.actionId, record.fromState, record.toState)
+          : ownership && ["sales-accounts", "sales-contacts", "sales-leads", "sales-opportunities"].includes(collection));
     const ownershipFacts = isRecord(record?.ownership) ? record.ownership : undefined;
     if (record === undefined || !exactKeys(record, allowedKeys) || !actionAllowed ||
       typeof record.resourceId !== "string" || !isSalesRecordId(record.resourceId) || record.resourceId !== identity.id || record.applicationId !== identity.applicationId || record.environment !== identity.environment ||
@@ -2638,7 +2982,12 @@ export const salesCoreCollections: readonly CollectionConfig[] = Object.freeze([
   salesTasksCollection,
   salesNotesCollectionWithEvents,
   salesAttachmentReferencesCollectionWithEvents,
-  salesSavedViewsCollectionWithEvents
+  salesSavedViewsCollectionWithEvents,
+  salesImportJobsCollection,
+  salesImportRowsCollection,
+  salesImportChunksCollection,
+  salesExportJobsCollection,
+  salesMergeLineageCollection
 ]);
 
 export const salesDefaultSettings = projectSystemSettingsValues(salesWorkspaceSettingsDescriptor);
@@ -2703,12 +3052,18 @@ export const salesRegistration = definePluginRegistration({
     context.register("sources", salesSavedViewTableDescriptor.id, salesSavedViewTableDefinition);
     context.register("sources", salesSavedViewKanbanDescriptor.id, salesSavedViewKanbanDefinition);
     context.register("sources", salesSavedViewCalendarDescriptor.id, salesSavedViewCalendarDefinition);
+    context.register("sources", salesImportJobListDescriptor.id, salesImportJobListDefinition);
+    context.register("sources", salesImportJobDetailDescriptor.id, salesImportJobDetailDefinition);
+    context.register("sources", salesExportJobListDescriptor.id, salesExportJobListDefinition);
+    context.register("sources", salesExportJobDetailDescriptor.id, salesExportJobDetailDefinition);
+    context.register("sources", salesDedupeCandidatesDescriptor.id, salesDedupeCandidatesDefinition);
     context.register("actions", salesTaskCreateDescriptor.id, salesTaskCreateDefinition);
     context.register("actions", salesTaskUpdateDescriptor.id, salesTaskUpdateDefinition);
     context.register("actions", salesOpportunityStageUpdateDescriptor.id, salesOpportunityStageUpdateDefinition);
     for (const definition of salesWorkflowActionDefinitions) context.register("actions", definition.descriptor.id, definition);
     for (const definition of salesConfigurationActionDefinitions) context.register("actions", definition.descriptor.id, definition);
     context.register("actions", salesOwnershipAssignDescriptor.id, salesOwnershipAssignDefinition);
+    for (const definition of salesDataMovementActionDefinitions) context.register("actions", definition.descriptor.id, definition);
     context.register("tools", salesSearchTasksDescriptor.id, salesSearchTasksDescriptor);
     context.register("tools", salesCreateTaskToolDescriptor.id, salesCreateTaskToolDescriptor);
     for (const descriptor of salesEventDescriptors) context.register("events", descriptor.id, descriptor);
@@ -2727,6 +3082,11 @@ export const salesRegistration = definePluginRegistration({
       ["sales.notes.collection", salesNotesCollectionWithEvents],
       ["sales.attachment-references.collection", salesAttachmentReferencesCollectionWithEvents],
       ["sales.saved-views.collection", salesSavedViewsCollectionWithEvents]
+      , ["sales.import-jobs.collection", salesImportJobsCollection]
+      , ["sales.import-rows.collection", salesImportRowsCollection]
+      , ["sales.import-chunks.collection", salesImportChunksCollection]
+      , ["sales.export-jobs.collection", salesExportJobsCollection]
+      , ["sales.merge-lineage.collection", salesMergeLineageCollection]
     ] as const;
     for (const [id, collection] of collections) context.register("schema", id, { type: "payload.collection", collection });
     context.register("migrations", salesReferenceMetadata.migration.id, salesReferenceMetadata.migration);
@@ -2756,12 +3116,18 @@ export const salesRegistration = definePluginRegistration({
     context.bind("sources", salesSavedViewTableDescriptor.id, salesSavedViewTableHandler);
     context.bind("sources", salesSavedViewKanbanDescriptor.id, salesSavedViewKanbanHandler);
     context.bind("sources", salesSavedViewCalendarDescriptor.id, salesSavedViewCalendarHandler);
+    context.bind("sources", salesImportJobListDescriptor.id, salesImportJobListHandler);
+    context.bind("sources", salesImportJobDetailDescriptor.id, salesImportJobDetailHandler);
+    context.bind("sources", salesExportJobListDescriptor.id, salesExportJobListHandler);
+    context.bind("sources", salesExportJobDetailDescriptor.id, salesExportJobDetailHandler);
+    context.bind("sources", salesDedupeCandidatesDescriptor.id, salesDedupeCandidatesHandler);
     context.bind("actions", salesTaskCreateDescriptor.id, salesTaskCreateHandler as ActionHandler);
     context.bind("actions", salesTaskUpdateDescriptor.id, salesTaskUpdateHandler as ActionHandler);
     context.bind("actions", salesOpportunityStageUpdateDescriptor.id, salesOpportunityStageUpdateHandler as ActionHandler);
     for (const definition of salesWorkflowActionDefinitions) context.bind("actions", definition.descriptor.id, salesWorkflowActionHandler as ActionHandler);
     for (const definition of salesConfigurationActionDefinitions) context.bind("actions", definition.descriptor.id, salesConfigurationActionHandler as ActionHandler);
     context.bind("actions", salesOwnershipAssignDescriptor.id, salesOwnershipAssignHandler as ActionHandler);
+    for (const definition of salesDataMovementActionDefinitions) context.bind("actions", definition.descriptor.id, salesDataMovementActionHandler);
     for (const descriptor of salesEventDescriptors) context.bind("events", descriptor.id, salesEventAfterChange as (...args: never[]) => unknown);
     for (const descriptor of salesRealtimeTopicDescriptors) context.bind("realtimeTopics", descriptor.id, createSalesRealtimeRelay as (...args: never[]) => unknown);
   },

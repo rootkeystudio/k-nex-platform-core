@@ -306,7 +306,7 @@ export async function withGeneratedCrmBrowserFixture(runBrowser) {
     const databaseUrl = new URL(container.getConnectionUri()); databaseUrl.pathname = "/p13_crm_browser_application";
     const port = await unusedPort(); const operatorPort = await unusedPort();
     const operatorUriSan = `spiffe://k-nex.test/applications/${applicationId}/environments/${environmentName}/administration`; const operatorCredential = issueDoctorCredential(directory, operatorUriSan);
-    const environment = { ...process.env, DATABASE_URL: databaseUrl.toString(), K_NEX_ENVIRONMENT: environmentName, K_NEX_PUBLIC_ORIGIN: `http://127.0.0.1:${port}`, PAYLOAD_SECRET: randomBytes(32).toString("hex"), K_NEX_ADMINISTRATION_OPERATOR_HOST: "127.0.0.1", K_NEX_ADMINISTRATION_OPERATOR_PORT: String(operatorPort), K_NEX_ADMINISTRATION_OPERATOR_CLIENT_CERT: operatorCredential.certificate, K_NEX_ADMINISTRATION_OPERATOR_CLIENT_KEY: operatorCredential.key, K_NEX_ADMINISTRATION_OPERATOR_CA_CERT: operatorCredential.certificate, K_NEX_ADMINISTRATION_OPERATOR_URI_SAN: operatorUriSan, K_NEX_ADMINISTRATION_OPERATOR_IDENTITY: "fixture.p13-doctor" };
+    const environment = { ...process.env, DATABASE_URL: databaseUrl.toString(), K_NEX_ENVIRONMENT: environmentName, K_NEX_GENERATION: "sales-generation-1", K_NEX_PUBLIC_ORIGIN: `http://127.0.0.1:${port}`, PAYLOAD_SECRET: randomBytes(32).toString("hex"), K_NEX_ADMINISTRATION_OPERATOR_HOST: "127.0.0.1", K_NEX_ADMINISTRATION_OPERATOR_PORT: String(operatorPort), K_NEX_ADMINISTRATION_OPERATOR_CLIENT_CERT: operatorCredential.certificate, K_NEX_ADMINISTRATION_OPERATOR_CLIENT_KEY: operatorCredential.key, K_NEX_ADMINISTRATION_OPERATOR_CA_CERT: operatorCredential.certificate, K_NEX_ADMINISTRATION_OPERATOR_URI_SAN: operatorUriSan, K_NEX_ADMINISTRATION_OPERATOR_IDENTITY: "fixture.p13-doctor" };
     const origin = `http://127.0.0.1:${port}`;
     applicationBackendSnapshot = async () => {
       const result = await administrator.query({
@@ -349,16 +349,29 @@ export async function withGeneratedCrmBrowserFixture(runBrowser) {
     ids.candidate = await createUser(origin, ownerLogin.cookie, "candidate@p13-browser.example.test", password);
     ids.linker = await createUser(origin, ownerLogin.cookie, personas.linker.email, password);
     pool = new pg.Pool({ connectionString: databaseUrl.toString() });
+    // Generated product workers bind data movement to the same durable deployment
+    // fence as release-worker ownership; a bare test worker is never active by default.
+    await pool.query(
+      `insert into runtime_static_deployments(application_id,environment,revision,active_generation_id,active_generation,rollback_window,state_digest)
+       values($1,$2,1,'sales-generation-1','{"generationId":"sales-generation-1"}'::jsonb,'{"state":"open"}'::jsonb,$3)`,
+      [applicationId, environmentName, `sha256:${createHash("sha256").update("p13-crm-browser-static-generation-1").digest("hex")}`]
+    );
+    await pool.query(
+      `insert into runtime_worker_generation_fences(application_id,environment,active_execution_generation,fencing_token,lease_owner,lease_expires_at,promotion_revision)
+       values($1,$2,'sales-generation-1',1,'fixture:p13-crm-browser:worker',now()+interval '10 minutes',1)`,
+      [applicationId, environmentName]
+    );
     await grantPersonas(pool, ids);
     const records = await seedRecords(pool, ids);
     stage("records-seeded");
     await stopWeb();
     await startWeb();
     stage("browser-web-ready");
-    const startWorker = async () => {
+    const startWorker = async (executionGeneration = environment.K_NEX_GENERATION) => {
       assert.equal(worker, undefined, "Generated CRM realtime worker is already running.");
+      assert.match(executionGeneration, /^[a-z][a-z0-9-]{2,127}$/u);
       const outputStart = workerOutput.length;
-      worker = spawn(process.execPath, ["dist/k-nex-worker.js"], { cwd: application, env: environment, stdio: ["ignore", "pipe", "pipe"] });
+      worker = spawn(process.execPath, ["dist/k-nex-worker.js"], { cwd: application, env: { ...environment, K_NEX_GENERATION: executionGeneration }, stdio: ["ignore", "pipe", "pipe"] });
       const startedWorker = worker;
       startedWorker.once("close", () => closedWorkers.add(startedWorker));
       worker.stdout.setEncoding("utf8").on("data", (chunk) => { workerOutput += chunk; }); worker.stderr.setEncoding("utf8").on("data", (chunk) => { workerOutput += chunk; });

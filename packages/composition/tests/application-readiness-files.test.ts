@@ -55,6 +55,10 @@ describe("generated application readiness", () => {
     expect(readiness.indexOf("await assertSalesSchema(pool)")).toBeLessThan(readiness.indexOf("await assertReportingTimezone(pool)"));
     expect(readiness).toContain('"sales-accounts"');
     expect(readiness).toContain('"sales-attachment-references"');
+    expect(readiness).toContain('"sales-import-jobs"');
+    expect(readiness).toContain("sales_import_chunks");
+    expect(readiness).toContain("sales_export_jobs");
+    expect(readiness).toContain("sales_merge_lineage");
     expect(readiness).toContain('"allowed_transition_stage_ids", "required_field_ids"');
     expect(readiness).toContain('legacyStages?.has("allowed_transitions")');
     expect(readiness).toContain("currentRevision !== 3");
@@ -83,6 +87,8 @@ describe("generated application readiness", () => {
     expect(readiness).toContain("expectedRouteSources");
     expect(readiness).toContain('"src/app/(workspace)/system/extensions/[extensionId]/page.tsx"');
     expect(readiness).toContain('"src/app/api/system/themes/profiles/[profileId]/publish/route.ts"');
+    expect(readiness).toContain('"src/app/api/k-nex/sales/import-upload/route.ts"');
+    expect(readiness).toContain('"src/app/api/k-nex/sales/export-artifact/route.ts"');
     expect(readiness).not.toContain("payload.destroy()");
 
     for (const name of ["K_NEX_ADMINISTRATION_OPERATOR_HOST", "K_NEX_ADMINISTRATION_OPERATOR_PORT", "K_NEX_ADMINISTRATION_OPERATOR_URI_SAN", "K_NEX_ADMINISTRATION_OPERATOR_IDENTITY"]) {

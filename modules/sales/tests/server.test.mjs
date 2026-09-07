@@ -66,6 +66,12 @@ import {
   salesWorkflowActionHandler,
   salesPermissionPolicyExecutors,
   projectSalesStateHistory,
+  createSalesImportGenesisAudit,
+  createSalesMergeAuditTransition,
+  createSalesDataMovementJobAudit,
+  createSalesDataMovementJobOutbox,
+  salesDataMovementJobTransitions,
+  salesDataMovementObjectEvent,
   salesEventAfterChange,
   salesPipelineStageId
 } from "../dist/server.js";
@@ -253,7 +259,7 @@ test("Sales registers active successor sources and frozen authority", () => {
     register: (kind, id) => contributions.push([kind, id]),
     bindRenderer: (kind, id) => bindings.push([kind, id])
   });
-  assert.deepEqual(contributions.filter(([kind]) => kind === "sources").map(([, id]) => id).sort(), ["sales.account.detail", "sales.accounts", "sales.contact.detail", "sales.contacts", "sales.lead.detail", "sales.leads", "sales.opportunities", "sales.opportunity.detail", "sales.pipeline.snapshot", "sales.saved-view.calendar", "sales.saved-view.detail", "sales.saved-view.kanban", "sales.saved-view.list", "sales.saved-view.table", "sales.tasks", "sales.timeline"]);
+  assert.deepEqual(contributions.filter(([kind]) => kind === "sources").map(([, id]) => id).sort(), ["sales.account.detail", "sales.accounts", "sales.contact.detail", "sales.contacts", "sales.dedupe.candidates", "sales.export-job.detail", "sales.export-job.list", "sales.import-job.detail", "sales.import-job.list", "sales.lead.detail", "sales.leads", "sales.opportunities", "sales.opportunity.detail", "sales.pipeline.snapshot", "sales.saved-view.calendar", "sales.saved-view.detail", "sales.saved-view.kanban", "sales.saved-view.list", "sales.saved-view.table", "sales.tasks", "sales.timeline"]);
   assert.deepEqual(contributions.filter(([kind]) => kind === "actions").map(([, id]) => id).sort(), salesManifest.contributions.actions && Object.keys(salesManifest.contributions.actions).sort());
   assert.deepEqual(contributions.filter(([kind]) => kind === "tools").map(([, id]) => id).sort(), ["sales.tools.create-task", "sales.tools.search-tasks"]);
   assert.deepEqual(contributions.filter(([kind]) => kind === "permissions").map(([, id]) => id).sort(), salesCrmPermissionDescriptors.map(({ id }) => id).sort());
@@ -265,7 +271,7 @@ test("Sales registers active successor sources and frozen authority", () => {
   assert.deepEqual(contributions.filter(([kind]) => kind === "pageTemplates").map(([, id]) => id), salesPageTemplates.map(({ id }) => id));
   assert.deepEqual(contributions.filter(([kind]) => kind === "components").map(([, id]) => id), salesUiComponentDescriptors.map(({ id }) => id));
   assert.deepEqual(contributions.filter(([kind]) => kind === "blocks").map(([, id]) => id), salesUiBlockDescriptors.map(({ id }) => id));
-  assert.deepEqual(bindings.filter(([kind]) => kind === "sources").map(([, id]) => id).sort(), ["sales.account.detail", "sales.accounts", "sales.contact.detail", "sales.contacts", "sales.lead.detail", "sales.leads", "sales.opportunities", "sales.opportunity.detail", "sales.pipeline.snapshot", "sales.saved-view.calendar", "sales.saved-view.detail", "sales.saved-view.kanban", "sales.saved-view.list", "sales.saved-view.table", "sales.tasks", "sales.timeline"]);
+  assert.deepEqual(bindings.filter(([kind]) => kind === "sources").map(([, id]) => id).sort(), ["sales.account.detail", "sales.accounts", "sales.contact.detail", "sales.contacts", "sales.dedupe.candidates", "sales.export-job.detail", "sales.export-job.list", "sales.import-job.detail", "sales.import-job.list", "sales.lead.detail", "sales.leads", "sales.opportunities", "sales.opportunity.detail", "sales.pipeline.snapshot", "sales.saved-view.calendar", "sales.saved-view.detail", "sales.saved-view.kanban", "sales.saved-view.list", "sales.saved-view.table", "sales.tasks", "sales.timeline"]);
   assert.deepEqual(bindings.filter(([kind]) => kind === "actions").map(([, id]) => id).sort(), salesManifest.contributions.actions && Object.keys(salesManifest.contributions.actions).sort());
   assert.deepEqual(bindings.filter(([kind]) => kind === "components").map(([, id]) => id), salesUiComponentDescriptors.map(({ id }) => id));
   assert.deepEqual(bindings.filter(([kind]) => kind === "blocks").map(([, id]) => id), salesUiBlockDescriptors.map(({ id }) => id));
@@ -396,7 +402,7 @@ test("Sales registers source/action-backed tools with strict write policy", () =
 
 test("Sales declares event-to-realtime invalidation mappings", () => {
   assert.deepEqual(salesEventDescriptors.map(({ id }) => id).sort(), [
-    "sales.event.account-changed", "sales.event.contact-changed", "sales.event.lead-changed", "sales.event.opportunity-changed", "sales.event.task-changed", "sales.event.timeline-changed"
+    "sales.event.account-changed", "sales.event.contact-changed", "sales.event.export-job-changed", "sales.event.import-job-changed", "sales.event.lead-changed", "sales.event.opportunity-changed", "sales.event.task-changed", "sales.event.timeline-changed"
   ]);
   const eventIds = new Set(salesEventDescriptors.map(({ id }) => id));
   const sourceIds = new Set(salesManifest.contributions.sources && Object.keys(salesManifest.contributions.sources));
@@ -481,6 +487,11 @@ test("Sales durable events project task and opportunity invalidations through th
   ]);
   assert.equal(JSON.stringify(publications).includes("resourceId"), false);
   assert.equal(JSON.stringify(publications).includes("fromState"), false);
+  for (const [type, topic, source] of [["sales.event.account-changed", "sales.realtime.accounts", "sales.accounts"], ["sales.event.contact-changed", "sales.realtime.contacts", "sales.contacts"], ["sales.event.lead-changed", "sales.realtime.leads", "sales.leads"], ["sales.event.import-job-changed", "sales.realtime.import-jobs", "sales.import-job.list"], ["sales.event.export-job-changed", "sales.realtime.export-jobs", "sales.export-job.list"]]) {
+    await run({ ...base, id: `movement-${source}`, type, payload: { resourceId: "9", actionId: "sales.import.commit", environment: "production", fromState: "absent", toState: source === "sales.leads" ? "new" : "active", revision: 1, idempotencyKey: `movement-${source}`, operation: "update" } });
+    assert.deepEqual(publications.at(-1).channel.topicId, topic);
+    assert.deepEqual(publications.at(-1).message.source, source);
+  }
 });
 
 test("Sales durable event hook binds the exact final audit transition and closed event contract", async () => {
@@ -832,6 +843,63 @@ test("Sales state history validates the private mixed-axis chain and exposes onl
   malformed[2].ownership.oldOwnerId = "user-9";
   assert.throws(() => projectSalesStateHistory({ audit: malformed, collection: "sales-accounts", id: "1", applicationId: "customer-gate-1", environment: "production", revision: 5, ownerId: "user-3", teamId: "team:user-3", currentState: "archived", currentStateField: "status" }), (error) => error?.code === "STALE_RECORD");
   assert.throws(() => projectSalesStateHistory({ audit, collection: "sales-accounts", id: "1", applicationId: "customer-gate-1", environment: "production", revision: 5, ownerId: "user-4", teamId: "team:user-3", currentState: "archived", currentStateField: "status" }), (error) => error?.code === "STALE_RECORD");
+});
+
+test("P13.5 import genesis and merge lineage audits remain canonical CRM history", () => {
+  const base = { applicationId: "customer-gate-1", environment: "production", actorId: "user-1", ownerId: "user-1", teamId: "team:user-1", occurredAt: "2026-09-07T00:00:00.000Z" };
+  const digest = `sha256:${"a".repeat(64)}`;
+  const winnerGenesis = createSalesImportGenesisAudit({ ...base, targetObjectType: "sales.object.account", resourceId: "41", idempotencyKey: "import-job-7-row-1", importJobId: 7, oneBasedDataRow: 1, rowDigest: digest });
+  const loserGenesis = createSalesImportGenesisAudit({ ...base, targetObjectType: "sales.object.account", resourceId: "42", idempotencyKey: "import-job-7-row-2", importJobId: 7, oneBasedDataRow: 2, rowDigest: digest });
+  const winnerMerge = createSalesMergeAuditTransition({ ...base, resourceId: "41", idempotencyKey: "merge-lineage-7-survivor", preRevision: 1, role: "survivor", lineageId: "lineage-7" });
+  const loserMerge = createSalesMergeAuditTransition({ ...base, resourceId: "42", idempotencyKey: "merge-lineage-7-merged", preRevision: 1, role: "merged", lineageId: "lineage-7" });
+  assert.deepEqual(salesDataMovementObjectEvent("sales.object.account"), "sales.event.account-changed");
+  assert.deepEqual(salesDataMovementObjectEvent("sales.object.contact"), "sales.event.contact-changed");
+  assert.deepEqual(salesDataMovementObjectEvent("sales.object.lead"), "sales.event.lead-changed");
+  for (const eventId of [salesDataMovementObjectEvent("sales.object.account"), salesDataMovementObjectEvent("sales.object.contact"), salesDataMovementObjectEvent("sales.object.lead")]) assert.equal(salesEventDescriptors.some(({ id }) => id === eventId), true);
+  assert.deepEqual(projectSalesStateHistory({ audit: [winnerGenesis, winnerMerge], collection: "sales-accounts", id: "41", applicationId: base.applicationId, environment: base.environment, revision: 2, ownerId: base.ownerId, teamId: base.teamId, currentState: "active", currentStateField: "status" }).map(({ actionId, fromState, toState, revision }) => ({ actionId, fromState, toState, revision })), [
+    { actionId: "sales.merge.commit", fromState: "active", toState: "active", revision: 2 },
+    { actionId: "sales.import.commit", fromState: "absent", toState: "active", revision: 1 }
+  ]);
+  assert.deepEqual(projectSalesStateHistory({ audit: [loserGenesis, loserMerge], collection: "sales-accounts", id: "42", applicationId: base.applicationId, environment: base.environment, revision: 2, ownerId: base.ownerId, teamId: base.teamId, currentState: "merged", currentStateField: "status" }).map(({ actionId, fromState, toState, revision }) => ({ actionId, fromState, toState, revision })), [
+    { actionId: "sales.merge.commit", fromState: "active", toState: "merged", revision: 2 },
+    { actionId: "sales.import.commit", fromState: "absent", toState: "active", revision: 1 }
+  ]);
+  const forged = structuredClone(winnerGenesis);
+  forged.dataMovement.rowDigest = "sha256:bad";
+  assert.throws(() => projectSalesStateHistory({ audit: [forged], collection: "sales-accounts", id: "41", applicationId: base.applicationId, environment: base.environment, revision: 1, ownerId: base.ownerId, teamId: base.teamId, currentState: "active", currentStateField: "status" }), (error) => error?.code === "STALE_RECORD");
+});
+
+test("P13.5 job transitions require canonical audit and registered top-level environment outbox", () => {
+  const running = createSalesDataMovementJobAudit({ kind: "import", jobId: 7, actionId: "sales.import.commit", applicationId: "customer-gate-1", environment: "production", fromState: "queued", toState: "running", occurredAt: "2026-09-07T00:00:00.000Z", actorId: "user-1", revision: 4, idempotencyKey: "import-7-running" });
+  assert.deepEqual(running.dataMovement, { kind: "import", jobId: 7 });
+  const event = createSalesDataMovementJobOutbox({ ...running, targetObjectType: "sales.object.lead", authorizationRevision: 3, lifecycleRevision: 1, scopeRevision: 2 });
+  assert.deepEqual(event, { type: "sales.event.import-job-changed", payload: { environment: "production", jobId: 7, state: "running", revision: 4, actionId: "sales.import.commit", targetObjectType: "sales.object.lead", authorizationRevision: 3, lifecycleRevision: 1, scopeRevision: 2 } });
+  assert.equal(salesEventDescriptors.some(({ id }) => id === event.type), true);
+  assert.deepEqual(salesDataMovementJobTransitions, {
+    import: [
+      { actionId: "sales.import.commit", fromState: "queued", toState: "running" },
+      { actionId: "sales.import.commit", fromState: "running", toState: "succeeded" },
+      { actionId: "sales.import.commit", fromState: "running", toState: "partially-failed" },
+      { actionId: "sales.import.commit", fromState: "running", toState: "failed" },
+      { actionId: "sales.import.cancel", fromState: "validated", toState: "cancelled" },
+      { actionId: "sales.import.cancel", fromState: "queued", toState: "cancelled" }
+    ],
+    export: [
+      { actionId: "sales.export.create", fromState: "queued", toState: "running" },
+      { actionId: "sales.export.create", fromState: "running", toState: "succeeded" },
+      { actionId: "sales.export.create", fromState: "running", toState: "failed" },
+      { actionId: "sales.export.cancel", fromState: "queued", toState: "cancelled" }
+    ]
+  });
+  for (const transition of [...salesDataMovementJobTransitions.import, ...salesDataMovementJobTransitions.export]) {
+    assert.doesNotThrow(() => createSalesDataMovementJobAudit({ ...running, ...transition, jobId: running.dataMovement.jobId, kind: transition.actionId.startsWith("sales.import.") ? "import" : "export" }));
+  }
+  for (const transition of [
+    { kind: "import", actionId: "sales.import.commit", fromState: "validated", toState: "queued" },
+    { kind: "import", actionId: "sales.import.commit", fromState: "queued", toState: "queued" },
+    { kind: "export", actionId: "sales.export.create", fromState: "validated", toState: "queued" },
+    { kind: "export", actionId: "sales.export.cancel", fromState: "running", toState: "cancelled" }
+  ]) assert.throws(() => createSalesDataMovementJobAudit({ ...running, ...transition, jobId: running.dataMovement.jobId }), /ACTION_FORBIDDEN/u);
 });
 
 test("Sales task CAS admits one close and rejects its replay without another write", async () => {

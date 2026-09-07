@@ -86,7 +86,7 @@ describe("generated workspace invalidation runtime", () => {
     expect(runtime).toContain("permissions.includes(route.permission)");
     expect(runtime).toContain("permissions.includes(template.permission)");
     expect(runtime).toContain("const permissions = await workspaceSalesPermissions(payload, context);");
-    expect(runtime).toContain("projectWorkspaceSalesDocument(payload, context, authorizedFixedDetailDocument(template.document, route.id, permissions), permissions");
+    expect(runtime).toContain("projectWorkspaceSalesDocument(payload, context, withDataMovementSelection(authorizedFixedDetailDocument(template.document, route.id, permissions), selection), permissions");
     expect(runtime).toContain("const listPage = routePage(pagination.listPage, 1_000_000)");
     expect(runtime).toContain("const timelinePage = routePage(pagination.timelinePage, 4)");
     expect(runtime).toContain("finalState.authorizationRevision !== initialState.authorizationRevision");
@@ -113,7 +113,7 @@ describe("generated workspace invalidation runtime", () => {
     expect(runtime).not.toContain("openWorkspacePageSession");
     expect(client).toContain("createUiDocumentRuntime(createUiRuntimeRegistry");
     expect(client).toContain('const query = new URLSearchParams();');
-    expect(client).toContain('for (const [key, value] of Object.entries(selection)) query.set(key, String(value));');
+    expect(client).toContain('for (const [key, value] of Object.entries(selection)) query.set(key === "import-job-id" ? "importJobId"');
     expect(client).toContain("export function createSalesRouteRefreshScheduler(run: (signal: AbortSignal) => Promise<void>)");
     expect(client).toContain("if (pending) { queued = true; if (urgent) pendingAbort?.abort(); return; }");
     expect(client).toContain('fetch("/api/k-nex/sales/routes/" + encodeURIComponent(routeId) + "?" + query, { cache: "no-store", signal })');
@@ -203,6 +203,7 @@ describe("generated workspace invalidation runtime", () => {
   it("dispatches durable invalidations through one PostgreSQL channel while shell polling reconciles misses", () => {
     const worker = applicationAuthFiles({ applicationId: "customer-alpha", applicationName: "Customer Alpha", theme: "minimal" })["src/k-nex-worker.ts"]!;
     const shell = applicationAuthFiles({ applicationId: "customer-alpha", applicationName: "Customer Alpha", theme: "minimal" })["src/app/components/k-nex-workspace-shell.tsx"]!;
+    const routeRuntime = applicationAuthFiles({ applicationId: "customer-alpha", applicationName: "Customer Alpha", theme: "minimal" })["src/app/components/k-nex-sales-route-runtime.tsx"]!;
 
     expect(worker).toContain("PostgresAuthorizationOutboxDispatcher");
     expect(worker).toContain("PostgresWorkspacePageOutboxDispatcher");
@@ -213,12 +214,13 @@ describe("generated workspace invalidation runtime", () => {
     expect(worker).toContain('notify("authorization", invalidation, signal)');
     expect(worker).toContain("const salesRealtimeOutboxConsumer = Object.freeze");
     expect(worker).toContain('pluginId: "module.sales"');
+    expect(worker).toContain('import { salesEventDescriptors } from "@k-nex/module-sales/contracts"');
+    expect(worker).toContain("eventTypes: Object.freeze(salesEventDescriptors.map(({ id }) => id))");
     expect(worker).toContain('consumer: salesRealtimeOutboxConsumer');
-    for (const eventType of ["sales.event.account-changed", "sales.event.contact-changed", "sales.event.lead-changed", "sales.event.opportunity-changed", "sales.event.task-changed", "sales.event.timeline-changed"]) {
-      expect(worker).toContain(`"${eventType}"`);
-    }
     expect(worker).toContain('notify("workspace-page", invalidation, signal)');
     expect(worker).toContain('notify("workspace-navigation", invalidation, signal)');
+    expect(routeRuntime).toContain('"sales.route.imports": ["sales.realtime.accounts", "sales.realtime.contacts", "sales.realtime.leads", "sales.realtime.import-jobs"]');
+    expect(routeRuntime).toContain('"sales.route.exports": ["sales.realtime.accounts", "sales.realtime.contacts", "sales.realtime.leads", "sales.realtime.export-jobs"]');
     expect(shell).toContain("setInterval(async () => {");
     expect(shell).toContain('fetch("/api/k-nex/navigation/revision", { cache: "no-store" })');
   });

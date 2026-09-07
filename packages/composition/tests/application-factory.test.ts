@@ -95,7 +95,7 @@ describe("create-knex-app", () => {
     ]);
     expect(manifest.providers).toEqual({ "realtime.gateway": { plugin: "provider.realtime.socketio", package: "@k-nex/provider-realtime-socketio", version: "1.0.0" } });
     expect(manifest.builder).toEqual({ plugin: "builder.puck", package: "@k-nex/builder-puck", version: "1.0.0", profiles: { workspace: { enabled: true, drafts: true, surfaces: ["workspace"] } } });
-    expect(manifest.environment.required).toEqual(["DATABASE_URL", "K_NEX_ADMINISTRATION_OPERATOR_CA_CERT", "K_NEX_ADMINISTRATION_OPERATOR_CLIENT_CERT", "K_NEX_ADMINISTRATION_OPERATOR_CLIENT_KEY", "K_NEX_ADMINISTRATION_OPERATOR_HOST", "K_NEX_ADMINISTRATION_OPERATOR_IDENTITY", "K_NEX_ADMINISTRATION_OPERATOR_PORT", "K_NEX_ADMINISTRATION_OPERATOR_URI_SAN", "K_NEX_ENVIRONMENT", "K_NEX_PUBLIC_ORIGIN", "PAYLOAD_SECRET"]);
+    expect(manifest.environment.required).toEqual(["DATABASE_URL", "K_NEX_ADMINISTRATION_OPERATOR_CA_CERT", "K_NEX_ADMINISTRATION_OPERATOR_CLIENT_CERT", "K_NEX_ADMINISTRATION_OPERATOR_CLIENT_KEY", "K_NEX_ADMINISTRATION_OPERATOR_HOST", "K_NEX_ADMINISTRATION_OPERATOR_IDENTITY", "K_NEX_ADMINISTRATION_OPERATOR_PORT", "K_NEX_ADMINISTRATION_OPERATOR_URI_SAN", "K_NEX_ENVIRONMENT", "K_NEX_GENERATION", "K_NEX_PUBLIC_ORIGIN", "PAYLOAD_SECRET"]);
     expect(JSON.parse(first.files["package.json"]!).dependencies).toMatchObject({ payload: "3.88.0", "@k-nex/builder-puck": "1.0.0", "@k-nex/module-sales": "1.0.0", "@k-nex/provider-realtime-socketio": "1.0.0", "@k-nex/theme-minimal": "1.0.0" });
     expect(first.files["src/payload.config.ts"]).toContain("kNexSalesRegistry.collections");
     expect(first.files["src/app/(workspace)/system/access/roles/page.tsx"]).toContain("SystemRolesPage");
@@ -124,7 +124,8 @@ describe("create-knex-app", () => {
       "20260904_000028_workspace_sidebar_preferences",
       "20260905_000027_crm_core",
       "20260906_000029_attachment_upload_admissions",
-      "20260907_000030_pipeline_saved_views"
+      "20260907_000030_pipeline_saved_views",
+      "20260907_000031_data_movement"
     ]);
     const attachmentAdmissions = first.files["src/migrations/20260906_000029_attachment_upload_admissions.ts"]!;
     expect(attachmentAdmissions).toContain('CREATE TABLE "k_nex_sales_attachment_upload_admissions"');
@@ -224,7 +225,7 @@ describe("create-knex-app", () => {
     expect(first.files["src/k-nex-registry.ts"]).toContain("salesCoreCollectionSlugs");
     expect(first.files["src/k-nex-registry.ts"]).toContain("collections: Object.freeze([...salesCoreCollections])");
     expect(first.files["src/k-nex-registry.ts"]).toContain("collectionSlugs: salesCoreCollectionSlugs");
-    expect(first.files["src/k-nex-readiness.ts"]).toContain('"sales-attachment-references", "sales-saved-views"');
+    expect(first.files["src/k-nex-readiness.ts"]).toContain('"sales-saved-views", "sales-import-jobs", "sales-import-rows", "sales-import-chunks", "sales-export-jobs", "sales-merge-lineage"');
     expect(first.files["src/k-nex-readiness.ts"]).toContain('sales_saved_views: ["name", "visibility", "visibility_team_id", "view_kind", "target_object_id", "definition", "status"]');
     expect(first.files["src/k-nex-registry.ts"]).not.toContain("salesTasksCollection");
     expect(first.files["src/k-nex-registry.ts"]).not.toContain("salesOpportunitiesCollection");
@@ -297,6 +298,59 @@ describe("create-knex-app", () => {
     expect(pipelineSavedViews).toContain("sales_pipeline_stage_translation_evidence");
     expect(pipelineSavedViews).toContain("maintenance-required: P13.4 opaque stage-ID cutover is forward-only");
     expect(pipelineSavedViews).toBe(readFileSync(new URL("../../../fixtures/customer-gate-1/src/migrations/20260907_000030_pipeline_saved_views.ts", import.meta.url), "utf8"));
+    const dataMovement = first.files["src/migrations/20260907_000031_data_movement.ts"]!;
+    expect(dataMovement).toContain("worker_generation_id text");
+    expect(dataMovement).toContain("worker_fencing_token bigint");
+    expect(dataMovement).toContain("permission_grants jsonb NOT NULL");
+    expect(dataMovement).not.toContain("sales_data_worker_generations");
+    expect(dataMovement).toContain("sales_export_artifacts");
+    expect(dataMovement).toContain("P13.5 durable data-movement evidence is forward-only");
+    expect(dataMovement).toBe(readFileSync(new URL("../../../fixtures/customer-gate-1/src/migrations/20260907_000031_data_movement.ts", import.meta.url), "utf8"));
+    const importUploadRoute = first.files["src/app/api/k-nex/sales/import-upload/route.ts"]!;
+    expect(importUploadRoute).toContain("sales_import_uploads");
+    expect(importUploadRoute).toContain("async function boundedUploadBody(request: Request)");
+    expect(importUploadRoute).toContain("request.body.getReader()");
+    expect(importUploadRoute).toContain("total > importUploadRequestByteLimit");
+    expect(importUploadRoute).toContain("uploaded[0] === 0xef && uploaded[1] === 0xbb && uploaded[2] === 0xbf ? uploaded.subarray(3) : uploaded");
+    expect(importUploadRoute).toContain("createHash(\"sha256\").update(bytes)");
+    expect(importUploadRoute).toContain("IMPORT_LIMIT_EXCEEDED");
+    expect(importUploadRoute).not.toContain("IMPORT_UPLOAD_FORBIDDEN");
+    expect(importUploadRoute).toContain('workspaceSalesPermissions(payload, context)).includes("sales.imports.execute")');
+    expect(importUploadRoute).toContain("WITH current_authority AS");
+    expect(importUploadRoute).toContain("s.revision=$10");
+    expect(importUploadRoute).toContain("a.authorization_revision=$8 AND a.lifecycle_revision=$9");
+    expect(importUploadRoute).toContain("x.delivery_class='platform-plugin' AND x.extension_id='module.sales' AND x.state='current'");
+    expect(importUploadRoute).toContain("x.runtime_generation_ids=$12::jsonb");
+    expect(importUploadRoute).toContain("JOIN k_nex_role_assignments r");
+    expect(importUploadRoute).toContain("g.permission_id='sales.imports.execute'");
+    expect(importUploadRoute).toContain("inactive-extension-disabled','inactive-extension-not-ready");
+    expect(importUploadRoute).toContain("FOR SHARE OF a,s,r,g,x");
+    expect(first.files["src/app/api/k-nex/sales/export-artifact/route.ts"]).toContain("readGeneratedSalesExportArtifact");
+    expect(first.files["src/k-nex-sales-data-movement.ts"]).toContain("sales_export_artifacts");
+    expect(first.files["src/k-nex-sales-data-movement.ts"]).toContain("parseSalesImportCsv");
+    expect(first.files["src/k-nex-sales-data-movement.ts"]).toContain("buildSalesExportCsv");
+    expect(first.files["src/k-nex-sales-data-movement.ts"]).toContain("salesDedupeMatch");
+    expect(first.files["src/k-nex-sales-data-movement.ts"]).toContain("async function assertWorkerExportFence");
+    expect(first.files["src/k-nex-sales-data-movement.ts"]).toContain("JOIN runtime_worker_generation_fences f");
+    expect(first.files["src/k-nex-sales-data-movement.ts"]).toContain("f.active_execution_generation=$3 AND f.fencing_token=$4");
+    expect(first.files["src/k-nex-sales-data-movement.ts"]).toContain("jsonb_array_elements_text(s.authorized_team_ids)");
+    expect(first.files["src/k-nex-sales-workspace.ts"]).toContain("new GeneratedSalesDataMovementStore(request");
+    expect(first.files["src/k-nex-sales-workspace.ts"]).toContain("request.dataMovement = dataMovement");
+    expect(first.files["src/k-nex-sales-workspace.ts"]).toContain('grants.push("sales.object.contact:email", "sales.object.contact:phone")');
+    expect(first.files["src/k-nex-sales-workspace.ts"]).toContain("const dataMovementPermissionIds = Object.freeze([");
+    expect(first.files["src/k-nex-sales-workspace.ts"]).toContain('"sales.imports.execute", "sales.exports.execute", "sales.records.merge"');
+    expect(first.files["src/k-nex-sales-workspace.ts"]).toContain("authorizedTeamIds: current.salesScope.authorizedTeamIds, fieldGrants, permissionGrants");
+    expect(first.files["src/k-nex-sales-workspace.ts"]).toContain("authorizationContext: Object.freeze({ ...context, actionId: action.id, dataMovement: current.dataMovement })");
+    expect(first.files["src/k-nex-worker.ts"]).toContain("type SalesWorkerFence = Readonly<{ activeExecutionGeneration: string; fencingToken: number; leaseOwner: string; promotionRevision: number }>");
+    expect(first.files["src/k-nex-worker.ts"]).toContain("const executionGeneration = process.env.K_NEX_GENERATION");
+    expect(first.files["src/k-nex-worker.ts"]).toContain("from runtime_worker_generation_fences where application_id=$1 and environment=$2 and active_execution_generation=$3 and lease_expires_at>now()");
+    expect(first.files["src/k-nex-worker.ts"]).toContain("await processSalesDataMovement(pool, salesWorkerFence)");
+    expect(first.files["src/k-nex-worker.ts"]).not.toContain("staticRelease.authorizationGeneration");
+    expect(first.files["src/k-nex-worker.ts"]).not.toContain("kNexSalesRegistry.staticRelease.runtimeGenerationId");
+    expect(first.files["src/app/(workspace)/sales/accounts/[id]/page.tsx"]).toContain("resolveMergedSalesDetailRedirect");
+    expect(first.files["src/k-nex-sales-workspace.ts"]).toContain("Merged Sales winner is denied.");
+    expect(first.files["src/app/api/k-nex/sales/export-artifact/route.ts"]).toContain("workspaceSalesPermissions(payload, context)");
+    expect(first.files["src/app/api/k-nex/sales/export-artifact/route.ts"]).toContain("authorizationRevision: generation.state.authorizationRevision, lifecycleRevision: generation.state.lifecycleRevision, scopeRevision, fieldGrants, permissionGrants: permissions");
     expect(first.files["src/app/api/k-nex/inventory/route.ts"]).toContain("system.extensions.read");
     expect(Object.values(first.files).every((source) => !source.includes("fixtures/customer-gate-1"))).toBe(true);
     const packageJson = JSON.parse(first.files["package.json"]!);

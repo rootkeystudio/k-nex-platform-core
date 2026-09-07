@@ -392,6 +392,21 @@ export function SalesSettingsPage({ settings }: SalesSettingsPageProps): ReactEl
   </SettingsPage>;
 }
 
+/** Fixed data-movement shells keep their actions inside the registered workspace route. */
+export interface SalesDataMovementPageProps { readonly children: ReactNode; }
+
+export function SalesImportsPage({ children }: SalesDataMovementPageProps): ReactElement {
+  return <IndexPage templateId="sales.page.imports" title="Imports" description="Validate, queue, and review controlled CRM imports." breadcrumbs={crumbs("Imports", "/sales/imports")}>
+    {children}
+  </IndexPage>;
+}
+
+export function SalesExportsPage({ children }: SalesDataMovementPageProps): ReactElement {
+  return <IndexPage templateId="sales.page.exports" title="Exports" description="Create and retrieve authorized CRM export snapshots." breadcrumbs={crumbs("Exports", "/sales/exports")}>
+    {children}
+  </IndexPage>;
+}
+
 export const salesDefaultPageContract = Object.freeze({
   templates: Object.freeze([salesOverviewPageTemplate.id, salesTaskPageTemplate.id, salesOpportunitiesPageTemplate.id, salesSettingsPageTemplate.id]),
   sourceQueries: Object.freeze([salesTasksQuery.source.id, salesOpportunitiesQuery.source.id]),

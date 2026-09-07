@@ -9,6 +9,13 @@ import {
   salesCreateTaskMutation,
   salesContactDetailQuery,
   salesContactsQuery,
+  salesDedupeCandidatesQuery,
+  salesExportCreateMutation,
+  salesExportJobDetailQuery,
+  salesExportJobListQuery,
+  salesImportDryRunMutation,
+  salesImportJobDetailQuery,
+  salesImportJobListQuery,
   salesLeadDetailQuery,
   salesLeadQualifyMutation,
   salesLeadsQuery,
@@ -32,7 +39,9 @@ import {
   salesOpportunityDetailOutputRuntimeSchema,
   salesOpportunitiesOutputRuntimeSchema,
   salesWorkflowActionInputRuntimeSchemas,
-  salesWorkflowActionOutputRuntimeSchemas
+  salesWorkflowActionOutputRuntimeSchemas,
+  salesDataMovementActionInputRuntimeSchemas,
+  salesDataMovementActionOutputRuntimeSchemas
 } from "../dist/contracts.js";
 
 const signal = new AbortController().signal;
@@ -60,6 +69,31 @@ test("Sales browser factories use stable platform query/action metadata", async 
   const identity = await salesTasksQuery.identity({}, context);
   assert.match(identity.key, /^sha256:[0-9a-f]{64}$/);
   assert.equal(JSON.stringify(identity).includes("actorFingerprint"), true);
+});
+
+test("P13.5 browser data movement keeps exact source shapes, nested requests, and invalidations", async () => {
+  assert.deepEqual(salesImportJobListQuery.source, { id: "sales.import-job.list", version: 1 });
+  assert.deepEqual(salesExportJobDetailQuery.selectedFields, ["id", "state", "artifact-id", "artifact-expires-at", "revision"]);
+  assert.deepEqual(salesDedupeCandidatesQuery.selectedFields, ["candidate-id", "candidate-revision", "match-kind"]);
+  const calls = [];
+  const transport = {
+    query: async () => ({ ok: false, problem: { code: "UNUSED", status: 500 } }),
+    mutate: async (request) => { calls.push(request); return request.action.id === "sales.import.dry-run"
+      ? { ok: true, data: { importJobId: 4, revision: 2, state: "validated", uploadDigest: `sha256:${"a".repeat(64)}`, acceptedRows: 0, rejectedRows: 1, diagnosticDigest: `sha256:${"b".repeat(64)}` } }
+      : { ok: true, data: { exportJobId: 8, revision: 1, state: "queued", snapshotDigest: `sha256:${"c".repeat(64)}`, snapshotRevision: 5, receiptId: "export-receipt" } }; }
+  };
+  assert.equal((await salesImportJobDetailQuery.execute(transport, { "import-job-id": 4 }, context)).state, "invalid-contract");
+  assert.equal((await salesExportJobDetailQuery.execute(transport, { "export-job-id": 4 }, context)).state, "invalid-contract");
+  assert.equal((await salesDedupeCandidatesQuery.execute(transport, { "target-object-type": "sales.object.contact", id: 4 }, context)).state, "invalid-contract");
+  const dryRun = { request: { uploadArtifactId: "upload-1", targetObjectType: "sales.object.lead", columnMapping: [{ header: "Display name", fieldId: "displayName" }, { header: "Source", fieldId: "source" }], expectedAuthorizationRevision: 3 } };
+  assert.equal((await salesImportDryRunMutation.execute(transport, dryRun, { signal, idempotencyKey: "import-1" })).state, "success");
+  assert.equal((await salesImportDryRunMutation.execute(transport, { request: { ...dryRun.request, columnMapping: [{ header: "Display name", fieldId: "displayName" }, { header: "Source", fieldId: "displayName" }] } }, { signal, idempotencyKey: "import-2" })).state, "invalid-contract");
+  assert.equal((await salesExportCreateMutation.execute(transport, { request: { targetObjectType: "sales.object.account", sourceId: "sales.accounts", sourceVersion: 1, sourceSchemaVersion: 1, selectedFields: ["name", "status"], expectedAuthorizationRevision: 3 } }, { signal, idempotencyKey: "export-1" })).state, "success");
+  assert.deepEqual(calls.map(({ action }) => action), [{ id: "sales.import.dry-run", version: 1 }, { id: "sales.export.create", version: 1 }]);
+  assert.equal(salesImportDryRunMutation.invalidation.sources.includes("sales.import-job.list"), true);
+  assert.equal(salesExportCreateMutation.invalidation.sources.includes("sales.export-job.detail"), true);
+  assert.ok(salesDataMovementActionInputRuntimeSchemas["sales.merge.commit"]);
+  assert.ok(salesDataMovementActionOutputRuntimeSchemas["sales.export.create"]);
 });
 
 test("timeline query omits note body unless caller chooses authorized projection", async () => {

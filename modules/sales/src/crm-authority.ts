@@ -93,12 +93,18 @@ export const salesCrmRoleTemplates: readonly RoleTemplate[] = Object.freeze([
   roleTemplate("sales.template.administrator", "Sales Administrator", "Operate application Sales configuration.")
 ]);
 
-const operationActionPermissions = Object.freeze({ "sales.ownership.assign": "sales.ownership.write", "sales.report.schedule": "sales.reports.schedule", "sales.settings.update": "sales.settings.write", "sales.integration.configure": "sales.settings.write" } as const);
+const operationActionPermissions = Object.freeze({
+  "sales.ownership.assign": "sales.ownership.write", "sales.report.schedule": "sales.reports.schedule", "sales.settings.update": "sales.settings.write", "sales.integration.configure": "sales.settings.write",
+  "sales.import.dry-run": "sales.imports.execute", "sales.import.commit": "sales.imports.execute", "sales.import.cancel": "sales.imports.execute",
+  "sales.export.create": "sales.exports.execute", "sales.export.cancel": "sales.exports.execute"
+} as const);
 const operationActionPolicies = Object.freeze({
   "sales.ownership.assign": "sales.policy.ownership.current",
   "sales.report.schedule": "sales.policy.reports.schedule.current",
   "sales.settings.update": "sales.policy.settings.current",
-  "sales.integration.configure": "sales.policy.settings.current"
+  "sales.integration.configure": "sales.policy.settings.current",
+  "sales.import.dry-run": "sales.policy.imports.current", "sales.import.commit": "sales.policy.imports.current", "sales.import.cancel": "sales.policy.imports.current",
+  "sales.export.create": "sales.policy.exports.current", "sales.export.cancel": "sales.policy.exports.current"
 } as const);
 const actionPermissions = Object.freeze(Object.fromEntries([...matrixActionPermissions, ...Object.entries(operationActionPermissions)]));
 const recordId = { type: "string" as const, minLength: 1, maxLength: 10 };
@@ -178,7 +184,21 @@ const savedViewDefinition = { type: "object" as const, properties: {
   presentation: { type: "object" as const, properties: { density: { type: "string" as const }, mode: { type: "string" as const } }, additionalProperties: false as const }, pageSize: { type: "integer" as const, minimum: 1, maximum: 100 }
 }, required: ["kind", "targetObjectId", "source", "fields", "filters", "sorts", "presentation", "pageSize"], additionalProperties: false as const };
 const mutationInput = (properties: Record<string, AgentToolJsonSchema>, required: string[]) => ({ type: "object" as const, properties, required, additionalProperties: false as const });
+const safeId = { type: "integer" as const, minimum: 1, maximum: Number.MAX_SAFE_INTEGER };
+const sha256Digest = { type: "string" as const, minLength: 71, maxLength: 71 };
+const importMapping = (fields: readonly string[], minimum: number) => ({ type: "array" as const, minItems: minimum, maxItems: fields.length, items: { type: "object" as const, properties: { header: { type: "string" as const, minLength: 1, maxLength: 120, maxUtf8Bytes: 120 }, fieldId: { type: "string" as const, enum: [...fields] } }, required: ["header", "fieldId"], additionalProperties: false as const } });
+const importRequest = (targetObjectType: string, fields: readonly string[], minimum: number) => ({ type: "object" as const, properties: { uploadArtifactId: { type: "string" as const, minLength: 1, maxLength: 128 }, targetObjectType: { type: "string" as const, enum: [targetObjectType] }, columnMapping: importMapping(fields, minimum), expectedAuthorizationRevision: safeId }, required: ["uploadArtifactId", "targetObjectType", "columnMapping", "expectedAuthorizationRevision"], additionalProperties: false as const });
+const exportRequest = (targetObjectType: string, sourceId: string, fields: readonly string[]) => ({ type: "object" as const, properties: { targetObjectType: { type: "string" as const, enum: [targetObjectType] }, sourceId: { type: "string" as const, enum: [sourceId] }, sourceVersion: { type: "integer" as const, enum: [1] }, sourceSchemaVersion: { type: "integer" as const, enum: [1] }, selectedFields: { type: "array" as const, minItems: 1, maxItems: fields.length, items: { type: "string" as const, enum: [...fields] } }, expectedAuthorizationRevision: safeId }, required: ["targetObjectType", "sourceId", "sourceVersion", "sourceSchemaVersion", "selectedFields", "expectedAuthorizationRevision"], additionalProperties: false as const });
+const dataMovementInputs: Readonly<Record<string, ActionDescriptor["inputSchema"]>> = Object.freeze({
+  "sales.import.dry-run": mutationInput({ request: { oneOf: [importRequest("sales.object.lead", ["displayName", "source", "email", "phone"], 2), importRequest("sales.object.account", ["name"], 1), importRequest("sales.object.contact", ["displayName", "accountId", "email", "phone"], 2)] } }, ["request"]),
+  "sales.import.commit": mutationInput({ importJobId: safeId, expectedRevision: safeId, expectedAuthorizationRevision: safeId }, ["importJobId", "expectedRevision", "expectedAuthorizationRevision"]),
+  "sales.import.cancel": mutationInput({ importJobId: safeId, expectedRevision: safeId }, ["importJobId", "expectedRevision"]),
+  "sales.export.create": mutationInput({ request: { oneOf: [exportRequest("sales.object.lead", "sales.leads", ["display-name", "owner-id", "team-id", "status", "archive-status", "revision", "email", "phone"]), exportRequest("sales.object.account", "sales.accounts", ["name", "owner-id", "team-id", "status", "revision"]), exportRequest("sales.object.contact", "sales.contacts", ["display-name", "owner-id", "team-id", "account-id", "status", "revision", "email", "phone"])] } }, ["request"]),
+  "sales.export.cancel": mutationInput({ exportJobId: safeId, expectedRevision: safeId }, ["exportJobId", "expectedRevision"]),
+  "sales.merge.commit": mutationInput({ targetObjectType: { type: "string", enum: ["sales.object.account", "sales.object.contact"] }, winnerId: safeId, winnerExpectedRevision: safeId, loserId: safeId, loserExpectedRevision: safeId, expectedAuthorizationRevision: safeId }, ["targetObjectType", "winnerId", "winnerExpectedRevision", "loserId", "loserExpectedRevision", "expectedAuthorizationRevision"])
+});
 const workflowActionInputs: Readonly<Record<string, ActionDescriptor["inputSchema"]>> = Object.freeze({
+  ...dataMovementInputs,
   "sales.account.create": mutationInput({ name: shortText }, ["name"]),
   "sales.account.update": mutationInput({ id: recordId, expectedRevision: revision, name: shortText }, ["id", "expectedRevision", "name"]),
   "sales.account.archive": mutationInput({ id: recordId, expectedRevision: revision }, ["id", "expectedRevision"]),
@@ -217,6 +237,12 @@ const workflowOutputStatuses: Readonly<Record<string, readonly string[]>> = Obje
   "sales.pipeline.update": ["active"], "sales.pipeline.archive": ["archived"], "sales.saved-view.create": ["active"], "sales.saved-view.update": ["active"], "sales.saved-view.archive": ["archived"]
 });
 function workflowOutput(id: string): ActionDescriptor["outputSchema"] {
+  if (id === "sales.import.dry-run") return mutationInput({ importJobId: safeId, revision: { type: "integer", enum: [2] }, state: { type: "string", enum: ["validated"] }, uploadDigest: sha256Digest, acceptedRows: { type: "integer", minimum: 0, maximum: 10_000 }, rejectedRows: { type: "integer", minimum: 0, maximum: 10_000 }, diagnosticDigest: sha256Digest }, ["importJobId", "revision", "state", "uploadDigest", "acceptedRows", "rejectedRows", "diagnosticDigest"]);
+  if (id === "sales.import.commit") return mutationInput({ importJobId: safeId, revision: { type: "integer", minimum: 3, maximum: Number.MAX_SAFE_INTEGER }, state: { type: "string", enum: ["queued"] }, receiptId: { type: "string", minLength: 1, maxLength: 128 } }, ["importJobId", "revision", "state", "receiptId"]);
+  if (id === "sales.import.cancel") return mutationInput({ importJobId: safeId, revision: { type: "integer", minimum: 2, maximum: Number.MAX_SAFE_INTEGER }, state: { type: "string", enum: ["cancelled"] } }, ["importJobId", "revision", "state"]);
+  if (id === "sales.export.create") return mutationInput({ exportJobId: safeId, revision: { type: "integer", enum: [1] }, state: { type: "string", enum: ["queued"] }, snapshotDigest: sha256Digest, snapshotRevision: safeId, receiptId: { type: "string", minLength: 1, maxLength: 128 } }, ["exportJobId", "revision", "state", "snapshotDigest", "snapshotRevision", "receiptId"]);
+  if (id === "sales.export.cancel") return mutationInput({ exportJobId: safeId, revision: { type: "integer", minimum: 2, maximum: Number.MAX_SAFE_INTEGER }, state: { type: "string", enum: ["cancelled"] } }, ["exportJobId", "revision", "state"]);
+  if (id === "sales.merge.commit") return mutationInput({ winnerId: safeId, winnerRevision: { type: "integer", minimum: 2, maximum: Number.MAX_SAFE_INTEGER }, loserId: safeId, loserRevision: { type: "integer", minimum: 2, maximum: Number.MAX_SAFE_INTEGER }, matchKind: { type: "string", enum: ["account-name", "contact-email", "contact-phone", "contact-email-and-phone"] }, lineageId: { type: "string", minLength: 1, maxLength: 128 }, lineageDigest: sha256Digest, rewrittenRelationCounts: { type: "array", minItems: 6, maxItems: 7, items: { type: "object", properties: { relationId: { type: "string", enum: ["sales_contacts.account_id", "sales_opportunities.account_id", "sales_leads.qualified_account_id", "sales_activities.related_record_id where related_record_type=sales.account", "sales_notes.related_record_id where related_record_type=sales.account", "sales_attachment_references.related_record_id where related_record_type=sales.account", "sales_tasks.related_record_id where related_record_type=sales.account", "sales_opportunities.primary_contact_id", "sales_leads.qualified_contact_id", "sales_activities.related_record_id where related_record_type=sales.contact", "sales_notes.related_record_id where related_record_type=sales.contact", "sales_attachment_references.related_record_id where related_record_type=sales.contact", "sales_tasks.related_record_id where related_record_type=sales.contact"] }, count: { type: "integer", minimum: 0, maximum: Number.MAX_SAFE_INTEGER } }, required: ["relationId", "count"], additionalProperties: false } } }, ["winnerId", "winnerRevision", "loserId", "loserRevision", "matchKind", "lineageId", "lineageDigest", "rewrittenRelationCounts"]);
   const statuses = workflowOutputStatuses[id];
   if (statuses === undefined) return actionOutput;
   const qualification = id === "sales.lead.qualify";
@@ -243,9 +269,9 @@ export const salesCrmActionDescriptors: readonly ActionDescriptor[] = Object.fre
     outputSchema: id === "sales.ownership.assign" ? ownershipOutput : workflow === undefined ? { type: "object" as const, properties: { accepted: { type: "boolean" as const } }, required: ["accepted"], additionalProperties: false as const } : workflowOutput(id),
     permission,
     policy,
-    effect: "write" as const,
+    effect: id === "sales.merge.commit" ? "destructive" as const : "write" as const,
     idempotency: "required" as const,
-    dryRun: false
+    dryRun: id === "sales.import.dry-run"
   };
 }));
 

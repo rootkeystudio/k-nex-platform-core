@@ -16,6 +16,7 @@ import { createHash } from "node:crypto";
 import { canonicalJson } from "@k-nex/contracts";
 import type { Endpoint, PayloadRequest } from "payload";
 import type { FixtureAuthorityContext, FixtureCurrentAuthority, FixtureDurableSalesAuthority } from "./current-authority.js";
+import { FixtureSalesDataMovementStore } from "./data-movement-host.js";
 
 interface ActionBody {
   readonly actionId?: unknown;
@@ -55,6 +56,7 @@ function actor(request: PayloadRequest) {
 }
 
 function actionGrants(actionId: string) {
+  if (actionId.startsWith("sales.import.") || actionId.startsWith("sales.export.") || actionId === "sales.merge.commit") return [] as const;
   if (actionId === "sales.ownership.assign") return [
     { collection: "sales-accounts", operations: ["find", "update"] }, { collection: "sales-contacts", operations: ["find", "update"] },
     { collection: "sales-leads", operations: ["find", "update"] }, { collection: "sales-opportunities", operations: ["find", "update"] }
@@ -362,6 +364,9 @@ async function authorize(authority: FixtureCurrentAuthority, actionId: string, i
     teamId: current.teamId
   };
   const context = authenticated.request as CapabilityRequest;
+  if (actionId.startsWith("sales.import.") || actionId.startsWith("sales.export.") || actionId === "sales.merge.commit") {
+    return Object.freeze({ actionId, ...identity, dataMovement: new FixtureSalesDataMovementStore(request, durable), recordScope: durable.recordScope, applicationWide: durable.applicationWide, mutationAllowed: durable.mutationAllowed, authorizedTeamIds: durable.authorizedTeamIds, salesScopeRevision: durable.scopeRevision, recordEnvironment: current.environment, recordId: "collection", collectionScope: true, scope: Object.freeze({ kind: "sales.leads", where: Object.freeze({ and: Object.freeze([{ applicationId: { equals: current.applicationId } }, { environment: { equals: current.environment } }]) }) }) });
+  }
   const workflowCollection = workflowActionCollection(actionId);
   if (actionId === "sales.task.create" || workflowCollection !== undefined && (actionId.endsWith(".create") || actionId === "sales.attachment.link")) {
     const collection = actionId === "sales.task.create" ? "sales-tasks" : workflowCollection!;

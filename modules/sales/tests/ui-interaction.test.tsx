@@ -4,7 +4,7 @@ import { act, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { salesAccountArchiveDescriptor, salesAccountDetailDescriptor, salesAccountUpdateDescriptor, salesAccountsDescriptor, salesActivityCreateDescriptor, salesContactArchiveDescriptor, salesContactDetailDescriptor, salesContactUpdateDescriptor, salesLeadArchiveDescriptor, salesLeadDetailDescriptor, salesLeadQualifyDescriptor, salesNoteCreateDescriptor, salesOpportunityArchiveDescriptor, salesOpportunityCloseDescriptor, salesOpportunityDetailDescriptor, salesOpportunityStageUpdateDescriptor, salesOpportunityUpdateDescriptor, salesOwnershipAssignDescriptor, salesPipelineSnapshotDescriptor, salesPipelineUpdateDescriptor, salesSavedViewCalendarDescriptor, salesSavedViewKanbanDescriptor, salesSavedViewListDescriptor, salesSavedViewTableDescriptor } from "../src/contracts.js";
+import { salesAccountArchiveDescriptor, salesAccountDetailDescriptor, salesAccountUpdateDescriptor, salesAccountsDescriptor, salesActivityCreateDescriptor, salesContactArchiveDescriptor, salesContactDetailDescriptor, salesContactUpdateDescriptor, salesDedupeCandidatesDescriptor, salesLeadArchiveDescriptor, salesLeadDetailDescriptor, salesLeadQualifyDescriptor, salesMergeCommitDescriptor, salesNoteCreateDescriptor, salesOpportunityArchiveDescriptor, salesOpportunityCloseDescriptor, salesOpportunityDetailDescriptor, salesOpportunityStageUpdateDescriptor, salesOpportunityUpdateDescriptor, salesOwnershipAssignDescriptor, salesPipelineSnapshotDescriptor, salesPipelineUpdateDescriptor, salesSavedViewCalendarDescriptor, salesSavedViewKanbanDescriptor, salesSavedViewListDescriptor, salesSavedViewTableDescriptor } from "../src/contracts.js";
 import { SalesFixedDetailRouteProvider, SalesTimeline } from "../src/pages.js";
 import { salesUiBlockDefinitions } from "../src/ui.js";
 
@@ -23,6 +23,24 @@ function select(input: HTMLSelectElement, value: string): void {
 }
 
 describe("Sales fixed detail form interaction", () => {
+  it("derives the merge winner only from the request-local dedupe binding", async () => {
+    const definition = salesUiBlockDefinitions.find(({ id }) => id === "sales.imports")!;
+    const calls: Array<{ input: Record<string, unknown> }> = [];
+    const element = definition.render({
+      node: { id: "dedupe", type: definition.id, version: definition.version, props: { title: "Merge duplicates" }, bindings: { source: { source: { id: salesDedupeCandidatesDescriptor.id, version: salesDedupeCandidatesDescriptor.version }, input: { "target-object-type": "sales.object.account", id: 41, "expected-revision": 7 }, structuralCompatibilityHash: salesDedupeCandidatesDescriptor.structuralCompatibilityHash, selectedFields: ["candidate-id", "candidate-revision", "match-kind"] }, action: { id: salesMergeCommitDescriptor.id, version: salesMergeCommitDescriptor.version } } },
+      props: { title: "Merge duplicates" }, surface: "workspace", actor: { authenticated: true, permissions: new Set(["sales.records.merge"]) },
+      sourceResult: { state: "success", data: { fields: ["candidate-id", "candidate-revision", "match-kind"], rows: [{ key: "42", values: { "candidate-id": { kind: "integer", value: 42 }, "candidate-revision": { kind: "integer", value: 3 }, "match-kind": { kind: "enum", value: "account-name" } } }], page: { number: 1, pageSize: 100, hasNext: false } } },
+      action: { id: salesMergeCommitDescriptor.id, version: salesMergeCommitDescriptor.version }, dispatchAction: async (request) => { calls.push(request as { input: Record<string, unknown> }); }
+    }).element as ReactNode;
+    const host = document.createElement("div"); document.body.append(host); const root = createRoot(host);
+    await act(async () => { root.render(element); });
+    expect(host.textContent).toContain("Winner: 41");
+    await act(async () => { (host.querySelector('[aria-label="Select candidate 42"]') as HTMLButtonElement).click(); });
+    await act(async () => { change(host.querySelector('[name="merge-confirmation"]') as HTMLInputElement, "MERGE"); change(host.querySelector('[name="authorization-revision"]') as HTMLInputElement, "9"); host.querySelector("form")!.requestSubmit(); });
+    expect(calls[0]?.input).toEqual({ targetObjectType: "sales.object.account", winnerId: 41, winnerExpectedRevision: 7, loserId: 42, loserExpectedRevision: 3, expectedAuthorizationRevision: 9 });
+    root.unmount();
+  });
+
   it("keeps nullable channels and team identity absent without inventing the string null", async () => {
     const renderForm = async (definitionId: string, source: typeof salesAccountDetailDescriptor, action: { readonly id: string; readonly version: number }, values: Record<string, unknown>) => {
       const definition = salesUiBlockDefinitions.find(({ id }) => id === definitionId)!;

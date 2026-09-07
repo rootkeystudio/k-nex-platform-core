@@ -870,7 +870,15 @@ type RegisteredTemplate = Readonly<{ id: string; ownerPluginId: string; route: R
 type RegisteredAction = Readonly<{ id: string; version: number }>;
 type SalesRouteParams = Readonly<{ id: string }>;
 type SalesRoutePagination = Readonly<{ listPage?: number; timelinePage?: number }>;
-export type SalesRouteSelection = Readonly<{ mode?: "table" | "kanban"; savedView?: Readonly<{ "saved-view-id": number; "expected-revision": number }> }>;
+export type SalesRouteSelection = Readonly<{
+  mode?: "table" | "kanban";
+  savedView?: Readonly<{ "saved-view-id": number; "expected-revision": number }>;
+  "import-job-id"?: number;
+  "export-job-id"?: number;
+  "target-object-type"?: "sales.object.account" | "sales.object.contact";
+  id?: number;
+  "expected-revision"?: number;
+}>;
 
 function positiveRouteInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
@@ -895,6 +903,17 @@ export function salesRouteSelection(routeId: string, value: unknown): SalesRoute
     }
     throw new TypeError("Sales route selection is invalid.");
   }
+  if (routeId === "sales.route.imports") {
+    if (keys === "") return Object.freeze({});
+    if (keys === "expected-revision\\0import-job-id" && positiveRouteInteger(selection["import-job-id"]) && positiveRouteInteger(selection["expected-revision"])) return Object.freeze({ "import-job-id": selection["import-job-id"], "expected-revision": selection["expected-revision"] });
+    if (keys === "expected-revision\\0id\\0target-object-type" && (selection["target-object-type"] === "sales.object.account" || selection["target-object-type"] === "sales.object.contact") && positiveRouteInteger(selection.id) && positiveRouteInteger(selection["expected-revision"])) return Object.freeze({ "target-object-type": selection["target-object-type"], id: selection.id, "expected-revision": selection["expected-revision"] });
+    throw new TypeError("Sales route selection is invalid.");
+  }
+  if (routeId === "sales.route.exports") {
+    if (keys === "") return Object.freeze({});
+    if (keys === "expected-revision\\0export-job-id" && positiveRouteInteger(selection["export-job-id"]) && positiveRouteInteger(selection["expected-revision"])) return Object.freeze({ "export-job-id": selection["export-job-id"], "expected-revision": selection["expected-revision"] });
+    throw new TypeError("Sales route selection is invalid.");
+  }
   if (keys !== "") throw new TypeError("Sales route selection is invalid.");
   return Object.freeze({});
 }
@@ -904,14 +923,37 @@ export function salesRouteSelectionFromSearchParams(routeId: string, value: Read
   for (const [key, raw] of Object.entries(value)) {
     if (typeof raw !== "string") throw new TypeError("Sales route selection is invalid.");
     if (key === "mode") input.mode = raw;
-    else if (key === "saved-view-id" || key === "expected-revision") {
+    else if (key === "saved-view-id" || key === "expected-revision" || key === "importJobId" || key === "exportJobId" || key === "recordId") {
       if (!/^[1-9][0-9]{0,15}$/u.test(raw) || !Number.isSafeInteger(Number(raw))) throw new TypeError("Sales route selection is invalid.");
-      input[key] = Number(raw);
+      input[key === "importJobId" ? "import-job-id" : key === "exportJobId" ? "export-job-id" : key === "recordId" ? "id" : key] = Number(raw);
+    } else if (key === "targetObjectType") {
+      input["target-object-type"] = raw;
     } else throw new TypeError("Sales route selection is invalid.");
   }
   const parsed = salesRouteSelection(routeId, input);
   if (routeId === "sales.route.opportunities") return Object.freeze({ ...(parsed.mode === "kanban" ? { mode: "kanban" } : {}), ...(parsed.savedView ?? {}) });
-  return Object.freeze(parsed.savedView ?? {});
+  if (routeId === "sales.route.calendar" || routeId === "sales.route.saved-views") return Object.freeze(parsed.savedView ?? {});
+  return Object.freeze(parsed);
+}
+
+/** Request-local data-movement selection only rewrites its registered source binding. */
+function withDataMovementSelection(document: UiDocument, selection: SalesRouteSelection): UiDocument {
+  const input = "import-job-id" in selection
+    ? { "import-job-id": selection["import-job-id"]!, "expected-revision": selection["expected-revision"]! }
+    : "export-job-id" in selection
+      ? { "export-job-id": selection["export-job-id"]!, "expected-revision": selection["expected-revision"]! }
+      : "target-object-type" in selection
+        ? { "target-object-type": selection["target-object-type"]!, id: selection.id!, "expected-revision": selection["expected-revision"]! }
+        : undefined;
+  if (input === undefined) return document;
+  const selectedSource = "import-job-id" in selection ? "sales.import-job.detail" : "export-job-id" in selection ? "sales.export-job.detail" : "sales.dedupe.candidates";
+  const rewrite = (node: UiDocument["regions"][string][number]): UiDocument["regions"][string][number] => {
+    const children = node.children?.map(rewrite);
+    return node.bindings?.source?.source.id === selectedSource
+      ? { ...node, bindings: { ...node.bindings, source: { ...node.bindings.source, input: input as never } }, ...(children === undefined ? {} : { children }) }
+      : { ...node, ...(children === undefined ? {} : { children }) };
+  };
+  return { ...document, regions: Object.fromEntries(Object.entries(document.regions).map(([region, nodes]) => [region, nodes.map(rewrite)])) };
 }
 
 function routePage(value: number | undefined, maximum: number): number {
@@ -944,7 +986,7 @@ function routeTemplate(routeId: string): Readonly<{ route: RegisteredRoute; temp
 function registeredAction(routeId: string, nodeId: string, actionId: string, selection: SalesRouteSelection): RegisteredAction {
   const action = kNexSalesRegistry.scopedRegistration.contributions.actions.find((entry) => entry.id === actionId)?.value as { readonly descriptor?: RegisteredAction } | undefined;
   const descriptor = action?.descriptor;
-  const { template } = routeTemplate(routeId); const document = prepareWorkspaceSalesDocument(template.document, selection.savedView, selection.mode ?? "table"); let bound = false;
+  const { template } = routeTemplate(routeId); const document = withDataMovementSelection(prepareWorkspaceSalesDocument(template.document, selection.savedView, selection.mode ?? "table"), selection); let bound = false;
   const visit = (node: UiDocument["regions"][string][number]): void => { const binding = node.bindings?.action; if (descriptor !== undefined && node.id === nodeId && binding?.id === descriptor.id && binding.version === descriptor.version) bound = true; node.children?.forEach(visit); };
   Object.values(document.regions).forEach((region) => region.forEach(visit));
   if (descriptor === undefined || !bound) throw new TypeError("Sales route action is unavailable.");
@@ -1032,7 +1074,7 @@ export async function loadRegisteredSalesRoute(payload: Payload, context: KnexRe
   const listPage = routePage(pagination.listPage, 1_000_000);
   const timelinePage = routePage(pagination.timelinePage, 4);
   if (timelineType === undefined && pagination.timelinePage !== undefined || timelineType !== undefined && pagination.listPage !== undefined) throw new TypeError("Sales route pagination is invalid.");
-  const primary = await projectWorkspaceSalesDocument(payload, context, authorizedFixedDetailDocument(template.document, route.id, permissions), permissions, new AbortController().signal, parameters, timelineType === undefined ? listPage : 1, selection.savedView, selection.mode ?? "table");
+  const primary = await projectWorkspaceSalesDocument(payload, context, withDataMovementSelection(authorizedFixedDetailDocument(template.document, route.id, permissions), selection), permissions, new AbortController().signal, parameters, timelineType === undefined ? listPage : 1, selection.savedView, selection.mode ?? "table");
   const { document, sourceResults } = primary;
   const timeline = timelineType === undefined ? null : (await loadWorkspaceSalesSources(payload, context, fixedDetailTimelineDocument(document, timelineType, permissions), permissions, new AbortController().signal, parameters, timelinePage))["sales-fixed-timeline"] ?? null;
   const stateHistory = await fixedDetailStateHistory(payload, route.id, parameters.id, document, sourceResults);
@@ -1058,7 +1100,7 @@ export async function loadRegisteredSalesRoute(payload: Payload, context: KnexRe
     authorizationRevision: postReloadState.authorizationRevision, lifecycleRevision: postReloadState.lifecycleRevision,
     permissions: postReloadPermissions, routeId: route.id, routeParams: parameters, sourceResults: finalSourceResults, stateHistory, timeline
   })).digest("hex");
-  return Object.freeze({ document, permissions: postReloadPermissions, selection: Object.freeze({ ...(selection.mode === "kanban" ? { mode: "kanban" } : {}), ...(selection.savedView ?? {}) }), sourceResults: finalSourceResults, stateHistory, timeline, watermark });
+  return Object.freeze({ document, permissions: postReloadPermissions, selection: Object.freeze({ ...(selection.mode === "kanban" ? { mode: "kanban" } : {}), ...(selection.savedView ?? {}), ...("import-job-id" in selection ? { "import-job-id": selection["import-job-id"], "expected-revision": selection["expected-revision"] } : {}), ...("export-job-id" in selection ? { "export-job-id": selection["export-job-id"], "expected-revision": selection["expected-revision"] } : {}), ...("target-object-type" in selection ? { "target-object-type": selection["target-object-type"], id: selection.id, "expected-revision": selection["expected-revision"] } : {}) }), sourceResults: finalSourceResults, stateHistory, timeline, watermark });
 }
 
 export async function executeRegisteredSalesRouteAction(payload: Payload, context: KnexRequestContext, routeId: string, nodeId: string, actionId: string, input: unknown, selectionValue: unknown, idempotencyKey: string, signal: AbortSignal) {
@@ -1082,6 +1124,11 @@ import {
   salesContactsDescriptor,
   salesLeadDetailDescriptor,
   salesLeadsDescriptor,
+  salesDedupeCandidatesDescriptor,
+  salesExportJobDetailDescriptor,
+  salesExportJobListDescriptor,
+  salesImportJobDetailDescriptor,
+  salesImportJobListDescriptor,
   salesOpportunitiesDescriptor,
   salesOpportunityDetailDescriptor,
   salesPipelineSnapshotDescriptor,
@@ -1101,20 +1148,22 @@ import { createUiDocumentRuntime, createUiRuntimeRegistry, prepareUiRuntimeDocum
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { io } from "socket.io-client";
 
-const runtime = createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: salesUiBlockDefinitions, sources: [salesAccountsDescriptor, salesAccountDetailDescriptor, salesContactsDescriptor, salesContactDetailDescriptor, salesLeadsDescriptor, salesLeadDetailDescriptor, salesOpportunitiesDescriptor, salesOpportunityDetailDescriptor, salesTasksDescriptor, salesTimelineDescriptor, salesPipelineSnapshotDescriptor, salesSavedViewListDescriptor, salesSavedViewDetailDescriptor, salesSavedViewTableDescriptor, salesSavedViewKanbanDescriptor, salesSavedViewCalendarDescriptor] }));
+const runtime = createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: salesUiBlockDefinitions, sources: [salesAccountsDescriptor, salesAccountDetailDescriptor, salesContactsDescriptor, salesContactDetailDescriptor, salesLeadsDescriptor, salesLeadDetailDescriptor, salesOpportunitiesDescriptor, salesOpportunityDetailDescriptor, salesTasksDescriptor, salesTimelineDescriptor, salesPipelineSnapshotDescriptor, salesSavedViewListDescriptor, salesSavedViewDetailDescriptor, salesSavedViewTableDescriptor, salesSavedViewKanbanDescriptor, salesSavedViewCalendarDescriptor, salesImportJobListDescriptor, salesImportJobDetailDescriptor, salesExportJobListDescriptor, salesExportJobDetailDescriptor, salesDedupeCandidatesDescriptor] }));
 type Projection = Readonly<{ document: UiDocument; permissions: readonly string[]; selection: Readonly<Record<string, unknown>>; sourceResults: Readonly<Record<string, DataSourceBindingResult<unknown>>>; stateHistory: readonly SalesStateHistoryEntry[]; timeline: DataSourceBindingResult<unknown> | null; watermark: string }>;
 const routeTopics: Readonly<Record<string, readonly string[]>> = Object.freeze({
   "sales.route.accounts": ["sales.realtime.accounts"], "sales.route.account-detail": ["sales.realtime.accounts", "sales.realtime.timeline"],
   "sales.route.contacts": ["sales.realtime.contacts"], "sales.route.contact-detail": ["sales.realtime.contacts", "sales.realtime.timeline"],
   "sales.route.leads": ["sales.realtime.leads"], "sales.route.lead-detail": ["sales.realtime.leads", "sales.realtime.timeline"],
   "sales.route.opportunities": ["sales.realtime.opportunities"], "sales.route.opportunity-detail": ["sales.realtime.opportunities", "sales.realtime.timeline"],
-  "sales.route.tasks": ["sales.realtime.tasks"]
+  "sales.route.tasks": ["sales.realtime.tasks"],
+  "sales.route.imports": ["sales.realtime.accounts", "sales.realtime.contacts", "sales.realtime.leads", "sales.realtime.import-jobs"],
+  "sales.route.exports": ["sales.realtime.accounts", "sales.realtime.contacts", "sales.realtime.leads", "sales.realtime.export-jobs"]
 });
 const routeTitles: Readonly<Record<string, string>> = Object.freeze({
   "sales.route.overview": "Sales overview", "sales.route.tasks": "Sales tasks", "sales.route.opportunities": "Opportunities", "sales.route.settings": "Sales settings",
   "sales.route.accounts": "Accounts", "sales.route.account-detail": "Account detail", "sales.route.contacts": "Contacts", "sales.route.contact-detail": "Contact detail",
   "sales.route.leads": "Leads", "sales.route.lead-detail": "Lead detail", "sales.route.opportunity-detail": "Opportunity detail"
-  ,"sales.route.calendar": "Sales calendar", "sales.route.pipeline-settings": "Pipeline settings", "sales.route.saved-views": "Saved views"
+  ,"sales.route.calendar": "Sales calendar", "sales.route.pipeline-settings": "Pipeline settings", "sales.route.saved-views": "Saved views", "sales.route.imports": "Imports", "sales.route.exports": "Exports"
 });
 export function createSalesRouteRefreshScheduler(run: (signal: AbortSignal) => Promise<void>) {
   let pending = false;
@@ -1161,6 +1210,10 @@ function projectionSelection(value: unknown): Readonly<Record<string, unknown>> 
   if (keys === "") return Object.freeze({});
   const pair = Number.isSafeInteger(selection["saved-view-id"]) && (selection["saved-view-id"] as number) > 0 && Number.isSafeInteger(selection["expected-revision"]) && (selection["expected-revision"] as number) > 0;
   if (keys === "expected-revision\\0saved-view-id" && pair || keys === "expected-revision\\0mode\\0saved-view-id" && pair && selection.mode === "kanban" || keys === "mode" && selection.mode === "kanban") return Object.freeze({ ...selection });
+  const revision = Number.isSafeInteger(selection["expected-revision"]) && (selection["expected-revision"] as number) > 0;
+  if (keys === "expected-revision\\0import-job-id" && revision && Number.isSafeInteger(selection["import-job-id"]) && (selection["import-job-id"] as number) > 0 ||
+    keys === "expected-revision\\0export-job-id" && revision && Number.isSafeInteger(selection["export-job-id"]) && (selection["export-job-id"] as number) > 0 ||
+    keys === "expected-revision\\0id\\0target-object-type" && revision && Number.isSafeInteger(selection.id) && (selection.id as number) > 0 && (selection["target-object-type"] === "sales.object.account" || selection["target-object-type"] === "sales.object.contact")) return Object.freeze({ ...selection });
   return undefined;
 }
 
@@ -1187,11 +1240,12 @@ export function salesLocationSelection(routeId: string, search: string): Readonl
   const raw: Record<string, unknown> = {};
   const query = new URLSearchParams(search);
   for (const key of query.keys()) {
-    if (query.getAll(key).length !== 1 || !["mode", "saved-view-id", "expected-revision"].includes(key)) return undefined;
+    if (query.getAll(key).length !== 1 || !["mode", "saved-view-id", "expected-revision", "importJobId", "exportJobId", "targetObjectType", "recordId"].includes(key)) return undefined;
     const value = query.get(key)!;
     if (key === "mode") raw.mode = value;
+    else if (key === "targetObjectType") raw["target-object-type"] = value;
     else if (!/^[1-9][0-9]{0,15}$/u.test(value) || !Number.isSafeInteger(Number(value))) return undefined;
-    else raw[key] = Number(value);
+    else raw[key === "importJobId" ? "import-job-id" : key === "exportJobId" ? "export-job-id" : key === "recordId" ? "id" : key] = Number(value);
   }
   const keys = Object.keys(raw).sort().join("\\0");
   if (routeId === "sales.route.opportunities") {
@@ -1201,6 +1255,8 @@ export function salesLocationSelection(routeId: string, search: string): Readonl
     return undefined;
   }
   if (routeId === "sales.route.calendar" || routeId === "sales.route.saved-views") return keys === "" || keys === "expected-revision\\0saved-view-id" ? Object.freeze(raw) : undefined;
+  if (routeId === "sales.route.imports") return keys === "" || keys === "expected-revision\\0import-job-id" || keys === "expected-revision\\0id\\0target-object-type" && (raw["target-object-type"] === "sales.object.account" || raw["target-object-type"] === "sales.object.contact") ? Object.freeze(raw) : undefined;
+  if (routeId === "sales.route.exports") return keys === "" || keys === "expected-revision\\0export-job-id" ? Object.freeze(raw) : undefined;
   return keys === "" ? Object.freeze({}) : undefined;
 }
 
@@ -1210,11 +1266,17 @@ export function savedViewMutationSelection(selection: Readonly<Record<string, un
     return pair === undefined ? undefined : Object.freeze({ ...(selection.mode === "kanban" ? { mode: "kanban" } : {}), ...pair });
   }
   if (actionId === "sales.saved-view.archive") return savedViewMutationPair(result, "archived") === undefined ? undefined : Object.freeze(selection.mode === "kanban" ? { mode: "kanban" } : {});
+  if (result !== null && typeof result === "object" && !Array.isArray(result)) {
+    const data = result as Record<string, unknown>;
+    const revision = data.revision;
+    if (actionId.startsWith("sales.import.") && Number.isSafeInteger(data.importJobId) && (data.importJobId as number) > 0 && Number.isSafeInteger(revision) && (revision as number) > 0) return Object.freeze({ "import-job-id": data.importJobId as number, "expected-revision": revision as number });
+    if (actionId.startsWith("sales.export.") && Number.isSafeInteger(data.exportJobId) && (data.exportJobId as number) > 0 && Number.isSafeInteger(revision) && (revision as number) > 0) return Object.freeze({ "export-job-id": data.exportJobId as number, "expected-revision": revision as number });
+  }
   return selection;
 }
 
 export function salesSelectionHref(pathname: string, selection: Readonly<Record<string, unknown>>): string {
-  const query = new URLSearchParams(); for (const [key, value] of Object.entries(selection)) query.set(key, String(value));
+  const query = new URLSearchParams(); for (const [key, value] of Object.entries(selection)) query.set(key === "import-job-id" ? "importJobId" : key === "export-job-id" ? "exportJobId" : key === "target-object-type" ? "targetObjectType" : key === "id" && "target-object-type" in selection ? "recordId" : key, String(value));
   return pathname + (query.size === 0 ? "" : "?" + query.toString());
 }
 
@@ -1239,6 +1301,13 @@ export function RegisteredSalesRouteRuntime({ initialProjection, initialSelectio
   }, [replaceSelection, routeId, selection]);
   useEffect(() => { setCurrent(initialProjection); setSelection(initialProjection.selection); if (canonicalJson(initialProjection.selection) !== canonicalJson(initialSelection)) window.history.replaceState(null, "", salesSelectionHref(window.location.pathname, initialProjection.selection)); setListPage(1); setTimelinePage(1); }, [initialProjection, initialSelection, routeId, routeParams?.id]);
   useEffect(() => {
+    const expectedRevision = selection["expected-revision"];
+    if (!Number.isSafeInteger(expectedRevision) || (expectedRevision as number) < 1) return;
+    if (routeId === "sales.route.imports" && Number.isSafeInteger(selection["import-job-id"]) && (selection["import-job-id"] as number) > 0) window.dispatchEvent(new CustomEvent("k-nex:sales-import-select", { detail: { importJobId: selection["import-job-id"], expectedRevision, requestLocal: true } }));
+    else if (routeId === "sales.route.imports" && (selection["target-object-type"] === "sales.object.account" || selection["target-object-type"] === "sales.object.contact") && Number.isSafeInteger(selection.id) && (selection.id as number) > 0) window.dispatchEvent(new CustomEvent("k-nex:sales-dedupe-select", { detail: { targetObjectType: selection["target-object-type"], recordId: selection.id, expectedRevision, requestLocal: true } }));
+    else if (routeId === "sales.route.exports" && Number.isSafeInteger(selection["export-job-id"]) && (selection["export-job-id"] as number) > 0) window.dispatchEvent(new CustomEvent("k-nex:sales-export-select", { detail: { exportJobId: selection["export-job-id"], expectedRevision, requestLocal: true } }));
+  }, [routeId, selection]);
+  useEffect(() => {
     if (routeId !== "sales.route.saved-views") return;
     const select = (event: Event) => {
       const detail = (event as CustomEvent<unknown>).detail;
@@ -1249,6 +1318,29 @@ export function RegisteredSalesRouteRuntime({ initialProjection, initialSelectio
     };
     window.addEventListener("k-nex:saved-view-select", select); return () => window.removeEventListener("k-nex:saved-view-select", select);
   }, [replaceSelection, routeId]);
+  useEffect(() => {
+    const select = (event: Event) => {
+      const detail = (event as CustomEvent<unknown>).detail;
+      if (detail === null || typeof detail !== "object" || Array.isArray(detail)) return;
+      const value = detail as Record<string, unknown>; const keys = Object.keys(value).sort().join("\\0");
+      if (routeId === "sales.route.imports" && keys === "expectedRevision\\0importJobId" && Number.isSafeInteger(value.importJobId) && (value.importJobId as number) > 0 && Number.isSafeInteger(value.expectedRevision) && (value.expectedRevision as number) > 0) replaceSelection({ "import-job-id": value.importJobId as number, "expected-revision": value.expectedRevision as number });
+      else if (routeId === "sales.route.imports" && keys === "expectedRevision\\0recordId\\0targetObjectType" && (value.targetObjectType === "sales.object.account" || value.targetObjectType === "sales.object.contact") && Number.isSafeInteger(value.recordId) && (value.recordId as number) > 0 && Number.isSafeInteger(value.expectedRevision) && (value.expectedRevision as number) > 0) replaceSelection({ "target-object-type": value.targetObjectType, id: value.recordId as number, "expected-revision": value.expectedRevision as number });
+      else if (routeId === "sales.route.exports" && keys === "expectedRevision\\0exportJobId" && Number.isSafeInteger(value.exportJobId) && (value.exportJobId as number) > 0 && Number.isSafeInteger(value.expectedRevision) && (value.expectedRevision as number) > 0) replaceSelection({ "export-job-id": value.exportJobId as number, "expected-revision": value.expectedRevision as number });
+    };
+    window.addEventListener("k-nex:sales-import-select", select); window.addEventListener("k-nex:sales-dedupe-select", select); window.addEventListener("k-nex:sales-export-select", select);
+    return () => { window.removeEventListener("k-nex:sales-import-select", select); window.removeEventListener("k-nex:sales-dedupe-select", select); window.removeEventListener("k-nex:sales-export-select", select); };
+  }, [replaceSelection, routeId]);
+  useEffect(() => {
+    if (routeId !== "sales.route.exports") return;
+    const download = (event: Event) => {
+      const detail = (event as CustomEvent<unknown>).detail;
+      if (detail === null || typeof detail !== "object" || Array.isArray(detail) || Object.keys(detail).join("\\0") !== "artifactId" || typeof (detail as Record<string, unknown>).artifactId !== "string") return;
+      const artifactId = (detail as Record<string, string>).artifactId;
+      if (artifactId.length < 1 || artifactId.length > 128 || artifactId.includes("\\0")) return;
+      window.location.assign("/api/k-nex/sales/export-artifact?artifactId=" + encodeURIComponent(artifactId));
+    };
+    window.addEventListener("k-nex:sales-export-download", download); return () => window.removeEventListener("k-nex:sales-export-download", download);
+  }, [routeId]);
   useEffect(() => {
     const changePage = (event: Event) => {
       const detail = (event as CustomEvent<unknown>).detail;
@@ -1270,7 +1362,7 @@ export function RegisteredSalesRouteRuntime({ initialProjection, initialSelectio
     const scheduler = createSalesRouteRefreshScheduler(async (signal) => {
       const query = new URLSearchParams();
       if (routeParams === undefined) query.set("page", String(listPage)); else { query.set("id", routeParams.id); query.set("timelinePage", String(timelinePage)); }
-      for (const [key, value] of Object.entries(selection)) query.set(key, String(value));
+      for (const [key, value] of Object.entries(selection)) query.set(key === "import-job-id" ? "importJobId" : key === "export-job-id" ? "exportJobId" : key === "target-object-type" ? "targetObjectType" : key === "id" && "target-object-type" in selection ? "recordId" : key, String(value));
       const response = await fetch("/api/k-nex/sales/routes/" + encodeURIComponent(routeId) + "?" + query, { cache: "no-store", signal }).catch(() => undefined);
       const next = response?.ok ? projection(await response.json().catch(() => undefined)) : undefined;
       if (active && !signal.aborted) { setCurrent(next); if (next !== undefined && canonicalJson(next.selection) !== canonicalJson(selection)) { window.history.replaceState(null, "", salesSelectionHref(window.location.pathname, next.selection)); setSelection(next.selection); } setPageRefreshing(false); }
@@ -1311,11 +1403,12 @@ function salesRoutePageSource(routeId: string, pathname: string, parameterized =
   const source = "../".repeat(3 + nestedSegments);
   const components = "../".repeat(2 + nestedSegments);
   return `import { headers as getHeaders } from "next/headers";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 
 import { bootKnexApplication } from "${source}boot.js";
 import { kNexRequestContext } from "${source}k-nex-authority.js";
 import { loadRegisteredSalesRoute, salesRouteSelectionFromSearchParams } from "${source}k-nex-sales-routes.js";
+import { resolveMergedSalesDetailRedirect } from "${source}k-nex-sales-workspace.js";
 import { RegisteredSalesRouteRuntime } from "${components}components/k-nex-sales-route-runtime.js";
 
 export const dynamic = "force-dynamic";
@@ -1324,7 +1417,7 @@ export default async function SalesRoute({${parameterized ? " params," : ""} sea
   const payload = await bootKnexApplication("workspace-web");
   const headers = await getHeaders();
   const context = kNexRequestContext(headers, "sales-route");
-  ${parameterized ? `const routeParams = Object.freeze({ id: (await params).id });\n  ` : ""}try {
+  ${parameterized ? `const routeParams = Object.freeze({ id: (await params).id });\n  const mergedRedirect = await resolveMergedSalesDetailRedirect(payload, context, ${JSON.stringify(routeId)}, routeParams.id);\n  if (mergedRedirect !== undefined) redirect(mergedRedirect);\n  ` : ""}try {
     const selection = salesRouteSelectionFromSearchParams(${JSON.stringify(routeId)}, await searchParams);
     return <RegisteredSalesRouteRuntime routeId={${JSON.stringify(routeId)}}${parameterized ? " routeParams={routeParams}" : ""} initialSelection={selection} initialProjection={await loadRegisteredSalesRoute(payload, context, ${JSON.stringify(routeId)}, ${parameterized ? "routeParams" : "undefined"}, Object.freeze({}), selection)} />;
   } catch { return notFound(); }
@@ -1380,6 +1473,124 @@ export async function POST(request: Request, { params }: Readonly<{ params: Prom
     const result = await executeRegisteredSalesRouteAction(payload, context, value.routeId, value.nodeId, (await params).actionId, value.input, value.selection, value.idempotencyKey, request.signal);
     return Response.json(result.body, { status: result.status, headers: { "cache-control": "no-store" } });
   } catch (error) { return workspaceMutationError(error); }
+}
+`;
+}
+
+function salesImportUploadRouteSource(): string {
+  return `import { createHash } from "node:crypto";
+
+import type { RuntimeExtensionPool } from "@k-nex/payload-adapter";
+
+import { currentPayloadAuthentication, currentSalesGeneration, kNexRequestContext } from "../../../../../k-nex-authority.js";
+import { bootKnexApplication } from "../../../../../boot.js";
+import { kNexIdentity } from "../../../../../k-nex-identity.js";
+import { workspaceSalesPermissions } from "../../../../../k-nex-sales-workspace.js";
+
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+const importByteLimit = 16_777_216;
+// 16 MiB of CSV plus an optional three-byte BOM, base64 expansion, and closed JSON envelope.
+const importUploadRequestByteLimit = 22_369_920;
+
+async function boundedUploadBody(request: Request): Promise<Uint8Array> {
+  const declaredLength = request.headers.get("content-length");
+  if (declaredLength !== null && (!/^[0-9]+$/u.test(declaredLength) || Number(declaredLength) > importUploadRequestByteLimit)) throw new RangeError("upload body is too large");
+  if (request.body === null) throw new TypeError("upload body is missing");
+  const reader = request.body.getReader(); const chunks: Uint8Array[] = []; let total = 0;
+  try {
+    while (true) {
+      const next = await reader.read(); if (next.done) break;
+      total += next.value.byteLength;
+      // Drain an oversize chunked body without retaining it: cancelling a request stream
+      // makes some HTTP runtimes reset the connection before the frozen 400 response.
+      if (total > importUploadRequestByteLimit) continue;
+      chunks.push(next.value);
+    }
+  } finally { reader.releaseLock(); }
+  if (total > importUploadRequestByteLimit) throw new RangeError("upload body is too large");
+  const output = new Uint8Array(total); let offset = 0;
+  for (const chunk of chunks) { output.set(chunk, offset); offset += chunk.byteLength; }
+  return output;
+}
+
+function decodeUpload(bytes: Uint8Array): Record<string, unknown> {
+  const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  const body = JSON.parse(text) as unknown;
+  if (body === null || typeof body !== "object" || Array.isArray(body)) throw new TypeError("upload body is invalid");
+  return body as Record<string, unknown>;
+}
+
+export async function POST(request: Request) {
+  try {
+    if (request.headers.get("origin") !== kNexIdentity.publicOrigin.origin || !(request.headers.get("content-type") ?? "").startsWith("application/json")) throw new TypeError();
+    const body = decodeUpload(await boundedUploadBody(request));
+    if (Object.keys(body).sort().join("\\0") !== "artifactId\\0bytesBase64\\0contentType" || typeof body.artifactId !== "string" || body.artifactId.length < 1 || body.artifactId.length > 128 || body.contentType !== "text/csv" || typeof body.bytesBase64 !== "string") throw new TypeError();
+    if (body.bytesBase64.length > 22_369_628) throw new RangeError("upload bytes are too large");
+    if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u.test(body.bytesBase64)) throw new TypeError();
+    const uploaded = Buffer.from(body.bytesBase64, "base64");
+    const bytes = uploaded[0] === 0xef && uploaded[1] === 0xbb && uploaded[2] === 0xbf ? uploaded.subarray(3) : uploaded;
+    if (bytes.length < 1 || bytes.length > importByteLimit) return Response.json({ code: "IMPORT_LIMIT_EXCEEDED" }, { status: 400, headers: { "cache-control": "no-store" } });
+    const payload = await bootKnexApplication("sales-import-upload");
+    const context = kNexRequestContext(new Headers(request.headers), "sales-import-upload");
+    const authentication = await currentPayloadAuthentication(payload, context);
+    const actorId = authentication.user === null || typeof authentication.user !== "object" || !("id" in authentication.user) ? undefined : String(authentication.user.id);
+    if (actorId === undefined || !(await workspaceSalesPermissions(payload, context)).includes("sales.imports.execute")) return Response.json({ code: "ACTION_FORBIDDEN" }, { status: 403, headers: { "cache-control": "no-store" } });
+    const digest = "sha256:" + createHash("sha256").update(bytes).digest("hex");
+    const generation = await currentSalesGeneration(payload);
+    const activeGeneration = generation.generation;
+    if (activeGeneration === undefined) throw new TypeError("Sales authorization generation is unavailable.");
+    const pool = payload.db.pool as RuntimeExtensionPool;
+    const scope = await pool.query<{ revision: number }>("select revision from sales_current_authority_scopes where application_id=$1 and environment=$2 and principal_id=$3 and state='active' and mutation_allowed=true", [kNexIdentity.applicationId, kNexIdentity.environment, actorId]);
+    const scopeRevision = scope.rows[0]?.revision;
+    if (scope.rows.length !== 1 || !Number.isSafeInteger(scopeRevision) || scopeRevision < 1) return Response.json({ code: "ACTION_FORBIDDEN" }, { status: 403, headers: { "cache-control": "no-store" } });
+    // The admission is a single authority CAS: every mutable authority edge is
+    // reread and locked with the revisions captured above before bytes persist.
+    const inserted = await pool.query<{ artifact_id: string }>("WITH current_authority AS ( SELECT a.application_id FROM k_nex_authorization_state a JOIN sales_current_authority_scopes s ON s.application_id=a.application_id AND s.environment=$3 AND s.principal_id=$4 AND s.state='active' AND s.mutation_allowed=true AND s.revision=$10 JOIN k_nex_extension_authorization_generations x ON x.application_id=a.application_id AND x.delivery_class='platform-plugin' AND x.extension_id='module.sales' AND x.state='current' AND x.authorization_generation=$11 AND x.runtime_generation_ids=$12::jsonb AND x.authorization_revision=$13 AND x.lifecycle_revision=$14 JOIN k_nex_role_assignments r ON r.application_id=a.application_id AND r.subject_kind='user' AND r.subject_id=$4 AND r.state='active' JOIN k_nex_role_permission_grants g ON g.application_id=r.application_id AND g.role_id=r.role_id AND g.permission_id='sales.imports.execute' AND g.owner_kind='extension' AND g.owner_delivery_class=x.delivery_class AND g.owner_extension_id=x.extension_id AND g.owner_generation=x.authorization_generation WHERE a.application_id=$2 AND a.authorization_revision=$8 AND a.lifecycle_revision=$9 AND NOT EXISTS (SELECT 1 FROM k_nex_permission_catalog_snapshots c WHERE c.application_id=a.application_id AND c.owner_kind='extension' AND c.owner_delivery_class=x.delivery_class AND c.owner_extension_id=x.extension_id AND c.owner_generation=x.authorization_generation AND c.state IN ('inactive-extension-disabled','inactive-extension-not-ready')) ORDER BY r.assignment_id,g.grant_id LIMIT 1 FOR SHARE OF a,s,r,g,x ) INSERT INTO sales_import_uploads(artifact_id,application_id,environment,actor_id,bytes,digest,byte_length,expires_at) SELECT $1,$2,$3,$4,$5,$6,$7,now()+interval '30 days' FROM current_authority RETURNING artifact_id", [body.artifactId, kNexIdentity.applicationId, kNexIdentity.environment, actorId, bytes, digest, bytes.length, generation.state.authorizationRevision, generation.state.lifecycleRevision, scopeRevision, activeGeneration.owner.generation, JSON.stringify(activeGeneration.runtimeGenerationIds), activeGeneration.authorizationRevision, activeGeneration.lifecycleRevision]);
+    if (inserted.rows.length !== 1) return Response.json({ code: "ACTION_FORBIDDEN" }, { status: 403, headers: { "cache-control": "no-store" } });
+    return Response.json({ uploadArtifactId: body.artifactId, sha256: digest, byteLength: bytes.length, contentType: "text/csv" }, { status: 201, headers: { "cache-control": "no-store" } });
+  } catch (error) { return Response.json({ code: error instanceof RangeError ? "IMPORT_LIMIT_EXCEEDED" : "IMPORT_UPLOAD_BINDING_INVALID" }, { status: 400, headers: { "cache-control": "no-store" } }); }
+}
+`;
+}
+
+function salesExportArtifactRouteSource(): string {
+  return `import type { RuntimeExtensionPool } from "@k-nex/payload-adapter";
+
+import { currentPayloadAuthentication, currentSalesGeneration, kNexRequestContext } from "../../../../../k-nex-authority.js";
+import { bootKnexApplication } from "../../../../../boot.js";
+import { kNexIdentity } from "../../../../../k-nex-identity.js";
+import { readGeneratedSalesExportArtifact } from "../../../../../k-nex-sales-data-movement.js";
+import { workspaceSalesPermissions } from "../../../../../k-nex-sales-workspace.js";
+
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+export async function GET(request: Request) {
+  try {
+    const artifactId = new URL(request.url).searchParams.get("artifactId");
+    if (artifactId === null || artifactId.length < 1 || artifactId.length > 128) return Response.json({ code: "NOT_FOUND" }, { status: 404 });
+    const payload = await bootKnexApplication("sales-export-download");
+    const context = kNexRequestContext(new Headers(request.headers), "sales-export-download");
+    const authentication = await currentPayloadAuthentication(payload, context);
+    const actorId = authentication.user === null || typeof authentication.user !== "object" || !("id" in authentication.user) ? undefined : String(authentication.user.id);
+    if (actorId === undefined) return Response.json({ code: "ARTIFACT_FORBIDDEN" }, { status: 403 });
+    const generation = await currentSalesGeneration(payload);
+    const pool = payload.db.pool as RuntimeExtensionPool;
+    const [permissions, scope] = await Promise.all([
+      workspaceSalesPermissions(payload, context),
+      pool.query<{ revision: number }>("select revision from sales_current_authority_scopes where application_id=$1 and environment=$2 and principal_id=$3 and state='active'", [kNexIdentity.applicationId, kNexIdentity.environment, actorId])
+    ]);
+    const scopeRevision = scope.rows[0]?.revision;
+    if (scope.rows.length !== 1 || typeof scopeRevision !== "number" || !Number.isSafeInteger(scopeRevision) || scopeRevision < 1) return Response.json({ code: "ARTIFACT_FORBIDDEN" }, { status: 403 });
+    const fieldGrants = Object.freeze([
+      ...(permissions.includes("sales.contacts.channels.read") ? ["sales.object.contact:email", "sales.object.contact:phone"] as const : []),
+      ...(permissions.includes("sales.leads.channels.read") ? ["sales.object.lead:email", "sales.object.lead:phone"] as const : [])
+    ]);
+    const artifact = await readGeneratedSalesExportArtifact(pool, { applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment, actorId, authorizationRevision: generation.state.authorizationRevision, lifecycleRevision: generation.state.lifecycleRevision, scopeRevision, fieldGrants, permissionGrants: permissions }, artifactId);
+    return new Response(Buffer.from(artifact.bytes), { headers: { "cache-control": "no-store", "content-disposition": "attachment; filename=\\\"" + artifactId + ".csv\\\"", "content-type": artifact.contentType + "; charset=utf-8" } });
+  } catch (error) { return Response.json({ code: error instanceof Error && error.message === "ARTIFACT_EXPIRED" ? "ARTIFACT_EXPIRED" : "ARTIFACT_FORBIDDEN" }, { status: error instanceof Error && error.message === "ARTIFACT_EXPIRED" ? 410 : 403, headers: { "cache-control": "no-store" } }); }
 }
 `;
 }
@@ -1660,7 +1871,8 @@ const expectedMigrationNames = Object.freeze([
   "20260904_000028_workspace_sidebar_preferences",
   "20260905_000027_crm_core",
   "20260906_000029_attachment_upload_admissions",
-  "20260907_000030_pipeline_saved_views"
+  "20260907_000030_pipeline_saved_views",
+  "20260907_000031_data_movement"
 ]);
 const expectedRouteSources = Object.freeze([
   "src/app/(auth)/forbidden/page.tsx",
@@ -1672,10 +1884,12 @@ const expectedRouteSources = Object.freeze([
   "src/app/(workspace)/sales/accounts/[id]/page.tsx",
   "src/app/(workspace)/sales/accounts/page.tsx",
   "src/app/(workspace)/sales/calendar/page.tsx",
+  "src/app/(workspace)/sales/exports/page.tsx",
   "src/app/(workspace)/sales/contacts/[id]/page.tsx",
   "src/app/(workspace)/sales/contacts/page.tsx",
   "src/app/(workspace)/sales/leads/[id]/page.tsx",
   "src/app/(workspace)/sales/leads/page.tsx",
+  "src/app/(workspace)/sales/imports/page.tsx",
   "src/app/(workspace)/sales/opportunities/[id]/page.tsx",
   "src/app/(workspace)/sales/opportunities/page.tsx",
   "src/app/(workspace)/sales/page.tsx",
@@ -1706,6 +1920,8 @@ const expectedRouteSources = Object.freeze([
   "src/app/api/k-nex/navigation/sidebar/route.ts",
   "src/app/api/k-nex/sales/actions/[actionId]/route.ts",
   "src/app/api/k-nex/sales/authority-scopes/route.ts",
+  "src/app/api/k-nex/sales/export-artifact/route.ts",
+  "src/app/api/k-nex/sales/import-upload/route.ts",
   "src/app/api/k-nex/sales/routes/[routeId]/route.ts",
   "src/app/api/k-nex/workspace-folders/[folderId]/route.ts",
   "src/app/api/k-nex/workspace-folders/route.ts",
@@ -1880,7 +2096,7 @@ function reconcileSource(root: string) {
     !same(salesInventory.find((entry) => entry.id === salesManifest.id)?.contributions, expectedContributions) || !same(realtimeInventory.contributions, {}) ||
     Object.values(kNexSalesRegistry.scopedRegistration.contributions as Readonly<Record<string, readonly { pluginId: string }[]>>).flat().some((entry) => entry.pluginId !== salesManifest.id && entry.pluginId !== realtimeManifest.id) ||
     Object.values(kNexSalesRegistry.scopedRegistration.bindings as Readonly<Record<string, readonly { pluginId: string }[]>>).flat().some((entry) => entry.pluginId !== salesManifest.id && entry.pluginId !== realtimeManifest.id)) fail("Sales static registration identity mismatch.");
-  if (!same(kNexSalesRegistry.collectionSlugs, ["sales-accounts", "sales-contacts", "sales-leads", "sales-pipelines", "sales-pipeline-stages", "sales-activities", "sales-opportunities", "sales-tasks", "sales-notes", "sales-attachment-references", "sales-saved-views"]) ||
+  if (!same(kNexSalesRegistry.collectionSlugs, ["sales-accounts", "sales-contacts", "sales-leads", "sales-pipelines", "sales-pipeline-stages", "sales-activities", "sales-opportunities", "sales-tasks", "sales-notes", "sales-attachment-references", "sales-saved-views", "sales-import-jobs", "sales-import-rows", "sales-import-chunks", "sales-export-jobs", "sales-merge-lineage"]) ||
     !same(kNexSalesRegistry.collections.map(({ slug }) => slug), kNexSalesRegistry.collectionSlugs) ||
     kNexSalesRegistry.readiness.currentRevision !== 3 || !same(kNexSalesRegistry.readiness.predecessorRevisions, [1, 2])) fail("Sales registry readiness mismatch.");
   if (typeof createAuthorizedPuckBuilderProfile !== "function" || typeof resolveSelectedThemeProfile !== "function" ||
@@ -1902,7 +2118,12 @@ async function assertSalesSchema(pool: RuntimeExtensionPool): Promise<void> {
     sales_tasks: ["title", "due_date", "related_record_id", "related_record_type", "status", "archive_status"],
     sales_notes: ["body", "author_id", "occurred_at", "related_record_id", "related_record_type", "replaces_note_id", "status"],
     sales_attachment_references: ["storage_reference", "filename", "media_type", "byte_size", "uploader_id", "related_record_id", "related_record_type", "status"],
-    sales_saved_views: ["name", "visibility", "visibility_team_id", "view_kind", "target_object_id", "definition", "status"]
+    sales_saved_views: ["name", "visibility", "visibility_team_id", "view_kind", "target_object_id", "definition", "status"],
+    sales_import_jobs: ["id", "application_id", "environment", "actor_id", "target_object_type", "upload_artifact_id", "upload_digest", "mapping_canonical_json", "mapping_digest", "schema_revision", "authorization_revision", "lifecycle_revision", "scope_revision", "field_grants", "permission_grants", "state", "revision", "row_count", "accepted_rows", "rejected_rows", "diagnostic_artifact_id", "diagnostic_digest", "receipt_id", "created_at", "updated_at", "expires_at"],
+    sales_import_rows: ["id", "import_job_id", "one_based_data_row", "row_digest", "canonical_mapped_json", "mapped_digest", "outcome", "target_record_id", "diagnostic_code", "created_at", "updated_at"],
+    sales_import_chunks: ["id", "import_job_id", "chunk_index", "row_start", "row_end_exclusive", "input_digest", "state", "attempt", "worker_generation_id", "worker_fencing_token", "worker_promotion_revision", "worker_lease_owner", "lease_revision", "lease_expires_at", "completed_at", "result_digest", "created_at", "updated_at"],
+    sales_export_jobs: ["id", "application_id", "environment", "actor_id", "target_object_type", "source_id", "source_version", "source_schema_version", "source_hash", "query_canonical_json", "query_digest", "selected_fields", "authorization_revision", "lifecycle_revision", "scope_revision", "field_grants", "permission_grants", "snapshot_revision", "snapshot_digest", "state", "revision", "row_count", "worker_generation_id", "worker_fencing_token", "worker_promotion_revision", "worker_lease_owner", "lease_revision", "lease_expires_at", "attempt", "artifact_id", "artifact_digest", "receipt_id", "created_at", "updated_at", "expires_at"],
+    sales_merge_lineage: ["id", "lineage_id", "application_id", "environment", "target_object_type", "winner_id", "winner_pre_revision", "winner_post_revision", "loser_id", "loser_pre_revision", "loser_post_revision", "match_kind", "normalizer_version", "actor_id", "authorization_revision", "winner_pre_digest", "winner_post_digest", "loser_pre_digest", "loser_post_digest", "rewritten_relation_counts", "lineage_digest", "committed_at", "created_at", "updated_at"]
   } as const;
   const tables = Object.keys(required);
   const columns = await pool.query<{ table_name: string; column_name: string }>(
@@ -1912,9 +2133,10 @@ async function assertSalesSchema(pool: RuntimeExtensionPool): Promise<void> {
   const actual = new Map<string, Set<string>>();
   for (const row of columns.rows) actual.set(row.table_name, (actual.get(row.table_name) ?? new Set()).add(row.column_name));
   const common = ["id", "application_id", "environment", "owner_id", "team_id", "created_by", "updated_by", "revision", "audit", "created_at", "updated_at"];
+  const hostOwned = new Set(["sales_import_jobs", "sales_import_rows", "sales_import_chunks", "sales_export_jobs", "sales_merge_lineage"]);
   if (tables.some((table) => {
     const fields = actual.get(table);
-    return fields === undefined || [...common, ...required[table as keyof typeof required]].some((field) => !fields.has(field));
+    return fields === undefined || [...(hostOwned.has(table) ? [] : common), ...required[table as keyof typeof required]].some((field) => !fields.has(field));
   })) fail("Sales table schema mismatch.");
   const legacy = actual.get("sales_opportunities");
   const legacyTasks = actual.get("sales_tasks");
@@ -2141,16 +2363,38 @@ export async function startKnexRealtime(payload: Payload, httpServer: Server) {
 
 function workerSource(): string {
   return `import { canonicalJson } from "@k-nex/contracts";
+import { salesEventDescriptors } from "@k-nex/module-sales/contracts";
 import { createSalesRealtimeRelay } from "@k-nex/module-sales/server";
 import { AuthorizationOutboxWorker, PostgresAuthorizationOutboxDispatcher, PostgresWorkspaceNavigationOutboxDispatcher, PostgresWorkspacePageOutboxDispatcher, WorkspaceNavigationOutboxWorker, WorkspacePageOutboxWorker, processNextPayloadOutboxEvent, type RuntimeExtensionPool } from "@k-nex/payload-adapter";
 
 import { bootKnexApplication } from "./boot.js";
 import { shutdownKnexApplication } from "./k-nex-authority.js";
 import { kNexIdentity } from "./k-nex-identity.js";
+import { processSalesDataMovement } from "./k-nex-sales-data-movement.js";
 
 const payload = await bootKnexApplication("authorization-worker");
 const channel = "k_nex_runtime_invalidation";
 const pool = payload.db.pool as RuntimeExtensionPool;
+type SalesWorkerFence = Readonly<{ activeExecutionGeneration: string; fencingToken: number; leaseOwner: string; promotionRevision: number }>;
+const executionGeneration = process.env.K_NEX_GENERATION;
+if (typeof executionGeneration !== "string" || !/^[a-z][a-z0-9-]{2,127}$/u.test(executionGeneration)) throw new Error("K_NEX_GENERATION must be the deployment execution generation.");
+async function currentSalesWorkerFence(): Promise<SalesWorkerFence | undefined> {
+  const result = await pool.query<{ active_execution_generation: unknown; fencing_token: unknown; lease_owner: unknown; promotion_revision: unknown }>(
+    "select active_execution_generation,fencing_token,lease_owner,promotion_revision from runtime_worker_generation_fences where application_id=$1 and environment=$2 and active_execution_generation=$3 and lease_expires_at>now()",
+    [kNexIdentity.applicationId, kNexIdentity.environment, executionGeneration]
+  );
+  const row = result.rows[0];
+  const generation = row?.active_execution_generation;
+  const token = row?.fencing_token;
+  const owner = row?.lease_owner;
+  const promotion = row?.promotion_revision;
+  const tokenNumber = typeof token === "number" ? token : typeof token === "string" && /^[1-9][0-9]{0,15}$/u.test(token) ? Number(token) : Number.NaN;
+  const promotionNumber = typeof promotion === "number" ? promotion : typeof promotion === "string" && /^(?:0|[1-9][0-9]{0,9})$/u.test(promotion) ? Number(promotion) : Number.NaN;
+  if (result.rows.length !== 1 || typeof generation !== "string" || generation !== executionGeneration ||
+    !Number.isSafeInteger(tokenNumber) || tokenNumber < 1 || typeof owner !== "string" || owner.length < 1 ||
+    !Number.isSafeInteger(promotionNumber) || promotionNumber < 0) return undefined;
+  return Object.freeze({ activeExecutionGeneration: generation, fencingToken: tokenNumber, leaseOwner: owner, promotionRevision: promotionNumber });
+}
 const admittedFailures: unknown[] = [];
 function workerFailure(marker: string) {
   return (error: unknown) => { admittedFailures.push(error); console.error(marker); };
@@ -2186,15 +2430,14 @@ const workspaceNavigationWorker = new WorkspaceNavigationOutboxWorker(
 );
 let realtimeDispatching = false;
 let realtimeStopping = false;
+let dataMovementDispatching = false;
+let dataMovementStopping = false;
 const realtimeAbort = new AbortController();
 const salesRealtimeOutboxConsumer = Object.freeze({
   applicationId: kNexIdentity.applicationId,
   environment: kNexIdentity.environment,
   pluginId: "module.sales",
-  eventTypes: Object.freeze([
-    "sales.event.account-changed", "sales.event.contact-changed", "sales.event.lead-changed",
-    "sales.event.opportunity-changed", "sales.event.task-changed", "sales.event.timeline-changed"
-  ])
+  eventTypes: Object.freeze(salesEventDescriptors.map(({ id }) => id))
 });
 const realtimeRelay = createSalesRealtimeRelay({ publish: async (input) => {
   const message = input.message;
@@ -2210,10 +2453,21 @@ const dispatchRealtime = async () => {
   finally { realtimeDispatching = false; }
 };
 const realtimeTimer = setInterval(() => { void dispatchRealtime(); }, 100);
+const dispatchDataMovement = async () => {
+  if (dataMovementDispatching || dataMovementStopping) return;
+  dataMovementDispatching = true;
+  try {
+    const salesWorkerFence = await currentSalesWorkerFence();
+    while (!dataMovementStopping && salesWorkerFence !== undefined && await processSalesDataMovement(pool, salesWorkerFence) !== "idle") { /* drain bounded durable work */ }
+  } catch (error) { if (!dataMovementStopping) workerFailure("K_NEX_DATA_MOVEMENT_ERROR")(error); }
+  finally { dataMovementDispatching = false; }
+};
+const dataMovementTimer = setInterval(() => { void dispatchDataMovement(); }, 100);
 authorizationWorker.start();
 workspacePageWorker.start();
 workspaceNavigationWorker.start();
 void dispatchRealtime();
+void dispatchDataMovement();
 await new Promise<void>((resolve) => {
   let seen = false;
   const stop = () => {
@@ -2230,9 +2484,12 @@ authorizationWorker.stop();
 workspacePageWorker.stop();
 workspaceNavigationWorker.stop();
 realtimeStopping = true;
+dataMovementStopping = true;
 realtimeAbort.abort();
 clearInterval(realtimeTimer);
+clearInterval(dataMovementTimer);
 while (realtimeDispatching) await new Promise((resolve) => setTimeout(resolve, 10));
+while (dataMovementDispatching) await new Promise((resolve) => setTimeout(resolve, 10));
 const workerDrains = await Promise.allSettled([authorizationWorker.idle(), workspacePageWorker.idle(), workspaceNavigationWorker.idle()]);
 const workerDrainFailures = workerDrains.filter((result): result is PromiseRejectedResult => result.status === "rejected");
 let shutdownFailure: unknown;
@@ -2267,11 +2524,15 @@ export function applicationAuthFiles(options: ApplicationAuthFilesOptions): Read
     "src/app/(workspace)/sales/settings/pipeline/page.tsx": salesRoutePageSource("sales.route.pipeline-settings", "sales/settings/pipeline"),
     "src/app/(workspace)/sales/views/page.tsx": salesRoutePageSource("sales.route.saved-views", "sales/views"),
     "src/app/(workspace)/sales/calendar/page.tsx": salesRoutePageSource("sales.route.calendar", "sales/calendar"),
+    "src/app/(workspace)/sales/imports/page.tsx": salesRoutePageSource("sales.route.imports", "sales/imports"),
+    "src/app/(workspace)/sales/exports/page.tsx": salesRoutePageSource("sales.route.exports", "sales/exports"),
     "src/app/api/k-nex/inventory/route.ts": inventoryRouteSource(),
     "src/app/api/k-nex/navigation/revision/route.ts": navigationRevisionRouteSource(),
     "src/app/api/k-nex/navigation/sidebar/route.ts": navigationSidebarPreferenceRouteSource(),
     "src/app/api/k-nex/sales/actions/[actionId]/route.ts": salesActionRouteSource(),
     "src/app/api/k-nex/sales/authority-scopes/route.ts": salesScopeAdministrationRouteSource(),
+    "src/app/api/k-nex/sales/export-artifact/route.ts": salesExportArtifactRouteSource(),
+    "src/app/api/k-nex/sales/import-upload/route.ts": salesImportUploadRouteSource(),
     "src/app/api/k-nex/sales/routes/[routeId]/route.ts": salesRouteProjectionRouteSource(),
     "src/app/api/readiness/route.ts": readinessRouteSource(),
     "src/app/components/login-form.tsx": loginFormSource(),

@@ -11,6 +11,17 @@ import {
   salesAccountsDescriptor,
   salesContactDetailDescriptor,
   salesContactsDescriptor,
+  salesDedupeCandidatesDescriptor,
+  salesExportCancelDescriptor,
+  salesExportCreateDescriptor,
+  salesExportJobDetailDescriptor,
+  salesExportJobListDescriptor,
+  salesImportJobDetailDescriptor,
+  salesImportJobListDescriptor,
+  salesImportCancelDescriptor,
+  salesImportCommitDescriptor,
+  salesImportDryRunDescriptor,
+  salesMergeCommitDescriptor,
   salesLeadDetailDescriptor,
   salesLeadsDescriptor,
   salesOpportunityDetailDescriptor,
@@ -580,6 +591,124 @@ function SalesSavedViewActionForm({ input, title }: { readonly input: UiBlockRen
   return createElement("section", { "aria-label": title }, [list === undefined ? null : createElement("ul", { key: "saved-views", "aria-label": "Saved views" }, list.rows.map((candidate) => createElement("li", { key: candidate.key }, createElement("button", { type: "button", onClick: () => selectView(candidate), "aria-label": `Select saved view ${cellText(candidate.values.name)}` }, cellText(candidate.values.name))))), createElement(Form, { key: "form", label: title, onSubmit: submit, children: [archive ? null : [createElement(TextInput, { key: "name", name: "name", label: "Name", value: name, required: true, onChange: setName }), createElement(Select, { key: "visibility", name: "visibility", label: "Visibility", value: visibility, required: true, options: [{ id: "personal", label: "Personal" }, { id: "team", label: "Team" }], onChange: (next: string) => setVisibility(next === "team" ? "team" : "personal") }), visibility !== "team" ? null : createElement(TextInput, { key: "team-id", name: "team-id", label: "Team ID", value: teamId, required: true, onChange: setTeamId }), createElement(TextInput, { key: "definition", name: "definition", label: "Definition JSON", value: definition, required: true, onChange: setDefinition })], createElement(FormActions, { key: "actions", children: createElement("button", { type: "submit", disabled: input.action === undefined || input.dispatchAction === undefined || (archive || update) && detail === undefined, ...((archive || update) && detail === undefined ? { "aria-describedby": "saved-view-contract-error" } : {}) }, archive ? "Archive saved view" : update ? "Update saved view" : "Create saved view") }), createElement("p", { key: "notice", id: "saved-view-contract-error", role: detail === undefined && (archive || update) ? "alert" : "status", "aria-live": "polite" }, detail === undefined && (archive || update) ? "Saved view details are invalid or unavailable." : notice)] })]);
 }
 
+type DataMovementSelection = Readonly<{ targetObjectType?: "sales.object.account" | "sales.object.contact"; recordId?: number; expectedRevision?: number; importJobId?: number; exportJobId?: number }>;
+const importMappingDefaults: Readonly<Record<"sales.object.lead" | "sales.object.account" | "sales.object.contact", string>> = Object.freeze({
+  "sales.object.lead": '[{"header":"Display name","fieldId":"displayName"},{"header":"Source","fieldId":"source"}]',
+  "sales.object.account": '[{"header":"Name","fieldId":"name"}]',
+  "sales.object.contact": '[{"header":"Display name","fieldId":"displayName"},{"header":"Account ID","fieldId":"accountId"}]'
+});
+const exportFieldDefaults: Readonly<Record<"sales.object.lead" | "sales.object.account" | "sales.object.contact", string>> = Object.freeze({
+  "sales.object.lead": "display-name,status", "sales.object.account": "name,status", "sales.object.contact": "display-name,account-id,status"
+});
+
+function dataMovementSelection(event: Event): DataMovementSelection | undefined {
+  const value = (event as CustomEvent<unknown>).detail;
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  const expectedRevision = record.expectedRevision;
+  if (!positiveSafeInteger(expectedRevision)) return undefined;
+  if (positiveSafeInteger(record.importJobId)) return { importJobId: record.importJobId, expectedRevision };
+  if (positiveSafeInteger(record.exportJobId)) return { exportJobId: record.exportJobId, expectedRevision };
+  if ((record.targetObjectType === "sales.object.account" || record.targetObjectType === "sales.object.contact") && positiveSafeInteger(record.recordId)) return { targetObjectType: record.targetObjectType, recordId: record.recordId, expectedRevision };
+  return undefined;
+}
+
+function boundDataMovementSelection(input: UiBlockRenderInput): DataMovementSelection | undefined {
+  const value = input.node.bindings?.source?.input;
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const record = value as Readonly<Record<string, unknown>>;
+  const expectedRevision = record["expected-revision"];
+  if (!positiveSafeInteger(expectedRevision)) return undefined;
+  if (positiveSafeInteger(record["import-job-id"])) return { importJobId: record["import-job-id"], expectedRevision };
+  if (positiveSafeInteger(record["export-job-id"])) return { exportJobId: record["export-job-id"], expectedRevision };
+  if ((record["target-object-type"] === "sales.object.account" || record["target-object-type"] === "sales.object.contact") && positiveSafeInteger(record.id)) return { targetObjectType: record["target-object-type"], recordId: record.id, expectedRevision };
+  return undefined;
+}
+
+function rowIdentity(row: TableRecords["rows"][number], idField = "id"): Readonly<{ id: number; revision: number }> | undefined {
+  const id = Number(cellText(row.values[idField])); const revision = Number(cellText(row.values.revision));
+  return positiveSafeInteger(id) && positiveSafeInteger(revision) ? { id, revision } : undefined;
+}
+
+function SalesDataMovementBlock({ input, title }: { readonly input: UiBlockRenderInput; readonly title: string }): ReactNode {
+  const actionId = input.action?.id;
+  const sourceId = input.node.bindings?.source?.source.id;
+  const table = input.sourceResult?.state === "success" && tableRecordShape(input.sourceResult.data) ? input.sourceResult.data : undefined;
+  const boundSelection = boundDataMovementSelection(input);
+  const [selection, setSelection] = useState<DataMovementSelection>(() => boundSelection ?? {});
+  const [target, setTarget] = useState<"sales.object.lead" | "sales.object.account" | "sales.object.contact">("sales.object.lead");
+  const [artifactId, setArtifactId] = useState(""); const [mapping, setMapping] = useState(importMappingDefaults["sales.object.lead"]);
+  const [fields, setFields] = useState(exportFieldDefaults["sales.object.lead"]); const [authorizationRevision, setAuthorizationRevision] = useState("");
+  const [candidate, setCandidate] = useState<Readonly<{ id: number; revision: number }> | undefined>(); const [confirmation, setConfirmation] = useState(""); const [notice, setNotice] = useState("");
+  useEffect(() => {
+    const listen = (event: Event) => { const next = dataMovementSelection(event); if (next !== undefined) { setSelection(next); setCandidate(undefined); setConfirmation(""); } };
+    window.addEventListener("k-nex:sales-import-select", listen); window.addEventListener("k-nex:sales-export-select", listen); window.addEventListener("k-nex:sales-dedupe-select", listen);
+    return () => { window.removeEventListener("k-nex:sales-import-select", listen); window.removeEventListener("k-nex:sales-export-select", listen); window.removeEventListener("k-nex:sales-dedupe-select", listen); };
+  }, []);
+  useEffect(() => { if (boundSelection !== undefined) setSelection(boundSelection); }, [boundSelection?.importJobId, boundSelection?.exportJobId, boundSelection?.targetObjectType, boundSelection?.recordId, boundSelection?.expectedRevision]);
+  const chooseTarget = (next: string) => {
+    if (next !== "sales.object.lead" && next !== "sales.object.account" && next !== "sales.object.contact") return;
+    setTarget(next); setMapping(importMappingDefaults[next]); setFields(exportFieldDefaults[next]);
+  };
+  const selectImport = (row: TableRecords["rows"][number]) => { const selected = rowIdentity(row); if (selected === undefined || typeof window === "undefined") return; window.dispatchEvent(new CustomEvent("k-nex:sales-import-select", { bubbles: true, detail: { importJobId: selected.id, expectedRevision: selected.revision } })); };
+  const selectExport = (row: TableRecords["rows"][number]) => { const selected = rowIdentity(row); if (selected === undefined || typeof window === "undefined") return; window.dispatchEvent(new CustomEvent("k-nex:sales-export-select", { bubbles: true, detail: { exportJobId: selected.id, expectedRevision: selected.revision } })); };
+  const submit = async () => {
+    if (input.action === undefined || input.dispatchAction === undefined) return;
+    const authorization = Number(authorizationRevision); let actionInput: Record<string, unknown> | undefined;
+    if (actionId === "sales.import.dry-run") {
+      let columnMapping: unknown; try { columnMapping = JSON.parse(mapping); } catch { setNotice("Column mapping must be valid JSON."); return; }
+      if (artifactId.trim().length === 0 || !positiveSafeInteger(authorization)) { setNotice("Enter an upload artifact ID and current authorization revision."); return; }
+      actionInput = { request: { uploadArtifactId: artifactId.trim(), targetObjectType: target, columnMapping, expectedAuthorizationRevision: authorization } };
+    } else if (actionId === "sales.import.commit") {
+      const selected = table?.rows[0] === undefined ? undefined : rowIdentity(table.rows[0]);
+      if (selected === undefined || !positiveSafeInteger(authorization)) { setNotice("Select a validated import and enter the current authorization revision."); return; }
+      actionInput = { importJobId: selected.id, expectedRevision: selected.revision, expectedAuthorizationRevision: authorization };
+    } else if (actionId === "sales.import.cancel") {
+      if (!positiveSafeInteger(selection.importJobId) || !positiveSafeInteger(selection.expectedRevision)) { setNotice("Select an import job before cancelling it."); return; }
+      actionInput = { importJobId: selection.importJobId, expectedRevision: selection.expectedRevision };
+    } else if (actionId === "sales.export.create") {
+      const selectedFields = fields.split(",").map((field) => field.trim()).filter(Boolean);
+      if (!positiveSafeInteger(authorization) || selectedFields.length === 0 || new Set(selectedFields).size !== selectedFields.length) { setNotice("Choose unique export fields and enter the current authorization revision."); return; }
+      const sourceId = target === "sales.object.lead" ? "sales.leads" : target === "sales.object.account" ? "sales.accounts" : "sales.contacts";
+      actionInput = { request: { targetObjectType: target, sourceId, sourceVersion: 1, sourceSchemaVersion: 1, selectedFields, expectedAuthorizationRevision: authorization } };
+    } else if (actionId === "sales.export.cancel") {
+      const selected = table?.rows[0] === undefined ? undefined : rowIdentity(table.rows[0]);
+      const exportJobId = selected?.id ?? selection.exportJobId; const expectedRevision = selected?.revision ?? selection.expectedRevision;
+      if (!positiveSafeInteger(exportJobId) || !positiveSafeInteger(expectedRevision)) { setNotice("Select an export job before cancelling it."); return; }
+      actionInput = { exportJobId, expectedRevision };
+    } else if (actionId === "sales.merge.commit") {
+      if (selection.targetObjectType === undefined || !positiveSafeInteger(selection.recordId) || !positiveSafeInteger(selection.expectedRevision) || candidate === undefined || confirmation !== "MERGE" || !positiveSafeInteger(authorization)) { setNotice("Select a candidate, type MERGE, and enter the current authorization revision."); return; }
+      actionInput = { targetObjectType: selection.targetObjectType, winnerId: selection.recordId, winnerExpectedRevision: selection.expectedRevision, loserId: candidate.id, loserExpectedRevision: candidate.revision, expectedAuthorizationRevision: authorization };
+    }
+    if (actionInput === undefined) return;
+    try { await input.dispatchAction({ action: input.action, input: actionInput, nodeId: input.node.id }); setNotice(`${title} completed.`); } catch { setNotice(`${title} failed. Refresh and try again.`); }
+  };
+  const titleFor = actionId === "sales.import.dry-run" ? "Validate CSV import" : actionId === "sales.import.commit" ? "Queue import" : actionId === "sales.import.cancel" ? "Cancel import" : actionId === "sales.export.create" ? "Create export" : actionId === "sales.export.cancel" ? "Cancel export" : actionId === "sales.merge.commit" ? "Confirm merge" : title;
+  const sourceRows = table === undefined ? null : createElement("ul", { key: "jobs", "aria-label": title }, table.rows.map((row) => {
+    const id = sourceId === "sales.dedupe.candidates"
+      ? (() => { const candidateId = Number(cellText(row.values["candidate-id"])); const candidateRevision = Number(cellText(row.values["candidate-revision"])); return positiveSafeInteger(candidateId) && positiveSafeInteger(candidateRevision) ? { id: candidateId, revision: candidateRevision } : undefined; })()
+      : rowIdentity(row);
+    const select = sourceId === "sales.import-job.list" ? () => selectImport(row) : sourceId === "sales.export-job.list" ? () => selectExport(row) : sourceId === "sales.dedupe.candidates" && id !== undefined ? () => setCandidate(id) : undefined;
+    const label = sourceId === "sales.dedupe.candidates" ? `Select candidate ${id?.id ?? "unavailable"}` : `Select job ${id?.id ?? "unavailable"}`;
+    const artifactId = sourceId === "sales.export-job.detail" ? cellText(row.values["artifact-id"]) : "—";
+    const download = artifactId === "—" ? undefined : () => { if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("k-nex:sales-export-download", { bubbles: true, detail: { artifactId } })); };
+    return createElement("li", { key: row.key }, [createElement("span", { key: "values" }, table.fields.map((field) => `${field}: ${cellText(row.values[field])}`).join(" · ")), select === undefined ? null : createElement("button", { key: "select", type: "button", onClick: select, "aria-label": label }, sourceId === "sales.dedupe.candidates" && candidate?.id === id?.id ? "Candidate selected" : label), download === undefined ? null : createElement("button", { key: "download", type: "button", onClick: download, "aria-label": "Download export" }, "Download export")]);
+  }));
+  const fieldsForAction: ReactNode[] = actionId === "sales.import.dry-run" ? [
+    createElement(TextInput, { key: "artifact", name: "upload-artifact-id", label: "Upload artifact ID", value: artifactId, required: true, onChange: setArtifactId }),
+    createElement(Select, { key: "target", name: "target-object-type", label: "Target object type", value: target, options: [{ id: "sales.object.lead", label: "Lead" }, { id: "sales.object.account", label: "Account" }, { id: "sales.object.contact", label: "Contact" }], onChange: chooseTarget }),
+    createElement(TextInput, { key: "mapping", name: "column-mapping", label: "Column mapping JSON", value: mapping, required: true, onChange: setMapping })
+  ] : actionId === "sales.export.create" ? [
+    createElement(Select, { key: "target", name: "target-object-type", label: "Target object type", value: target, options: [{ id: "sales.object.lead", label: "Lead" }, { id: "sales.object.account", label: "Account" }, { id: "sales.object.contact", label: "Contact" }], onChange: chooseTarget }),
+    createElement(TextInput, { key: "fields", name: "selected-fields", label: "Selected fields", value: fields, required: true, onChange: setFields })
+  ] : actionId === "sales.merge.commit" ? [
+    createElement("p", { key: "winner", role: "status" }, selection.recordId === undefined ? "Select an Account or Contact from this route; it remains the winning record." : `Winner: ${selection.recordId}; selected candidate becomes the merged record.`),
+    createElement(TextInput, { key: "confirmation", name: "merge-confirmation", label: "Type MERGE to confirm", value: confirmation, required: true, onChange: setConfirmation })
+  ] : [];
+  const needsAuthorization = actionId === "sales.import.dry-run" || actionId === "sales.import.commit" || actionId === "sales.export.create" || actionId === "sales.merge.commit";
+  return createElement("section", { "aria-label": title, "data-k-nex-component": input.node.type }, [sourceRows, createElement(Form, { key: "form", label: titleFor, onSubmit: submit, children: [...fieldsForAction, needsAuthorization ? createElement(TextInput, { key: "authorization", name: "authorization-revision", label: "Authorization revision", value: authorizationRevision, required: true, onChange: setAuthorizationRevision }) : null, createElement(FormActions, { key: "actions", children: createElement("button", { type: "submit", disabled: input.action === undefined || input.dispatchAction === undefined }, titleFor) }), createElement("p", { key: "notice", role: "status", "aria-live": "polite" }, notice)] })]);
+}
+
 const savedViewTableDefinition = defineDataTable({ id: "sales.saved-view-table", descriptor: salesSavedViewTableDescriptor, query: salesSavedViewTableQuery, columns: salesSavedViewTableDescriptor.outputFields!.map(({ id }) => ({ id, label: id.replaceAll("-", " ") })), paginationModes: ["offset"], defaultPageSize: 25, rowActions: [] });
 function presentation(input: UiBlockRenderInput): Readonly<{ density?: "comfortable" | "compact"; mode?: "agenda" | "month" }> {
   const value = (input.node as UiNode & { readonly presentation?: unknown }).presentation;
@@ -627,6 +756,7 @@ function detailActionAllowed(input: UiBlockRenderInput, record: TableRecords["ro
 }
 
 function contributionElement(kind: ReturnType<typeof rendererKind>, input: UiBlockRenderInput, title: string): unknown {
+  if (input.node.type === "sales.imports" || input.node.type === "sales.exports") return componentElement(SalesDataMovementBlock, { input, title });
   if (input.node.type === "sales.saved-view-table") return savedViewTableElement(input, title);
   if (input.action?.id === "sales.pipeline.update" || input.action?.id === "sales.pipeline.archive") return componentElement(SalesPipelineActionForm, { input, title });
   if (input.node.bindings?.source?.source.id === "sales.saved-view.list" || input.action?.id?.startsWith("sales.saved-view.")) return componentElement(SalesSavedViewActionForm, { input, title });
@@ -722,11 +852,15 @@ export const salesWorkspaceUiContract = Object.freeze({
     salesLeadDetailDescriptor.id, salesLeadsDescriptor.id, salesOpportunityDetailDescriptor.id, salesOpportunitiesDescriptor.id,
     salesTasksDescriptor.id, salesTimelineDescriptor.id,
     salesPipelineSnapshotDescriptor.id, salesSavedViewCalendarDescriptor.id, salesSavedViewDetailDescriptor.id,
-    salesSavedViewKanbanDescriptor.id, salesSavedViewListDescriptor.id, salesSavedViewTableDescriptor.id
+    salesSavedViewKanbanDescriptor.id, salesSavedViewListDescriptor.id, salesSavedViewTableDescriptor.id,
+    salesImportJobListDescriptor.id, salesImportJobDetailDescriptor.id, salesExportJobListDescriptor.id,
+    salesExportJobDetailDescriptor.id, salesDedupeCandidatesDescriptor.id
   ].sort()),
   actionIds: Object.freeze([salesOpportunityStageUpdateDescriptor.id, salesTaskCreateDescriptor.id, salesTaskUpdateDescriptor.id,
     salesPipelineUpdateDescriptor.id, salesPipelineArchiveDescriptor.id, salesSavedViewCreateDescriptor.id,
-    salesSavedViewUpdateDescriptor.id, salesSavedViewArchiveDescriptor.id, ...salesWorkflowMutations.map(({ action }) => action.id)].sort()),
+    salesSavedViewUpdateDescriptor.id, salesSavedViewArchiveDescriptor.id, salesImportDryRunDescriptor.id,
+    salesImportCommitDescriptor.id, salesImportCancelDescriptor.id, salesExportCreateDescriptor.id,
+    salesExportCancelDescriptor.id, salesMergeCommitDescriptor.id, ...salesWorkflowMutations.map(({ action }) => action.id)].sort()),
   routeIds: Object.freeze(salesRouteDescriptors.map(({ id }) => id)),
   pageTemplateIds: Object.freeze(salesPageTemplates.map(({ id }) => id).sort()),
   componentIds: Object.freeze(salesUiComponentDescriptors.map(({ id }) => id)),
