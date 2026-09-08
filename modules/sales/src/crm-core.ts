@@ -16,7 +16,9 @@ export const salesCoreCollectionSlugs = Object.freeze([
   "sales-import-rows",
   "sales-import-chunks",
   "sales-export-jobs",
-  "sales-merge-lineage"
+  "sales-merge-lineage",
+  "sales-notifications",
+  "sales-reminders"
 ] as const);
 
 const deny = () => false;
@@ -145,6 +147,33 @@ export const salesTasksCollection = collection("sales-tasks", [
   { name: "archiveStatus", type: "select", required: true, defaultValue: "active", options: ["active", "archived"].map((value) => ({ label: value, value })), access: protectedFieldAccess }
 ], [{ fields: ["applicationId", "environment", "ownerId", "status", "dueDate"] }]);
 
+/** Recipient-only delivery records. Provider credentials and raw payloads never enter Sales rows. */
+export const salesNotificationsCollection = collection("sales-notifications", [
+  { name: "applicationId", type: "text", required: true, index: true, access: protectedFieldAccess },
+  { name: "environment", type: "text", required: true, index: true, access: protectedFieldAccess },
+  text("recipientId", true), text("subject", true), text("referenceKind"), text("referenceId"),
+  { name: "deliveredAt", type: "date", required: true, access: protectedFieldAccess },
+  { name: "readAt", type: "date", access: protectedFieldAccess },
+  { name: "archivedAt", type: "date", access: protectedFieldAccess },
+  { name: "createdAt", type: "date", required: true, access: protectedFieldAccess },
+  select("state", ["unread", "read", "archived"], "unread"),
+  { name: "revision", type: "number", required: true, min: 1, defaultValue: 1, access: protectedFieldAccess },
+  { name: "audit", type: "json", required: true, defaultValue: () => [], access: protectedFieldAccess }
+], [{ fields: ["applicationId", "environment", "recipientId", "state", "createdAt"] }]);
+
+/** A reminder is always rooted in one open task or scheduled Activity and one exact recipient. */
+export const salesRemindersCollection = collection("sales-reminders", [
+  { name: "applicationId", type: "text", required: true, index: true, access: protectedFieldAccess },
+  { name: "environment", type: "text", required: true, index: true, access: protectedFieldAccess },
+  text("recipientId", true), select("referenceKind", ["task", "activity"]), text("referenceId", true), text("subject", true),
+  { name: "scheduledAt", type: "date", required: true, access: protectedFieldAccess }, { name: "deliveredAt", type: "date", access: protectedFieldAccess },
+  { name: "dismissedAt", type: "date", access: protectedFieldAccess }, { name: "cancelledAt", type: "date", access: protectedFieldAccess }, { name: "failedAt", type: "date", access: protectedFieldAccess },
+  text("failureReason"), text("deadLetterReference"), select("state", ["scheduled", "delivered", "dismissed", "cancelled", "failed"], "scheduled"),
+  { name: "revision", type: "number", required: true, min: 1, defaultValue: 1, access: protectedFieldAccess },
+  { name: "idempotencyDigest", type: "text", required: true, access: protectedFieldAccess },
+  { name: "audit", type: "json", required: true, defaultValue: () => [], access: protectedFieldAccess }
+], [{ fields: ["applicationId", "environment", "recipientId", "state", "scheduledAt"] }, { fields: ["applicationId", "environment", "referenceKind", "referenceId"] }]);
+
 export const salesNotesCollection = collection("sales-notes", [
   ...salesCommonFields({ ownerRequired: false, lifecycle: ["recorded"] }),
   { name: "body", type: "textarea", required: true, access: { create: deny, read: deny, update: deny } },
@@ -225,6 +254,8 @@ export const salesCoreCollections: readonly CollectionConfig[] = Object.freeze([
   salesActivitiesCollection,
   salesOpportunitiesCollection,
   salesTasksCollection,
+  salesNotificationsCollection,
+  salesRemindersCollection,
   salesNotesCollection,
   salesAttachmentReferencesCollection,
   salesSavedViewsCollection,

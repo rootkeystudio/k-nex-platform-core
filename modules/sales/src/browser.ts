@@ -63,6 +63,20 @@ import {
   salesImportJobDetailDescriptor,
   salesImportJobListDescriptor,
   salesMergeCommitDescriptor,
+  salesNotificationsDescriptor,
+  salesProviderConfigurationsDescriptor,
+  salesNotificationsOutputRuntimeSchema,
+  salesRemindersDescriptor,
+  salesRemindersOutputRuntimeSchema,
+  salesNotificationReadDescriptor,
+  salesNotificationArchiveDescriptor,
+  salesReminderDismissDescriptor,
+  salesReminderScheduleDescriptor,
+  salesEmailSendDescriptor,
+  salesCalendarSyncDescriptor,
+  salesIntegrationConfigureDescriptor,
+  salesCommunicationActionInputRuntimeSchemas,
+  salesCommunicationActionOutputRuntimeSchemas,
   salesSavedViewCalendarDescriptor,
   salesSavedViewDetailDescriptor,
   salesSavedViewKanbanDescriptor,
@@ -160,6 +174,9 @@ export const salesImportJobDetailQuery = savedViewQuery(salesImportJobDetailDesc
 export const salesExportJobListQuery = savedViewQuery(salesExportJobListDescriptor, ["id", "target-object-type", "state", "row-count", "revision"], salesEmptyInputRuntimeSchema);
 export const salesExportJobDetailQuery = savedViewQuery(salesExportJobDetailDescriptor, ["id", "state", "artifact-id", "artifact-expires-at", "revision"], dataMovementSelectionInput("export-job-id"));
 export const salesDedupeCandidatesQuery = savedViewQuery(salesDedupeCandidatesDescriptor, ["candidate-id", "candidate-revision", "match-kind"], dedupeSelectionInput);
+export const salesNotificationsQuery = savedViewQuery(salesNotificationsDescriptor, ["subject", "state", "created-at", "revision"], salesEmptyInputRuntimeSchema);
+export const salesRemindersQuery = savedViewQuery(salesRemindersDescriptor, ["subject", "state", "scheduled-at", "reference-kind", "reference-id", "revision"], salesEmptyInputRuntimeSchema);
+export const salesProviderConfigurationsQuery = savedViewQuery(salesProviderConfigurationsDescriptor, ["provider-id", "state", "revision", "updated-at", "revoked-at"], salesEmptyInputRuntimeSchema);
 
 const crmListQuery = (
   descriptor: typeof salesAccountsDescriptor,
@@ -277,6 +294,17 @@ export const salesImportCancelMutation = dataMovementMutation(salesImportCancelD
 export const salesExportCreateMutation = dataMovementMutation(salesExportCreateDescriptor, exportSources);
 export const salesExportCancelMutation = dataMovementMutation(salesExportCancelDescriptor, exportSources);
 export const salesMergeCommitMutation = dataMovementMutation(salesMergeCommitDescriptor, [salesDedupeCandidatesDescriptor.id, salesAccountsDescriptor.id, salesAccountDetailDescriptor.id, salesContactsDescriptor.id, salesContactDetailDescriptor.id]);
+function communicationMutation(descriptor: { readonly id: string; readonly version: number }, invalidates: readonly string[]) {
+  return defineActionMutation({ action: { id: descriptor.id, version: descriptor.version }, input: salesCommunicationActionInputRuntimeSchemas[descriptor.id]!, output: salesCommunicationActionOutputRuntimeSchemas[descriptor.id]!, invalidates });
+}
+const notificationSources = [salesNotificationsDescriptor.id, salesRemindersDescriptor.id];
+export const salesNotificationReadMutation = communicationMutation(salesNotificationReadDescriptor, notificationSources);
+export const salesNotificationArchiveMutation = communicationMutation(salesNotificationArchiveDescriptor, notificationSources);
+export const salesReminderDismissMutation = communicationMutation(salesReminderDismissDescriptor, notificationSources);
+export const salesReminderScheduleMutation = communicationMutation(salesReminderScheduleDescriptor, notificationSources);
+export const salesEmailSendMutation = communicationMutation(salesEmailSendDescriptor, notificationSources);
+export const salesCalendarSyncMutation = communicationMutation(salesCalendarSyncDescriptor, notificationSources);
+export const salesIntegrationConfigureMutation = communicationMutation(salesIntegrationConfigureDescriptor, [salesProviderConfigurationsDescriptor.id]);
 
 export const salesBrowserContract = Object.freeze({
   pluginId: "module.sales" as const,
@@ -302,7 +330,8 @@ export const salesBrowserContract = Object.freeze({
     salesSavedViewKanbanDescriptor.id,
     salesSavedViewListDescriptor.id,
     salesSavedViewTableDescriptor.id
+    , salesNotificationsDescriptor.id, salesRemindersDescriptor.id, salesProviderConfigurationsDescriptor.id
   ].sort()),
-  actionIds: Object.freeze([salesTaskCreateDescriptor.id, salesTaskUpdateDescriptor.id, salesOpportunityStageUpdateDescriptor.id, salesPipelineUpdateDescriptor.id, salesPipelineArchiveDescriptor.id, salesSavedViewCreateDescriptor.id, salesSavedViewUpdateDescriptor.id, salesSavedViewArchiveDescriptor.id, salesImportDryRunDescriptor.id, salesImportCommitDescriptor.id, salesImportCancelDescriptor.id, salesExportCreateDescriptor.id, salesExportCancelDescriptor.id, salesMergeCommitDescriptor.id, ...salesWorkflowMutations.map(({ action }) => action.id)].sort()),
+  actionIds: Object.freeze([salesTaskCreateDescriptor.id, salesTaskUpdateDescriptor.id, salesOpportunityStageUpdateDescriptor.id, salesPipelineUpdateDescriptor.id, salesPipelineArchiveDescriptor.id, salesSavedViewCreateDescriptor.id, salesSavedViewUpdateDescriptor.id, salesSavedViewArchiveDescriptor.id, salesImportDryRunDescriptor.id, salesImportCommitDescriptor.id, salesImportCancelDescriptor.id, salesExportCreateDescriptor.id, salesExportCancelDescriptor.id, salesMergeCommitDescriptor.id, salesNotificationReadDescriptor.id, salesNotificationArchiveDescriptor.id, salesReminderDismissDescriptor.id, salesReminderScheduleDescriptor.id, salesEmailSendDescriptor.id, salesCalendarSyncDescriptor.id, salesIntegrationConfigureDescriptor.id, ...salesWorkflowMutations.map(({ action }) => action.id)].sort()),
   routeIds: Object.freeze(salesRouteDescriptors.map(({ id }) => id))
 });

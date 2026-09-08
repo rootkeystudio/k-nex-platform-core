@@ -154,6 +154,8 @@ Fixed record detail pages contain summary, owner/team, relations, activity/note/
 
 P13.3 invalidation IDs are fixed one-to-one: `sales.event.account-changed` → `sales.realtime.accounts` → `sales.accounts`; `sales.event.contact-changed` → `sales.realtime.contacts` → `sales.contacts`; `sales.event.lead-changed` → `sales.realtime.leads` → `sales.leads`; and `sales.event.timeline-changed` → `sales.realtime.timeline` → `sales.timeline`. Activity, Note, and Attachment-reference mutations emit the one aggregate timeline event with their immutable subtype facts; lead qualification also emits the lead and each created Account, Contact, and Opportunity invalidation. Fixed detail routes load the authorized timeline internally; no Timeline block or component is authorable on custom pages.
 
+P13.6 provider configuration status has one public projection: `sales.provider-configurations` → `sales.event.provider-configuration-changed` → `sales.realtime.provider-configurations`. The source requires `sales.settings.read` and exposes exactly `provider-id`, `state`, `revision`, `updated-at`, and nullable `revoked-at`. Secret references and secret values are never projected into the source, event, realtime payload, UI, or browser. The existing mutation identity remains `sales.integration.configure`.
+
 ## Metric contract and ownership
 
 Sales product maintainers own metric definitions and schema. Sales administrators own application pipeline configuration and reporting timezone. Sales managers own saved report filters and operational review. Platform maintainers own authorization, exact decimal/time primitives, bounded execution, page embedding, and export delivery. No collection or field may define its own conflicting metric.

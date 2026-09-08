@@ -125,7 +125,8 @@ describe("create-knex-app", () => {
       "20260905_000027_crm_core",
       "20260906_000029_attachment_upload_admissions",
       "20260907_000030_pipeline_saved_views",
-      "20260907_000031_data_movement"
+      "20260907_000031_data_movement",
+      "20260908_000032_communications"
     ]);
     const attachmentAdmissions = first.files["src/migrations/20260906_000029_attachment_upload_admissions.ts"]!;
     expect(attachmentAdmissions).toContain('CREATE TABLE "k_nex_sales_attachment_upload_admissions"');
@@ -306,6 +307,12 @@ describe("create-knex-app", () => {
     expect(dataMovement).toContain("sales_export_artifacts");
     expect(dataMovement).toContain("P13.5 durable data-movement evidence is forward-only");
     expect(dataMovement).toBe(readFileSync(new URL("../../../fixtures/customer-gate-1/src/migrations/20260907_000031_data_movement.ts", import.meta.url), "utf8"));
+    const communications = first.files["src/migrations/20260908_000032_communications.ts"]!;
+    expect(communications).toContain("sales_provider_configurations");
+    expect(communications).toContain("sales_provider_webhook_events");
+    expect(communications).toContain("sales_reminders");
+    expect(communications).toContain("sales_notifications");
+    expect(communications).toBe(readFileSync(new URL("../../../fixtures/customer-gate-1/src/migrations/20260908_000032_communications.ts", import.meta.url), "utf8"));
     const importUploadRoute = first.files["src/app/api/k-nex/sales/import-upload/route.ts"]!;
     expect(importUploadRoute).toContain("sales_import_uploads");
     expect(importUploadRoute).toContain("async function boundedUploadBody(request: Request)");
@@ -334,17 +341,30 @@ describe("create-knex-app", () => {
     expect(first.files["src/k-nex-sales-data-movement.ts"]).toContain("JOIN runtime_worker_generation_fences f");
     expect(first.files["src/k-nex-sales-data-movement.ts"]).toContain("f.active_execution_generation=$3 AND f.fencing_token=$4");
     expect(first.files["src/k-nex-sales-data-movement.ts"]).toContain("jsonb_array_elements_text(s.authorized_team_ids)");
+    expect(first.files["src/k-nex-sales-communications.ts"]).toContain("createGeneratedSalesProviderGateway");
+    expect(first.files["src/k-nex-sales-communications.ts"]).toContain("createHmac(\"sha256\"");
+    expect(first.files["src/k-nex-sales-communications.ts"]).toContain("timingSafeEqual");
+    expect(first.files["src/k-nex-sales-communications.ts"]).toContain("processGeneratedSalesReminders");
+    expect(first.files["src/app/api/k-nex/sales/providers/email-reference/webhook/route.ts"]).toContain('from "../../../../../../../k-nex-sales-communications.js"');
     expect(first.files["src/k-nex-sales-workspace.ts"]).toContain("new GeneratedSalesDataMovementStore(request");
     expect(first.files["src/k-nex-sales-workspace.ts"]).toContain("request.dataMovement = dataMovement");
     expect(first.files["src/k-nex-sales-workspace.ts"]).toContain('grants.push("sales.object.contact:email", "sales.object.contact:phone")');
     expect(first.files["src/k-nex-sales-workspace.ts"]).toContain("const dataMovementPermissionIds = Object.freeze([");
     expect(first.files["src/k-nex-sales-workspace.ts"]).toContain('"sales.imports.execute", "sales.exports.execute", "sales.records.merge"');
     expect(first.files["src/k-nex-sales-workspace.ts"]).toContain("authorizedTeamIds: current.salesScope.authorizedTeamIds, fieldGrants, permissionGrants");
-    expect(first.files["src/k-nex-sales-workspace.ts"]).toContain("authorizationContext: Object.freeze({ ...context, actionId: action.id, dataMovement: current.dataMovement })");
-    expect(first.files["src/k-nex-worker.ts"]).toContain("type SalesWorkerFence = Readonly<{ activeExecutionGeneration: string; fencingToken: number; leaseOwner: string; promotionRevision: number }>");
+    expect(first.files["src/k-nex-sales-workspace.ts"]).toContain("providerGateway: current.providerGateway");
+    expect(first.files["src/k-nex-sales-workspace.ts"]).not.toContain("reminderGateway");
+    expect(first.files["src/k-nex-worker.ts"]).toContain("type SalesWorkerFence = Readonly<{ applicationId: string; environment: string; activeExecutionGeneration: string; fencingToken: number; leaseOwner: string; promotionRevision: number }>");
     expect(first.files["src/k-nex-worker.ts"]).toContain("const executionGeneration = process.env.K_NEX_GENERATION");
     expect(first.files["src/k-nex-worker.ts"]).toContain("from runtime_worker_generation_fences where application_id=$1 and environment=$2 and active_execution_generation=$3 and lease_expires_at>now()");
     expect(first.files["src/k-nex-worker.ts"]).toContain("await processSalesDataMovement(pool, salesWorkerFence)");
+    expect(first.files["src/k-nex-worker.ts"]).toContain("createGeneratedBoundedReferenceProviderTransport(process.env.K_NEX_REFERENCE_PROVIDER_ENDPOINT)");
+    expect(first.files["src/k-nex-worker.ts"]).toContain("await processGeneratedSalesCommunications(pool, salesWorkerFence, providerSecrets, providerTransport)");
+    expect(first.files["src/k-nex-worker.ts"]).toContain("await processGeneratedSalesReminders(pool, salesWorkerFence)");
+    expect(first.files["src/k-nex-worker.ts"]!.indexOf("await processGeneratedSalesReminders(pool, salesWorkerFence)")).toBeLessThan(first.files["src/k-nex-worker.ts"]!.indexOf("await processGeneratedSalesCommunications(pool, salesWorkerFence, providerSecrets, providerTransport)"));
+    expect(first.files["src/k-nex-sales-communications.ts"]).toContain("limit 4");
+    expect(first.files["src/k-nex-sales-routes.ts"]).toContain("function registeredRouteActionDescriptor(value: unknown): RegisteredRouteActionDescriptor | undefined");
+    expect(first.files["src/k-nex-sales-routes.ts"]).toContain("binding !== undefined && binding.id === descriptor.id");
     expect(first.files["src/k-nex-worker.ts"]).not.toContain("staticRelease.authorizationGeneration");
     expect(first.files["src/k-nex-worker.ts"]).not.toContain("kNexSalesRegistry.staticRelease.runtimeGenerationId");
     expect(first.files["src/app/(workspace)/sales/accounts/[id]/page.tsx"]).toContain("resolveMergedSalesDetailRedirect");

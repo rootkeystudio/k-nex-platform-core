@@ -91,7 +91,8 @@ describe("generated workspace invalidation runtime", () => {
     expect(runtime).toContain("const timelinePage = routePage(pagination.timelinePage, 4)");
     expect(runtime).toContain("finalState.authorizationRevision !== initialState.authorizationRevision");
     expect(runtime).toContain("canonicalJson(finalPermissions) !== canonicalJson(permissions)");
-    expect(runtime).toContain("permissions.includes(registered.descriptor.permission)");
+    expect(runtime).toContain("function registeredRouteActionDescriptor(value: unknown): RegisteredRouteActionDescriptor | undefined");
+    expect(runtime).toContain("permissions.includes(descriptor.permission)");
     expect(runtime).toContain("if (!actionAllowed && node.bindings?.source === undefined) return [];");
     expect(runtime).toContain('routeId === "sales.route.opportunity-detail" && permissions.includes("sales.opportunities.amount.read") ? ["amount"]');
     expect(runtime).toContain("permissions: postReloadPermissions, routeId: route.id, routeParams: parameters, sourceResults: finalSourceResults, stateHistory, timeline");
@@ -129,6 +130,8 @@ describe("generated workspace invalidation runtime", () => {
     expect(client).toContain("salesContactDetailDescriptor");
     expect(client).toContain("salesLeadDetailDescriptor");
     expect(client).toContain("salesOpportunityDetailDescriptor");
+    expect(client).toContain("salesProviderConfigurationsDescriptor");
+    expect(client).toContain("salesPipelineSnapshotDescriptor, salesProviderConfigurationsDescriptor, salesSavedViewListDescriptor");
     expect(client).toContain('data-k-nex-sales-route="unavailable"');
     for (const [routeId, title] of Object.entries({
       "sales.route.overview": "Sales overview", "sales.route.tasks": "Sales tasks", "sales.route.opportunities": "Opportunities", "sales.route.settings": "Sales settings",
@@ -208,7 +211,7 @@ describe("generated workspace invalidation runtime", () => {
     expect(worker).toContain("PostgresAuthorizationOutboxDispatcher");
     expect(worker).toContain("PostgresWorkspacePageOutboxDispatcher");
     expect(worker).toContain("PostgresWorkspaceNavigationOutboxDispatcher");
-    expect(worker.match(/environment: kNexIdentity\.environment/g)).toHaveLength(5);
+    expect(worker.match(/environment: kNexIdentity\.environment/g)).toHaveLength(6);
     expect(worker).toContain('pool.query("select pg_notify($1,$2)"');
     expect(worker).toContain("applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment, type, invalidation");
     expect(worker).toContain('notify("authorization", invalidation, signal)');

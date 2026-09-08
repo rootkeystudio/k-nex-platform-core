@@ -22,6 +22,16 @@ import {
   salesImportCommitDescriptor,
   salesImportDryRunDescriptor,
   salesMergeCommitDescriptor,
+  salesNotificationsDescriptor,
+  salesProviderConfigurationsDescriptor,
+  salesRemindersDescriptor,
+  salesNotificationReadDescriptor,
+  salesNotificationArchiveDescriptor,
+  salesReminderDismissDescriptor,
+  salesReminderScheduleDescriptor,
+  salesEmailSendDescriptor,
+  salesCalendarSyncDescriptor,
+  salesIntegrationConfigureDescriptor,
   salesLeadDetailDescriptor,
   salesLeadsDescriptor,
   salesOpportunityDetailDescriptor,
@@ -357,6 +367,82 @@ function tableItems(value: unknown, fields: readonly string[]) {
     label: row.values[fields[0] ?? "name"] === undefined ? row.key : cellText(row.values[fields[0] ?? "name"]),
     value: fields.slice(1).map((field) => `${field}: ${cellText(row.values[field])}`).join(" · ") || row.key
   }));
+}
+
+function recipientDeliveryRows(input: UiBlockRenderInput): readonly TableRecords["rows"][number][] {
+  const result = input.sourceResult;
+  if (result?.state !== "success" && result?.state !== "stale" && result?.state !== "refetching") return [];
+  return tableRecordShape(result.data) ? result.data.rows : [];
+}
+
+function recipientActionLabel(actionId: string): string | undefined {
+  return actionId === salesNotificationReadDescriptor.id ? "Read notification"
+    : actionId === salesNotificationArchiveDescriptor.id ? "Archive notification"
+      : actionId === salesReminderDismissDescriptor.id ? "Dismiss reminder" : undefined;
+}
+
+function recipientActionPermission(actionId: string): string | undefined {
+  return actionId === salesNotificationReadDescriptor.id ? salesNotificationReadDescriptor.permission
+    : actionId === salesNotificationArchiveDescriptor.id ? salesNotificationArchiveDescriptor.permission
+      : actionId === salesReminderDismissDescriptor.id ? salesReminderDismissDescriptor.permission : undefined;
+}
+
+function recipientActionAvailable(actionId: string, state: string): boolean {
+  return actionId === salesNotificationReadDescriptor.id ? state === "unread"
+    : actionId === salesNotificationArchiveDescriptor.id ? state === "unread" || state === "read"
+      : actionId === salesReminderDismissDescriptor.id && (state === "scheduled" || state === "delivered");
+}
+
+function SalesCommunicationActionForm({ input, title }: { readonly input: UiBlockRenderInput; readonly title: string }) {
+  const actionId = input.action?.id; const [values, setValues] = useState<Readonly<Record<string, string>>>({ providerId: actionId === "sales.email.send" ? "email.reference.v1" : "calendar.reference.v1", relatedRecordType: "sales.contact", referenceKind: "task", operation: "activate" }); const [notice, setNotice] = useState("");
+  const field = (name: string, label: string, required = true) => createElement(TextInput, { key: name, name, label, value: values[name] ?? "", required, onChange: (value: string) => setValues((current) => ({ ...current, [name]: value })) });
+  const select = (name: string, label: string, options: readonly { id: string; label: string }[]) => createElement(Select, { key: name, name, label, value: values[name] ?? options[0]!.id, required: true, options, onChange: (value: string) => setValues((current) => ({ ...current, [name]: value })) });
+  const fields: ReactNode[] = actionId === "sales.email.send" ? [select("relatedRecordType", "Recipient record type", [{ id: "sales.contact", label: "Contact" }, { id: "sales.lead", label: "Lead" }]), field("relatedRecordId", "Recipient record ID"), field("subject", "Subject"), field("body", "Message")]
+    : actionId === "sales.calendar.sync" ? [field("activityId", "Activity ID"), field("expectedRevision", "Expected revision")]
+      : actionId === "sales.integration.configure" ? [select("providerId", "Provider", [{ id: "email.reference.v1", label: "Email reference" }, { id: "calendar.reference.v1", label: "Calendar reference" }]), field("expectedRevision", "Expected revision"), select("operation", "Operation", [{ id: "activate", label: "Activate" }, { id: "revoke", label: "Revoke" }])]
+        : actionId === "sales.reminder.schedule" ? [select("referenceKind", "Reference kind", [{ id: "task", label: "Task" }, { id: "activity", label: "Activity" }]), field("referenceId", "Reference ID"), field("expectedRevision", "Expected revision"), field("scheduledAt", "Scheduled at UTC"), field("subject", "Subject")]
+          : [];
+  const submit = async () => {
+    if (input.action === undefined || input.dispatchAction === undefined || fields.length === 0) return;
+    const actionInput: Record<string, unknown> = actionId === "sales.email.send" ? { providerId: "email.reference.v1", relatedRecordType: values.relatedRecordType, relatedRecordId: values.relatedRecordId, subject: values.subject, body: values.body }
+      : actionId === "sales.calendar.sync" ? { providerId: "calendar.reference.v1", activityId: values.activityId, expectedRevision: Number(values.expectedRevision) }
+        : actionId === "sales.reminder.schedule" ? { referenceKind: values.referenceKind, referenceId: values.referenceId, expectedRevision: Number(values.expectedRevision), scheduledAt: values.scheduledAt, subject: values.subject }
+          : { providerId: values.providerId, expectedRevision: Number(values.expectedRevision), operation: values.operation };
+    try { await input.dispatchAction({ action: input.action, input: actionInput, nodeId: input.node.id }); setNotice(`${title} completed.`); } catch { setNotice(`${title} failed. Check values and current authority.`); }
+  };
+  return createElement(Form, { label: title, onSubmit: submit, children: [...fields, createElement(FormActions, { key: "actions", children: createElement("button", { type: "submit", disabled: input.action === undefined || input.dispatchAction === undefined }, actionLabel(actionId)) }), createElement("p", { key: "notice", role: "status", "aria-live": "polite" }, notice)] });
+}
+
+/** Fixed recipient delivery controls preserve source row CAS identity; server enforces recipient scope. */
+function SalesRecipientDeliveryBlock({ input, title }: { readonly input: UiBlockRenderInput; readonly title: string }) {
+  if (input.action?.id === salesReminderScheduleDescriptor.id) return componentElement(SalesCommunicationActionForm, { input, title });
+  const [announcement, setAnnouncement] = useState("");
+  const action = input.action;
+  const label = action === undefined ? undefined : recipientActionLabel(action.id);
+  const permission = action === undefined ? undefined : recipientActionPermission(action.id);
+  const permitted = permission !== undefined && input.actor.permissions.has(permission);
+  const run = async (row: TableRecords["rows"][number]) => {
+    const revision = Number(cellText(row.values.revision));
+    const rowLabel = action?.id === salesReminderDismissDescriptor.id && cellText(row.values.state) === "scheduled" ? "Cancel reminder" : label;
+    if (action === undefined || label === undefined || input.dispatchAction === undefined || !/^[1-9][0-9]*$/u.test(row.key) || !positiveSafeInteger(revision)) return;
+    try {
+      await input.dispatchAction({ action, input: { id: row.key, expectedRevision: revision }, nodeId: input.node.id });
+      setAnnouncement(`${rowLabel} completed.`);
+    } catch { setAnnouncement(`${rowLabel} failed. Refresh and try again.`); }
+  };
+  const rows = recipientDeliveryRows(input);
+  const sourceState = input.sourceResult?.state;
+  if (sourceState === "insufficient-permission") return createElement("section", { "aria-label": title }, createElement("p", { role: "alert", "data-state": "forbidden" }, "Recipient delivery records are unavailable."));
+  if (sourceState === "error" || sourceState === "invalid-contract") return createElement("section", { "aria-label": title }, createElement("p", { role: "alert" }, "Recipient delivery records are unavailable."));
+  return createElement("section", { "aria-label": title, "data-k-nex-component": "sales-recipient-delivery" }, [
+    createElement("ul", { key: "rows", "aria-label": title }, rows.length === 0 ? createElement("li", {}, "No delivery records.") : rows.map((row) => {
+      const subject = cellText(row.values.subject); const state = cellText(row.values.state); const revision = Number(cellText(row.values.revision));
+      const enabled = label !== undefined && permitted && input.dispatchAction !== undefined && /^[1-9][0-9]*$/u.test(row.key) && positiveSafeInteger(revision) && recipientActionAvailable(action?.id ?? "", state);
+      const rowLabel = action?.id === salesReminderDismissDescriptor.id && state === "scheduled" ? "Cancel reminder" : label;
+      return createElement("li", { key: row.key }, [createElement("span", { key: "subject" }, `${subject} (${state})`), enabled ? createElement("button", { key: "action", type: "button", "data-action-id": action!.id, "data-record-id": row.key, onClick: () => void run(row) }, rowLabel) : null]);
+    })),
+    createElement("p", { key: "announcement", role: "status", "aria-live": "polite" }, announcement)
+  ]);
 }
 
 function queryElement(kind: ReturnType<typeof rendererKind>, input: UiBlockRenderInput, title: string): unknown {
@@ -756,6 +842,9 @@ function detailActionAllowed(input: UiBlockRenderInput, record: TableRecords["ro
 }
 
 function contributionElement(kind: ReturnType<typeof rendererKind>, input: UiBlockRenderInput, title: string): unknown {
+  if (input.node.type === "sales.notification-center" || input.node.type === "sales.reminder-center") return componentElement(SalesRecipientDeliveryBlock, { input, title });
+  if (input.node.type === "sales.integration-settings") return componentElement(Section, { label: title, children: createElement("div", {}, queryElement("data-list", input, `${title} status`) as ReactNode, componentElement(SalesCommunicationActionForm, { input, title }) as ReactNode) });
+  if (input.node.type === "sales.communication-actions") return componentElement(SalesCommunicationActionForm, { input, title });
   if (input.node.type === "sales.imports" || input.node.type === "sales.exports") return componentElement(SalesDataMovementBlock, { input, title });
   if (input.node.type === "sales.saved-view-table") return savedViewTableElement(input, title);
   if (input.action?.id === "sales.pipeline.update" || input.action?.id === "sales.pipeline.archive") return componentElement(SalesPipelineActionForm, { input, title });
@@ -854,13 +943,13 @@ export const salesWorkspaceUiContract = Object.freeze({
     salesPipelineSnapshotDescriptor.id, salesSavedViewCalendarDescriptor.id, salesSavedViewDetailDescriptor.id,
     salesSavedViewKanbanDescriptor.id, salesSavedViewListDescriptor.id, salesSavedViewTableDescriptor.id,
     salesImportJobListDescriptor.id, salesImportJobDetailDescriptor.id, salesExportJobListDescriptor.id,
-    salesExportJobDetailDescriptor.id, salesDedupeCandidatesDescriptor.id
+    salesExportJobDetailDescriptor.id, salesDedupeCandidatesDescriptor.id, salesNotificationsDescriptor.id, salesRemindersDescriptor.id, salesProviderConfigurationsDescriptor.id
   ].sort()),
   actionIds: Object.freeze([salesOpportunityStageUpdateDescriptor.id, salesTaskCreateDescriptor.id, salesTaskUpdateDescriptor.id,
     salesPipelineUpdateDescriptor.id, salesPipelineArchiveDescriptor.id, salesSavedViewCreateDescriptor.id,
     salesSavedViewUpdateDescriptor.id, salesSavedViewArchiveDescriptor.id, salesImportDryRunDescriptor.id,
     salesImportCommitDescriptor.id, salesImportCancelDescriptor.id, salesExportCreateDescriptor.id,
-    salesExportCancelDescriptor.id, salesMergeCommitDescriptor.id, ...salesWorkflowMutations.map(({ action }) => action.id)].sort()),
+    salesExportCancelDescriptor.id, salesMergeCommitDescriptor.id, salesNotificationReadDescriptor.id, salesNotificationArchiveDescriptor.id, salesReminderDismissDescriptor.id, salesReminderScheduleDescriptor.id, salesEmailSendDescriptor.id, salesCalendarSyncDescriptor.id, salesIntegrationConfigureDescriptor.id, ...salesWorkflowMutations.map(({ action }) => action.id)].sort()),
   routeIds: Object.freeze(salesRouteDescriptors.map(({ id }) => id)),
   pageTemplateIds: Object.freeze(salesPageTemplates.map(({ id }) => id).sort()),
   componentIds: Object.freeze(salesUiComponentDescriptors.map(({ id }) => id)),

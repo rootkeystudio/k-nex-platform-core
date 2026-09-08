@@ -116,6 +116,28 @@ export const SalesAccountsPage = (props: Omit<SalesCrmListPageProps, "kind">): R
 export const SalesContactsPage = (props: Omit<SalesCrmListPageProps, "kind">): ReactElement => <SalesCrmListPage kind="contact" {...props} />;
 export const SalesLeadsPage = (props: Omit<SalesCrmListPageProps, "kind">): ReactElement => <SalesCrmListPage kind="lead" {...props} />;
 
+export interface SalesNotificationsPageProps {
+  readonly notifications: readonly TableRow[];
+  readonly reminders: readonly TableRow[];
+  readonly onRead?: (id: string, revision: number) => void | Promise<void>;
+  readonly onArchive?: (id: string, revision: number) => void | Promise<void>;
+  readonly onDismiss?: (id: string, revision: number) => void | Promise<void>;
+}
+function recipientRevision(row: TableRow): number | undefined {
+  const cell = row.values.revision;
+  return cell !== null && typeof cell === "object" && "value" in cell && Number.isSafeInteger(cell.value) && (cell.value as number) >= 1 ? cell.value as number : undefined;
+}
+function recipientText(row: TableRow, field: string): string {
+  const cell = row.values[field]; return cell !== null && typeof cell === "object" && "value" in cell && typeof cell.value === "string" ? cell.value : "Unavailable";
+}
+/** Fixed recipient-only notification center. The server remains authoritative for recipient/CAS checks. */
+export function SalesNotificationsPage({ notifications, reminders, onRead, onArchive, onDismiss }: SalesNotificationsPageProps): ReactElement {
+  return <IndexPage templateId="sales.page.notifications" title="Notifications" description="Your authorized reminders and notification delivery records." breadcrumbs={crumbs("Notifications", "/sales/notifications")}>
+    <Section label="Notifications"><ul aria-label="Notifications">{notifications.map((row) => { const revision = recipientRevision(row); const state = recipientText(row, "state"); return <li key={row.key}><span>{recipientText(row, "subject")} ({state})</span>{state === "unread" && revision !== undefined && onRead !== undefined ? <button type="button" data-action-id="sales.notification.read" data-record-id={row.key} onClick={() => void onRead(row.key, revision)}>Read notification</button> : null}{state !== "archived" && revision !== undefined && onArchive !== undefined ? <button type="button" data-action-id="sales.notification.archive" data-record-id={row.key} onClick={() => void onArchive(row.key, revision)}>Archive notification</button> : null}</li>; })}</ul></Section>
+    <Section label="Reminders"><ul aria-label="Reminders">{reminders.map((row) => { const revision = recipientRevision(row); const state = recipientText(row, "state"); return <li key={row.key}><span>{recipientText(row, "subject")} ({state})</span>{(state === "scheduled" || state === "delivered") && revision !== undefined && onDismiss !== undefined ? <button type="button" data-action-id="sales.reminder.dismiss" data-record-id={row.key} onClick={() => void onDismiss(row.key, revision)}>{state === "scheduled" ? "Cancel reminder" : "Dismiss reminder"}</button> : null}</li>; })}</ul></Section>
+  </IndexPage>;
+}
+
 export interface SalesCrmFormField { readonly name: string; readonly label: string; readonly required?: boolean; readonly value: string; readonly error?: string; }
 export interface SalesCrmActionFormProps {
   readonly label: string;

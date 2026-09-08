@@ -17,6 +17,7 @@ import { canonicalJson } from "@k-nex/contracts";
 import type { Endpoint, PayloadRequest } from "payload";
 import type { FixtureAuthorityContext, FixtureCurrentAuthority, FixtureDurableSalesAuthority } from "./current-authority.js";
 import { FixtureSalesDataMovementStore } from "./data-movement-host.js";
+import { createGeneratedSalesProviderGateway } from "./k-nex-sales-communications.js";
 
 interface ActionBody {
   readonly actionId?: unknown;
@@ -57,6 +58,20 @@ function actor(request: PayloadRequest) {
 
 function actionGrants(actionId: string) {
   if (actionId.startsWith("sales.import.") || actionId.startsWith("sales.export.") || actionId === "sales.merge.commit") return [] as const;
+  if (actionId === "sales.integration.configure") return [] as const;
+  if (actionId === "sales.email.send") return [
+    { collection: "sales-activities", operations: ["create", "update"] },
+    { collection: "sales-contacts", operations: ["find"] },
+    { collection: "sales-leads", operations: ["find"] }
+  ] as const;
+  if (actionId === "sales.calendar.sync") return [{ collection: "sales-activities", operations: ["find"] }] as const;
+  if (actionId === "sales.reminder.schedule") return [
+    { collection: "sales-reminders", operations: ["create", "update"] },
+    { collection: "sales-tasks", operations: ["find"] },
+    { collection: "sales-activities", operations: ["find"] }
+  ] as const;
+  if (actionId === "sales.notification.read" || actionId === "sales.notification.archive") return [{ collection: "sales-notifications", operations: ["find", "update"] }] as const;
+  if (actionId === "sales.reminder.dismiss") return [{ collection: "sales-reminders", operations: ["find", "update"] }] as const;
   if (actionId === "sales.ownership.assign") return [
     { collection: "sales-accounts", operations: ["find", "update"] }, { collection: "sales-contacts", operations: ["find", "update"] },
     { collection: "sales-leads", operations: ["find", "update"] }, { collection: "sales-opportunities", operations: ["find", "update"] }
@@ -119,7 +134,7 @@ async function admitProtectedFields(request: PayloadRequest, durable: FixtureDur
   return admissions;
 }
 
-type WorkflowCollection = "sales-accounts" | "sales-contacts" | "sales-leads" | "sales-opportunities" | "sales-activities" | "sales-notes" | "sales-attachment-references";
+type WorkflowCollection = "sales-accounts" | "sales-contacts" | "sales-leads" | "sales-opportunities" | "sales-activities" | "sales-notes" | "sales-attachment-references" | "sales-notifications" | "sales-reminders";
 function workflowActionCollection(actionId: string): WorkflowCollection | undefined {
   if (actionId.startsWith("sales.account.")) return "sales-accounts";
   if (actionId.startsWith("sales.contact.")) return "sales-contacts";
@@ -128,6 +143,8 @@ function workflowActionCollection(actionId: string): WorkflowCollection | undefi
   if (actionId.startsWith("sales.activity.")) return "sales-activities";
   if (actionId === "sales.note.create") return "sales-notes";
   if (actionId.startsWith("sales.attachment.")) return "sales-attachment-references";
+  if (actionId.startsWith("sales.notification.")) return "sales-notifications";
+  if (actionId.startsWith("sales.reminder.")) return "sales-reminders";
   return undefined;
 }
 function ownershipCollection(input: Readonly<Record<string, unknown>>): "sales-accounts" | "sales-contacts" | "sales-leads" | "sales-opportunities" | undefined {
@@ -254,7 +271,7 @@ async function activityAuthorityTarget(request: PayloadRequest, durable: Fixture
 }
 
 /** The table and scope-column branches are fixed host mappings, never request-controlled SQL identifiers. */
-async function lockScopedSalesTarget(request: PayloadRequest, durable: FixtureDurableSalesAuthority, input: Readonly<Record<string, unknown>>): Promise<Readonly<{ ownerId: string; teamId?: string; status?: string; archiveStatus?: string; accountId?: string; relatedRecordType?: string; relatedRecordId?: string }> | undefined> {
+async function lockScopedSalesTarget(request: PayloadRequest, durable: FixtureDurableSalesAuthority, input: Readonly<Record<string, unknown>>): Promise<Readonly<{ ownerId: string; teamId?: string; status?: string; archiveStatus?: string; revision?: number; accountId?: string; relatedRecordType?: string; relatedRecordId?: string }> | undefined> {
   if (typeof input.id !== "string") return undefined;
   const transaction = await activePayloadPostgresTransaction(request);
   const context = durable.context;
@@ -266,12 +283,12 @@ async function lockScopedSalesTarget(request: PayloadRequest, durable: FixtureDu
       : sql`("owner_id" = ${context.actorId} OR ${assignedTeams})`;
   if (input.collection === "sales-tasks") {
     const row = resultRows(await transaction.execute(sql`
-      SELECT "owner_id","team_id" FROM "sales_tasks"
+      SELECT "owner_id","team_id","status","revision" FROM "sales_tasks"
       WHERE "id" = ${input.id} AND "application_id" = ${context.applicationId} AND "environment" = ${context.environment}
         AND ${recordAllowed}
       FOR UPDATE
     `))[0] as Record<string, unknown> | undefined;
-    return typeof row?.owner_id === "string" ? Object.freeze({ ownerId: row.owner_id, ...(typeof row.team_id === "string" ? { teamId: row.team_id } : {}) }) : undefined;
+    return typeof row?.owner_id === "string" ? Object.freeze({ ownerId: row.owner_id, ...(typeof row.team_id === "string" ? { teamId: row.team_id } : {}), ...(typeof row.status === "string" ? { status: row.status } : {}), ...(Number.isSafeInteger(row.revision) ? { revision: row.revision as number } : {}) }) : undefined;
   }
   if (input.collection === "sales-opportunities") {
     const row = resultRows(await transaction.execute(sql`
@@ -287,16 +304,16 @@ async function lockScopedSalesTarget(request: PayloadRequest, durable: FixtureDu
     return typeof row?.owner_id === "string" ? Object.freeze({ ownerId: row.owner_id, ...(typeof row.team_id === "string" ? { teamId: row.team_id } : {}), ...(typeof row.status === "string" ? { status: row.status } : {}) }) : undefined;
   }
   if (input.collection === "sales-contacts") {
-    const row = resultRows(await transaction.execute(sql`SELECT "owner_id","team_id","status","account_id" FROM "sales_contacts" WHERE "id" = ${input.id} AND "application_id" = ${context.applicationId} AND "environment" = ${context.environment} AND ${recordAllowed} FOR UPDATE`))[0] as Record<string, unknown> | undefined;
-    return typeof row?.owner_id === "string" ? Object.freeze({ ownerId: row.owner_id, ...(typeof row.team_id === "string" ? { teamId: row.team_id } : {}), ...(typeof row.status === "string" ? { status: row.status } : {}), ...(Number.isSafeInteger(row.account_id) ? { accountId: String(row.account_id) } : {}) }) : undefined;
+    const row = resultRows(await transaction.execute(sql`SELECT "owner_id","team_id","status","revision","account_id" FROM "sales_contacts" WHERE "id" = ${input.id} AND "application_id" = ${context.applicationId} AND "environment" = ${context.environment} AND ${recordAllowed} FOR UPDATE`))[0] as Record<string, unknown> | undefined;
+    return typeof row?.owner_id === "string" ? Object.freeze({ ownerId: row.owner_id, ...(typeof row.team_id === "string" ? { teamId: row.team_id } : {}), ...(typeof row.status === "string" ? { status: row.status } : {}), ...(Number.isSafeInteger(row.revision) ? { revision: row.revision as number } : {}), ...(Number.isSafeInteger(row.account_id) ? { accountId: String(row.account_id) } : {}) }) : undefined;
   }
   if (input.collection === "sales-leads") {
-    const row = resultRows(await transaction.execute(sql`SELECT "owner_id","team_id" FROM "sales_leads" WHERE "id" = ${input.id} AND "application_id" = ${context.applicationId} AND "environment" = ${context.environment} AND ${recordAllowed} FOR UPDATE`))[0] as Record<string, unknown> | undefined;
-    return typeof row?.owner_id === "string" ? Object.freeze({ ownerId: row.owner_id, ...(typeof row.team_id === "string" ? { teamId: row.team_id } : {}) }) : undefined;
+    const row = resultRows(await transaction.execute(sql`SELECT "owner_id","team_id","status","archive_status","revision" FROM "sales_leads" WHERE "id" = ${input.id} AND "application_id" = ${context.applicationId} AND "environment" = ${context.environment} AND ${recordAllowed} FOR UPDATE`))[0] as Record<string, unknown> | undefined;
+    return typeof row?.owner_id === "string" ? Object.freeze({ ownerId: row.owner_id, ...(typeof row.team_id === "string" ? { teamId: row.team_id } : {}), ...(typeof row.status === "string" ? { status: row.status } : {}), ...(typeof row.archive_status === "string" ? { archiveStatus: row.archive_status } : {}), ...(Number.isSafeInteger(row.revision) ? { revision: row.revision as number } : {}) }) : undefined;
   }
   if (input.collection === "sales-activities") {
-    const row = resultRows(await transaction.execute(sql`SELECT "owner_id","team_id" FROM "sales_activities" WHERE "id" = ${input.id} AND "application_id" = ${context.applicationId} AND "environment" = ${context.environment} AND ${recordAllowed} FOR UPDATE`))[0] as Record<string, unknown> | undefined;
-    return typeof row?.owner_id === "string" ? Object.freeze({ ownerId: row.owner_id, ...(typeof row.team_id === "string" ? { teamId: row.team_id } : {}) }) : undefined;
+    const row = resultRows(await transaction.execute(sql`SELECT "owner_id","team_id","status","revision" FROM "sales_activities" WHERE "id" = ${input.id} AND "application_id" = ${context.applicationId} AND "environment" = ${context.environment} AND ${recordAllowed} FOR UPDATE`))[0] as Record<string, unknown> | undefined;
+    return typeof row?.owner_id === "string" ? Object.freeze({ ownerId: row.owner_id, ...(typeof row.team_id === "string" ? { teamId: row.team_id } : {}), ...(typeof row.status === "string" ? { status: row.status } : {}), ...(Number.isSafeInteger(row.revision) ? { revision: row.revision as number } : {}) }) : undefined;
   }
   if (input.collection === "sales-notes") {
     const row = resultRows(await transaction.execute(sql`SELECT "owner_id","team_id","status","related_record_type","related_record_id" FROM "sales_notes" WHERE "id" = ${input.id} AND "application_id" = ${context.applicationId} AND "environment" = ${context.environment} AND ${recordAllowed} FOR UPDATE`))[0] as Record<string, unknown> | undefined;
@@ -305,6 +322,14 @@ async function lockScopedSalesTarget(request: PayloadRequest, durable: FixtureDu
   if (input.collection === "sales-attachment-references") {
     const row = resultRows(await transaction.execute(sql`SELECT "owner_id","team_id" FROM "sales_attachment_references" WHERE "id" = ${input.id} AND "application_id" = ${context.applicationId} AND "environment" = ${context.environment} AND ${recordAllowed} FOR UPDATE`))[0] as Record<string, unknown> | undefined;
     return typeof row?.owner_id === "string" ? Object.freeze({ ownerId: row.owner_id, ...(typeof row.team_id === "string" ? { teamId: row.team_id } : {}) }) : undefined;
+  }
+  if (input.collection === "sales-notifications") {
+    const row = resultRows(await transaction.execute(sql`SELECT "recipient_id","state","revision" FROM "sales_notifications" WHERE "id"=${input.id} AND "application_id"=${context.applicationId} AND "environment"=${context.environment} AND "recipient_id"=${context.actorId} FOR UPDATE`))[0] as Record<string, unknown> | undefined;
+    return row?.recipient_id === context.actorId ? Object.freeze({ ownerId: context.actorId, ...(typeof row.state === "string" ? { status: row.state } : {}), ...(Number.isSafeInteger(row.revision) ? { revision: row.revision as number } : {}) }) : undefined;
+  }
+  if (input.collection === "sales-reminders") {
+    const row = resultRows(await transaction.execute(sql`SELECT "recipient_id","state","revision" FROM "sales_reminders" WHERE "id"=${input.id} AND "application_id"=${context.applicationId} AND "environment"=${context.environment} AND "recipient_id"=${context.actorId} FOR UPDATE`))[0] as Record<string, unknown> | undefined;
+    return row?.recipient_id === context.actorId ? Object.freeze({ ownerId: context.actorId, ...(typeof row.state === "string" ? { status: row.state } : {}), ...(Number.isSafeInteger(row.revision) ? { revision: row.revision as number } : {}) }) : undefined;
   }
   return undefined;
 }
@@ -337,6 +362,10 @@ async function lockRelatedMutationParent(request: PayloadRequest, durable: Fixtu
 
 function targetScope(collection: "sales-tasks" | "sales-opportunities" | WorkflowCollection, id: string | undefined, durable: FixtureDurableSalesAuthority) {
   const context = durable.context;
+  if (collection === "sales-notifications" || collection === "sales-reminders") return Object.freeze({
+    kind: collection === "sales-notifications" ? "sales.notifications" as const : "sales.reminders" as const,
+    where: Object.freeze({ and: Object.freeze([...(id === undefined ? [] : [{ id: Object.freeze({ equals: id }) }]), { applicationId: Object.freeze({ equals: context.applicationId }) }, { environment: Object.freeze({ equals: context.environment }) }, { recipientId: Object.freeze({ equals: context.actorId }) }]) })
+  });
   const conditions: Readonly<Record<string, unknown>>[] = [
     { applicationId: Object.freeze({ equals: context.applicationId }) },
     { environment: Object.freeze({ equals: context.environment }) }
@@ -366,6 +395,29 @@ async function authorize(authority: FixtureCurrentAuthority, actionId: string, i
   const context = authenticated.request as CapabilityRequest;
   if (actionId.startsWith("sales.import.") || actionId.startsWith("sales.export.") || actionId === "sales.merge.commit") {
     return Object.freeze({ actionId, ...identity, dataMovement: new FixtureSalesDataMovementStore(request, durable), recordScope: durable.recordScope, applicationWide: durable.applicationWide, mutationAllowed: durable.mutationAllowed, authorizedTeamIds: durable.authorizedTeamIds, salesScopeRevision: durable.scopeRevision, recordEnvironment: current.environment, recordId: "collection", collectionScope: true, scope: Object.freeze({ kind: "sales.leads", where: Object.freeze({ and: Object.freeze([{ applicationId: { equals: current.applicationId } }, { environment: { equals: current.environment } }]) }) }) });
+  }
+  if (actionId === "sales.integration.configure") {
+    await context.transaction.begin();
+    if (!await durableFence(request, durable)) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales provider authority changed.");
+    return Object.freeze({ actionId, ...identity });
+  }
+  if (actionId === "sales.email.send" || actionId === "sales.calendar.sync" || actionId === "sales.reminder.schedule") {
+    const relation = actionId === "sales.email.send"
+      ? details.relatedRecordType === "sales.contact" ? { collection: "sales-contacts" as const, recordType: "sales.contact" as const, id: details.relatedRecordId }
+        : details.relatedRecordType === "sales.lead" ? { collection: "sales-leads" as const, recordType: "sales.lead" as const, id: details.relatedRecordId } : undefined
+      : actionId === "sales.calendar.sync" ? { collection: "sales-activities" as const, recordType: "sales.activity" as const, id: details.activityId }
+        : details.referenceKind === "task" ? { collection: "sales-tasks" as const, recordType: "sales.task" as const, id: details.referenceId }
+          : details.referenceKind === "activity" ? { collection: "sales-activities" as const, recordType: "sales.activity" as const, id: details.referenceId } : undefined;
+    await context.transaction.begin();
+    if (relation === undefined || typeof relation.id !== "string" || await context.guard({ collection: relation.collection, id: relation.id, operation: "find" }) !== true) throw new ActionGatewayError("ACTION_TARGET_FORBIDDEN", 403, "Sales communication relation is forbidden.");
+    const target = await lockScopedSalesTarget(request, durable, relation);
+    const expectedRevision = actionId === "sales.email.send" ? target?.revision : details.expectedRevision;
+    const emailActive = relation.recordType === "sales.contact" ? target?.status === "active" && target.archiveStatus === undefined
+      : relation.recordType === "sales.lead" ? (target?.status === "new" || target?.status === "working") && target.archiveStatus === "active" : false;
+    const referenceActive = relation.recordType === "sales.task" ? target?.status === "open" : relation.recordType === "sales.activity" ? target?.status === "scheduled" : false;
+    if (target === undefined || !Number.isSafeInteger(target.revision) || expectedRevision !== target.revision || (actionId === "sales.email.send" ? !emailActive : !referenceActive)) throw new ActionGatewayError("STALE_RECORD", 409, "Sales communication relation changed before action.");
+    const communicationRelationAdmission = Object.freeze({ actionId, recordType: relation.recordType, recordId: relation.id, applicationId: current.applicationId, environment: current.environment, revision: target.revision, status: target.status, archiveStatus: relation.recordType === "sales.lead" ? target.archiveStatus : null, ownerId: target.ownerId, teamId: target.teamId ?? null });
+    return Object.freeze({ actionId, operation: actionId === "sales.calendar.sync" ? "find" : "create", ...identity, ownerId: target.ownerId, ...(target.teamId === undefined ? {} : { teamId: target.teamId }), resourceId: relation.id, communicationRelationAdmission, scope: targetScope(relation.collection, relation.id, durable) });
   }
   const workflowCollection = workflowActionCollection(actionId);
   if (actionId === "sales.task.create" || workflowCollection !== undefined && (actionId.endsWith(".create") || actionId === "sales.attachment.link")) {
@@ -451,7 +503,10 @@ export function createActionEndpoint(registration: ScopedRegistrationResult, aut
       await (authenticated.request as CapabilityRequest).transaction.begin();
       await reserve(operation);
       const facts = await authorize(authority, action.descriptor.id, input, authenticated, operation.durable, operation.request) as Record<string, unknown>;
-      return Object.freeze({ ...facts, eventId: eventId(operation), ...(operation.replay === undefined ? {} : { idempotencyReplay: operation.replay }) });
+      const communicationAuthority = Object.freeze({ context: Object.freeze({ applicationId: operation.durable.context.applicationId, environment: operation.durable.context.environment, actorId: operation.durable.context.actorId }), authorizationRevision: operation.durable.authorizationRevision, lifecycleRevision: operation.durable.lifecycleRevision, scopeRevision: operation.durable.scopeRevision, permissionGrants: operation.durable.permissionGrants });
+      const providerGateway = ["sales.email.send", "sales.calendar.sync", "sales.integration.configure"].includes(action.descriptor.id)
+        ? createGeneratedSalesProviderGateway(operation.request, communicationAuthority) : undefined;
+      return Object.freeze({ ...facts, ...(providerGateway === undefined ? {} : { providerGateway }), eventId: eventId(operation), ...(operation.replay === undefined ? {} : { idempotencyReplay: operation.replay }) });
     } }
   );
   const gateway = new RegisteredActionGateway(registration, {

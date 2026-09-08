@@ -27,6 +27,7 @@ import * as migration_20260903_000026_workspace_pages from "./20260903_000026_wo
 import * as migration_20260905_000027_crm_core from "./20260905_000027_crm_core.js";
 import * as migration_20260907_000030_pipeline_saved_views from "./20260907_000030_pipeline_saved_views.js";
 import * as migration_20260907_000031_data_movement from "./20260907_000031_data_movement.js";
+import * as migration_20260908_000032_communications from "./20260908_000032_communications.js";
 
 import type { CustomerPayloadMigration } from "@k-nex/payload-adapter";
 
@@ -175,5 +176,10 @@ export const migrations: CustomerPayloadMigration[] = [
     up: migration_20260907_000031_data_movement.up,
     down: migration_20260907_000031_data_movement.down,
     name: "20260907_000031_data_movement"
+  },
+  {
+    up: migration_20260908_000032_communications.up,
+    down: migration_20260908_000032_communications.down,
+    name: "20260908_000032_communications"
   }
 ];

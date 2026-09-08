@@ -655,8 +655,12 @@ export function createFixtureCurrentAuthority(
                       ? operation === "find" ? "sales.attachments.read" : "sales.attachments.write"
                       : collection === "sales-pipelines"
                         ? "sales.pipelines.read"
-                        : collection === "sales-pipeline-stages"
+                      : collection === "sales-pipeline-stages"
                           ? "sales.pipelines.read"
+                        : collection === "sales-notifications"
+                          ? operation === "find" ? "sales.notifications.read" : "sales.notifications.write"
+                          : collection === "sales-reminders"
+                            ? operation === "find" ? "sales.reminders.read" : "sales.reminders.write"
                 : undefined;
       if (permissionId === undefined) throw new TypeError("Payload collection is unavailable.");
       return target(permission, permissionId, `payload-${collection}-${operation}`);
@@ -664,6 +668,16 @@ export function createFixtureCurrentAuthority(
     payloadAction(actionId, collection, operation) {
       const permissionId = actionId === "sales.opportunity.stage.update"
         ? collection === "sales-opportunities" ? "sales.opportunities.stage.update" : undefined
+        : actionId === "sales.email.send"
+          ? collection === "sales-activities" ? "sales.communications.email.send" : collection === "sales-contacts" && operation === "find" ? "sales.contacts.read" : collection === "sales-leads" && operation === "find" ? "sales.leads.read" : undefined
+        : actionId === "sales.calendar.sync"
+          ? collection === "sales-activities" && operation === "find" ? "sales.communications.calendar.sync" : undefined
+        : actionId === "sales.reminder.schedule"
+          ? collection === "sales-reminders" ? "sales.reminders.write" : collection === "sales-tasks" && operation === "find" ? "sales.tasks.read" : collection === "sales-activities" && operation === "find" ? "sales.activities.read" : undefined
+        : (actionId === "sales.notification.read" || actionId === "sales.notification.archive") && collection === "sales-notifications"
+          ? "sales.notifications.write"
+        : actionId === "sales.reminder.dismiss" && collection === "sales-reminders"
+          ? "sales.reminders.write"
         : actionId === "sales.task.create" || actionId === "sales.task.update"
           ? collection === "sales-tasks" ? "sales.tasks.write" : undefined
           : actionId === "sales.ownership.assign" && ["sales-accounts", "sales-contacts", "sales-leads", "sales-opportunities"].includes(collection)

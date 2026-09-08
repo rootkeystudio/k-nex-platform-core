@@ -214,6 +214,18 @@ Inbound webhooks require exact provider signature verification, replay protectio
 
 No Phase 13 feature grants the Sales plugin raw unrestricted network or mailbox authority.
 
+### P13.6 reference-adapter contract
+
+P13.6 uses the fixed host adapters `email.reference.v1` and `calendar.reference.v1`. Sales actions submit only an application/environment/actor-bound intent, a CRM relation, an idempotency key, and the closed message or activity fields. Email recipients are never caller-supplied: the worker resolves the current authorized Lead or Contact channel immediately before the effect. `sales.integration.configure` accepts only `providerId`, `expectedRevision`, and `activate | revoke`; the generated host maps each provider to one fixed opaque secret slot. Neither Sales nor browser state receives a secret reference or secret value.
+
+Provider configuration status is projected only through source `sales.provider-configurations`, event `sales.event.provider-configuration-changed`, and realtime topic `sales.realtime.provider-configurations`. The source requires `sales.settings.read` and exposes exactly `provider-id`, `state`, `revision`, `updated-at`, and nullable `revoked-at`. Secret references and secret values are never source, event, realtime, UI, or browser fields.
+
+Outbound intents are at most 32 KiB and reject secret-, credential-, address-, recipient-, or URL-shaped extension fields. The worker rechecks the PostgreSQL generation fence, authorization/lifecycle/scope revisions, provider configuration revision, CRM relation, and Activity CAS immediately before the effect. Every retry carries the same provider idempotency key. Only provider outages retry, at most three attempts with bounded backoff; revocation and host invariant failures dead-letter safely. A successful effect completes the same scheduled Activity and records one digest-only receipt; it never creates a parallel Activity.
+
+Inbound endpoints are fixed per adapter. They accept at most 64 KiB of exact UTF-8 JSON, a millisecond timestamp within five minutes, and an HMAC-SHA256 signature over the raw timestamp/body bytes. The closed event binds an already accepted operation in the same application, environment, and provider. Its recipient must match the persisted operation actor, and notification delivery derives that persisted actor. Exact replay is inert; the same event ID with different bytes is rejected. Persisted webhook metadata is provider-specific and allowlisted.
+
+The notification center registers `sales.notifications` and `sales.reminders` sources, `sales.page.notifications`, `sales.notification-center` and `sales.reminder-center` blocks, and the existing fixed `sales.route.notifications`. Both sources require exact recipient predicates. Reminder delivery uses `sales.job.reminder-delivery`, creates one recipient notification, and follows the lifecycle and terminal-state rules frozen in ADR-0028.
+
 ## 8. Workflow and notification boundary
 
 Phase 13 may add a bounded rules model for common CRM automation:

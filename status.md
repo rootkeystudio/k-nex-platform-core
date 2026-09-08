@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-09-08
 - **Phase:** Phase 13 — CRM-First Productization and Pilot Readiness
-- **Active task:** P13.6 — Add communication, reminder, and notification adapters
+- **Active task:** P13.7 — Add bounded CRM workflows
 - **State:** Ready to start
 
 ## Last completed
 
-P13.5 completed import/export, durable fenced workers, partial-failure evidence, dedupe/merge lineage, protected downloads, process-bound upload admission, retention, and accessible generated journeys. Persistent Sol xhigh review: PASS.
+P13.6 completed bounded email/calendar provider adapters, signed replay-safe webhooks, CRM activity association, reminders, recipient notifications, secret-reference handling, and promotion-safe fenced workers. Persistent Sol xhigh review: PASS.
 
 ## Validation
 
-Node 24.19: Sales 62 Node + 80 Vitest with boundaries/pack; composition 165 tests, build, and Gate 1 generated-current; Phase 13 contract 33 tests + docs; P13.5 real PostgreSQL 4/4; generated Chromium/PostgreSQL 1/1. All passed.
+Node 24.19: Sales 68 Node + 81 Vitest with boundaries/pack; composition 165 tests; fixture build and Gate 1 generated-current; Phase 13 contract 33 tests + docs; P13.6 real PostgreSQL 12/12; generated HTTP/worker/Chromium/PostgreSQL 1/1; diff check. All passed.
 
 ## Next
 
-Implement P13.6 bounded email/calendar providers, CRM activity association, reminders, and notification center in documented order.
+Begin P13.7 registered triggers, closed conditions, declared actions/jobs, and bounded workflow execution in documented task order.
 
 ## Blockers
 

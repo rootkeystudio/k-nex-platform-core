@@ -126,6 +126,7 @@ const actionOutput = {
 
 const actionInput = { type: "object" as const, properties: {}, additionalProperties: false as const };
 const revision = { type: "integer" as const, minimum: 1 };
+const configurationRevision = { type: "integer" as const, minimum: 0 };
 const shortText = { type: "string" as const, minLength: 1, maxLength: 256 };
 const optionalText = { type: "string" as const, minLength: 1, maxLength: 256 };
 export const salesPhoneMaxLength = 64;
@@ -137,6 +138,11 @@ const activityType = { type: "string" as const, enum: ["call", "meeting", "email
 const opportunityStage = { type: "string" as const, enum: ["qualification", "discovery", "proposal", "negotiation", "won", "lost"] };
 const qualificationMode = { type: "string" as const, enum: ["create", "link"] };
 const optionalMutationMode = { type: "string" as const, enum: ["retain", "set", "clear"] };
+const emailProviderId = { type: "string" as const, enum: ["email.reference.v1"] };
+const calendarProviderId = { type: "string" as const, enum: ["calendar.reference.v1"] };
+const utcTimestamp = { type: "string" as const, minLength: 24, maxLength: 24 };
+const reminderReferenceKind = { type: "string" as const, enum: ["task", "activity"] };
+const communicationRecordType = { type: "string" as const, enum: ["sales.contact", "sales.lead"] };
 export const salesCalendarDatePattern = "^(?:000[1-9]|00[1-9][0-9]|0[1-9][0-9]{2}|[1-9][0-9]{3})-[0-9]{2}-[0-9]{2}$";
 export function isSalesCalendarDate(value: unknown): value is string {
   return typeof value === "string" && new RegExp(salesCalendarDatePattern, "u").test(value) && new Date(`${value}T00:00:00.000Z`).toISOString().slice(0, 10) === value;
@@ -217,6 +223,13 @@ const workflowActionInputs: Readonly<Record<string, ActionDescriptor["inputSchem
   "sales.activity.create": mutationInput({ relatedRecordType, relatedRecordId: recordId, type: activityType, subject: shortText, scheduledAt: shortText, supersedesActivityId: recordId }, ["relatedRecordType", "relatedRecordId", "type", "subject", "scheduledAt"]),
   "sales.activity.complete": mutationInput({ id: recordId, expectedRevision: revision }, ["id", "expectedRevision"]),
   "sales.activity.cancel": mutationInput({ id: recordId, expectedRevision: revision }, ["id", "expectedRevision"]),
+  "sales.email.send": mutationInput({ providerId: emailProviderId, relatedRecordType: communicationRecordType, relatedRecordId: recordId, subject: shortText, body: { type: "string" as const, minLength: 1, maxLength: 10_000 } }, ["providerId", "relatedRecordType", "relatedRecordId", "subject", "body"]),
+  "sales.calendar.sync": mutationInput({ providerId: calendarProviderId, activityId: recordId, expectedRevision: revision }, ["providerId", "activityId", "expectedRevision"]),
+  "sales.reminder.schedule": mutationInput({ referenceKind: reminderReferenceKind, referenceId: recordId, expectedRevision: revision, scheduledAt: utcTimestamp, subject: shortText }, ["referenceKind", "referenceId", "expectedRevision", "scheduledAt", "subject"]),
+  "sales.notification.read": mutationInput({ id: recordId, expectedRevision: revision }, ["id", "expectedRevision"]),
+  "sales.notification.archive": mutationInput({ id: recordId, expectedRevision: revision }, ["id", "expectedRevision"]),
+  "sales.reminder.dismiss": mutationInput({ id: recordId, expectedRevision: revision }, ["id", "expectedRevision"]),
+  "sales.integration.configure": mutationInput({ providerId: { type: "string" as const, enum: ["email.reference.v1", "calendar.reference.v1"] }, expectedRevision: configurationRevision, operation: { type: "string" as const, enum: ["activate", "revoke"] } }, ["providerId", "expectedRevision", "operation"]),
   "sales.note.create": mutationInput({ relatedRecordType, relatedRecordId: recordId, body: { type: "string" as const, minLength: 1, maxLength: 10_000 }, replacesNoteId: recordId }, ["relatedRecordType", "relatedRecordId", "body"]),
   "sales.attachment.link": mutationInput({ relatedRecordType, relatedRecordId: recordId, storageReference: shortText, filename: shortText, mediaType, byteSize: { type: "integer" as const, minimum: 0, maximum: 1_073_741_824 } }, ["relatedRecordType", "relatedRecordId", "storageReference", "filename", "mediaType", "byteSize"]),
   "sales.attachment.remove": mutationInput({ id: recordId, expectedRevision: revision }, ["id", "expectedRevision"]),
@@ -234,9 +247,11 @@ const workflowOutputStatuses: Readonly<Record<string, readonly string[]>> = Obje
   "sales.lead.create": ["new"], "sales.lead.update": ["working"], "sales.lead.qualify": ["qualified"], "sales.lead.disqualify": ["disqualified"], "sales.lead.archive": ["archived"],
   "sales.opportunity.create": ["qualification"], "sales.opportunity.update": ["qualification", "discovery", "proposal", "negotiation"], "sales.opportunity.close": ["won", "lost"], "sales.opportunity.archive": ["archived"],
   "sales.activity.create": ["scheduled"], "sales.activity.complete": ["completed"], "sales.activity.cancel": ["cancelled"], "sales.note.create": ["recorded"], "sales.attachment.link": ["active"], "sales.attachment.remove": ["removed"],
+  "sales.email.send": ["accepted"], "sales.calendar.sync": ["accepted"], "sales.reminder.schedule": ["scheduled"], "sales.notification.read": ["read"], "sales.notification.archive": ["archived"], "sales.reminder.dismiss": ["dismissed", "cancelled"], "sales.integration.configure": ["accepted"],
   "sales.pipeline.update": ["active"], "sales.pipeline.archive": ["archived"], "sales.saved-view.create": ["active"], "sales.saved-view.update": ["active"], "sales.saved-view.archive": ["archived"]
 });
 function workflowOutput(id: string): ActionDescriptor["outputSchema"] {
+  if (id === "sales.integration.configure") return mutationInput({ providerId: { type: "string", enum: ["email.reference.v1", "calendar.reference.v1"] }, revision: { type: "integer", minimum: 1 }, status: { type: "string", enum: ["accepted"] } }, ["providerId", "revision", "status"]);
   if (id === "sales.import.dry-run") return mutationInput({ importJobId: safeId, revision: { type: "integer", enum: [2] }, state: { type: "string", enum: ["validated"] }, uploadDigest: sha256Digest, acceptedRows: { type: "integer", minimum: 0, maximum: 10_000 }, rejectedRows: { type: "integer", minimum: 0, maximum: 10_000 }, diagnosticDigest: sha256Digest }, ["importJobId", "revision", "state", "uploadDigest", "acceptedRows", "rejectedRows", "diagnosticDigest"]);
   if (id === "sales.import.commit") return mutationInput({ importJobId: safeId, revision: { type: "integer", minimum: 3, maximum: Number.MAX_SAFE_INTEGER }, state: { type: "string", enum: ["queued"] }, receiptId: { type: "string", minLength: 1, maxLength: 128 } }, ["importJobId", "revision", "state", "receiptId"]);
   if (id === "sales.import.cancel") return mutationInput({ importJobId: safeId, revision: { type: "integer", minimum: 2, maximum: Number.MAX_SAFE_INTEGER }, state: { type: "string", enum: ["cancelled"] } }, ["importJobId", "revision", "state"]);

@@ -44,7 +44,8 @@
       "sales.import-chunks.collection": "required",
       "sales.import-rows.collection": "required",
       "sales.export-jobs.collection": "required",
-      "sales.merge-lineage.collection": "required"
+      "sales.merge-lineage.collection": "required",
+      "sales.notifications.collection": "required", "sales.reminders.collection": "required"
     },
     "migrations": {
       "sales.migration.initial": "required"
@@ -94,7 +95,7 @@
       "sales.contacts": "required", "sales.contact.detail": "required",
       "sales.leads": "required", "sales.lead.detail": "required", "sales.opportunity.detail": "required", "sales.timeline": "required",
       "sales.pipeline.snapshot": "required", "sales.saved-view.list": "required", "sales.saved-view.detail": "required", "sales.saved-view.table": "required", "sales.saved-view.kanban": "required", "sales.saved-view.calendar": "required",
-      "sales.import-job.list": "required", "sales.import-job.detail": "required", "sales.export-job.list": "required", "sales.export-job.detail": "required", "sales.dedupe.candidates": "required"
+      "sales.import-job.list": "required", "sales.import-job.detail": "required", "sales.export-job.list": "required", "sales.export-job.detail": "required", "sales.dedupe.candidates": "required", "sales.notifications": "required", "sales.reminders": "required", "sales.provider-configurations": "required"
     },
     "actions": {
       "sales.task.create": "required", "sales.task.update": "required", "sales.opportunity.stage.update": "required",
@@ -104,7 +105,8 @@
       "sales.opportunity.create": "required", "sales.opportunity.update": "required", "sales.opportunity.close": "required", "sales.opportunity.archive": "required",
       "sales.activity.create": "required", "sales.activity.complete": "required", "sales.activity.cancel": "required", "sales.note.create": "required", "sales.attachment.link": "required", "sales.attachment.remove": "required", "sales.ownership.assign": "required",
       "sales.pipeline.update": "required", "sales.pipeline.archive": "required", "sales.saved-view.create": "required", "sales.saved-view.update": "required", "sales.saved-view.archive": "required",
-      "sales.import.dry-run": "required", "sales.import.commit": "required", "sales.import.cancel": "required", "sales.export.create": "required", "sales.export.cancel": "required", "sales.merge.commit": "required"
+      "sales.import.dry-run": "required", "sales.import.commit": "required", "sales.import.cancel": "required", "sales.export.create": "required", "sales.export.cancel": "required", "sales.merge.commit": "required",
+      "sales.email.send": "required", "sales.calendar.sync": "required", "sales.reminder.schedule": "required", "sales.notification.read": "required", "sales.notification.archive": "required", "sales.reminder.dismiss": "required", "sales.integration.configure": "required"
     },
     "tools": {
       "sales.tools.create-task": "required", "sales.tools.search-tasks": "required"
@@ -113,31 +115,31 @@
       "sales.route.overview": "required",
       "sales.route.tasks": "required", "sales.route.opportunities": "required", "sales.route.settings": "required",
       "sales.route.accounts": "required", "sales.route.account-detail": "required", "sales.route.contacts": "required", "sales.route.contact-detail": "required", "sales.route.leads": "required", "sales.route.lead-detail": "required", "sales.route.opportunity-detail": "required",
-      "sales.route.calendar": "required", "sales.route.pipeline-settings": "required", "sales.route.saved-views": "required", "sales.route.imports": "required", "sales.route.exports": "required"
+      "sales.route.calendar": "required", "sales.route.notifications": "required", "sales.route.pipeline-settings": "required", "sales.route.saved-views": "required", "sales.route.imports": "required", "sales.route.exports": "required"
     },
     "pageTemplates": {
       "sales.page.overview": "required", "sales.page.tasks": "required", "sales.page.opportunities": "required", "sales.page.settings": "required",
       "sales.page.accounts": "required", "sales.page.account-detail": "required", "sales.page.contacts": "required", "sales.page.contact-detail": "required", "sales.page.leads": "required", "sales.page.lead-detail": "required", "sales.page.opportunity-detail": "required",
-      "sales.page.calendar": "required", "sales.page.pipeline-settings": "required", "sales.page.saved-views": "required", "sales.page.imports": "required", "sales.page.exports": "required"
+      "sales.page.calendar": "required", "sales.page.notifications": "required", "sales.page.pipeline-settings": "required", "sales.page.saved-views": "required", "sales.page.imports": "required", "sales.page.exports": "required"
     },
     "navigation": {
-      "sales.navigation.overview": "required", "sales.navigation.tasks": "required", "sales.navigation.opportunities": "required", "sales.navigation.settings": "required", "sales.navigation.accounts": "required", "sales.navigation.contacts": "required", "sales.navigation.leads": "required"
+      "sales.navigation.overview": "required", "sales.navigation.tasks": "required", "sales.navigation.opportunities": "required", "sales.navigation.settings": "required", "sales.navigation.accounts": "required", "sales.navigation.contacts": "required", "sales.navigation.leads": "required", "sales.navigation.notifications": "required"
     },
     "components": {
       "sales.table.tasks": "required", "sales.form.task-quick-create": "required", "sales.list.opportunities": "required", "sales.detail.opportunity": "required", "sales.status.pipeline-stage": "required", "sales.list.accounts": "required", "sales.detail.account": "required", "sales.list.contacts": "required", "sales.detail.contact": "required", "sales.list.leads": "required", "sales.detail.lead": "required"
     },
     "blocks": {
       "sales.task-table": "required", "sales.task-quick-create": "required", "sales.opportunity-list": "required", "sales.opportunity-detail": "required", "sales.opportunity-kanban": "required", "sales.settings-summary": "required", "sales.account-list": "required", "sales.account-detail": "required", "sales.contact-list": "required", "sales.contact-detail": "required", "sales.lead-list": "required", "sales.lead-detail": "required",
-      "sales.calendar": "required", "sales.pipeline-settings": "required", "sales.saved-views": "required", "sales.saved-view-table": "required", "sales.imports": "required", "sales.exports": "required"
+      "sales.calendar": "required", "sales.notification-center": "required", "sales.reminder-center": "required", "sales.communication-actions": "required", "sales.integration-settings": "required", "sales.pipeline-settings": "required", "sales.saved-views": "required", "sales.saved-view-table": "required", "sales.imports": "required", "sales.exports": "required"
     },
     "events": {
-      "sales.event.task-changed": "required", "sales.event.opportunity-changed": "required", "sales.event.account-changed": "required", "sales.event.contact-changed": "required", "sales.event.lead-changed": "required", "sales.event.import-job-changed": "required", "sales.event.export-job-changed": "required", "sales.event.timeline-changed": "required"
+      "sales.event.task-changed": "required", "sales.event.opportunity-changed": "required", "sales.event.account-changed": "required", "sales.event.contact-changed": "required", "sales.event.lead-changed": "required", "sales.event.import-job-changed": "required", "sales.event.export-job-changed": "required", "sales.event.notification-changed": "required", "sales.event.reminder-changed": "required", "sales.event.provider-configuration-changed": "required", "sales.event.timeline-changed": "required"
     },
     "realtimeTopics": {
-      "sales.realtime.tasks": "required", "sales.realtime.opportunities": "required", "sales.realtime.accounts": "required", "sales.realtime.contacts": "required", "sales.realtime.leads": "required", "sales.realtime.import-jobs": "required", "sales.realtime.export-jobs": "required", "sales.realtime.timeline": "required"
+      "sales.realtime.tasks": "required", "sales.realtime.opportunities": "required", "sales.realtime.accounts": "required", "sales.realtime.contacts": "required", "sales.realtime.leads": "required", "sales.realtime.import-jobs": "required", "sales.realtime.export-jobs": "required", "sales.realtime.notifications": "required", "sales.realtime.reminders": "required", "sales.realtime.provider-configurations": "required", "sales.realtime.timeline": "required"
     },
     "jobs": {
-      "sales.job.pipeline-audit": "required"
+      "sales.job.pipeline-audit": "required", "sales.job.reminder-delivery": "required"
     },
     "localization": {
       "sales.localization.en": "required"

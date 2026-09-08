@@ -35,6 +35,7 @@ import {
 import { applicationMigrationRevision } from "./migration-revision.js";
 import { createGate1RuntimeInventory, createRuntimeInventoryEndpoint } from "./runtime-inventory.js";
 import { createSalesDataMovementEndpoints } from "./data-movement-host.js";
+import { createGeneratedEnvironmentProviderSecretResolver, generatedSalesProviderWebhookEndpoints } from "./k-nex-sales-communications.js";
 
 export interface CreateGate1ApplicationOptions {
   readonly databaseUrl: string;
@@ -144,7 +145,7 @@ export function createGate1Application(options: CreateGate1ApplicationOptions): 
       secret: options.payloadSecret,
       custom: { kNexApplicationId: "customer-gate-1", kNexEnvironment: "production" },
       plugins: mcp === undefined ? [] : [mcp],
-      endpoints: [createRuntimeInventoryEndpoint(inventory), createDataSourceQueryEndpoint(scopedRegistration, authority), createActionEndpoint(scopedRegistration, authority), ...createSalesDataMovementEndpoints(authority)]
+      endpoints: [createRuntimeInventoryEndpoint(inventory), createDataSourceQueryEndpoint(scopedRegistration, authority), createActionEndpoint(scopedRegistration, authority), ...createSalesDataMovementEndpoints(authority), ...generatedSalesProviderWebhookEndpoints("customer-gate-1", "production", createGeneratedEnvironmentProviderSecretResolver())]
     },
     baseCollections: [usersCollection],
     databaseUrl: options.databaseUrl,

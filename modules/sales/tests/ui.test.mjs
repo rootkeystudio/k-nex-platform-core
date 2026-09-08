@@ -25,6 +25,8 @@ import {
   salesOpportunityDetailComponentDescriptor,
   salesOpportunityDetailPageTemplate,
   salesOpportunityListBlockDescriptor,
+  salesProviderConfigurationsDescriptor,
+  salesSettingsPageTemplate,
   salesPageTemplates,
   salesReferenceMetadata,
   salesTasksDescriptor
@@ -105,6 +107,9 @@ const leadData = { fields: ["display-name", "owner-id", "status", "archive-statu
 const accountDetailData = { fields: ["name", "owner-id", "team-id", "status", "revision"], rows: accountData.rows.map((row) => ({ ...row, values: { name: row.values.name, "owner-id": { kind: "text", value: "owner-1" }, "team-id": { kind: "text", value: "team-1" }, status: row.values.status, revision: row.values.revision } })), page: accountData.page };
 const contactDetailData = { fields: ["display-name", "owner-id", "team-id", "account-id", "status", "revision"], rows: contactData.rows.map((row) => ({ ...row, values: { "display-name": row.values["display-name"], "owner-id": { kind: "text", value: "owner-1" }, "team-id": { kind: "text", value: "team-1" }, "account-id": { kind: "integer", value: 1 }, status: row.values.status, revision: row.values.revision } })), page: contactData.page };
 const leadDetailData = { fields: ["display-name", "owner-id", "team-id", "status", "archive-status", "revision"], rows: leadData.rows.map((row) => ({ ...row, values: { "display-name": row.values["display-name"], "owner-id": { kind: "text", value: "owner-1" }, "team-id": { kind: "text", value: "team-1" }, status: row.values.status, "archive-status": row.values["archive-status"], revision: row.values.revision } })), page: leadData.page };
+const notificationData = { fields: ["subject", "state", "created-at", "revision"], rows: [{ key: "41", values: { subject: { kind: "text", value: "Manager private notification" }, state: { kind: "status", value: "unread" }, "created-at": { kind: "datetime", value: "2026-09-08T12:00:00.000Z" }, revision: { kind: "integer", value: 3 } } }], page: { number: 1, pageSize: 25, hasNext: false } };
+const reminderData = { fields: ["subject", "state", "scheduled-at", "reference-kind", "reference-id", "revision"], rows: [{ key: "42", values: { subject: { kind: "text", value: "Follow up privately" }, state: { kind: "status", value: "delivered" }, "scheduled-at": { kind: "datetime", value: "2026-09-08T12:00:00.000Z" }, "reference-kind": { kind: "enum", value: "task" }, "reference-id": { kind: "integer", value: 1 }, revision: { kind: "integer", value: 2 } } }], page: { number: 1, pageSize: 25, hasNext: false } };
+const providerConfigurationData = { fields: ["provider-id", "state", "revision", "updated-at", "revoked-at"], rows: [{ key: "email.reference.v1", values: { "provider-id": { kind: "enum", value: "email.reference.v1" }, state: { kind: "status", value: "active" }, revision: { kind: "integer", value: 3 }, "updated-at": { kind: "datetime", value: "2026-09-08T12:00:00.000Z" }, "revoked-at": null } }], page: { number: 1, pageSize: 25, hasNext: false } };
 function sourceFor(definition) {
   if (definition.id === "sales.calendar") return salesSavedViewCalendarDescriptor;
   if (definition.id === "sales.saved-view-table") return salesSavedViewTableDescriptor;
@@ -262,6 +267,50 @@ test("Sales Kanban exposes native pointer and keyboard stage controls only with 
   const markup = renderToStaticMarkup(rendered.element);
   assert.match(markup, /data-k-nex-component="sales-opportunity-kanban"/);
   assert.match(markup, /role="status" aria-live="polite"/);
+});
+
+test("recipient delivery blocks render source rows with exact lifecycle action CAS inputs", () => {
+  const permissions = new Set([...actor.permissions, "sales.notifications.read", "sales.notifications.write", "sales.reminders.read", "sales.reminders.write"]);
+  const notification = salesUiBlockDefinitions.find(({ id }) => id === "sales.notification-center");
+  const reminder = salesUiBlockDefinitions.find(({ id }) => id === "sales.reminder-center");
+  assert.ok(notification); assert.ok(reminder);
+  const render = (definition, action, data) => renderToStaticMarkup(definition.render({
+    node: { id: `${definition.id}-${action.id}`, type: definition.id, version: definition.version, props: { title: definition.id }, bindings: { action } },
+    props: { title: definition.id }, surface: "workspace", actor: { ...actor, permissions }, sourceResult: { state: "success", data }, action, dispatchAction: async () => undefined
+  }).element);
+  const read = notification.actionPolicy.actions.find(({ id }) => id === "sales.notification.read");
+  const archive = notification.actionPolicy.actions.find(({ id }) => id === "sales.notification.archive");
+  const dismiss = reminder.actionPolicy.actions.find(({ id }) => id === "sales.reminder.dismiss");
+  assert.ok(read); assert.ok(archive); assert.ok(dismiss);
+  const readMarkup = render(notification, read, notificationData);
+  assert.match(readMarkup, /Manager private notification/);
+  assert.match(readMarkup, /data-action-id="sales.notification.read" data-record-id="41"/);
+  assert.match(readMarkup, />Read notification<\/button>/);
+  const archiveMarkup = render(notification, archive, notificationData);
+  assert.match(archiveMarkup, /data-action-id="sales.notification.archive" data-record-id="41"/);
+  assert.match(archiveMarkup, />Archive notification<\/button>/);
+  const dismissMarkup = render(reminder, dismiss, reminderData);
+  assert.match(dismissMarkup, /Follow up privately/);
+  assert.match(dismissMarkup, /data-action-id="sales.reminder.dismiss" data-record-id="42"/);
+  assert.match(dismissMarkup, />Dismiss reminder<\/button>/);
+  const scheduledData = { ...reminderData, rows: reminderData.rows.map((row) => ({ ...row, values: { ...row.values, state: { kind: "status", value: "scheduled" }, revision: { kind: "integer", value: 1 } } })) };
+  const cancelMarkup = render(reminder, dismiss, scheduledData);
+  assert.match(cancelMarkup, /data-action-id="sales.reminder.dismiss" data-record-id="42"/);
+  assert.match(cancelMarkup, />Cancel reminder<\/button>/);
+});
+
+test("communication and integration blocks expose labelled native forms only through bound actions", () => {
+  const permissions = new Set([...actor.permissions, "sales.activities.read", "sales.communications.email.send", "sales.communications.calendar.sync", "sales.settings.read", "sales.settings.write", "sales.reminders.read", "sales.reminders.write"]);
+  const renderAction = (blockId, actionId) => {
+    const definition = salesUiBlockDefinitions.find(({ id }) => id === blockId); assert.ok(definition);
+    const action = definition.actionPolicy.actions.find(({ id }) => id === actionId); assert.ok(action);
+    const provider = blockId === "sales.integration-settings";
+    return renderToStaticMarkup(definition.render({ node: { id: `${blockId}-${actionId}`, type: blockId, version: definition.version, props: {}, bindings: { ...(provider ? { source: { source: { id: salesProviderConfigurationsDescriptor.id, version: salesProviderConfigurationsDescriptor.version }, input: {}, structuralCompatibilityHash: salesProviderConfigurationsDescriptor.structuralCompatibilityHash, selectedFields: providerConfigurationData.fields } } : {}), action } }, props: {}, surface: "workspace", actor: { ...actor, permissions }, ...(provider ? { sourceResult: { state: "success", data: providerConfigurationData } } : {}), action, dispatchAction: async () => undefined }).element);
+  };
+  const email = renderAction("sales.communication-actions", "sales.email.send"); assert.match(email, /Recipient record type/); assert.match(email, /Recipient record ID/); assert.match(email, />Email Send<\/button>/);
+  const calendar = renderAction("sales.communication-actions", "sales.calendar.sync"); assert.match(calendar, /Activity ID/); assert.match(calendar, /Expected revision/);
+  const configure = renderAction("sales.integration-settings", "sales.integration.configure"); assert.match(configure, /Email reference/); assert.match(configure, /Activate/); assert.match(configure, /email\.reference\.v1/); assert.match(configure, /state: active/); assert.doesNotMatch(configure, /secret/i);
+  const schedule = renderAction("sales.reminder-center", "sales.reminder.schedule"); assert.match(schedule, /Scheduled at UTC/); assert.match(schedule, />Reminder Schedule<\/button>/);
 });
 
 test("P13.3 detail UI pre-fills CAS fields and never invents sensitive projection values", () => {
@@ -434,7 +483,7 @@ test("Sales UI contributions expose labelled semantic regions", () => {
 });
 
 test("Sales public UI inventory reconciles every canonical source action route page component and block", () => {
-  assert.deepEqual(salesWorkspaceUiContract.sourceIds, ["sales.account.detail", "sales.accounts", "sales.contact.detail", "sales.contacts", "sales.dedupe.candidates", "sales.export-job.detail", "sales.export-job.list", "sales.import-job.detail", "sales.import-job.list", "sales.lead.detail", "sales.leads", "sales.opportunities", "sales.opportunity.detail", "sales.pipeline.snapshot", "sales.saved-view.calendar", "sales.saved-view.detail", "sales.saved-view.kanban", "sales.saved-view.list", "sales.saved-view.table", "sales.tasks", "sales.timeline"]);
+  assert.deepEqual(salesWorkspaceUiContract.sourceIds, ["sales.account.detail", "sales.accounts", "sales.contact.detail", "sales.contacts", "sales.dedupe.candidates", "sales.export-job.detail", "sales.export-job.list", "sales.import-job.detail", "sales.import-job.list", "sales.lead.detail", "sales.leads", "sales.notifications", "sales.opportunities", "sales.opportunity.detail", "sales.pipeline.snapshot", "sales.provider-configurations", "sales.reminders", "sales.saved-view.calendar", "sales.saved-view.detail", "sales.saved-view.kanban", "sales.saved-view.list", "sales.saved-view.table", "sales.tasks", "sales.timeline"]);
   assert.equal(salesWorkspaceUiContract.actionIds.includes("sales.lead.qualify"), true);
   assert.equal(salesWorkspaceUiContract.pageTemplateIds.includes("sales.page.account-detail"), true);
   assert.equal(salesWorkspaceUiContract.routeIds.length >= 10, true);
@@ -445,6 +494,8 @@ test("Sales public UI inventory reconciles every canonical source action route p
   for (const template of salesPageTemplates) if (template.migration?.notesMessageId !== undefined) assert.equal(typeof salesReferenceMetadata.localization.messages[template.migration.notesMessageId], "string");
   const opportunities = salesPageTemplates.find(({ id }) => id === "sales.page.opportunities");
   assert.equal(opportunities.version, 4);
+  assert.equal(salesSettingsPageTemplate.version, 3);
+  assert.equal(salesSettingsPageTemplate.document.regions.main[1].bindings.source.source.id, "sales.provider-configurations");
   assert.deepEqual(opportunities.migration.adoptableFromVersions, [1, 2, 3]);
   assert.equal(opportunities.document.regions.main[0].version, 4);
   assert.deepEqual([salesOpportunityDetailComponentDescriptor.version, salesOpportunityListBlockDescriptor.version, salesOpportunityDetailBlockDescriptor.version], [3, 4, 3]);

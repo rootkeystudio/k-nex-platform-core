@@ -35,6 +35,8 @@ import {
   salesImportChunksCollection,
   salesExportJobsCollection,
   salesMergeLineageCollection,
+  salesNotificationsCollection,
+  salesRemindersCollection,
   salesCoreCollectionSlugs,
   salesRelatedRecordTypes,
   salesTasksCollection as salesTasksCoreCollection
@@ -130,6 +132,18 @@ import {
   salesImportJobDetailInputRuntimeSchema,
   salesExportJobDetailInputRuntimeSchema,
   salesDedupeCandidatesInputRuntimeSchema,
+  salesNotificationsDescriptor,
+  salesNotificationFields,
+  salesNotificationsOutputRuntimeSchema,
+  salesRemindersDescriptor,
+  salesReminderFields,
+  salesRemindersOutputRuntimeSchema,
+  salesProviderConfigurationFields,
+  salesProviderConfigurationsDescriptor,
+  salesProviderConfigurationsOutputRuntimeSchema,
+  salesCommunicationActionDescriptors,
+  salesCommunicationActionInputRuntimeSchemas,
+  salesCommunicationActionOutputRuntimeSchemas,
   salesImportDryRunDescriptor,
   salesImportCommitDescriptor,
   salesImportCancelDescriptor,
@@ -499,7 +513,7 @@ interface SalesPayloadRequest {
 }
 
 interface SalesFindOptions {
-  readonly collection: "sales-tasks" | "sales-opportunities" | "sales-accounts" | "sales-contacts" | "sales-leads" | "sales-pipelines" | "sales-pipeline-stages" | "sales-activities" | "sales-notes" | "sales-attachment-references" | "sales-saved-views";
+  readonly collection: "sales-tasks" | "sales-opportunities" | "sales-accounts" | "sales-contacts" | "sales-leads" | "sales-pipelines" | "sales-pipeline-stages" | "sales-activities" | "sales-notes" | "sales-attachment-references" | "sales-saved-views" | "sales-notifications" | "sales-reminders";
   readonly depth: 0;
   readonly overrideAccess: true;
   readonly pagination: true;
@@ -554,6 +568,7 @@ interface SalesWorkflowDocument {
   readonly createdAt?: unknown;
   readonly applicationId?: unknown;
   readonly environment?: unknown;
+  readonly recipientId?: unknown;
   readonly ownerId?: unknown;
   readonly teamId?: unknown;
   readonly name?: unknown;
@@ -590,6 +605,7 @@ interface SalesWorkflowDocument {
   readonly type?: unknown;
   readonly occurredAt?: unknown;
   readonly scheduledAt?: unknown;
+  readonly state?: unknown;
   readonly filename?: unknown;
   readonly mediaType?: unknown;
   readonly supersedesActivity?: unknown;
@@ -597,7 +613,7 @@ interface SalesWorkflowDocument {
 }
 
 interface SalesCreateOptions {
-  readonly collection: "sales-tasks" | "sales-opportunities" | "sales-accounts" | "sales-contacts" | "sales-leads" | "sales-activities" | "sales-notes" | "sales-attachment-references" | "sales-saved-views";
+  readonly collection: "sales-tasks" | "sales-opportunities" | "sales-accounts" | "sales-contacts" | "sales-leads" | "sales-activities" | "sales-notes" | "sales-attachment-references" | "sales-saved-views" | "sales-notifications" | "sales-reminders";
   readonly data: Readonly<Record<string, unknown>>;
   readonly depth: 0;
   readonly overrideAccess: true;
@@ -616,7 +632,7 @@ interface SalesCreatedTask {
 }
 
 interface SalesUpdateOptions {
-  readonly collection: "sales-tasks" | "sales-opportunities" | "sales-accounts" | "sales-contacts" | "sales-leads" | "sales-activities" | "sales-notes" | "sales-attachment-references" | "sales-pipelines" | "sales-pipeline-stages" | "sales-saved-views";
+  readonly collection: "sales-tasks" | "sales-opportunities" | "sales-accounts" | "sales-contacts" | "sales-leads" | "sales-activities" | "sales-notes" | "sales-attachment-references" | "sales-pipelines" | "sales-pipeline-stages" | "sales-saved-views" | "sales-notifications" | "sales-reminders";
   readonly id: string;
   readonly data: Readonly<Record<string, unknown>>;
   readonly depth: 0;
@@ -635,6 +651,7 @@ interface SalesUpdatedRecord {
   readonly id?: string | number;
   readonly title?: unknown;
   readonly status?: unknown;
+  readonly state?: unknown;
   readonly name?: unknown;
   readonly stageId?: unknown;
   readonly revision?: unknown;
@@ -669,6 +686,7 @@ interface SalesWriteAuthorization {
   readonly ownerId: string;
   readonly teamId?: string;
   readonly resourceId?: string;
+  readonly communicationRelationAdmission?: SalesCommunicationRelationAdmission;
   readonly idempotencyReplay?: unknown;
   readonly eventId?: string;
   /** Host locks prospective ownership facts before this domain mutation. */
@@ -685,18 +703,33 @@ interface SalesWriteAuthorization {
   readonly resolveAttachmentUpload?: (input: Readonly<{ applicationId: string; environmentId: string; actorId: string; storageRef: string }>) => Promise<unknown>;
 }
 
+export type SalesCommunicationRelationAdmission = Readonly<{
+  actionId: "sales.email.send" | "sales.calendar.sync" | "sales.reminder.schedule";
+  recordType: "sales.contact" | "sales.lead" | "sales.task" | "sales.activity";
+  recordId: string;
+  applicationId: string;
+  environment: string;
+  revision: number;
+  status: "active" | "new" | "working" | "open" | "scheduled";
+  archiveStatus: "active" | null;
+  ownerId: string;
+  teamId: string | null;
+}>;
+
 type SalesEventType =
   | "sales.event.task-changed"
   | "sales.event.opportunity-changed"
   | "sales.event.account-changed"
   | "sales.event.contact-changed"
   | "sales.event.lead-changed"
+  | "sales.event.notification-changed"
+  | "sales.event.reminder-changed"
   | "sales.event.timeline-changed";
 
 interface SalesEventContext {
   readonly eventId: string;
   readonly type: SalesEventType;
-  readonly stateField: "status" | "stageId" | "archiveStatus";
+  readonly stateField: "status" | "stageId" | "archiveStatus" | "state";
   readonly transition: SalesAuditEntry;
 }
 
@@ -734,11 +767,13 @@ function salesEventContract(actionId: string, collection: string): Readonly<{ ty
   if (collection === "sales-contacts" && ["sales.contact.create", "sales.contact.update", "sales.contact.archive", "sales.lead.qualify", "sales.ownership.assign"].includes(actionId)) return { type: "sales.event.contact-changed", stateField: "status" };
   if (collection === "sales-leads" && ["sales.lead.create", "sales.lead.update", "sales.lead.qualify", "sales.lead.disqualify", "sales.lead.archive", "sales.ownership.assign"].includes(actionId)) return { type: "sales.event.lead-changed", stateField: actionId === "sales.lead.archive" ? "archiveStatus" : "status" };
   if (collection === "sales-opportunities" && ["sales.opportunity.create", "sales.opportunity.update", "sales.opportunity.stage.update", "sales.opportunity.close", "sales.opportunity.archive", "sales.lead.qualify", "sales.ownership.assign"].includes(actionId)) return { type: "sales.event.opportunity-changed", stateField: actionId === "sales.opportunity.archive" ? "archiveStatus" : "stageId" };
-  if (collection === "sales-activities" && ["sales.activity.create", "sales.activity.complete", "sales.activity.cancel"].includes(actionId)) return { type: "sales.event.timeline-changed", stateField: "status" };
+  if (collection === "sales-activities" && ["sales.activity.create", "sales.activity.complete", "sales.activity.cancel", "sales.email.send", "sales.calendar.sync"].includes(actionId)) return { type: "sales.event.timeline-changed", stateField: "status" };
   if (collection === "sales-notes" && actionId === "sales.note.create") return { type: "sales.event.timeline-changed", stateField: "status" };
   if (collection === "sales-attachment-references" && ["sales.attachment.link", "sales.attachment.remove"].includes(actionId)) return { type: "sales.event.timeline-changed", stateField: "status" };
   if (collection === "sales-pipelines" && actionId === "sales.pipeline.update") return { type: "sales.event.opportunity-changed", stateField: "status" };
   if (collection === "sales-saved-views" && ["sales.saved-view.create", "sales.saved-view.update", "sales.saved-view.archive"].includes(actionId)) return { type: "sales.event.opportunity-changed", stateField: "status" };
+  if (collection === "sales-notifications" && ["sales.notification.read", "sales.notification.archive"].includes(actionId)) return { type: "sales.event.notification-changed", stateField: "state" };
+  if (collection === "sales-reminders" && ["sales.reminder.schedule", "sales.reminder.dismiss"].includes(actionId)) return { type: "sales.event.reminder-changed", stateField: "state" };
   return undefined;
 }
 
@@ -800,7 +835,10 @@ export function createSalesRealtimeRelay(gateway: Parameters<typeof createOutbox
               : event.type === "sales.event.lead-changed" ? "sales.realtime.leads"
                 : event.type === "sales.event.import-job-changed" ? "sales.realtime.import-jobs"
                   : event.type === "sales.event.export-job-changed" ? "sales.realtime.export-jobs"
-                : event.type === "sales.event.timeline-changed" ? "sales.realtime.timeline" : undefined;
+                    : event.type === "sales.event.notification-changed" ? "sales.realtime.notifications"
+                      : event.type === "sales.event.reminder-changed" ? "sales.realtime.reminders"
+                        : event.type === "sales.event.provider-configuration-changed" ? "sales.realtime.provider-configurations"
+                          : event.type === "sales.event.timeline-changed" ? "sales.realtime.timeline" : undefined;
       if (topicId === undefined) return null;
       const sourceId = topicId === "sales.realtime.tasks" ? "sales.tasks"
         : topicId === "sales.realtime.opportunities" ? "sales.opportunities"
@@ -808,7 +846,10 @@ export function createSalesRealtimeRelay(gateway: Parameters<typeof createOutbox
               : topicId === "sales.realtime.contacts" ? "sales.contacts"
               : topicId === "sales.realtime.leads" ? "sales.leads"
                 : topicId === "sales.realtime.import-jobs" ? "sales.import-job.list"
-                  : topicId === "sales.realtime.export-jobs" ? "sales.export-job.list" : "sales.timeline";
+                  : topicId === "sales.realtime.export-jobs" ? "sales.export-job.list"
+                    : topicId === "sales.realtime.notifications" ? "sales.notifications"
+                      : topicId === "sales.realtime.reminders" ? "sales.reminders"
+                        : topicId === "sales.realtime.provider-configurations" ? "sales.provider-configurations" : "sales.timeline";
       // Realtime is an invalidation channel. The authoritative projection is
       // always re-read through the source boundary; record/state facts stay in
       // the durable outbox and never cross the socket transport.
@@ -840,6 +881,13 @@ export function salesPipelineAuditJob(input: {
     stageCounts[stage] += 1;
   }
   return Object.freeze({ pluginId: "module.sales" as const, jobId: "sales.job.pipeline-audit" as const, stageCounts: Object.freeze(stageCounts) });
+}
+
+/** The host owns provider delivery; this bounded job admits only the fenced delivery intent. */
+export function salesReminderDeliveryJob(input: Readonly<{ reminderId: string; applicationId: string; environment: string; recipientId: string; fencingToken: number; signal: AbortSignal }>) {
+  if (input.signal.aborted) throw input.signal.reason;
+  if (!isSalesRecordId(input.reminderId) || !applicationIdPattern.test(input.applicationId) || !environmentPattern.test(input.environment) || !actorIdPattern.test(input.recipientId) || !Number.isSafeInteger(input.fencingToken) || input.fencingToken < 1) throw new Error("Sales reminder delivery input is invalid.");
+  return Object.freeze({ pluginId: "module.sales" as const, jobId: "sales.job.reminder-delivery" as const, reminderId: input.reminderId, fencingToken: input.fencingToken });
 }
 
 interface DecimalAmount {
@@ -947,7 +995,7 @@ function salesRequest(value: unknown): SalesPayloadRequest {
   return value as unknown as SalesPayloadRequest;
 }
 
-const salesScopeFields = new Set(["ownerId", "teamId", "status", "stageId", "id"]);
+const salesScopeFields = new Set(["ownerId", "teamId", "status", "stageId", "state", "recipientId", "id"]);
 const salesSavedViewScopeFields = new Set(["ownerId", "teamId", "status", "id", "visibility", "visibilityTeamId"]);
 
 function closedScopePredicate(value: unknown, depth = 0, fields = salesScopeFields): boolean {
@@ -1265,6 +1313,8 @@ const crmSourceSpecs = Object.freeze({
   "sales.leads": { collection: "sales-leads", fields: salesLeadFields, storage: { "display-name": "displayName", "owner-id": "ownerId", "team-id": "teamId", "archive-status": "archiveStatus", status: "status", revision: "revision", email: "email", phone: "phone" } },
   "sales.lead.detail": { collection: "sales-leads", fields: salesLeadDetailFields, storage: { "display-name": "displayName", source: "source", "owner-id": "ownerId", "team-id": "teamId", "archive-status": "archiveStatus", status: "status", revision: "revision", email: "email", phone: "phone", "decided-at": "decidedAt", "qualified-at": "qualifiedAt", "disqualified-at": "disqualifiedAt", "qualified-account-id": "qualifiedAccountId", "qualified-contact-id": "qualifiedContactId", "qualified-opportunity-id": "qualifiedOpportunityId" } },
   "sales.opportunity.detail": { collection: "sales-opportunities", fields: salesOpportunityDetailFields, storage: { name: "name", "owner-id": "ownerId", "team-id": "teamId", "archive-status": "archiveStatus", "account-id": "accountId", "primary-contact-id": "primaryContactId", "pipeline-id": "pipelineId", "stage-id": "stageId", "expected-close-date": "expectedCloseDate", revision: "revision", amount: "amount" } }
+  , "sales.notifications": { collection: "sales-notifications", fields: salesNotificationFields, storage: { subject: "subject", state: "state", "created-at": "createdAt", revision: "revision" } }
+  , "sales.reminders": { collection: "sales-reminders", fields: salesReminderFields, storage: { subject: "subject", state: "state", "scheduled-at": "scheduledAt", "reference-kind": "referenceKind", "reference-id": "referenceId", revision: "revision" } }
 } as const);
 type CrmSourceId = keyof typeof crmSourceSpecs;
 
@@ -1307,6 +1357,262 @@ export const salesContactDetailHandler: DataSourceHandler = async (context) => a
 export const salesLeadsHandler: DataSourceHandler = async (context) => await crmTable(context, "sales.leads");
 export const salesLeadDetailHandler: DataSourceHandler = async (context) => await crmTable(context, "sales.lead.detail");
 export const salesOpportunityDetailHandler: DataSourceHandler = async (context) => await crmTable(context, "sales.opportunity.detail");
+function recipientScopeWhere(context: DataSourceHandlerRequest, expectedKind: "sales.notifications" | "sales.reminders"): unknown {
+  const identity = sourceIdentity(context.request); const actor = payloadUser(context.actor);
+  const scope = context.recordScope;
+  if (actor === undefined || !isRecord(scope) || scope.kind !== expectedKind || !isRecord(scope.where) || !Array.isArray(scope.where.and) || Object.keys(scope.where).length !== 1 || scope.where.and.length !== 3) throw new Error("Sales recipient source requires exact recipient authority.");
+  const clauses = scope.where.and;
+  const exact = (field: string, value: string) => clauses.filter((clause) => isRecord(clause) && Object.keys(clause).length === 1 && isRecord(clause[field]) && Object.keys(clause[field]!).length === 1 && clause[field]!.equals === value).length === 1;
+  if (!exact("applicationId", identity.applicationId) || !exact("environment", identity.environment) || !exact("recipientId", actor.id)) throw new Error("Sales recipient source requires exact recipient authority.");
+  return scope.where;
+}
+async function recipientTable(context: DataSourceHandlerRequest, sourceId: "sales.notifications" | "sales.reminders"): Promise<unknown> {
+  const spec = crmSourceSpecs[sourceId]; const input = salesEmptyInputRuntimeSchema.safeParse(context.input);
+  if (!input.success || context.query.page === undefined || context.query.filters.length > 0 || context.query.sort.length > 0) throw new Error("Sales recipient source query is invalid.");
+  const selected = [...context.selectedFields]; if (selected.length === 0 || new Set(selected).size !== selected.length || selected.some((field) => !Object.hasOwn(spec.storage, field))) throw new Error("Sales recipient source field selection is invalid.");
+  const request = salesRequest(context.request); const user = payloadUser(context.actor); const result = await request.payload.find({ collection: spec.collection, depth: 0, overrideAccess: true, pagination: true, page: context.query.page.number, limit: context.query.page.size, select: { id: true, ...Object.fromEntries(selected.map((field) => [spec.storage[field as keyof typeof spec.storage], true])) }, sort: ["id"], where: recipientScopeWhere(context, sourceId), ...(user === undefined ? {} : { user }), req: request });
+  return { fields: selected, rows: result.docs.map((document) => ({ key: String(document.id), values: Object.fromEntries(selected.map((field) => [field, crmSourceCell(spec.fields.find((candidate) => candidate.id === field)!, (document as Record<string, unknown>)[spec.storage[field as keyof typeof spec.storage]])])) })), page: { number: context.query.page.number, pageSize: context.query.page.size, hasNext: result.hasNextPage ?? false } };
+}
+export const salesNotificationsHandler: DataSourceHandler = async (context) => await recipientTable(context, "sales.notifications");
+export const salesRemindersHandler: DataSourceHandler = async (context) => await recipientTable(context, "sales.reminders");
+
+export type SalesProviderConfigurationProjection = Readonly<{
+  readonly providerId: "email.reference.v1" | "calendar.reference.v1";
+  readonly state: "active" | "revoked";
+  readonly revision: number;
+  readonly updatedAt: string;
+  readonly revokedAt: string | null;
+}>;
+/** Host-owned read authority. Returned shape cannot represent secret references or values. */
+export interface SalesProviderConfigurationReadGateway {
+  read(input: Readonly<{ applicationId: string; environment: string; actorId: string }>): Promise<readonly SalesProviderConfigurationProjection[]>;
+}
+function providerConfigurationReadGateway(request: unknown): SalesProviderConfigurationReadGateway {
+  const candidate = isRecord(request) && isRecord(request.providerConfigurationReadGateway) ? request.providerConfigurationReadGateway : undefined;
+  if (candidate === undefined || typeof candidate.read !== "function") throw new DataSourceGatewayError("SOURCE_FORBIDDEN", 403, "Sales provider configuration status is unavailable.");
+  return candidate as unknown as SalesProviderConfigurationReadGateway;
+}
+function canonicalConfigurationInstant(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  try { return new Date(value).toISOString() === value; } catch { return false; }
+}
+export const salesProviderConfigurationsHandler: DataSourceHandler = async (context) => {
+  const parsedInput = salesEmptyInputRuntimeSchema.safeParse(context.input); const page = context.query.page;
+  if (!parsedInput.success || page === undefined || context.query.filters.length > 0 || context.query.sort.length > 0) throw new DataSourceGatewayError("INVALID_QUERY_INPUT", 400, "Sales provider configuration query is invalid.");
+  const selected = [...context.selectedFields]; const allowedFields = new Set(salesProviderConfigurationFields.map(({ id }) => id));
+  if (selected.length === 0 || new Set(selected).size !== selected.length || selected.some((field) => !allowedFields.has(field))) throw new DataSourceGatewayError("SOURCE_FORBIDDEN", 403, "Sales provider configuration field selection is invalid.");
+  const identity = sourceIdentity(context.request); const actor = payloadUser(context.actor);
+  if (actor === undefined) throw new DataSourceGatewayError("SOURCE_FORBIDDEN", 403, "Sales provider configuration status requires a user actor.");
+  const rows = await providerConfigurationReadGateway(context.request).read(Object.freeze({ ...identity, actorId: actor.id }));
+  const providerIds = new Set<string>();
+  if (!Array.isArray(rows) || rows.length > 2) throw new DataSourceGatewayError("INVALID_SOURCE_OUTPUT", 500, "Sales provider configuration status is invalid.");
+  const validated = rows.map((row) => {
+    if (!isRecord(row) || Object.keys(row).sort().join("\0") !== "providerId\0revision\0revokedAt\0state\0updatedAt" || !["email.reference.v1", "calendar.reference.v1"].includes(String(row.providerId)) || providerIds.has(String(row.providerId)) || !["active", "revoked"].includes(String(row.state)) || !Number.isSafeInteger(row.revision) || Number(row.revision) < 1 || !canonicalConfigurationInstant(row.updatedAt) || row.state === "active" && row.revokedAt !== null || row.state === "revoked" && !canonicalConfigurationInstant(row.revokedAt)) throw new DataSourceGatewayError("INVALID_SOURCE_OUTPUT", 500, "Sales provider configuration status is invalid.");
+    providerIds.add(String(row.providerId)); return row as SalesProviderConfigurationProjection;
+  }).sort((left, right) => left.providerId.localeCompare(right.providerId));
+  const values = (row: SalesProviderConfigurationProjection) => ({ "provider-id": row.providerId, state: row.state, revision: row.revision, "updated-at": row.updatedAt, "revoked-at": row.revokedAt });
+  const offset = (page.number - 1) * page.size; const visible = validated.slice(offset, offset + page.size);
+  return { fields: selected, rows: visible.map((row) => ({ key: row.providerId, values: Object.fromEntries(selected.map((field) => [field, crmSourceCell(salesProviderConfigurationFields.find((candidate) => candidate.id === field)!, values(row)[field as keyof ReturnType<typeof values>])])) })), page: { number: page.number, pageSize: page.size, hasNext: offset + page.size < validated.length } };
+};
+
+export type SalesProviderIntent = Readonly<{
+  readonly actionId: "sales.email.send" | "sales.calendar.sync" | "sales.integration.configure";
+  readonly idempotencyKey: string;
+  readonly relatedRecord: Readonly<{ readonly type: "sales.account" | "sales.contact" | "sales.lead" | "sales.opportunity" | "sales.task"; readonly id: number }> | null;
+  readonly payload: Readonly<Record<string, unknown>>;
+}>;
+export type SalesProviderResult = Readonly<{ readonly operationId: string; readonly state: "queued" | "accepted"; readonly providerId: "email.reference.v1" | "calendar.reference.v1"; readonly receipt: Readonly<{ readonly idempotencyDigest: string; readonly relatedRecord: SalesProviderIntent["relatedRecord"] }> }>;
+/** Host-owned narrow provider authority. It resolves channel/secret references; Sales receives neither. */
+export interface SalesProviderGateway {
+  dispatch(intent: SalesProviderIntent): Promise<SalesProviderResult>;
+}
+
+function communicationGateway(value: unknown): SalesProviderGateway {
+  const candidate = isRecord(value) && isRecord(value.providerGateway) ? value.providerGateway : undefined;
+  if (candidate === undefined || typeof candidate.dispatch !== "function") {
+    throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales provider authority is unavailable.");
+  }
+  return candidate as unknown as SalesProviderGateway;
+}
+function communicationAuthorization(value: unknown, actionId: string, resourceId?: string): SalesWriteAuthorization {
+  const authorization = writeAuthorization(value, actionId, resourceId);
+  if (!actorIdPattern.test(authorization.actorId) || !applicationIdPattern.test(authorization.applicationId) || !environmentPattern.test(authorization.environment)) {
+    throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales provider authority is invalid.");
+  }
+  return authorization;
+}
+function communicationRelationAdmission(authorization: SalesWriteAuthorization, actionId: SalesCommunicationRelationAdmission["actionId"], recordType: SalesCommunicationRelationAdmission["recordType"], recordId: string, revision?: number): SalesCommunicationRelationAdmission {
+  const admission = authorization.communicationRelationAdmission;
+  const exact = admission !== undefined && Object.keys(admission).sort().join("\0") === "actionId\0applicationId\0archiveStatus\0environment\0ownerId\0recordId\0recordType\0revision\0status\0teamId";
+  if (!exact || admission.actionId !== actionId || admission.recordType !== recordType || admission.recordId !== recordId || admission.applicationId !== authorization.applicationId || admission.environment !== authorization.environment || revision !== undefined && admission.revision !== revision || !Number.isSafeInteger(admission.revision) || admission.revision < 1 || !actorIdPattern.test(admission.ownerId) || admission.teamId !== null && !actorIdPattern.test(admission.teamId)) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales communication relation admission is invalid.");
+  const validState = recordType === "sales.contact" ? admission.status === "active" && admission.archiveStatus === null
+    : recordType === "sales.lead" ? (admission.status === "new" || admission.status === "working") && admission.archiveStatus === "active"
+      : recordType === "sales.task" ? admission.status === "open" && admission.archiveStatus === null
+        : admission.status === "scheduled" && admission.archiveStatus === null;
+  if (!validState || actionId === "sales.email.send" && admission.teamId === null) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales communication relation is unavailable.");
+  return admission;
+}
+function communicationAudit(authorization: SalesWriteAuthorization, actionId: string, resourceId: string, fromState: string, toState: string, revision: number, idempotencyKey: string) {
+  const occurredAt = new Date().toISOString();
+  if (!validAuditTimestamp(occurredAt)) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales audit timestamp is invalid.");
+  return Object.freeze({ actionId, resourceId, applicationId: authorization.applicationId, environment: authorization.environment, fromState, toState, occurredAt, actorId: authorization.actorId, revision, idempotencyKey });
+}
+
+export type SalesRecipientAuditCollection = "sales-notifications" | "sales-reminders";
+export type SalesRecipientAuditIdentity = Readonly<{ resourceId: string; applicationId: string; environment: string; revision: number; state: string }>;
+export type SalesRecipientAuditEntryInput = Readonly<{ actionId: string; resourceId: string; applicationId: string; environment: string; fromState: string; toState: string; occurredAt: string; actorId: string; revision: number; idempotencyKey: string }>;
+
+function recipientAuditTransitionAllowed(collection: SalesRecipientAuditCollection, actionId: string, fromState: string, toState: string): boolean {
+  if (collection === "sales-notifications") return actionId === "sales.notification.deliver" && fromState === "absent" && toState === "unread"
+    || actionId === "sales.notification.read" && fromState === "unread" && toState === "read"
+    || actionId === "sales.notification.archive" && ["unread", "read"].includes(fromState) && toState === "archived";
+  return actionId === "sales.reminder.schedule" && fromState === "absent" && toState === "scheduled"
+    || actionId === "sales.job.reminder-delivery" && fromState === "scheduled" && ["delivered", "failed"].includes(toState)
+    || actionId === "sales.reminder.dismiss" && (fromState === "delivered" && toState === "dismissed" || fromState === "scheduled" && toState === "cancelled");
+}
+
+function recipientAuditEntry(value: unknown, collection: SalesRecipientAuditCollection): SalesAuditEntry | undefined {
+  if (!isRecord(value) || !exactKeys(value, ["actionId", "resourceId", "applicationId", "environment", "fromState", "toState", "occurredAt", "actorId", "revision", "idempotencyKey"]) ||
+    typeof value.actionId !== "string" || typeof value.resourceId !== "string" || typeof value.applicationId !== "string" || typeof value.environment !== "string" || typeof value.fromState !== "string" || typeof value.toState !== "string" || typeof value.occurredAt !== "string" || typeof value.actorId !== "string" || typeof value.idempotencyKey !== "string" || typeof value.revision !== "number" ||
+    !isSalesRecordId(value.resourceId) || !applicationIdPattern.test(value.applicationId) || !environmentPattern.test(value.environment) || !actorIdPattern.test(value.actorId) || !durableIdPattern.test(value.idempotencyKey) || !validAuditTimestamp(value.occurredAt) || !Number.isSafeInteger(value.revision) || value.revision < 1 || value.revision > 1_000_000_000 || !recipientAuditTransitionAllowed(collection, value.actionId, value.fromState, value.toState)) return undefined;
+  return Object.freeze(value as unknown as SalesAuditEntry);
+}
+
+/** Exact host/Sales recipient delivery chain; source row revision and final state are both fenced. */
+export function validateSalesRecipientAuditHistory(value: unknown, collection: SalesRecipientAuditCollection, identity: SalesRecipientAuditIdentity): readonly SalesAuditEntry[] {
+  if (!isSalesRecordId(identity.resourceId) || !applicationIdPattern.test(identity.applicationId) || !environmentPattern.test(identity.environment) || !Number.isSafeInteger(identity.revision) || identity.revision < 1 || identity.revision > 1_000_000_000) throw new ActionGatewayError("STALE_RECORD", 409, "Sales recipient audit identity is invalid.");
+  const history = boundedAuditArray(value);
+  if (history.length !== identity.revision) throw new ActionGatewayError("STALE_RECORD", 409, "Sales recipient audit history is not current.");
+  const idempotencyKeys = new Set<string>(); let priorState = "absent";
+  const parsed = history.map((raw, index) => {
+    const entry = recipientAuditEntry(raw, collection);
+    if (entry === undefined || entry.resourceId !== identity.resourceId || entry.applicationId !== identity.applicationId || entry.environment !== identity.environment || entry.revision !== index + 1 || entry.fromState !== priorState || idempotencyKeys.has(entry.idempotencyKey)) throw new ActionGatewayError("STALE_RECORD", 409, "Sales recipient audit history is invalid.");
+    idempotencyKeys.add(entry.idempotencyKey); priorState = entry.toState;
+    return entry;
+  });
+  if (priorState !== identity.state) throw new ActionGatewayError("STALE_RECORD", 409, "Sales recipient audit history is not current.");
+  return Object.freeze(parsed);
+}
+
+export function createSalesRecipientAuditEntry(input: SalesRecipientAuditEntryInput, collection: SalesRecipientAuditCollection): SalesAuditEntry {
+  const entry = recipientAuditEntry(input, collection);
+  if (entry === undefined) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales recipient audit transition is invalid.");
+  return entry;
+}
+
+export function appendSalesRecipientAudit(history: unknown, collection: SalesRecipientAuditCollection, identity: SalesRecipientAuditIdentity, input: SalesRecipientAuditEntryInput): readonly SalesAuditEntry[] {
+  const current = validateSalesRecipientAuditHistory(history, collection, identity);
+  const entry = createSalesRecipientAuditEntry(input, collection);
+  if (entry.revision !== identity.revision + 1 || entry.fromState !== identity.state || current.some((prior) => prior.idempotencyKey === entry.idempotencyKey)) throw new ActionGatewayError("STALE_RECORD", 409, "Sales recipient audit transition is stale.");
+  return validateSalesRecipientAuditHistory([...current, entry], collection, { ...identity, revision: entry.revision, state: entry.toState });
+}
+function providerResult(value: unknown, expectedProviderId: SalesProviderResult["providerId"]): SalesProviderResult {
+  if (!isRecord(value) || !exactKeys(value, ["operationId", "state", "providerId", "receipt"]) || typeof value.operationId !== "string" || !durableIdPattern.test(value.operationId) || (value.state !== "queued" && value.state !== "accepted") || (value.providerId !== "email.reference.v1" && value.providerId !== "calendar.reference.v1") || !isRecord(value.receipt) || !exactKeys(value.receipt, ["idempotencyDigest", "relatedRecord"]) || typeof value.receipt.idempotencyDigest !== "string" || !/^sha256:[0-9a-f]{64}$/u.test(value.receipt.idempotencyDigest)) {
+    throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales provider result is invalid.");
+  }
+  if (value.providerId !== expectedProviderId) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales provider result does not match the action.");
+  return Object.freeze(value as unknown as SalesProviderResult);
+}
+function communicationActionId(value: unknown): string {
+  const actionId = isRecord(value) && isRecord(value.decision) ? value.decision.actionId : isRecord(value) ? value.actionId : undefined;
+  if (typeof actionId !== "string" || !salesCommunicationActionDescriptors.some((descriptor) => descriptor.id === actionId)) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales communication action is unavailable.");
+  return actionId;
+}
+function communicationOutput(schema: RuntimeSchema<Readonly<Record<string, unknown>>>, value: unknown): Readonly<Record<string, unknown>> {
+  const parsed = schema.safeParse(value); if (!parsed.success) throw parsed.error;
+  return parsed.data;
+}
+function communicationRecordId(value: unknown, name: string): string {
+  if (!isSalesRecordId(value)) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, `Sales ${name} is invalid.`);
+  return value;
+}
+async function communicationReference(payloadRequest: SalesPayloadRequest, authorization: SalesWriteAuthorization, kind: "task" | "activity", id: string, expectedRevision: number, user: ReturnType<typeof payloadUser>): Promise<SalesWorkflowDocument> {
+  const collection = kind === "task" ? "sales-tasks" : "sales-activities";
+  const state = kind === "task" ? "open" : "scheduled";
+  const found = await payloadRequest.payload.find({ collection, depth: 0, overrideAccess: true, pagination: true, page: 1, limit: 2, select: { id: true, revision: true, status: true, relatedRecordType: true, relatedRecordId: true, audit: true }, sort: ["id"], where: { and: [{ applicationId: { equals: authorization.applicationId } }, { environment: { equals: authorization.environment } }, { id: { equals: id } }, { revision: { equals: expectedRevision } }, { status: { equals: state } }] }, ...(user === undefined ? {} : { user }), req: payloadRequest });
+  if (found.docs.length !== 1) throw new ActionGatewayError("STALE_RECORD", 409, "Sales reminder reference changed before scheduling.");
+  return found.docs[0] as SalesWorkflowDocument;
+}
+async function communicationDeliveryCurrent(payloadRequest: SalesPayloadRequest, authorization: SalesWriteAuthorization, collection: SalesRecipientAuditCollection, id: string, expectedRevision: number, states: readonly string[], user: ReturnType<typeof payloadUser>): Promise<SalesWorkflowDocument> {
+  const found = await payloadRequest.payload.find({ collection, depth: 0, overrideAccess: true, pagination: true, page: 1, limit: 2, select: { id: true, revision: true, state: true, audit: true, recipientId: true }, sort: ["id"], where: { and: [{ applicationId: { equals: authorization.applicationId } }, { environment: { equals: authorization.environment } }, { recipientId: { equals: authorization.actorId } }, { id: { equals: id } }, { revision: { equals: expectedRevision } }, { state: { in: states } }] }, ...(user === undefined ? {} : { user }), req: payloadRequest });
+  if (found.docs.length !== 1) throw new ActionGatewayError("STALE_RECORD", 409, "Sales delivery is unavailable at the expected revision.");
+  const current = found.docs[0] as SalesWorkflowDocument;
+  if (current.recipientId !== authorization.actorId || typeof current.state !== "string" || !states.includes(current.state) || current.revision !== expectedRevision) throw new ActionGatewayError("STALE_RECORD", 409, "Sales delivery no longer matches its recipient lifecycle fence.");
+  return current;
+}
+/** P13.6 bounded provider and recipient delivery actions. Host capability injection is the only provider boundary. */
+export const salesCommunicationActionHandler: ActionHandler = async ({ actor, request, authorizationContext, input, idempotencyKey, signal }) => {
+  if (signal.aborted) throw signal.reason;
+  const actionId = communicationActionId(authorizationContext);
+  const runtime = salesCommunicationActionInputRuntimeSchemas[actionId]!; const parsed = runtime.safeParse(input);
+  if (!parsed.success) throw parsed.error;
+  const output = salesCommunicationActionOutputRuntimeSchemas[actionId]!;
+  const resourceId = typeof parsed.data.id === "string" ? parsed.data.id : typeof parsed.data.referenceId === "string" ? parsed.data.referenceId : typeof parsed.data.activityId === "string" ? parsed.data.activityId : undefined;
+  const authorization = communicationAuthorization(authorizationContext, actionId, resourceId);
+  const replay = idempotencyReplay(authorization, output); if (replay !== undefined) return replay;
+  const eventId = durableActionEventId(authorization, idempotencyKey);
+  const payloadRequest = workflowPayload(request); const user = payloadUser(actor);
+  if (actionId === "sales.email.send") {
+    const relatedRecordId = communicationRecordId(parsed.data.relatedRecordId, "related record ID");
+    const relation = communicationRelationAdmission(authorization, actionId, parsed.data.relatedRecordType as "sales.contact" | "sales.lead", relatedRecordId);
+    const queuedAt = new Date().toISOString();
+    // The host's transaction includes this create and dispatch. A rejected dispatch aborts it,
+    // while the queued operation carries this stable Activity ID for the fenced worker CAS.
+    const created = await payloadRequest.payload.create({ collection: "sales-activities", data: { applicationId: authorization.applicationId, environment: authorization.environment, ownerId: relation.ownerId, teamId: relation.teamId!, createdBy: authorization.actorId, updatedBy: authorization.actorId, revision: 1, audit: [], status: "scheduled", type: "email", subject: parsed.data.subject, actorId: authorization.actorId, scheduledAt: queuedAt, relatedRecordType: parsed.data.relatedRecordType, relatedRecordId }, depth: 0, overrideAccess: true, ...(user === undefined ? {} : { user }), req: payloadRequest, context: Object.freeze({}) });
+    const activityId = communicationRecordId(String(created.id), "activity ID");
+    const audit = communicationAudit(authorization, actionId, activityId, "absent", "scheduled", 1, eventId);
+    const finalized = await payloadRequest.payload.update({ collection: "sales-activities", id: activityId, data: { audit: [audit] }, depth: 0, overrideAccess: true, ...(user === undefined ? {} : { user }), req: payloadRequest, context: eventContext("sales.event.timeline-changed", audit, "status") });
+    if (String(finalized.id) !== activityId || finalized.revision !== 1 || finalized.status !== "scheduled") throw new ActionGatewayError("STALE_RECORD", 409, "Sales email Activity audit finalization failed.");
+    const gateway = communicationGateway(authorizationContext);
+    providerResult(await gateway.dispatch(Object.freeze({ actionId, idempotencyKey: eventId, relatedRecord: { type: parsed.data.relatedRecordType as "sales.contact" | "sales.lead", id: Number(relatedRecordId) }, payload: Object.freeze({ activityId: Number(activityId), expectedRevision: 1, subject: parsed.data.subject, body: parsed.data.body }) })), "email.reference.v1");
+    return communicationOutput(output, { id: activityId, revision: 1, status: "accepted" });
+  }
+  if (actionId === "sales.calendar.sync") {
+    const activityId = communicationRecordId(parsed.data.activityId, "activity ID"); const expectedRevision = Number(parsed.data.expectedRevision);
+    communicationRelationAdmission(authorization, actionId, "sales.activity", activityId, expectedRevision);
+    const current = await communicationReference(payloadRequest, authorization, "activity", activityId, expectedRevision, user);
+    const gateway = communicationGateway(authorizationContext);
+    const relatedRecordType = current.relatedRecordType; const relatedRecordId = current.relatedRecordId;
+    if (typeof relatedRecordType !== "string" || !["sales.account", "sales.contact", "sales.lead", "sales.opportunity", "sales.task"].includes(relatedRecordType) || !isSalesRecordId(relatedRecordId)) throw new ActionGatewayError("STALE_RECORD", 409, "Sales activity relation is invalid.");
+    providerResult(await gateway.dispatch(Object.freeze({ actionId, idempotencyKey: eventId, relatedRecord: { type: relatedRecordType as "sales.account" | "sales.contact" | "sales.lead" | "sales.opportunity" | "sales.task", id: Number(relatedRecordId) }, payload: Object.freeze({ activityId: Number(activityId), expectedRevision }) })), "calendar.reference.v1");
+    // Worker completion uses this unchanged CAS fence; Sales never races it with metadata-only writes.
+    return communicationOutput(output, { id: activityId, revision: expectedRevision, status: "accepted" });
+  }
+  if (actionId === "sales.reminder.schedule") {
+    const kind = parsed.data.referenceKind as "task" | "activity"; const referenceId = communicationRecordId(parsed.data.referenceId, "reminder reference ID"); const expectedRevision = Number(parsed.data.expectedRevision);
+    communicationRelationAdmission(authorization, actionId, kind === "task" ? "sales.task" : "sales.activity", referenceId, expectedRevision);
+    await communicationReference(payloadRequest, authorization, kind, referenceId, expectedRevision, user);
+    const idempotencyDigest = digest(canonicalJson({ applicationId: authorization.applicationId, environment: authorization.environment, recipientId: authorization.actorId, key: eventId }));
+    const created = await payloadRequest.payload.create({ collection: "sales-reminders", data: { applicationId: authorization.applicationId, environment: authorization.environment, recipientId: authorization.actorId, referenceKind: kind, referenceId, subject: parsed.data.subject, scheduledAt: parsed.data.scheduledAt, state: "scheduled", revision: 1, idempotencyDigest, audit: [] }, depth: 0, overrideAccess: true, ...(user === undefined ? {} : { user }), req: payloadRequest, context: Object.freeze({}) });
+    const reminderId = communicationRecordId(String(created.id), "reminder ID");
+    const audit = communicationAudit(authorization, actionId, reminderId, "absent", "scheduled", 1, eventId);
+    const finalized = await payloadRequest.payload.update({ collection: "sales-reminders", id: reminderId, data: { audit: [audit] }, depth: 0, overrideAccess: true, ...(user === undefined ? {} : { user }), req: payloadRequest, context: eventContext("sales.event.reminder-changed", audit, "state") });
+    if (String(finalized.id) !== reminderId || finalized.revision !== 1 || finalized.state !== "scheduled") throw new ActionGatewayError("STALE_RECORD", 409, "Sales reminder audit finalization failed.");
+    return communicationOutput(output, { id: reminderId, revision: 1, status: "scheduled" });
+  }
+  if (actionId === "sales.notification.read" || actionId === "sales.notification.archive" || actionId === "sales.reminder.dismiss") {
+    const collection: SalesRecipientAuditCollection = actionId.startsWith("sales.notification") ? "sales-notifications" : "sales-reminders";
+    const id = communicationRecordId(parsed.data.id, "delivery ID"); const expectedRevision = Number(parsed.data.expectedRevision); const expected = actionId === "sales.notification.read" ? ["unread"] : actionId === "sales.notification.archive" ? ["unread", "read"] : ["scheduled", "delivered"];
+    const current = await communicationDeliveryCurrent(payloadRequest, authorization, collection, id, expectedRevision, expected, user);
+    const currentState = current.state as string;
+    const destination = actionId === "sales.notification.read" ? "read" : actionId === "sales.notification.archive" ? "archived" : currentState === "scheduled" ? "cancelled" : "dismissed";
+    const audit = communicationAudit(authorization, actionId, id, currentState, destination, expectedRevision + 1, eventId);
+    const history = appendSalesRecipientAudit(current.audit, collection, { resourceId: id, applicationId: authorization.applicationId, environment: authorization.environment, revision: expectedRevision, state: currentState }, audit);
+    const eventType = actionId.startsWith("sales.notification") ? "sales.event.notification-changed" : "sales.event.reminder-changed";
+    const lifecycleTimestamp = actionId === "sales.notification.read" ? { readAt: audit.occurredAt }
+      : actionId === "sales.notification.archive" ? { archivedAt: audit.occurredAt }
+        : destination === "cancelled" ? { cancelledAt: audit.occurredAt }
+          : { dismissedAt: audit.occurredAt };
+    const updated = await payloadRequest.payload.update({ collection, where: { and: [{ applicationId: { equals: authorization.applicationId } }, { environment: { equals: authorization.environment } }, { recipientId: { equals: authorization.actorId } }, { id: { equals: id } }, { revision: { equals: expectedRevision } }, { state: { in: expected } }] }, data: { state: destination, revision: expectedRevision + 1, audit: history, ...lifecycleTimestamp }, depth: 0, overrideAccess: true, ...(user === undefined ? {} : { user }), req: payloadRequest, context: eventContext(eventType, audit, "state") });
+    if (updated.errors.length !== 0) throw new ActionGatewayError("STALE_RECORD", 409, "Sales delivery transition was rejected.");
+    if (updated.docs.length !== 1) throw new ActionGatewayError("STALE_RECORD", 409, "Sales delivery transition lost its compare-and-swap fence.");
+    return communicationOutput(output, { id, revision: expectedRevision + 1, status: destination });
+  }
+  const gateway = communicationGateway(authorizationContext);
+  const provider = providerResult(await gateway.dispatch(Object.freeze({ actionId: "sales.integration.configure", idempotencyKey: eventId, relatedRecord: null, payload: Object.freeze({ providerId: parsed.data.providerId, expectedRevision: parsed.data.expectedRevision, operation: parsed.data.operation }) })), parsed.data.providerId as SalesProviderResult["providerId"]);
+  return communicationOutput(output, { providerId: provider.providerId, revision: Number(parsed.data.expectedRevision) + 1, status: "accepted" });
+};
+export const salesCommunicationActionDefinitions: readonly ActionDefinition[] = Object.freeze(salesCommunicationActionDescriptors.map((descriptor) => ({ descriptor, inputSchema: salesCommunicationActionInputRuntimeSchemas[descriptor.id]!, outputSchema: salesCommunicationActionOutputRuntimeSchemas[descriptor.id]! })));
 
 const timelineTargetCollections = Object.freeze({
   "sales.account": "sales-accounts", "sales.contact": "sales-contacts", "sales.lead": "sales-leads", "sales.opportunity": "sales-opportunities", "sales.task": "sales-tasks"
@@ -1713,6 +2019,7 @@ function writeAuthorization(value: unknown, actionId: string, resourceId?: strin
     typeof decision.environment !== "string" || decision.environment.length === 0 || typeof decision.actorId !== "string" || decision.actorId.length === 0 ||
     typeof decision.ownerId !== "string" || decision.ownerId.length === 0 || decision.teamId !== undefined && (typeof decision.teamId !== "string" || decision.teamId.length === 0) ||
     resourceId !== undefined && decision.resourceId !== resourceId || actionId !== "sales.lead.qualify" && Object.hasOwn(decision, "linkedRecordAdmissions") ||
+    !["sales.email.send", "sales.calendar.sync", "sales.reminder.schedule"].includes(actionId) && Object.hasOwn(decision, "communicationRelationAdmission") ||
     !["sales.contact.create", "sales.contact.update", "sales.lead.create", "sales.lead.update", "sales.opportunity.create", "sales.opportunity.update"].includes(actionId) && Object.hasOwn(decision, "protectedFieldAdmissions") || actionId !== "sales.note.create" && Object.hasOwn(decision, "noteReplacementAdmission")) {
     throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales write authorization is invalid.");
   }
@@ -2970,7 +3277,9 @@ export const salesNotesCollectionWithEvents: CollectionConfig = { ...salesNotesC
 export const salesAttachmentReferencesCollectionWithEvents: CollectionConfig = { ...salesAttachmentReferencesCollection, hooks: { afterChange: [salesEventAfterChange] } };
 export const salesPipelinesCollectionWithEvents: CollectionConfig = { ...salesPipelinesCollection, hooks: { afterChange: [salesEventAfterChange] } };
 export const salesSavedViewsCollectionWithEvents: CollectionConfig = { ...salesSavedViewsCollection, hooks: { afterChange: [salesEventAfterChange] } };
-export { salesAccountsCollection, salesActivitiesCollection, salesAttachmentReferencesCollection, salesContactsCollection, salesLeadsCollection, salesNotesCollection, salesPipelinesCollection, salesPipelineStagesCollection, salesCoreCollectionSlugs, salesRelatedRecordTypes };
+export const salesNotificationsCollectionWithEvents: CollectionConfig = { ...salesNotificationsCollection, hooks: { afterChange: [salesEventAfterChange] } };
+export const salesRemindersCollectionWithEvents: CollectionConfig = { ...salesRemindersCollection, hooks: { afterChange: [salesEventAfterChange] } };
+export { salesAccountsCollection, salesActivitiesCollection, salesAttachmentReferencesCollection, salesContactsCollection, salesLeadsCollection, salesNotesCollection, salesNotificationsCollection, salesPipelinesCollection, salesPipelineStagesCollection, salesRemindersCollection, salesCoreCollectionSlugs, salesRelatedRecordTypes };
 export const salesCoreCollections: readonly CollectionConfig[] = Object.freeze([
   salesAccountsCollectionWithEvents,
   salesContactsCollectionWithEvents,
@@ -2980,6 +3289,8 @@ export const salesCoreCollections: readonly CollectionConfig[] = Object.freeze([
   salesActivitiesCollectionWithEvents,
   salesOpportunitiesCollection,
   salesTasksCollection,
+  salesNotificationsCollectionWithEvents,
+  salesRemindersCollectionWithEvents,
   salesNotesCollectionWithEvents,
   salesAttachmentReferencesCollectionWithEvents,
   salesSavedViewsCollectionWithEvents,
@@ -3046,6 +3357,9 @@ export const salesRegistration = definePluginRegistration({
     context.register("sources", salesLeadDetailDescriptor.id, salesLeadDetailDefinition);
     context.register("sources", salesOpportunityDetailDescriptor.id, salesOpportunityDetailDefinition);
     context.register("sources", salesTimelineDescriptor.id, salesTimelineDefinition);
+    context.register("sources", salesNotificationsDescriptor.id, { descriptor: salesNotificationsDescriptor, inputSchema: salesEmptyInputRuntimeSchema, outputSchema: salesNotificationsOutputRuntimeSchema });
+    context.register("sources", salesRemindersDescriptor.id, { descriptor: salesRemindersDescriptor, inputSchema: salesEmptyInputRuntimeSchema, outputSchema: salesRemindersOutputRuntimeSchema });
+    context.register("sources", salesProviderConfigurationsDescriptor.id, { descriptor: salesProviderConfigurationsDescriptor, inputSchema: salesEmptyInputRuntimeSchema, outputSchema: salesProviderConfigurationsOutputRuntimeSchema });
     context.register("sources", salesPipelineSnapshotDescriptor.id, salesPipelineSnapshotDefinition);
     context.register("sources", salesSavedViewListDescriptor.id, salesSavedViewListDefinition);
     context.register("sources", salesSavedViewDetailDescriptor.id, salesSavedViewDetailDefinition);
@@ -3064,6 +3378,7 @@ export const salesRegistration = definePluginRegistration({
     for (const definition of salesConfigurationActionDefinitions) context.register("actions", definition.descriptor.id, definition);
     context.register("actions", salesOwnershipAssignDescriptor.id, salesOwnershipAssignDefinition);
     for (const definition of salesDataMovementActionDefinitions) context.register("actions", definition.descriptor.id, definition);
+    for (const definition of salesCommunicationActionDefinitions) context.register("actions", definition.descriptor.id, definition);
     context.register("tools", salesSearchTasksDescriptor.id, salesSearchTasksDescriptor);
     context.register("tools", salesCreateTaskToolDescriptor.id, salesCreateTaskToolDescriptor);
     for (const descriptor of salesEventDescriptors) context.register("events", descriptor.id, descriptor);
@@ -3082,6 +3397,8 @@ export const salesRegistration = definePluginRegistration({
       ["sales.notes.collection", salesNotesCollectionWithEvents],
       ["sales.attachment-references.collection", salesAttachmentReferencesCollectionWithEvents],
       ["sales.saved-views.collection", salesSavedViewsCollectionWithEvents]
+      , ["sales.notifications.collection", salesNotificationsCollectionWithEvents]
+      , ["sales.reminders.collection", salesRemindersCollectionWithEvents]
       , ["sales.import-jobs.collection", salesImportJobsCollection]
       , ["sales.import-rows.collection", salesImportRowsCollection]
       , ["sales.import-chunks.collection", salesImportChunksCollection]
@@ -3097,7 +3414,9 @@ export const salesRegistration = definePluginRegistration({
   },
   jobs: (context) => {
     context.register("jobs", salesReferenceMetadata.job.id, salesReferenceMetadata.job);
+    context.register("jobs", salesReferenceMetadata.reminderJob.id, salesReferenceMetadata.reminderJob);
     context.bind(salesReferenceMetadata.job.id, salesPipelineAuditJob as (...args: never[]) => unknown);
+    context.bind(salesReferenceMetadata.reminderJob.id, salesReminderDeliveryJob as (...args: never[]) => unknown);
   },
   dataHandlers: (context) => {
     context.bind("sources", salesTasksDescriptor.id, salesTasksHandler);
@@ -3110,6 +3429,9 @@ export const salesRegistration = definePluginRegistration({
     context.bind("sources", salesLeadDetailDescriptor.id, salesLeadDetailHandler);
     context.bind("sources", salesOpportunityDetailDescriptor.id, salesOpportunityDetailHandler);
     context.bind("sources", salesTimelineDescriptor.id, salesTimelineHandler);
+    context.bind("sources", salesNotificationsDescriptor.id, salesNotificationsHandler);
+    context.bind("sources", salesRemindersDescriptor.id, salesRemindersHandler);
+    context.bind("sources", salesProviderConfigurationsDescriptor.id, salesProviderConfigurationsHandler);
     context.bind("sources", salesPipelineSnapshotDescriptor.id, salesPipelineSnapshotHandler);
     context.bind("sources", salesSavedViewListDescriptor.id, salesSavedViewListHandler);
     context.bind("sources", salesSavedViewDetailDescriptor.id, salesSavedViewDetailHandler);
@@ -3128,6 +3450,7 @@ export const salesRegistration = definePluginRegistration({
     for (const definition of salesConfigurationActionDefinitions) context.bind("actions", definition.descriptor.id, salesConfigurationActionHandler as ActionHandler);
     context.bind("actions", salesOwnershipAssignDescriptor.id, salesOwnershipAssignHandler as ActionHandler);
     for (const definition of salesDataMovementActionDefinitions) context.bind("actions", definition.descriptor.id, salesDataMovementActionHandler);
+    for (const definition of salesCommunicationActionDefinitions) context.bind("actions", definition.descriptor.id, salesCommunicationActionHandler);
     for (const descriptor of salesEventDescriptors) context.bind("events", descriptor.id, salesEventAfterChange as (...args: never[]) => unknown);
     for (const descriptor of salesRealtimeTopicDescriptors) context.bind("realtimeTopics", descriptor.id, createSalesRealtimeRelay as (...args: never[]) => unknown);
   },

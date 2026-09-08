@@ -38,6 +38,8 @@ import {
   salesOpportunityStageInputRuntimeSchema,
   salesOpportunityStageOutputRuntimeSchema,
   salesPageTemplates,
+  salesNotificationsPageTemplate,
+  salesProviderConfigurationsDescriptor,
   salesReferenceMetadata,
   salesUiBlockDescriptors,
   salesUiComponentDescriptors,
@@ -64,6 +66,7 @@ import {
   salesCrmRouteDescriptors,
   salesWorkflowActionDefinitions,
   salesWorkflowActionHandler,
+  salesCommunicationActionHandler,
   salesPermissionPolicyExecutors,
   projectSalesStateHistory,
   createSalesImportGenesisAudit,
@@ -72,8 +75,12 @@ import {
   createSalesDataMovementJobOutbox,
   salesDataMovementJobTransitions,
   salesDataMovementObjectEvent,
+  createSalesRecipientAuditEntry,
+  appendSalesRecipientAudit,
+  validateSalesRecipientAuditHistory,
   salesEventAfterChange,
-  salesPipelineStageId
+  salesPipelineStageId,
+  salesProviderConfigurationsHandler
 } from "../dist/server.js";
 
 const qualificationStageId = salesPipelineStageId("customer-gate-1", "production", 17, "qualification");
@@ -85,12 +92,72 @@ const lostStageId = salesPipelineStageId("customer-gate-1", "production", 17, "l
 const stageSemantics = new Map([[qualificationStageId, "qualification"], [discoveryStageId, "discovery"], [proposalStageId, "proposal"], [negotiationStageId, "negotiation"], [wonStageId, "won"], [lostStageId, "lost"]]);
 const stageTransitions = new Map([[qualificationStageId, [discoveryStageId, lostStageId]], [discoveryStageId, [proposalStageId, lostStageId]], [proposalStageId, [negotiationStageId, lostStageId]], [negotiationStageId, [wonStageId, lostStageId]], [wonStageId, []], [lostStageId, []]]);
 const stageMove = (id, expectedRevision, source, destination) => ({ id, expectedRevision, expectedPipelineId: "17", expectedPipelineRevision: 2, expectedSourceStageId: source, expectedSourceStageRevision: 2, destinationStageId: destination, expectedDestinationStageRevision: 2 });
+const recipientAudit = (actionId, resourceId, fromState, toState, revision, idempotencyKey) => ({ actionId, resourceId, applicationId: "customer-gate-1", environment: "production", fromState, toState, occurredAt: `2026-09-08T12:00:0${revision}.000Z`, actorId: "user-1", revision, idempotencyKey });
 const p134StageFind = (state, options) => {
   if (options.collection === "sales-opportunities") return { docs: [structuredClone(state)] };
   if (options.collection === "sales-pipelines") return { docs: [{ id: "17", revision: 2, status: "active", isActive: true }] };
   const stageId = options.where.and.find((clause) => clause.stageId)?.stageId.equals;
   return { docs: [{ id: stageId, pipelineId: 17, stageId, revision: 2, status: "active", semantic: stageSemantics.get(stageId), allowedTransitionStageIds: stageTransitions.get(stageId), requiredFieldIds: stageId === lostStageId ? ["lossReason"] : [] }] };
 };
+
+test("reminder schedule remains source-bound under recipient block contract", () => {
+  const node = salesNotificationsPageTemplate.document.regions.main.find(({ id }) => id === "reminder-schedule");
+  assert.equal(node?.bindings?.action?.id, "sales.reminder.schedule");
+  assert.equal(node?.bindings?.source?.source.id, "sales.reminders");
+  assert.deepEqual(node?.bindings?.source?.selectedFields, ["subject", "state", "scheduled-at", "reference-kind", "reference-id", "revision"]);
+});
+
+test("recipient delivery audit chains preserve genesis and every fenced lifecycle transition", () => {
+  const notificationIdentity = { resourceId: "41", applicationId: "customer-gate-1", environment: "production", revision: 1, state: "unread" };
+  const delivered = createSalesRecipientAuditEntry(recipientAudit("sales.notification.deliver", "41", "absent", "unread", 1, "notification-deliver-41"), "sales-notifications");
+  const read = createSalesRecipientAuditEntry(recipientAudit("sales.notification.read", "41", "unread", "read", 2, "notification-read-41"), "sales-notifications");
+  const afterRead = appendSalesRecipientAudit([delivered], "sales-notifications", notificationIdentity, read);
+  assert.equal(afterRead.length, 2); assert.equal(afterRead.at(-1)?.toState, "read");
+  const archive = createSalesRecipientAuditEntry(recipientAudit("sales.notification.archive", "41", "read", "archived", 3, "notification-archive-41"), "sales-notifications");
+  const afterArchive = appendSalesRecipientAudit(afterRead, "sales-notifications", { ...notificationIdentity, revision: 2, state: "read" }, archive);
+  assert.equal(validateSalesRecipientAuditHistory(afterArchive, "sales-notifications", { ...notificationIdentity, revision: 3, state: "archived" }).length, 3);
+  assert.throws(() => createSalesRecipientAuditEntry(recipientAudit("sales.notification.archive", "41", "unread-or-read", "archived", 3, "notification-archive-invalid"), "sales-notifications"));
+
+  const reminderIdentity = { resourceId: "42", applicationId: "customer-gate-1", environment: "production", revision: 1, state: "scheduled" };
+  const scheduled = createSalesRecipientAuditEntry(recipientAudit("sales.reminder.schedule", "42", "absent", "scheduled", 1, "reminder-schedule-42"), "sales-reminders");
+  const workerDelivered = createSalesRecipientAuditEntry(recipientAudit("sales.job.reminder-delivery", "42", "scheduled", "delivered", 2, "reminder-deliver-42"), "sales-reminders");
+  const deliveredReminder = appendSalesRecipientAudit([scheduled], "sales-reminders", reminderIdentity, workerDelivered);
+  const dismiss = createSalesRecipientAuditEntry(recipientAudit("sales.reminder.dismiss", "42", "delivered", "dismissed", 3, "reminder-dismiss-42"), "sales-reminders");
+  assert.equal(appendSalesRecipientAudit(deliveredReminder, "sales-reminders", { ...reminderIdentity, revision: 2, state: "delivered" }, dismiss).at(-1)?.toState, "dismissed");
+  const cancel = createSalesRecipientAuditEntry(recipientAudit("sales.reminder.dismiss", "42", "scheduled", "cancelled", 2, "reminder-cancel-42"), "sales-reminders");
+  assert.equal(appendSalesRecipientAudit([scheduled], "sales-reminders", reminderIdentity, cancel).at(-1)?.toState, "cancelled");
+});
+
+test("communication writes require exact locked relation admissions and finalize resource-bound genesis", async () => {
+  const actor = handlerContext().actor;
+  const gatewayResult = (intent) => ({ operationId: "provider-operation-91", state: "queued", providerId: intent.actionId === "sales.email.send" ? "email.reference.v1" : "calendar.reference.v1", receipt: { idempotencyDigest: `sha256:${"a".repeat(64)}`, relatedRecord: intent.relatedRecord } });
+  const emailCreates = []; const emailUpdates = []; const dispatched = [];
+  const emailRequest = handlerContext({ request: { payload: {
+    find: async () => ({ docs: [] }),
+    create: async (options) => { emailCreates.push(options); return { id: 91 }; },
+    update: async (options) => { emailUpdates.push(options); return { id: 91, revision: 1, status: "scheduled" }; }
+  } } }).request;
+  const emailDecision = { actionId: "sales.email.send", applicationId: "customer-gate-1", environment: "production", actorId: "user-1", ownerId: "user-1", communicationRelationAdmission: { actionId: "sales.email.send", recordType: "sales.contact", recordId: "17", applicationId: "customer-gate-1", environment: "production", revision: 4, status: "active", archiveStatus: null, ownerId: "contact-owner", teamId: "contact-team" } };
+  const emailContext = { decision: emailDecision, providerGateway: { dispatch: async (intent) => { dispatched.push(intent); return gatewayResult(intent); } } };
+  assert.deepEqual(await salesCommunicationActionHandler({ actor, request: emailRequest, authorizationContext: emailContext, input: { providerId: "email.reference.v1", relatedRecordType: "sales.contact", relatedRecordId: "17", subject: "Follow up", body: "Hello" }, idempotencyKey: "email-send-91", signal: new AbortController().signal }), { id: "91", revision: 1, status: "accepted" });
+  assert.equal(emailCreates.length, 1); assert.equal(emailCreates[0].data.teamId, "contact-team"); assert.deepEqual(emailCreates[0].data.audit, []);
+  assert.equal(emailUpdates.length, 1); assert.equal(emailUpdates[0].id, "91"); assert.equal(emailUpdates[0].data.audit[0].resourceId, "91"); assert.equal(emailUpdates[0].data.audit[0].actionId, "sales.email.send");
+  assert.equal(dispatched[0].payload.activityId, 91); assert.deepEqual(dispatched[0].relatedRecord, { type: "sales.contact", id: 17 });
+
+  await assert.rejects(salesCommunicationActionHandler({ actor, request: emailRequest, authorizationContext: { ...emailContext, decision: { ...emailDecision, communicationRelationAdmission: { ...emailDecision.communicationRelationAdmission, teamId: null } } }, input: { providerId: "email.reference.v1", relatedRecordType: "sales.contact", relatedRecordId: "17", subject: "Blocked", body: "Blocked" }, idempotencyKey: "email-send-null-team", signal: new AbortController().signal }), (error) => error?.code === "ACTION_FORBIDDEN");
+  assert.equal(emailCreates.length, 1, "invalid admission must fail before Activity creation");
+
+  const reminderCreates = []; const reminderUpdates = [];
+  const reminderRequest = handlerContext({ request: { payload: {
+    find: async () => ({ docs: [{ id: "27", revision: 3, status: "open", relatedRecordType: "sales.contact", relatedRecordId: "17", audit: [] }] }),
+    create: async (options) => { reminderCreates.push(options); return { id: 92 }; },
+    update: async (options) => { reminderUpdates.push(options); return { id: 92, revision: 1, state: "scheduled" }; }
+  } } }).request;
+  const reminderDecision = { actionId: "sales.reminder.schedule", applicationId: "customer-gate-1", environment: "production", actorId: "user-1", ownerId: "user-1", resourceId: "27", communicationRelationAdmission: { actionId: "sales.reminder.schedule", recordType: "sales.task", recordId: "27", applicationId: "customer-gate-1", environment: "production", revision: 3, status: "open", archiveStatus: null, ownerId: "task-owner", teamId: null } };
+  assert.deepEqual(await salesCommunicationActionHandler({ actor, request: reminderRequest, authorizationContext: reminderDecision, input: { referenceKind: "task", referenceId: "27", expectedRevision: 3, scheduledAt: "2026-09-09T12:00:00.000Z", subject: "Call customer" }, idempotencyKey: "reminder-schedule-92", signal: new AbortController().signal }), { id: "92", revision: 1, status: "scheduled" });
+  assert.match(reminderCreates[0].data.idempotencyDigest, /^sha256:[0-9a-f]{64}$/u); assert.deepEqual(reminderCreates[0].data.audit, []);
+  assert.equal(reminderUpdates[0].id, "92"); assert.equal(reminderUpdates[0].data.audit[0].resourceId, "92"); assert.equal(reminderUpdates[0].data.audit[0].actionId, "sales.reminder.schedule");
+});
 
 test("qualified Lead detail projects only bounded lineage cells", async () => {
   let select;
@@ -200,6 +267,27 @@ function salesScope(kind) {
   };
 }
 
+test("provider configuration source exposes only closed safe status through host read gateway", async () => {
+  let gatewayInput;
+  const rows = [
+    { providerId: "email.reference.v1", state: "active", revision: 3, updatedAt: "2026-09-08T12:00:00.000Z", revokedAt: null },
+    { providerId: "calendar.reference.v1", state: "revoked", revision: 4, updatedAt: "2026-09-08T12:01:00.000Z", revokedAt: "2026-09-08T12:01:00.000Z" }
+  ];
+  const result = await salesProviderConfigurationsHandler(handlerContext({
+    selectedFields: ["provider-id", "state", "revision", "updated-at", "revoked-at"],
+    request: { providerConfigurationReadGateway: { read: async (input) => { gatewayInput = input; return rows; } } }
+  }));
+  assert.deepEqual(gatewayInput, { applicationId: "customer-gate-1", environment: "production", actorId: "user-1" });
+  assert.deepEqual(result.fields, ["provider-id", "state", "revision", "updated-at", "revoked-at"]);
+  assert.deepEqual(result.rows.map(({ key }) => key), ["calendar.reference.v1", "email.reference.v1"]);
+  assert.equal(JSON.stringify(result).includes("secret"), false);
+  await assert.rejects(salesProviderConfigurationsHandler(handlerContext({
+    selectedFields: ["provider-id"],
+    request: { providerConfigurationReadGateway: { read: async () => [{ ...rows[0], secretReference: "host-secret-slot" }] } }
+  })), (error) => error?.code === "INVALID_SOURCE_OUTPUT" && error?.status === 500);
+  await assert.rejects(salesProviderConfigurationsHandler(handlerContext({ selectedFields: ["provider-id"], request: {} })), (error) => error?.code === "SOURCE_FORBIDDEN" && error?.status === 403);
+});
+
 function assertActionAudit(entry, expected) {
   assert.deepEqual({
     actionId: entry.actionId,
@@ -233,6 +321,9 @@ test("Sales registers active successor sources and frozen authority", () => {
   assert.equal(DataSourceDescriptorSchema.safeParse(salesOpportunitiesDescriptor).success, true);
   assert.equal(salesTasksDescriptor.structuralCompatibilityHash, structuralHash(salesTasksDescriptor));
   assert.equal(salesOpportunitiesDescriptor.structuralCompatibilityHash, structuralHash(salesOpportunitiesDescriptor));
+  assert.equal(salesProviderConfigurationsDescriptor.structuralCompatibilityHash, structuralHash(salesProviderConfigurationsDescriptor));
+  assert.deepEqual(salesProviderConfigurationsDescriptor.outputFields.map(({ id }) => id), ["provider-id", "state", "revision", "updated-at", "revoked-at"]);
+  assert.equal(salesProviderConfigurationsDescriptor.permission, "sales.settings.read");
   assert.equal(salesTasksDefinition.descriptor.primaryContract.id, "table.records");
   assert.deepEqual(salesTasksDescriptor.outputFields.map(({ id }) => id), ["title", "status"]);
   assert.deepEqual(salesOpportunitiesDescriptor.outputFields.map(({ id }) => id), ["name", "pipeline-id", "pipeline-revision", "stage-id", "stage-name", "stage-semantic", "stage-revision", "revision", "amount"]);
@@ -259,7 +350,7 @@ test("Sales registers active successor sources and frozen authority", () => {
     register: (kind, id) => contributions.push([kind, id]),
     bindRenderer: (kind, id) => bindings.push([kind, id])
   });
-  assert.deepEqual(contributions.filter(([kind]) => kind === "sources").map(([, id]) => id).sort(), ["sales.account.detail", "sales.accounts", "sales.contact.detail", "sales.contacts", "sales.dedupe.candidates", "sales.export-job.detail", "sales.export-job.list", "sales.import-job.detail", "sales.import-job.list", "sales.lead.detail", "sales.leads", "sales.opportunities", "sales.opportunity.detail", "sales.pipeline.snapshot", "sales.saved-view.calendar", "sales.saved-view.detail", "sales.saved-view.kanban", "sales.saved-view.list", "sales.saved-view.table", "sales.tasks", "sales.timeline"]);
+  assert.deepEqual(contributions.filter(([kind]) => kind === "sources").map(([, id]) => id).sort(), ["sales.account.detail", "sales.accounts", "sales.contact.detail", "sales.contacts", "sales.dedupe.candidates", "sales.export-job.detail", "sales.export-job.list", "sales.import-job.detail", "sales.import-job.list", "sales.lead.detail", "sales.leads", "sales.notifications", "sales.opportunities", "sales.opportunity.detail", "sales.pipeline.snapshot", "sales.provider-configurations", "sales.reminders", "sales.saved-view.calendar", "sales.saved-view.detail", "sales.saved-view.kanban", "sales.saved-view.list", "sales.saved-view.table", "sales.tasks", "sales.timeline"]);
   assert.deepEqual(contributions.filter(([kind]) => kind === "actions").map(([, id]) => id).sort(), salesManifest.contributions.actions && Object.keys(salesManifest.contributions.actions).sort());
   assert.deepEqual(contributions.filter(([kind]) => kind === "tools").map(([, id]) => id).sort(), ["sales.tools.create-task", "sales.tools.search-tasks"]);
   assert.deepEqual(contributions.filter(([kind]) => kind === "permissions").map(([, id]) => id).sort(), salesCrmPermissionDescriptors.map(({ id }) => id).sort());
@@ -271,7 +362,7 @@ test("Sales registers active successor sources and frozen authority", () => {
   assert.deepEqual(contributions.filter(([kind]) => kind === "pageTemplates").map(([, id]) => id), salesPageTemplates.map(({ id }) => id));
   assert.deepEqual(contributions.filter(([kind]) => kind === "components").map(([, id]) => id), salesUiComponentDescriptors.map(({ id }) => id));
   assert.deepEqual(contributions.filter(([kind]) => kind === "blocks").map(([, id]) => id), salesUiBlockDescriptors.map(({ id }) => id));
-  assert.deepEqual(bindings.filter(([kind]) => kind === "sources").map(([, id]) => id).sort(), ["sales.account.detail", "sales.accounts", "sales.contact.detail", "sales.contacts", "sales.dedupe.candidates", "sales.export-job.detail", "sales.export-job.list", "sales.import-job.detail", "sales.import-job.list", "sales.lead.detail", "sales.leads", "sales.opportunities", "sales.opportunity.detail", "sales.pipeline.snapshot", "sales.saved-view.calendar", "sales.saved-view.detail", "sales.saved-view.kanban", "sales.saved-view.list", "sales.saved-view.table", "sales.tasks", "sales.timeline"]);
+  assert.deepEqual(bindings.filter(([kind]) => kind === "sources").map(([, id]) => id).sort(), ["sales.account.detail", "sales.accounts", "sales.contact.detail", "sales.contacts", "sales.dedupe.candidates", "sales.export-job.detail", "sales.export-job.list", "sales.import-job.detail", "sales.import-job.list", "sales.lead.detail", "sales.leads", "sales.notifications", "sales.opportunities", "sales.opportunity.detail", "sales.pipeline.snapshot", "sales.provider-configurations", "sales.reminders", "sales.saved-view.calendar", "sales.saved-view.detail", "sales.saved-view.kanban", "sales.saved-view.list", "sales.saved-view.table", "sales.tasks", "sales.timeline"]);
   assert.deepEqual(bindings.filter(([kind]) => kind === "actions").map(([, id]) => id).sort(), salesManifest.contributions.actions && Object.keys(salesManifest.contributions.actions).sort());
   assert.deepEqual(bindings.filter(([kind]) => kind === "components").map(([, id]) => id), salesUiComponentDescriptors.map(({ id }) => id));
   assert.deepEqual(bindings.filter(([kind]) => kind === "blocks").map(([, id]) => id), salesUiBlockDescriptors.map(({ id }) => id));
@@ -402,7 +493,7 @@ test("Sales registers source/action-backed tools with strict write policy", () =
 
 test("Sales declares event-to-realtime invalidation mappings", () => {
   assert.deepEqual(salesEventDescriptors.map(({ id }) => id).sort(), [
-    "sales.event.account-changed", "sales.event.contact-changed", "sales.event.export-job-changed", "sales.event.import-job-changed", "sales.event.lead-changed", "sales.event.opportunity-changed", "sales.event.task-changed", "sales.event.timeline-changed"
+    "sales.event.account-changed", "sales.event.contact-changed", "sales.event.export-job-changed", "sales.event.import-job-changed", "sales.event.lead-changed", "sales.event.notification-changed", "sales.event.opportunity-changed", "sales.event.provider-configuration-changed", "sales.event.reminder-changed", "sales.event.task-changed", "sales.event.timeline-changed"
   ]);
   const eventIds = new Set(salesEventDescriptors.map(({ id }) => id));
   const sourceIds = new Set(salesManifest.contributions.sources && Object.keys(salesManifest.contributions.sources));
@@ -418,6 +509,9 @@ test("Sales declares event-to-realtime invalidation mappings", () => {
   }
   assert.deepEqual(salesRealtimeTopicDescriptors.find(({ id }) => id === "sales.realtime.timeline"), {
     id: "sales.realtime.timeline", version: 1, ownerPluginId: "module.sales", eventId: "sales.event.timeline-changed", sourceId: "sales.timeline", permission: "sales.activities.read"
+  });
+  assert.deepEqual(salesRealtimeTopicDescriptors.find(({ id }) => id === "sales.realtime.provider-configurations"), {
+    id: "sales.realtime.provider-configurations", version: 1, ownerPluginId: "module.sales", eventId: "sales.event.provider-configuration-changed", sourceId: "sales.provider-configurations", permission: "sales.settings.read"
   });
 });
 
@@ -492,6 +586,10 @@ test("Sales durable events project task and opportunity invalidations through th
     assert.deepEqual(publications.at(-1).channel.topicId, topic);
     assert.deepEqual(publications.at(-1).message.source, source);
   }
+  await run({ ...base, id: "provider-configuration-1", type: "sales.event.provider-configuration-changed", payload: { providerId: "email.reference.v1", state: "revoked", revision: 4, environment: "production" } });
+  assert.deepEqual(publications.at(-1).channel, { topicId: "sales.realtime.provider-configurations", params: {} });
+  assert.deepEqual(publications.at(-1).message, { topic: "sales.realtime.provider-configurations", source: "sales.provider-configurations", event: "sales.event.provider-configuration-changed", correlation: "correlation-1", dedupe: "provider-configuration-1" });
+  assert.equal(JSON.stringify(publications.at(-1)).includes("providerId"), false);
 });
 
 test("Sales durable event hook binds the exact final audit transition and closed event contract", async () => {

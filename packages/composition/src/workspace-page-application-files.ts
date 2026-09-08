@@ -229,6 +229,7 @@ import { currentPayloadAuthentication, kNexAuthority, type KnexRequestContext } 
 import { kNexIdentity } from "./k-nex-identity.js";
 import { kNexSalesRegistry } from "./k-nex-registry.js";
 import { GeneratedSalesDataMovementStore } from "./k-nex-sales-data-movement.js";
+import { createGeneratedSalesProviderConfigurationReadGateway, createGeneratedSalesProviderGateway, type GeneratedSalesProviderConfigurationReadGateway, type GeneratedSalesProviderGateway } from "./k-nex-sales-communications.js";
 import { systemGeneralSettingsDescriptor } from "./k-nex-system-theme-settings.js";
 
 const sourceDefinitions = new Map(kNexSalesRegistry.scopedRegistration.contributions.sources.map((entry) => [entry.id, entry.value as DataSourceDefinition]));
@@ -574,6 +575,9 @@ const dataMovementPermissionIds = Object.freeze([
   "sales.imports.execute", "sales.exports.execute", "sales.records.merge",
   "sales.leads.read", "sales.leads.write", "sales.accounts.read", "sales.accounts.write", "sales.contacts.read", "sales.contacts.write"
 ] as const);
+const communicationsPermissionIds = Object.freeze([
+  "sales.communications.email.send", "sales.communications.calendar.sync", "sales.communications.metadata.read", "sales.settings.write", "sales.reminders.write", "sales.notifications.write"
+] as const);
 
 /** Durable movement work may only retain current, exact permission facts. */
 async function dataMovementPermissionGrants(payload: Payload, context: KnexRequestContext, current: WorkspaceSalesAuthorization) {
@@ -583,24 +587,39 @@ async function dataMovementPermissionGrants(payload: Payload, context: KnexReque
   return Object.freeze(grants.filter((permissionId): permissionId is typeof dataMovementPermissionIds[number] => permissionId !== undefined));
 }
 
+async function communicationsPermissionGrants(payload: Payload, context: KnexRequestContext, current: WorkspaceSalesAuthorization) {
+  const grants = await Promise.all(communicationsPermissionIds.map(async (permissionId) =>
+    await allowed(payload, context, permissionId, undefined, undefined, undefined, current) ? permissionId : undefined
+  ));
+  return Object.freeze(grants.filter((permissionId): permissionId is typeof communicationsPermissionIds[number] => permissionId !== undefined));
+}
+
 async function actor(payload: Payload, context: KnexRequestContext) {
   const authentication = await currentPayloadAuthentication(payload, context);
   const user = authentication.user;
   if (typeof user !== "object" || user === null || !("id" in user) || user.id === undefined || user.id === null) throw new TypeError("Sales authentication is unavailable.");
   const [salesScope, authority] = await Promise.all([readSalesScope(payload, String(user.id)), readSalesAuthority(payload)]);
   const current = authorization(user, salesScope, authority);
-  const [fieldGrants, permissionGrants] = await Promise.all([
+  const [fieldGrants, permissionGrants, communicationsPermissions] = await Promise.all([
     dataMovementFieldGrants(payload, context, current),
-    dataMovementPermissionGrants(payload, context, current)
+    dataMovementPermissionGrants(payload, context, current),
+    communicationsPermissionGrants(payload, context, current)
   ]);
-  const request = { payload, user: authentication.user ?? null, headers: context.headers } as PayloadRequest & { dataMovement?: GeneratedSalesDataMovementStore };
+  const request = { payload, user: authentication.user ?? null, headers: context.headers } as PayloadRequest & { dataMovement?: GeneratedSalesDataMovementStore; providerGateway?: GeneratedSalesProviderGateway; providerConfigurationReadGateway?: GeneratedSalesProviderConfigurationReadGateway };
   const dataMovement = new GeneratedSalesDataMovementStore(request, Object.freeze({
     context: Object.freeze({ applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment, actorId: current.effectiveActor.id }),
     authorizationRevision: current.authorizationRevision, lifecycleRevision: current.lifecycleRevision, scopeRevision: current.salesScope.revision,
     recordScope: current.salesScope.recordScope, applicationWide: current.salesScope.applicationWide, mutationAllowed: current.salesScope.mutationAllowed, authorizedTeamIds: current.salesScope.authorizedTeamIds, fieldGrants, permissionGrants
   }));
+  const providerGateway = createGeneratedSalesProviderGateway(request, Object.freeze({
+    context: Object.freeze({ applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment, actorId: current.effectiveActor.id }),
+    authorizationRevision: current.authorizationRevision, lifecycleRevision: current.lifecycleRevision, scopeRevision: current.salesScope.revision, permissionGrants: communicationsPermissions
+  }));
+  const providerConfigurationReadGateway = createGeneratedSalesProviderConfigurationReadGateway(request, Object.freeze({ context: Object.freeze({ applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment, actorId: current.effectiveActor.id }), authorizationRevision: current.authorizationRevision, lifecycleRevision: current.lifecycleRevision, scopeRevision: current.salesScope.revision, permissionGrants: communicationsPermissions }));
   request.dataMovement = dataMovement;
-  return { authorization: current, request, dataMovement };
+  request.providerGateway = providerGateway;
+  request.providerConfigurationReadGateway = providerConfigurationReadGateway;
+  return { authorization: current, request, dataMovement, providerGateway, providerConfigurationReadGateway };
 }
 
 function salesRecordWhere(current: ReturnType<typeof authorization>) {
@@ -647,6 +666,13 @@ function salesActionGrant(actionId: string) {
   if (actionId === "sales.opportunity.stage.update") return Object.freeze({ collection: "sales-opportunities", operations: Object.freeze(["find", "update"] as const), permissionId: "sales.opportunities.stage.update" });
   if (actionId.startsWith("sales.pipeline.")) return Object.freeze({ collection: "sales-pipelines", operations: Object.freeze(["find", "update"] as const), permissionId: "sales.pipelines.configure" });
   if (actionId.startsWith("sales.saved-view.")) return Object.freeze({ collection: "sales-saved-views", operations: Object.freeze(actionId.endsWith(".create") ? ["create", "update"] as const : ["find", "update"] as const), permissionId: "sales.saved-views.write" });
+  if (actionId === "sales.email.send") return Object.freeze({ collection: "sales-activities", operations: Object.freeze(["create", "update"] as const), permissionId: "sales.communications.email.send" });
+  if (actionId === "sales.calendar.sync") return Object.freeze({ collection: "sales-activities", operations: Object.freeze(["find"] as const), permissionId: "sales.communications.calendar.sync" });
+  // Configuration has no Payload collection; provider configuration remains host-owned SQL state.
+  if (actionId === "sales.integration.configure") return Object.freeze({ collection: "sales-provider-configurations", operations: Object.freeze([] as const), permissionId: "sales.settings.write" });
+  if (actionId === "sales.notification.read" || actionId === "sales.notification.archive") return Object.freeze({ collection: "sales-notifications", operations: Object.freeze(["find", "update"] as const), permissionId: "sales.notifications.write" });
+  if (actionId === "sales.reminder.dismiss") return Object.freeze({ collection: "sales-reminders", operations: Object.freeze(["find", "update"] as const), permissionId: "sales.reminders.write" });
+  if (actionId === "sales.reminder.schedule") return Object.freeze({ collection: "sales-reminders", operations: Object.freeze(["create", "update"] as const), permissionId: "sales.reminders.write" });
   if (actionId.startsWith("sales.account.")) return Object.freeze({ collection: "sales-accounts", operations: Object.freeze(actionId.endsWith(".create") ? ["create", "update"] as const : ["find", "update"] as const), permissionId: actionId.endsWith(".archive") ? "sales.accounts.archive" : "sales.accounts.write" });
   if (actionId.startsWith("sales.contact.")) return Object.freeze({ collection: "sales-contacts", operations: Object.freeze(actionId.endsWith(".create") ? ["create", "update"] as const : ["find", "update"] as const), permissionId: actionId.endsWith(".archive") ? "sales.contacts.archive" : "sales.contacts.write" });
   if (actionId.startsWith("sales.lead.")) return Object.freeze({ collection: "sales-leads", operations: Object.freeze(actionId.endsWith(".create") ? ["create", "update"] as const : ["find", "update"] as const), permissionId: actionId.endsWith(".archive") ? "sales.leads.archive" : actionId.endsWith(".qualify") ? "sales.leads.qualify" : actionId.endsWith(".disqualify") ? "sales.leads.disqualify" : "sales.leads.write" });
@@ -681,6 +707,12 @@ function salesActionCapabilityGrants(actionId: string) {
   if (actionId === "sales.opportunity.stage.update") return [primary, Object.freeze({ collection: "sales-pipelines", operations: Object.freeze(["find"] as const), permissionId: "sales.pipelines.read" }), Object.freeze({ collection: "sales-pipeline-stages", operations: Object.freeze(["find"] as const), permissionId: "sales.pipelines.read" })];
   if (actionId === "sales.opportunity.update") return [primary, Object.freeze({ collection: "sales-contacts", operations: Object.freeze(["find"] as const), permissionId: "sales.contacts.read" })];
   if (actionId === "sales.note.create") return [primary, Object.freeze({ collection: "sales-notes", operations: Object.freeze(["find"] as const), permissionId: "sales.notes.read" }), ...relatedTargets];
+  if (actionId === "sales.email.send") return [primary,
+    Object.freeze({ collection: "sales-contacts", operations: Object.freeze(["find"] as const), permissionId: "sales.contacts.read" }),
+    Object.freeze({ collection: "sales-leads", operations: Object.freeze(["find"] as const), permissionId: "sales.leads.read" })];
+  if (actionId === "sales.reminder.schedule") return [primary,
+    Object.freeze({ collection: "sales-tasks", operations: Object.freeze(["find"] as const), permissionId: "sales.tasks.read" }),
+    Object.freeze({ collection: "sales-activities", operations: Object.freeze(["find"] as const), permissionId: "sales.activities.read" })];
   return [primary, ...relatedTargets];
 }
 
@@ -840,6 +872,12 @@ async function lockSalesActionTarget(request: PayloadRequest, current: ReturnTyp
   if (collection === "sales-attachment-references") return postgresRows(await transaction.execute(sql\`
       SELECT "id" FROM "sales_attachment_references" WHERE "id" = \${id} AND "application_id" = \${kNexIdentity.applicationId} AND "environment" = \${kNexIdentity.environment} AND (\${recordScope}) FOR UPDATE
     \`)).length === 1;
+  if (collection === "sales-notifications") return postgresRows(await transaction.execute(sql\`
+      SELECT "id" FROM "sales_notifications" WHERE "id" = \${id} AND "application_id" = \${kNexIdentity.applicationId} AND "environment" = \${kNexIdentity.environment} AND "recipient_id" = \${actorId} FOR UPDATE
+    \`)).length === 1;
+  if (collection === "sales-reminders") return postgresRows(await transaction.execute(sql\`
+      SELECT "id" FROM "sales_reminders" WHERE "id" = \${id} AND "application_id" = \${kNexIdentity.applicationId} AND "environment" = \${kNexIdentity.environment} AND "recipient_id" = \${actorId} FOR UPDATE
+    \`)).length === 1;
   if (collection === "sales-pipelines") return postgresRows(await transaction.execute(sql\`
       SELECT "id" FROM "sales_pipelines" WHERE "id" = \${id} AND "application_id" = \${kNexIdentity.applicationId} AND "environment" = \${kNexIdentity.environment} FOR UPDATE
     \`)).length === 1;
@@ -947,19 +985,21 @@ function salesActionCapability(payload: Payload, context: KnexRequestContext, re
     } });
 }
 
-async function salesActionRecord(capability: PayloadPersistenceCapabilityContext, collection: "sales-tasks" | "sales-opportunities" | "sales-accounts" | "sales-contacts" | "sales-leads" | "sales-activities" | "sales-notes" | "sales-attachment-references" | "sales-pipelines" | "sales-saved-views", id: string, current: ReturnType<typeof authorization>) {
+async function salesActionRecord(capability: PayloadPersistenceCapabilityContext, collection: "sales-tasks" | "sales-opportunities" | "sales-accounts" | "sales-contacts" | "sales-leads" | "sales-activities" | "sales-notes" | "sales-attachment-references" | "sales-notifications" | "sales-reminders" | "sales-pipelines" | "sales-saved-views", id: string, current: ReturnType<typeof authorization>) {
   const scope = salesRecordWhere(current);
   const authorityWhere = collection === "sales-pipelines" ? [{ applicationId: { equals: kNexIdentity.applicationId } }, { environment: { equals: kNexIdentity.environment } }]
     : collection === "sales-saved-views" ? [{ applicationId: { equals: kNexIdentity.applicationId } }, { environment: { equals: kNexIdentity.environment } }, { or: [{ and: [{ ownerId: { equals: current.effectiveActor.id } }, { visibility: { equals: "personal" } }] }, { and: [{ visibilityTeamId: { in: current.salesScope.authorizedTeamIds } }, { visibility: { equals: "team" } }] }] }]
+      : collection === "sales-notifications" || collection === "sales-reminders" ? recipientOnlyWhere(current).and
       : scope.and;
-  const select = collection === "sales-pipelines" ? { status: true } : collection === "sales-saved-views" ? { ownerId: true, visibility: true, visibilityTeamId: true, status: true }
-    : { ownerId: true, teamId: true, status: true, archiveStatus: true, accountId: true, relatedRecordType: true, relatedRecordId: true };
+  const select = collection === "sales-pipelines" ? { status: true, revision: true } : collection === "sales-saved-views" ? { ownerId: true, visibility: true, visibilityTeamId: true, status: true, revision: true }
+    : collection === "sales-notifications" || collection === "sales-reminders" ? { recipientId: true, state: true, revision: true }
+    : { ownerId: true, teamId: true, status: true, archiveStatus: true, revision: true, accountId: true, relatedRecordType: true, relatedRecordId: true };
   const result = await capability.payload.find({ collection, depth: 0, limit: 1, pagination: false, overrideAccess: true,
     select, where: { and: [{ id: { equals: id } }, ...authorityWhere] } }) as { docs?: unknown };
   if (!Array.isArray(result.docs) || result.docs.length !== 1 || result.docs[0] === null || typeof result.docs[0] !== "object") {
     throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales action target is unavailable.");
   }
-  return result.docs[0] as { ownerId?: unknown; teamId?: unknown; visibility?: unknown; visibilityTeamId?: unknown; status?: unknown; archiveStatus?: unknown; accountId?: unknown; relatedRecordType?: unknown; relatedRecordId?: unknown };
+  return result.docs[0] as { ownerId?: unknown; teamId?: unknown; visibility?: unknown; visibilityTeamId?: unknown; status?: unknown; archiveStatus?: unknown; revision?: unknown; accountId?: unknown; relatedRecordType?: unknown; relatedRecordId?: unknown };
 }
 
 async function salesNoteReplacementIdentity(request: PayloadRequest, id: string) {
@@ -1052,6 +1092,10 @@ function savedViewMetadataWhere(current: WorkspaceSalesAuthorization) {
   return { and: [...identity, { status: { equals: "active" } }, { or: team === undefined ? [personal] : [personal, team] }] };
 }
 
+function recipientOnlyWhere(current: WorkspaceSalesAuthorization) {
+  return { and: [{ applicationId: { equals: kNexIdentity.applicationId } }, { environment: { equals: kNexIdentity.environment } }, { recipientId: { equals: current.effectiveActor.id } }] };
+}
+
 const workspaceCurrentSalesPolicy = (permissions: readonly string[], current: WorkspaceSalesAuthorization, plan?: Awaited<ReturnType<typeof resolveSalesSavedViewExecution>>): DataSourcePolicyService => ({
   async authorize(request) {
     const execution = savedViewExecutionSources.has(request.descriptor.id);
@@ -1059,6 +1103,8 @@ const workspaceCurrentSalesPolicy = (permissions: readonly string[], current: Wo
     const recordScope = execution ? plan?.targetRecordScope
       : request.descriptor.id === "sales.pipeline.snapshot" ? { kind: "sales.pipelines", where: { and: [{ applicationId: { equals: kNexIdentity.applicationId } }, { environment: { equals: kNexIdentity.environment } }] } }
         : request.descriptor.id === "sales.saved-view.list" || request.descriptor.id === "sales.saved-view.detail" ? { kind: "sales.saved-views", where: savedViewMetadataWhere(current) }
+          : request.descriptor.id === "sales.notifications" ? { kind: "sales.notifications", where: recipientOnlyWhere(current) }
+            : request.descriptor.id === "sales.reminders" ? { kind: "sales.reminders", where: recipientOnlyWhere(current) }
           : ["sales.opportunities", "sales.opportunity.detail", "sales.tasks", "sales.accounts", "sales.account.detail", "sales.contacts", "sales.contact.detail", "sales.leads", "sales.lead.detail", "sales.timeline"].includes(request.descriptor.id) || dataMovementSources.has(request.descriptor.id) ? { kind: request.descriptor.id, where: salesRecordWhere(current) } : undefined;
     if (recordScope === undefined || execution && (plan?.fieldAuthority === undefined || plan.metadataScope === undefined)) return { sourceAllowed: false, recordScope: undefined, allowedFields: [] };
     const allowedFields: string[] = [];
@@ -1085,7 +1131,9 @@ function workspaceSalesGateway(payload: Payload, context: KnexRequestContext, pe
           { collection: "sales-leads", operations: ["find"] },
           { collection: "sales-activities", operations: ["find"] },
           { collection: "sales-notes", operations: ["find"] },
-          { collection: "sales-attachment-references", operations: ["find"] }
+          { collection: "sales-attachment-references", operations: ["find"] },
+          { collection: "sales-notifications", operations: ["find"] },
+          { collection: "sales-reminders", operations: ["find"] }
           ,{ collection: "sales-pipelines", operations: ["find"] }
           ,{ collection: "sales-pipeline-stages", operations: ["find"] }
           ,{ collection: "sales-saved-views", operations: ["find"] }
@@ -1097,7 +1145,9 @@ function workspaceSalesGateway(payload: Payload, context: KnexRequestContext, pe
                 : collection === "sales-leads" && operation === "find" ? "sales.leads.read"
                   : collection === "sales-activities" && operation === "find" ? "sales.activities.read"
                     : collection === "sales-notes" && operation === "find" ? "sales.notes.read"
-                      : collection === "sales-attachment-references" && operation === "find" ? "sales.attachments.read" : undefined;
+                      : collection === "sales-attachment-references" && operation === "find" ? "sales.attachments.read"
+                        : collection === "sales-notifications" && operation === "find" ? "sales.notifications.read"
+                          : collection === "sales-reminders" && operation === "find" ? "sales.reminders.read" : undefined;
           const extendedPermissionId = permissionId ?? (collection === "sales-pipelines" || collection === "sales-pipeline-stages" ? "sales.pipelines.read" : collection === "sales-saved-views" ? "sales.saved-views.read" : undefined);
           return extendedPermissionId !== undefined && permissions.includes(extendedPermissionId);
         } });
@@ -1500,7 +1550,7 @@ export async function executeWorkspaceSalesAction(payload: Payload, context: Kne
       await persistence.transaction.begin();
       await lockSalesPipelineReferences(current.request, action.id, request.input);
       actionReportingTimezone = await lockSalesReportingTimezone(current.request, action.id, request.input);
-      return { actor: current.authorization, request: persistence, authorizationContext: Object.freeze({ ...context, actionId: action.id, dataMovement: current.dataMovement }) };
+      return { actor: current.authorization, request: persistence, authorizationContext: Object.freeze({ ...context, actionId: action.id, dataMovement: current.dataMovement, providerGateway: current.providerGateway }) };
     }
   }, { authorize: async ({ action, input, authenticated }) => {
     if (input === null || typeof input !== "object" || Array.isArray(input) ||
@@ -1509,10 +1559,31 @@ export async function executeWorkspaceSalesAction(payload: Payload, context: Kne
     const current = workspaceSalesAuthorization(authenticated.actor);
     const dataMovement = action.descriptor.id.startsWith("sales.import.") || action.descriptor.id.startsWith("sales.export.") || action.descriptor.id === "sales.merge.commit"
       ? (authenticated.authorizationContext as { readonly dataMovement?: GeneratedSalesDataMovementStore }).dataMovement : undefined;
+    const providerGateway = action.descriptor.id === "sales.email.send" || action.descriptor.id === "sales.calendar.sync" || action.descriptor.id === "sales.integration.configure"
+      ? (authenticated.authorizationContext as { readonly providerGateway?: GeneratedSalesProviderGateway }).providerGateway : undefined;
     const actorId = current.effectiveActor.id;
     const capability = authenticated.request as PayloadPersistenceCapabilityContext;
     let resourceId = typeof actionInput.id === "string" ? actionInput.id : undefined;
-    let record: { ownerId?: unknown; teamId?: unknown; visibility?: unknown; visibilityTeamId?: unknown; status?: unknown; archiveStatus?: unknown; accountId?: unknown; relatedRecordType?: unknown; relatedRecordId?: unknown } | undefined;
+    let record: { ownerId?: unknown; teamId?: unknown; visibility?: unknown; visibilityTeamId?: unknown; status?: unknown; archiveStatus?: unknown; revision?: unknown; accountId?: unknown; relatedRecordType?: unknown; relatedRecordId?: unknown } | undefined;
+    let communicationRelationAdmission: Readonly<Record<string, unknown>> | undefined;
+    if (action.descriptor.id === "sales.email.send" || action.descriptor.id === "sales.calendar.sync" || action.descriptor.id === "sales.reminder.schedule") {
+      const relation = action.descriptor.id === "sales.email.send"
+        ? actionInput.relatedRecordType === "sales.contact" ? { collection: "sales-contacts" as const, recordType: "sales.contact" as const, id: actionInput.relatedRecordId }
+          : actionInput.relatedRecordType === "sales.lead" ? { collection: "sales-leads" as const, recordType: "sales.lead" as const, id: actionInput.relatedRecordId } : undefined
+        : action.descriptor.id === "sales.calendar.sync"
+          ? { collection: "sales-activities" as const, recordType: "sales.activity" as const, id: actionInput.activityId }
+          : actionInput.referenceKind === "task" ? { collection: "sales-tasks" as const, recordType: "sales.task" as const, id: actionInput.referenceId }
+            : actionInput.referenceKind === "activity" ? { collection: "sales-activities" as const, recordType: "sales.activity" as const, id: actionInput.referenceId } : undefined;
+      if (relation === undefined || typeof relation.id !== "string" || await capability.guard({ collection: relation.collection, id: relation.id, operation: "find" }) !== true) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales communication relation is unavailable.");
+      record = await salesActionRecord(capability, relation.collection, relation.id, current);
+      const expectedRevision = action.descriptor.id === "sales.email.send" ? record.revision : actionInput.expectedRevision;
+      const emailActive = relation.recordType === "sales.contact" ? record.status === "active" && record.archiveStatus === undefined
+        : relation.recordType === "sales.lead" ? (record.status === "new" || record.status === "working") && record.archiveStatus === "active" : false;
+      const referenceActive = relation.recordType === "sales.task" ? record.status === "open" : relation.recordType === "sales.activity" ? record.status === "scheduled" : false;
+      if (typeof record.ownerId !== "string" || !Number.isSafeInteger(record.revision) || (record.revision as number) < 1 || expectedRevision !== record.revision || (action.descriptor.id === "sales.email.send" ? !emailActive : !referenceActive)) throw new ActionGatewayError("STALE_RECORD", 409, "Sales communication relation changed before action.");
+      resourceId = relation.id;
+      communicationRelationAdmission = Object.freeze({ actionId: action.descriptor.id, recordType: relation.recordType, recordId: relation.id, applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment, revision: record.revision, status: record.status, archiveStatus: relation.recordType === "sales.lead" ? record.archiveStatus : null, ownerId: record.ownerId, teamId: typeof record.teamId === "string" ? record.teamId : null });
+    }
     const relatedMutationCollection = action.descriptor.id === "sales.attachment.remove" ? "sales-attachment-references" : action.descriptor.id === "sales.activity.complete" || action.descriptor.id === "sales.activity.cancel" ? "sales-activities" : undefined;
     if (resourceId !== undefined && relatedMutationCollection !== undefined) {
       if (idempotency === undefined) throw new ActionGatewayError("IDEMPOTENCY_KEY_REQUIRED", 400, "Sales action idempotency key is required.");
@@ -1525,7 +1596,7 @@ export async function executeWorkspaceSalesAction(payload: Payload, context: Kne
       if (await capability.guard({ ...authorizedParent, operation: "find" }) !== true) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales related mutation target is unavailable.");
       record = await salesActionRecord(capability, authorizedParent.collection, authorizedParent.id, current);
     }
-    if (resourceId !== undefined && relatedMutationCollection === undefined) {
+    if (resourceId !== undefined && relatedMutationCollection === undefined && communicationRelationAdmission === undefined) {
       const collection = action.descriptor.id === "sales.task.update" ? "sales-tasks"
         : action.descriptor.id === "sales.activity.complete" || action.descriptor.id === "sales.activity.cancel" ? "sales-activities"
           : action.descriptor.id === "sales.attachment.remove" ? "sales-attachment-references"
@@ -1533,6 +1604,8 @@ export async function executeWorkspaceSalesAction(payload: Payload, context: Kne
           : action.descriptor.id === "sales.ownership.assign" && actionInput.recordType === "sales.contact" ? "sales-contacts"
             : action.descriptor.id === "sales.ownership.assign" && actionInput.recordType === "sales.lead" ? "sales-leads"
               : action.descriptor.id === "sales.ownership.assign" && actionInput.recordType === "sales.opportunity" ? "sales-opportunities"
+        : action.descriptor.id === "sales.notification.read" || action.descriptor.id === "sales.notification.archive" ? "sales-notifications"
+          : action.descriptor.id === "sales.reminder.dismiss" ? "sales-reminders"
         : action.descriptor.id.startsWith("sales.account.") ? "sales-accounts"
           : action.descriptor.id.startsWith("sales.contact.") ? "sales-contacts"
             : action.descriptor.id.startsWith("sales.lead.") ? "sales-leads"
@@ -1623,6 +1696,8 @@ export async function executeWorkspaceSalesAction(payload: Payload, context: Kne
     const replay = await reserveSalesActionIdempotency(idempotency, currentAuthorization);
     return Object.freeze({ actionId: action.descriptor.id, applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment, actorId,
       ...(dataMovement === undefined ? {} : { dataMovement }),
+      ...(providerGateway === undefined ? {} : { providerGateway }),
+      ...(communicationRelationAdmission === undefined ? {} : { communicationRelationAdmission }),
       ownerId: typeof record?.ownerId === "string" ? record.ownerId : actorId,
       ...(typeof record?.teamId === "string" ? { teamId: record.teamId } : topLevelOwnedCreate ? { teamId: personalTeam } : {}),
       ...(action.descriptor.id === "sales.attachment.link" ? { resolveAttachmentUpload: (upload: Readonly<{ applicationId: string; environmentId: string; actorId: string; storageRef: string }>) => resolveSalesAttachmentUpload(idempotency!.request, current, upload) } : {}),

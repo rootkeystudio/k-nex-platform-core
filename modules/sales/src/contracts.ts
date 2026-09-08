@@ -74,7 +74,7 @@ export const salesTasksDescriptor: DataSourceDescriptor = {
 };
 
 type SalesSourceField = NonNullable<DataSourceDescriptor["outputFields"]>[number];
-const crmField = (id: string, kind: "text" | "status" | "integer", permission: string, nullable = false): SalesSourceField => ({ id, kind, binding: nullable ? "optional" : "required", nullable, permission, sortable: false, filterOperators: [] });
+const crmField = (id: string, kind: SalesSourceField["kind"], permission: string, nullable = false): SalesSourceField => ({ id, kind, binding: nullable ? "optional" : "required", nullable, permission, sortable: false, filterOperators: [] });
 
 export const salesOpportunityFields: NonNullable<DataSourceDescriptor["outputFields"]> = [
   { id: "name", kind: "text", binding: "required", nullable: false, permission: "sales.opportunities.read", sortable: true, filterOperators: ["eq", "contains"] },
@@ -413,6 +413,26 @@ export const salesTimelineDescriptor = crmSource("sales.timeline", 1, "sales.act
   { id: "related-record-id", kind: "string", required: true, nullable: false }
 ]);
 
+/** Recipient-scoped work queues expose neither provider data nor credential references. */
+export const salesNotificationFields = Object.freeze([
+  crmField("subject", "text", "sales.notifications.read"), crmField("state", "status", "sales.notifications.read"),
+  crmField("created-at", "datetime", "sales.notifications.read"), crmField("revision", "integer", "sales.notifications.read")
+] satisfies NonNullable<DataSourceDescriptor["outputFields"]>);
+export const salesReminderFields = Object.freeze([
+  crmField("subject", "text", "sales.reminders.read"), crmField("state", "status", "sales.reminders.read"),
+  crmField("scheduled-at", "datetime", "sales.reminders.read"), crmField("reference-kind", "enum", "sales.reminders.read"),
+  crmField("reference-id", "integer", "sales.reminders.read"), crmField("revision", "integer", "sales.reminders.read")
+] satisfies NonNullable<DataSourceDescriptor["outputFields"]>);
+/** Public provider configuration status. Secret references and values are intentionally unrepresentable. */
+export const salesProviderConfigurationFields = Object.freeze([
+  crmField("provider-id", "enum", "sales.settings.read"), crmField("state", "status", "sales.settings.read"),
+  crmField("revision", "integer", "sales.settings.read"), crmField("updated-at", "datetime", "sales.settings.read"),
+  crmField("revoked-at", "datetime", "sales.settings.read", true)
+] satisfies NonNullable<DataSourceDescriptor["outputFields"]>);
+export const salesNotificationsDescriptor = crmSource("sales.notifications", 1, "sales.notifications.read", "Sales notifications", [...salesNotificationFields], "sha256:1ed4ed6955fbb2ba337e2b84e0cf9b2a9744230b05c7bbf187e69b8848f593c0");
+export const salesRemindersDescriptor = crmSource("sales.reminders", 1, "sales.reminders.read", "Sales reminders", [...salesReminderFields], "sha256:a2f87efad77edab1c705faa3640065f1060cb6403f2e1e0633f8333225e42564");
+export const salesProviderConfigurationsDescriptor = crmSource("sales.provider-configurations", 1, "sales.settings.read", "Sales provider configurations", [...salesProviderConfigurationFields], "sha256:b7f2815c8115bbb72c9f9843d1b7b083d92f856fec61b2dc28f77e393c4c911e");
+
 function crmCell(field: SalesSourceField, cell: unknown): boolean {
   if (cell === null) return field.nullable;
   if (!salesRecord(cell) || cell.kind !== field.kind) return false;
@@ -428,6 +448,9 @@ function crmCell(field: SalesSourceField, cell: unknown): boolean {
       : field.permission === "sales.leads.read" ? field.id === "archive-status" ? ["active", "archived"] : ["new", "working", "qualified", "disqualified"]
       : field.permission === "sales.imports.read" ? ["draft", "validated", "queued", "running", "succeeded", "partially-failed", "failed", "cancelled"]
       : field.permission === "sales.exports.read" ? ["queued", "running", "succeeded", "failed", "cancelled"]
+      : field.permission === "sales.notifications.read" ? ["unread", "read", "archived"]
+      : field.permission === "sales.reminders.read" ? ["scheduled", "delivered", "dismissed", "cancelled", "failed"]
+      : field.permission === "sales.settings.read" ? ["active", "revoked"]
       : undefined;
     return typeof cell.value === "string" && (allowed === undefined ? cell.value.length > 0 && cell.value.length <= 64 : allowed.includes(cell.value));
   }
@@ -435,6 +458,8 @@ function crmCell(field: SalesSourceField, cell: unknown): boolean {
     const allowed = field.id === "target-object-type" ? ["sales.object.lead", "sales.object.account", "sales.object.contact"]
       : field.id === "match-kind" ? ["account-name", "contact-email", "contact-phone", "contact-email-and-phone"]
       : field.id === "diagnostic-code" ? ["IMPORT_INVALID_ENCODING", "IMPORT_INVALID_CSV", "IMPORT_UNSAFE_FORMULA", "IMPORT_LIMIT_EXCEEDED", "IMPORT_PROTECTED_FIELD", "IMPORT_MAPPING_INVALID", "IMPORT_UPLOAD_BINDING_INVALID", "IMPORT_REQUIRED_VALUE", "IMPORT_VALUE_INVALID", "IMPORT_CONTACT_ACCOUNT_FORBIDDEN", "IMPORT_ROW_CONFLICT", "IMPORT_WORKER_RETRY_EXHAUSTED", "DEDUPE_CANDIDATE_LIMIT", "STALE_RECORD", "ACTION_FORBIDDEN", "NOT_FOUND", "ARTIFACT_EXPIRED", "ARTIFACT_FORBIDDEN", "IDEMPOTENCY_CONFLICT"]
+      : field.id === "reference-kind" ? ["task", "activity"]
+      : field.id === "provider-id" ? ["email.reference.v1", "calendar.reference.v1"]
       : undefined;
     return typeof cell.value === "string" && allowed !== undefined && allowed.includes(cell.value);
   }
@@ -470,6 +495,9 @@ export const salesLeadDetailOutputRuntimeSchema: RuntimeSchema<TableRecords> = {
   return parsed;
 } };
 export const salesTimelineOutputRuntimeSchema = crmTableSchema(salesTimelineFields);
+export const salesNotificationsOutputRuntimeSchema = crmTableSchema(salesNotificationFields);
+export const salesRemindersOutputRuntimeSchema = crmTableSchema(salesReminderFields);
+export const salesProviderConfigurationsOutputRuntimeSchema = crmTableSchema(salesProviderConfigurationFields);
 export const salesImportJobListOutputRuntimeSchema = crmTableSchema(salesImportJobListFields);
 export const salesImportJobDetailOutputRuntimeSchema = crmTableSchema(salesImportJobDetailFields);
 export const salesExportJobListOutputRuntimeSchema = crmTableSchema(salesExportJobListFields);
@@ -865,6 +893,13 @@ export const salesImportCancelDescriptor = workflowActionDescriptor("sales.impor
 export const salesExportCreateDescriptor = workflowActionDescriptor("sales.export.create");
 export const salesExportCancelDescriptor = workflowActionDescriptor("sales.export.cancel");
 export const salesMergeCommitDescriptor = workflowActionDescriptor("sales.merge.commit");
+export const salesEmailSendDescriptor = workflowActionDescriptor("sales.email.send");
+export const salesCalendarSyncDescriptor = workflowActionDescriptor("sales.calendar.sync");
+export const salesReminderScheduleDescriptor = workflowActionDescriptor("sales.reminder.schedule");
+export const salesNotificationReadDescriptor = workflowActionDescriptor("sales.notification.read");
+export const salesNotificationArchiveDescriptor = workflowActionDescriptor("sales.notification.archive");
+export const salesReminderDismissDescriptor = workflowActionDescriptor("sales.reminder.dismiss");
+export const salesIntegrationConfigureDescriptor = workflowActionDescriptor("sales.integration.configure");
 
 function actionRuntime(descriptor: ActionDescriptor): RuntimeSchema<Readonly<Record<string, unknown>>> {
   return { safeParse(value) {
@@ -964,6 +999,9 @@ function movementActionRuntime(descriptor: ActionDescriptor): RuntimeSchema<Read
   } };
 }
 export const salesDataMovementActionInputRuntimeSchemas = Object.freeze(Object.fromEntries(salesDataMovementActionDescriptors.map((descriptor) => [descriptor.id, movementActionRuntime(descriptor)])) as Readonly<Record<string, RuntimeSchema<Readonly<Record<string, unknown>>>>>) ;
+export const salesCommunicationActionDescriptors = Object.freeze([salesEmailSendDescriptor, salesCalendarSyncDescriptor, salesReminderScheduleDescriptor, salesNotificationReadDescriptor, salesNotificationArchiveDescriptor, salesReminderDismissDescriptor, salesIntegrationConfigureDescriptor]);
+export const salesCommunicationActionInputRuntimeSchemas = Object.freeze(Object.fromEntries(salesCommunicationActionDescriptors.map((descriptor) => [descriptor.id, actionRuntime(descriptor)])) as Readonly<Record<string, RuntimeSchema<Readonly<Record<string, unknown>>>>>) ;
+export const salesCommunicationActionOutputRuntimeSchemas = Object.freeze(Object.fromEntries(salesCommunicationActionDescriptors.map((descriptor) => [descriptor.id, actionOutputRuntime(descriptor)])) as Readonly<Record<string, RuntimeSchema<Readonly<Record<string, unknown>>>>>) ;
 const sha256DigestPattern = /^sha256:[0-9a-f]{64}$/u;
 function movementActionOutputRuntime(descriptor: ActionDescriptor): RuntimeSchema<Readonly<Record<string, unknown>>> {
   const base = actionOutputRuntime(descriptor);
@@ -1130,7 +1168,7 @@ export const salesRouteDescriptors = Object.freeze([
   {
     id: "sales.route.opportunity-detail", ownerPluginId: "module.sales", path: "/sales/opportunities/:id", parameters: { id: { type: "string" } }, surface: "workspace", audience: "authenticated", permission: "sales.opportunities.read", viewId: "sales.page.opportunity-detail"
   },
-  ...salesCrmRouteDescriptors.filter(({ id }) => ["sales.route.calendar", "sales.route.pipeline-settings", "sales.route.saved-views", "sales.route.imports", "sales.route.exports"].includes(id))
+  ...salesCrmRouteDescriptors.filter(({ id }) => ["sales.route.calendar", "sales.route.notifications", "sales.route.pipeline-settings", "sales.route.saved-views", "sales.route.imports", "sales.route.exports"].includes(id))
 ] satisfies readonly PluginRouteDescriptor[]);
 
 export const salesNavigationDescriptors = Object.freeze([
@@ -1174,6 +1212,9 @@ export const salesNavigationDescriptors = Object.freeze([
   },
   {
     id: "sales.navigation.leads", ownerPluginId: "module.sales", labelMessageId: "sales.message.navigation-leads", route: { routeId: "sales.route.leads", params: {} }, permission: "sales.leads.read", order: 27
+  },
+  {
+    id: "sales.navigation.notifications", ownerPluginId: "module.sales", labelMessageId: "sales.message.navigation-notifications", route: { routeId: "sales.route.notifications", params: {} }, permission: "sales.notifications.read", order: 21
   }
 ] satisfies readonly PluginNavigationDescriptor[]);
 
@@ -1263,14 +1304,14 @@ export const salesOpportunitiesPageTemplate: PluginPageTemplateDescriptor = {
 };
 
 export const salesSettingsPageTemplate: PluginPageTemplateDescriptor = {
-  id: "sales.page.settings", version: 2, ownerPluginId: "module.sales",
+  id: "sales.page.settings", version: 3, ownerPluginId: "module.sales",
   route: { routeId: "sales.route.settings", params: {} }, surface: "workspace", profile: "workspace",
   permission: "sales.settings.read", publicationPolicy: { ownership: "customer", adoption: "explicit" },
-  migration: { adoptableFromVersions: [1], notesMessageId: "sales.message.template-v2" },
-  requirements: { capabilities: [], sources: [], actions: [], blocks: [{ id: "sales.settings-summary", version: 2 }] },
+  migration: { adoptableFromVersions: [1, 2], notesMessageId: "sales.message.settings-template-v3" },
+  requirements: { capabilities: [], sources: [{ id: salesProviderConfigurationsDescriptor.id, version: salesProviderConfigurationsDescriptor.version }], actions: [{ id: salesIntegrationConfigureDescriptor.id, version: salesIntegrationConfigureDescriptor.version }], blocks: [{ id: "sales.settings-summary", version: 2 }, { id: "sales.integration-settings", version: 1 }] },
   document: {
-    id: "sales.page.settings", version: 2, schemaVersion: 1, profile: "workspace",
-    regions: { main: [{ id: "sales-settings", type: "sales.settings-summary", version: 2, props: { title: "Sales settings" } }] }
+    id: "sales.page.settings", version: 3, schemaVersion: 1, profile: "workspace",
+    regions: { main: [{ id: "sales-settings", type: "sales.settings-summary", version: 2, props: { title: "Sales settings" } }, { id: "sales-integration-settings", type: "sales.integration-settings", version: 1, props: {}, bindings: { source: { source: { id: salesProviderConfigurationsDescriptor.id, version: salesProviderConfigurationsDescriptor.version }, input: {}, structuralCompatibilityHash: salesProviderConfigurationsDescriptor.structuralCompatibilityHash, selectedFields: salesProviderConfigurationFields.map(({ id }) => id) }, action: { id: salesIntegrationConfigureDescriptor.id, version: salesIntegrationConfigureDescriptor.version } } }] }
   }
 };
 
@@ -1303,7 +1344,11 @@ function p134Page(input: { id: string; routeId: string; permission: string; sour
     publicationPolicy: { ownership: "customer", adoption: "explicit" }, requirements: { capabilities: [], sources: input.sources.map(({ id, version }) => ({ id, version })), actions: input.actions.map(({ id, version }) => ({ id, version })), blocks: [...new Set(input.blocks.map(({ id }) => id))].map((id) => ({ id, version: 1 })) },
     document: { id: input.id, version: 1, schemaVersion: 1, profile: "workspace", regions: { main: input.blocks.map((block) => ({ id: block.nodeId, type: block.id, version: 1, props: {}, bindings: { ...(block.source === undefined ? {} : { source: { source: { id: block.source.id, version: block.source.version }, input: block.input ?? {}, structuralCompatibilityHash: block.source.structuralCompatibilityHash, selectedFields: [...(block.fields ?? [])] } }), ...(block.action === undefined ? {} : { action: { id: block.action.id, version: block.action.version } }) } })) } } };
 }
-export const salesCalendarPageTemplate = p134Page({ id: "sales.page.calendar", routeId: "sales.route.calendar", permission: "sales.activities.read", sources: [salesSavedViewCalendarDescriptor], actions: [], blocks: [{ nodeId: "calendar", id: "sales.calendar", source: salesSavedViewCalendarDescriptor, fields: ["type", "subject", "status", "scheduled-at", "occurred-at", "related-record-type", "related-record-id", "revision"] }] });
+export const salesCalendarPageTemplate = p134Page({ id: "sales.page.calendar", routeId: "sales.route.calendar", permission: "sales.activities.read", sources: [salesSavedViewCalendarDescriptor], actions: [salesEmailSendDescriptor, salesCalendarSyncDescriptor], blocks: [
+  { nodeId: "calendar", id: "sales.calendar", source: salesSavedViewCalendarDescriptor, fields: ["type", "subject", "status", "scheduled-at", "occurred-at", "related-record-type", "related-record-id", "revision"] },
+  { nodeId: "email-send", id: "sales.communication-actions", action: salesEmailSendDescriptor },
+  { nodeId: "calendar-sync", id: "sales.communication-actions", action: salesCalendarSyncDescriptor }
+] });
 export const salesPipelineSettingsPageTemplate = p134Page({ id: "sales.page.pipeline-settings", routeId: "sales.route.pipeline-settings", permission: "sales.pipelines.configure", sources: [salesPipelineSnapshotDescriptor], actions: [salesPipelineUpdateDescriptor, salesPipelineArchiveDescriptor], blocks: [
   { nodeId: "pipeline-update", id: "sales.pipeline-settings", source: salesPipelineSnapshotDescriptor, fields: salesPipelineSnapshotFields.map(({ id }) => id), action: salesPipelineUpdateDescriptor },
   { nodeId: "pipeline-archive", id: "sales.pipeline-settings", source: salesPipelineSnapshotDescriptor, fields: salesPipelineSnapshotFields.map(({ id }) => id), action: salesPipelineArchiveDescriptor }
@@ -1325,12 +1370,18 @@ export const salesExportsPageTemplate = p134Page({ id: "sales.page.exports", rou
   { nodeId: "export-list", id: "sales.exports", source: salesExportJobListDescriptor, fields: salesExportJobListFields.map(({ id }) => id), action: salesExportCreateDescriptor },
   { nodeId: "export-detail", id: "sales.exports", source: salesExportJobDetailDescriptor, fields: salesExportJobDetailFields.map(({ id }) => id), action: salesExportCancelDescriptor }
 ] });
+export const salesNotificationsPageTemplate = p134Page({ id: "sales.page.notifications", routeId: "sales.route.notifications", permission: "sales.notifications.read", sources: [salesNotificationsDescriptor, salesRemindersDescriptor], actions: [salesNotificationReadDescriptor, salesNotificationArchiveDescriptor, salesReminderDismissDescriptor, salesReminderScheduleDescriptor], blocks: [
+  { nodeId: "notification-list", id: "sales.notification-center", source: salesNotificationsDescriptor, fields: salesNotificationFields.map(({ id }) => id), action: salesNotificationReadDescriptor },
+  { nodeId: "notification-archive", id: "sales.notification-center", source: salesNotificationsDescriptor, fields: salesNotificationFields.map(({ id }) => id), action: salesNotificationArchiveDescriptor },
+  { nodeId: "reminder-list", id: "sales.reminder-center", source: salesRemindersDescriptor, fields: salesReminderFields.map(({ id }) => id), action: salesReminderDismissDescriptor },
+  { nodeId: "reminder-schedule", id: "sales.reminder-center", source: salesRemindersDescriptor, fields: salesReminderFields.map(({ id }) => id), action: salesReminderScheduleDescriptor }
+] });
 
 export const salesPageTemplates = Object.freeze([
   salesOverviewPageTemplate, salesTaskPageTemplate, salesOpportunitiesPageTemplate, salesSettingsPageTemplate,
   salesAccountsPageTemplate, salesAccountDetailPageTemplate, salesContactsPageTemplate, salesContactDetailPageTemplate,
   salesLeadsPageTemplate, salesLeadDetailPageTemplate, salesOpportunityDetailPageTemplate,
-  salesCalendarPageTemplate, salesPipelineSettingsPageTemplate, salesSavedViewsPageTemplate, salesImportsPageTemplate, salesExportsPageTemplate
+  salesCalendarPageTemplate, salesNotificationsPageTemplate, salesPipelineSettingsPageTemplate, salesSavedViewsPageTemplate, salesImportsPageTemplate, salesExportsPageTemplate
 ]);
 
 const salesTaskUiPolicy: Omit<PluginUiContributionDescriptor, "id" | "version" | "ownerPluginId" | "kind"> = {
@@ -1397,6 +1448,10 @@ export const salesCalendarBlockDescriptor = p134Block("sales.calendar", "sales.a
 export const salesPipelineSettingsBlockDescriptor = p134Block("sales.pipeline-settings", "sales.pipelines.configure", ["pipeline-id", "pipeline-revision", "stage-id", "stage-revision", "semantic", "position", "allowed-transition-stage-ids", "required-field-ids"], [salesPipelineUpdateDescriptor, salesPipelineArchiveDescriptor]);
 export const salesSavedViewsBlockDescriptor = p134Block("sales.saved-views", "sales.saved-views.read", ["id", "name", "visibility", "target-object-id", "view-kind", "revision", "status"], [salesSavedViewCreateDescriptor, salesSavedViewUpdateDescriptor, salesSavedViewArchiveDescriptor], false);
 export const salesSavedViewTableBlockDescriptor = p134Block("sales.saved-view-table", "sales.saved-views.read", []);
+export const salesNotificationsBlockDescriptor = p134Block("sales.notification-center", "sales.notifications.read", ["subject", "state", "created-at", "revision"], [salesNotificationReadDescriptor, salesNotificationArchiveDescriptor]);
+export const salesRemindersBlockDescriptor = p134Block("sales.reminder-center", "sales.reminders.read", ["subject", "state", "scheduled-at", "reference-kind", "reference-id", "revision"], [salesReminderDismissDescriptor, salesReminderScheduleDescriptor]);
+export const salesCommunicationActionsBlockDescriptor = p134Block("sales.communication-actions", "sales.activities.read", [], [salesEmailSendDescriptor, salesCalendarSyncDescriptor], false);
+export const salesIntegrationSettingsBlockDescriptor = p134Block("sales.integration-settings", "sales.settings.read", salesProviderConfigurationFields.map(({ id }) => id), [salesIntegrationConfigureDescriptor]);
 
 const opportunitySourcePolicy = { required: true, contracts: [{ id: "table.records" as const, version: 1 as const }], requiredFields: ["name", "stage-id", "revision"] };
 const opportunityDetailSourcePolicy = { required: true, contracts: [{ id: "table.records" as const, version: 1 as const }], requiredFields: ["name", "owner-id", "team-id", "account-id", "primary-contact-id", "pipeline-id", "stage-id", "archive-status", "revision"] };
@@ -1445,7 +1500,7 @@ export const salesUiBlockDescriptors: readonly PluginUiContributionDescriptor[] 
   salesTaskTableBlockDescriptor, salesQuickCreateBlockDescriptor,
   salesOpportunityListBlockDescriptor, salesOpportunityDetailBlockDescriptor, salesOpportunityKanbanBlockDescriptor, salesSettingsSummaryBlockDescriptor,
   salesAccountListBlockDescriptor, salesAccountDetailBlockDescriptor, salesContactListBlockDescriptor, salesContactDetailBlockDescriptor, salesLeadListBlockDescriptor, salesLeadDetailBlockDescriptor,
-  salesCalendarBlockDescriptor, salesPipelineSettingsBlockDescriptor, salesSavedViewsBlockDescriptor, salesSavedViewTableBlockDescriptor, salesImportsBlockDescriptor, salesExportsBlockDescriptor
+  salesCalendarBlockDescriptor, salesNotificationsBlockDescriptor, salesRemindersBlockDescriptor, salesCommunicationActionsBlockDescriptor, salesIntegrationSettingsBlockDescriptor, salesPipelineSettingsBlockDescriptor, salesSavedViewsBlockDescriptor, salesSavedViewTableBlockDescriptor, salesImportsBlockDescriptor, salesExportsBlockDescriptor
 ]);
 
 export const salesEventDescriptors = Object.freeze([
@@ -1456,6 +1511,9 @@ export const salesEventDescriptors = Object.freeze([
   { id: "sales.event.lead-changed", version: 1, ownerPluginId: "module.sales", eventClass: "durable-integration", sourceId: "sales.leads" },
   { id: "sales.event.import-job-changed", version: 1, ownerPluginId: "module.sales", eventClass: "durable-integration", sourceId: "sales.import-job.list" },
   { id: "sales.event.export-job-changed", version: 1, ownerPluginId: "module.sales", eventClass: "durable-integration", sourceId: "sales.export-job.list" },
+  { id: "sales.event.notification-changed", version: 1, ownerPluginId: "module.sales", eventClass: "durable-integration", sourceId: "sales.notifications" },
+  { id: "sales.event.reminder-changed", version: 1, ownerPluginId: "module.sales", eventClass: "durable-integration", sourceId: "sales.reminders" },
+  { id: "sales.event.provider-configuration-changed", version: 1, ownerPluginId: "module.sales", eventClass: "durable-integration", sourceId: "sales.provider-configurations" },
   { id: "sales.event.timeline-changed", version: 1, ownerPluginId: "module.sales", eventClass: "durable-integration", sourceId: "sales.timeline" }
 ]);
 
@@ -1467,6 +1525,9 @@ export const salesRealtimeTopicDescriptors = Object.freeze([
   { id: "sales.realtime.leads", version: 1, ownerPluginId: "module.sales", eventId: "sales.event.lead-changed", sourceId: "sales.leads", permission: "sales.leads.read" },
   { id: "sales.realtime.import-jobs", version: 1, ownerPluginId: "module.sales", eventId: "sales.event.import-job-changed", sourceId: "sales.import-job.list", permission: "sales.imports.read" },
   { id: "sales.realtime.export-jobs", version: 1, ownerPluginId: "module.sales", eventId: "sales.event.export-job-changed", sourceId: "sales.export-job.list", permission: "sales.exports.read" },
+  { id: "sales.realtime.notifications", version: 1, ownerPluginId: "module.sales", eventId: "sales.event.notification-changed", sourceId: "sales.notifications", permission: "sales.notifications.read" },
+  { id: "sales.realtime.reminders", version: 1, ownerPluginId: "module.sales", eventId: "sales.event.reminder-changed", sourceId: "sales.reminders", permission: "sales.reminders.read" },
+  { id: "sales.realtime.provider-configurations", version: 1, ownerPluginId: "module.sales", eventId: "sales.event.provider-configuration-changed", sourceId: "sales.provider-configurations", permission: "sales.settings.read" },
   { id: "sales.realtime.timeline", version: 1, ownerPluginId: "module.sales", eventId: "sales.event.timeline-changed", sourceId: "sales.timeline", permission: "sales.activities.read" }
 ]);
 
@@ -1474,16 +1535,18 @@ export const salesReferenceMetadata = Object.freeze({
   migration: { id: "sales.migration.initial", version: 3, ownerPluginId: "module.sales", predecessorRevisions: [1, 2] },
   service: { id: "sales.service.domain", version: 2, ownerPluginId: "module.sales" },
   job: { id: "sales.job.pipeline-audit", version: 2, ownerPluginId: "module.sales", timeoutMs: 5_000, maxConcurrency: 1, idempotent: true },
+  reminderJob: { id: "sales.job.reminder-delivery", version: 1, ownerPluginId: "module.sales", timeoutMs: 5_000, maxConcurrency: 4, idempotent: true },
   localization: {
     id: "sales.localization.en", version: 2, ownerPluginId: "module.sales", locale: "en",
     messages: {
       "sales.message.overview": "Overview", "sales.message.tasks": "Tasks",
       "sales.message.opportunities": "Opportunities", "sales.message.settings": "Settings",
       "sales.message.navigation-overview": "Overview", "sales.message.navigation-tasks": "Tasks",
-      "sales.message.navigation-opportunities": "Opportunities", "sales.message.navigation-settings": "Settings", "sales.message.navigation-accounts": "Accounts", "sales.message.navigation-contacts": "Contacts", "sales.message.navigation-leads": "Leads",
+      "sales.message.navigation-opportunities": "Opportunities", "sales.message.navigation-settings": "Settings", "sales.message.navigation-accounts": "Accounts", "sales.message.navigation-contacts": "Contacts", "sales.message.navigation-leads": "Leads", "sales.message.navigation-notifications": "Notifications",
       "sales.message.template-v2": "Adopt CRM core template version 2.",
       "sales.message.template-v3": "Adopt CRM opportunity template version 3.",
-      "sales.message.template-v4": "Adopt CRM pipeline and saved-view template version 4."
+      "sales.message.template-v4": "Adopt CRM pipeline and saved-view template version 4.",
+      "sales.message.settings-template-v3": "Adopt provider configuration status projection."
     }
   },
   health: { id: "sales.health.runtime", version: 2, ownerPluginId: "module.sales", safe: true },

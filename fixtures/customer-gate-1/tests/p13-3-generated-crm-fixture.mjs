@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { createServer as createHttpServer } from "node:http";
 import { createRequire } from "node:module";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -59,6 +60,33 @@ async function unusedPort() {
   assert.ok(address && typeof address !== "string");
   await new Promise((resolveClose, reject) => server.close((error) => error ? reject(error) : resolveClose()));
   return address.port;
+}
+
+async function startReferenceProvider() {
+  const accepted = new Map();
+  const server = createHttpServer((request, response) => {
+    if (request.method !== "POST" || request.url !== "/k-nex/reference-provider") { request.resume(); response.writeHead(404).end(); return; }
+    const key = request.headers["idempotency-key"];
+    const provider = request.headers["x-k-nex-provider"];
+    if (typeof key !== "string" || !/^sha256:[0-9a-f]{64}$/u.test(key) || (provider !== "email.reference.v1" && provider !== "calendar.reference.v1")) { request.resume(); response.writeHead(400).end(); return; }
+    const chunks = []; let size = 0; let rejected = false;
+    request.on("data", (chunk) => {
+      size += chunk.length;
+      if (size > 64 * 1024) { rejected = true; request.destroy(); return; }
+      chunks.push(chunk);
+    });
+    request.on("end", () => {
+      if (rejected) return;
+      const digest = createHash("sha256").update(Buffer.concat(chunks)).digest("hex");
+      const previous = accepted.get(key);
+      if (previous !== undefined && previous !== `${provider}:${digest}`) { response.writeHead(409).end(); return; }
+      accepted.set(key, `${provider}:${digest}`);
+      response.writeHead(202).end();
+    });
+  });
+  await new Promise((resolveListen, reject) => server.once("error", reject).listen(0, "127.0.0.1", resolveListen));
+  const address = server.address(); assert.ok(address && typeof address !== "string");
+  return Object.freeze({ endpoint: `http://127.0.0.1:${address.port}/k-nex/reference-provider`, server });
 }
 
 async function until(check, failure, child) {
@@ -263,6 +291,7 @@ export async function withGeneratedCrmBrowserFixture(runBrowser) {
   let pool;
   let child;
   let worker;
+  let referenceProvider;
   const closedWorkers = new WeakSet();
   let output = "";
   let workerOutput = "";
@@ -305,8 +334,9 @@ export async function withGeneratedCrmBrowserFixture(runBrowser) {
     await administrator.query("create database p13_crm_browser_application");
     const databaseUrl = new URL(container.getConnectionUri()); databaseUrl.pathname = "/p13_crm_browser_application";
     const port = await unusedPort(); const operatorPort = await unusedPort();
+    referenceProvider = await startReferenceProvider();
     const operatorUriSan = `spiffe://k-nex.test/applications/${applicationId}/environments/${environmentName}/administration`; const operatorCredential = issueDoctorCredential(directory, operatorUriSan);
-    const environment = { ...process.env, DATABASE_URL: databaseUrl.toString(), K_NEX_ENVIRONMENT: environmentName, K_NEX_GENERATION: "sales-generation-1", K_NEX_PUBLIC_ORIGIN: `http://127.0.0.1:${port}`, PAYLOAD_SECRET: randomBytes(32).toString("hex"), K_NEX_ADMINISTRATION_OPERATOR_HOST: "127.0.0.1", K_NEX_ADMINISTRATION_OPERATOR_PORT: String(operatorPort), K_NEX_ADMINISTRATION_OPERATOR_CLIENT_CERT: operatorCredential.certificate, K_NEX_ADMINISTRATION_OPERATOR_CLIENT_KEY: operatorCredential.key, K_NEX_ADMINISTRATION_OPERATOR_CA_CERT: operatorCredential.certificate, K_NEX_ADMINISTRATION_OPERATOR_URI_SAN: operatorUriSan, K_NEX_ADMINISTRATION_OPERATOR_IDENTITY: "fixture.p13-doctor" };
+    const environment = { ...process.env, DATABASE_URL: databaseUrl.toString(), K_NEX_ENVIRONMENT: environmentName, K_NEX_GENERATION: "sales-generation-1", K_NEX_PUBLIC_ORIGIN: `http://127.0.0.1:${port}`, PAYLOAD_SECRET: randomBytes(32).toString("hex"), K_NEX_PROVIDER_SECRET_EMAIL_REFERENCE: "p136-fixture-email-provider-secret", K_NEX_PROVIDER_SECRET_CALENDAR_REFERENCE: "p136-fixture-calendar-provider-secret", K_NEX_REFERENCE_PROVIDER_ENDPOINT: referenceProvider.endpoint, K_NEX_ADMINISTRATION_OPERATOR_HOST: "127.0.0.1", K_NEX_ADMINISTRATION_OPERATOR_PORT: String(operatorPort), K_NEX_ADMINISTRATION_OPERATOR_CLIENT_CERT: operatorCredential.certificate, K_NEX_ADMINISTRATION_OPERATOR_CLIENT_KEY: operatorCredential.key, K_NEX_ADMINISTRATION_OPERATOR_CA_CERT: operatorCredential.certificate, K_NEX_ADMINISTRATION_OPERATOR_URI_SAN: operatorUriSan, K_NEX_ADMINISTRATION_OPERATOR_IDENTITY: "fixture.p13-doctor" };
     const origin = `http://127.0.0.1:${port}`;
     applicationBackendSnapshot = async () => {
       const result = await administrator.query({
@@ -411,6 +441,11 @@ export async function withGeneratedCrmBrowserFixture(runBrowser) {
     stage("worker-stopped");
     await cleanup(async () => { await stop(child, "Generated CRM web host", () => output, applicationBackendSnapshot); assertExited(child, "Generated CRM web host"); });
     stage("web-stopped");
+    await cleanup(async () => {
+      if (referenceProvider === undefined) return;
+      referenceProvider.server.closeAllConnections();
+      await new Promise((resolveClose, reject) => referenceProvider.server.close((error) => error ? reject(error) : resolveClose()));
+    });
     await cleanup(async () => { if (pool !== undefined) await pool.end(); });
     await cleanup(async () => {
       const active = await administrator.query("select count(*)::int as count from pg_stat_activity where datname=$1", ["p13_crm_browser_application"]);

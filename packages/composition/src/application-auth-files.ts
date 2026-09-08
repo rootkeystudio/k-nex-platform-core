@@ -983,14 +983,20 @@ function routeTemplate(routeId: string): Readonly<{ route: RegisteredRoute; temp
   return Object.freeze({ route, template });
 }
 
+type RegisteredRouteActionDescriptor = Readonly<{ id: string; version: number; permission: string }>;
+function registeredRouteActionDescriptor(value: unknown): RegisteredRouteActionDescriptor | undefined {
+  const candidate = value !== null && typeof value === "object" && !Array.isArray(value) && "descriptor" in value ? (value as { readonly descriptor?: unknown }).descriptor : value;
+  if (candidate === null || typeof candidate !== "object" || Array.isArray(candidate) || typeof (candidate as { readonly id?: unknown }).id !== "string" || !Number.isSafeInteger((candidate as { readonly version?: unknown }).version) || Number((candidate as { readonly version: number }).version) < 1 || typeof (candidate as { readonly permission?: unknown }).permission !== "string") return undefined;
+  return candidate as RegisteredRouteActionDescriptor;
+}
+
 function registeredAction(routeId: string, nodeId: string, actionId: string, selection: SalesRouteSelection): RegisteredAction {
-  const action = kNexSalesRegistry.scopedRegistration.contributions.actions.find((entry) => entry.id === actionId)?.value as { readonly descriptor?: RegisteredAction } | undefined;
-  const descriptor = action?.descriptor;
+  const descriptor = registeredRouteActionDescriptor(kNexSalesRegistry.scopedRegistration.contributions.actions.find((entry) => entry.id === actionId)?.value);
   const { template } = routeTemplate(routeId); const document = withDataMovementSelection(prepareWorkspaceSalesDocument(template.document, selection.savedView, selection.mode ?? "table"), selection); let bound = false;
-  const visit = (node: UiDocument["regions"][string][number]): void => { const binding = node.bindings?.action; if (descriptor !== undefined && node.id === nodeId && binding?.id === descriptor.id && binding.version === descriptor.version) bound = true; node.children?.forEach(visit); };
+  const visit = (node: UiDocument["regions"][string][number]): void => { const binding = node.bindings?.action; if (descriptor !== undefined && node.id === nodeId && binding !== undefined && binding.id === descriptor.id && binding.version === descriptor.version) bound = true; node.children?.forEach(visit); };
   Object.values(document.regions).forEach((region) => region.forEach(visit));
   if (descriptor === undefined || !bound) throw new TypeError("Sales route action is unavailable.");
-  return descriptor;
+  return Object.freeze({ id: descriptor.id, version: descriptor.version });
 }
 
 function fixedDetailTimelineType(routeId: string): "sales.account" | "sales.contact" | "sales.lead" | "sales.opportunity" | undefined {
@@ -1038,10 +1044,14 @@ function authorizedFixedDetailDocument(document: UiDocument, routeId: string, pe
   const fields = routeId === "sales.route.contact-detail" && permissions.includes("sales.contacts.channels.read") ? ["email", "phone"]
     : routeId === "sales.route.lead-detail" && permissions.includes("sales.leads.channels.read") ? ["email", "phone"]
       : routeId === "sales.route.opportunity-detail" && permissions.includes("sales.opportunities.amount.read") ? ["amount"] : [];
+  const actionDescriptor = (value: unknown): RegisteredRouteActionDescriptor | undefined => {
+    const candidate = value !== null && typeof value === "object" && !Array.isArray(value) && "descriptor" in value ? (value as { readonly descriptor?: unknown }).descriptor : value;
+    return candidate !== null && typeof candidate === "object" && !Array.isArray(candidate) && typeof (candidate as { readonly id?: unknown }).id === "string" && Number.isSafeInteger((candidate as { readonly version?: unknown }).version) && Number((candidate as { readonly version: number }).version) > 0 && typeof (candidate as { readonly permission?: unknown }).permission === "string" ? candidate as RegisteredRouteActionDescriptor : undefined;
+  };
   return { ...document, regions: Object.fromEntries(Object.entries(document.regions).map(([region, nodes]) => [region, nodes.flatMap((node, index) => {
     const action = node.bindings?.action;
-    const registered = action === undefined ? undefined : kNexSalesRegistry.scopedRegistration.contributions.actions.find((entry) => entry.id === action.id)?.value as { readonly descriptor?: { readonly id?: unknown; readonly version?: unknown; readonly permission?: unknown } } | undefined;
-    const actionAllowed = action === undefined || registered?.descriptor?.id === action.id && registered.descriptor.version === action.version && typeof registered.descriptor.permission === "string" && permissions.includes(registered.descriptor.permission);
+    const descriptor = action === undefined ? undefined : actionDescriptor(kNexSalesRegistry.scopedRegistration.contributions.actions.find((entry) => entry.id === action.id)?.value);
+    const actionAllowed = action === undefined || descriptor?.id === action.id && descriptor.version === action.version && typeof descriptor.permission === "string" && permissions.includes(descriptor.permission);
     if (!actionAllowed && node.bindings?.source === undefined) return [];
     const bindings = node.bindings === undefined ? undefined : { ...node.bindings, ...(!actionAllowed ? { action: undefined } : {}), ...(node.bindings.source === undefined || fields.length === 0 ? {} : { source: { ...node.bindings.source, selectedFields: [...new Set([...(node.bindings.source.selectedFields ?? []), ...fields])] } }) };
     return [{ ...node, ...(bindings === undefined ? {} : { bindings }) }];
@@ -1124,6 +1134,7 @@ import {
   salesContactsDescriptor,
   salesLeadDetailDescriptor,
   salesLeadsDescriptor,
+  salesNotificationsDescriptor,
   salesDedupeCandidatesDescriptor,
   salesExportJobDetailDescriptor,
   salesExportJobListDescriptor,
@@ -1132,11 +1143,13 @@ import {
   salesOpportunitiesDescriptor,
   salesOpportunityDetailDescriptor,
   salesPipelineSnapshotDescriptor,
+  salesProviderConfigurationsDescriptor,
   salesSavedViewCalendarDescriptor,
   salesSavedViewDetailDescriptor,
   salesSavedViewKanbanDescriptor,
   salesSavedViewListDescriptor,
   salesSavedViewTableDescriptor,
+  salesRemindersDescriptor,
   salesTasksDescriptor,
   salesTimelineDescriptor
 } from "@k-nex/module-sales/contracts";
@@ -1148,7 +1161,7 @@ import { createUiDocumentRuntime, createUiRuntimeRegistry, prepareUiRuntimeDocum
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { io } from "socket.io-client";
 
-const runtime = createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: salesUiBlockDefinitions, sources: [salesAccountsDescriptor, salesAccountDetailDescriptor, salesContactsDescriptor, salesContactDetailDescriptor, salesLeadsDescriptor, salesLeadDetailDescriptor, salesOpportunitiesDescriptor, salesOpportunityDetailDescriptor, salesTasksDescriptor, salesTimelineDescriptor, salesPipelineSnapshotDescriptor, salesSavedViewListDescriptor, salesSavedViewDetailDescriptor, salesSavedViewTableDescriptor, salesSavedViewKanbanDescriptor, salesSavedViewCalendarDescriptor, salesImportJobListDescriptor, salesImportJobDetailDescriptor, salesExportJobListDescriptor, salesExportJobDetailDescriptor, salesDedupeCandidatesDescriptor] }));
+const runtime = createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: salesUiBlockDefinitions, sources: [salesAccountsDescriptor, salesAccountDetailDescriptor, salesContactsDescriptor, salesContactDetailDescriptor, salesLeadsDescriptor, salesLeadDetailDescriptor, salesOpportunitiesDescriptor, salesOpportunityDetailDescriptor, salesTasksDescriptor, salesTimelineDescriptor, salesPipelineSnapshotDescriptor, salesProviderConfigurationsDescriptor, salesSavedViewListDescriptor, salesSavedViewDetailDescriptor, salesSavedViewTableDescriptor, salesSavedViewKanbanDescriptor, salesSavedViewCalendarDescriptor, salesImportJobListDescriptor, salesImportJobDetailDescriptor, salesExportJobListDescriptor, salesExportJobDetailDescriptor, salesDedupeCandidatesDescriptor, salesNotificationsDescriptor, salesRemindersDescriptor] }));
 type Projection = Readonly<{ document: UiDocument; permissions: readonly string[]; selection: Readonly<Record<string, unknown>>; sourceResults: Readonly<Record<string, DataSourceBindingResult<unknown>>>; stateHistory: readonly SalesStateHistoryEntry[]; timeline: DataSourceBindingResult<unknown> | null; watermark: string }>;
 const routeTopics: Readonly<Record<string, readonly string[]>> = Object.freeze({
   "sales.route.accounts": ["sales.realtime.accounts"], "sales.route.account-detail": ["sales.realtime.accounts", "sales.realtime.timeline"],
@@ -1156,6 +1169,8 @@ const routeTopics: Readonly<Record<string, readonly string[]>> = Object.freeze({
   "sales.route.leads": ["sales.realtime.leads"], "sales.route.lead-detail": ["sales.realtime.leads", "sales.realtime.timeline"],
   "sales.route.opportunities": ["sales.realtime.opportunities"], "sales.route.opportunity-detail": ["sales.realtime.opportunities", "sales.realtime.timeline"],
   "sales.route.tasks": ["sales.realtime.tasks"],
+  "sales.route.notifications": ["sales.realtime.notifications", "sales.realtime.reminders"],
+  "sales.route.settings": ["sales.realtime.provider-configurations"],
   "sales.route.imports": ["sales.realtime.accounts", "sales.realtime.contacts", "sales.realtime.leads", "sales.realtime.import-jobs"],
   "sales.route.exports": ["sales.realtime.accounts", "sales.realtime.contacts", "sales.realtime.leads", "sales.realtime.export-jobs"]
 });
@@ -1163,7 +1178,7 @@ const routeTitles: Readonly<Record<string, string>> = Object.freeze({
   "sales.route.overview": "Sales overview", "sales.route.tasks": "Sales tasks", "sales.route.opportunities": "Opportunities", "sales.route.settings": "Sales settings",
   "sales.route.accounts": "Accounts", "sales.route.account-detail": "Account detail", "sales.route.contacts": "Contacts", "sales.route.contact-detail": "Contact detail",
   "sales.route.leads": "Leads", "sales.route.lead-detail": "Lead detail", "sales.route.opportunity-detail": "Opportunity detail"
-  ,"sales.route.calendar": "Sales calendar", "sales.route.pipeline-settings": "Pipeline settings", "sales.route.saved-views": "Saved views", "sales.route.imports": "Imports", "sales.route.exports": "Exports"
+  ,"sales.route.calendar": "Sales calendar", "sales.route.notifications": "Notifications", "sales.route.pipeline-settings": "Pipeline settings", "sales.route.saved-views": "Saved views", "sales.route.imports": "Imports", "sales.route.exports": "Exports"
 });
 export function createSalesRouteRefreshScheduler(run: (signal: AbortSignal) => Promise<void>) {
   let pending = false;
@@ -1474,6 +1489,19 @@ export async function POST(request: Request, { params }: Readonly<{ params: Prom
     return Response.json(result.body, { status: result.status, headers: { "cache-control": "no-store" } });
   } catch (error) { return workspaceMutationError(error); }
 }
+`;
+}
+
+function salesProviderWebhookRouteSource(providerId: "email.reference.v1" | "calendar.reference.v1"): string {
+  return `import { createGeneratedEnvironmentProviderSecretResolver, acceptGeneratedSalesProviderWebhook } from "../../../../../../../k-nex-sales-communications.js";
+import { bootKnexApplication } from "../../../../../../../boot.js";
+import { kNexIdentity } from "../../../../../../../k-nex-identity.js";
+
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+const providerId = ${JSON.stringify(providerId)};
+async function bodyOf(request: Request) { const length = request.headers.get("content-length"); if (length !== null && (!/^[0-9]+$/u.test(length) || Number(length)>65536) || request.body===null) throw new Error("WEBHOOK_INVALID"); const reader=request.body.getReader(); const chunks: Uint8Array[]=[]; let total=0; try { while (true) { const next=await reader.read(); if (next.done) break; total+=next.value.byteLength; if (total>65536) throw new Error("WEBHOOK_INVALID"); chunks.push(next.value); } } finally { reader.releaseLock(); } const body=new Uint8Array(total); let offset=0; for (const chunk of chunks) { body.set(chunk,offset); offset+=chunk.byteLength; } return body; }
+export async function POST(request: Request) { try { const payload=await bootKnexApplication("provider-webhook"); const result=await acceptGeneratedSalesProviderWebhook({ pool: payload.db.pool as never, resolver: createGeneratedEnvironmentProviderSecretResolver(), providerId, applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment, signature: request.headers.get("x-k-nex-signature"), timestamp: request.headers.get("x-k-nex-timestamp"), body: await bodyOf(request) }); return Response.json(result,{status:202,headers:{"cache-control":"no-store"}}); } catch (error) { const status=error instanceof Error && "status" in error && typeof error.status==="number" ? error.status : 400; return Response.json({code:"WEBHOOK_INVALID",status},{status,headers:{"cache-control":"no-store"}}); } }
 `;
 }
 
@@ -1872,7 +1900,8 @@ const expectedMigrationNames = Object.freeze([
   "20260905_000027_crm_core",
   "20260906_000029_attachment_upload_admissions",
   "20260907_000030_pipeline_saved_views",
-  "20260907_000031_data_movement"
+  "20260907_000031_data_movement",
+  "20260908_000032_communications"
 ]);
 const expectedRouteSources = Object.freeze([
   "src/app/(auth)/forbidden/page.tsx",
@@ -1890,6 +1919,7 @@ const expectedRouteSources = Object.freeze([
   "src/app/(workspace)/sales/leads/[id]/page.tsx",
   "src/app/(workspace)/sales/leads/page.tsx",
   "src/app/(workspace)/sales/imports/page.tsx",
+  "src/app/(workspace)/sales/notifications/page.tsx",
   "src/app/(workspace)/sales/opportunities/[id]/page.tsx",
   "src/app/(workspace)/sales/opportunities/page.tsx",
   "src/app/(workspace)/sales/page.tsx",
@@ -1922,6 +1952,8 @@ const expectedRouteSources = Object.freeze([
   "src/app/api/k-nex/sales/authority-scopes/route.ts",
   "src/app/api/k-nex/sales/export-artifact/route.ts",
   "src/app/api/k-nex/sales/import-upload/route.ts",
+  "src/app/api/k-nex/sales/providers/calendar-reference/webhook/route.ts",
+  "src/app/api/k-nex/sales/providers/email-reference/webhook/route.ts",
   "src/app/api/k-nex/sales/routes/[routeId]/route.ts",
   "src/app/api/k-nex/workspace-folders/[folderId]/route.ts",
   "src/app/api/k-nex/workspace-folders/route.ts",
@@ -2371,11 +2403,12 @@ import { bootKnexApplication } from "./boot.js";
 import { shutdownKnexApplication } from "./k-nex-authority.js";
 import { kNexIdentity } from "./k-nex-identity.js";
 import { processSalesDataMovement } from "./k-nex-sales-data-movement.js";
+import { createGeneratedBoundedReferenceProviderTransport, createGeneratedEnvironmentProviderSecretResolver, processGeneratedSalesCommunications, processGeneratedSalesReminders } from "./k-nex-sales-communications.js";
 
 const payload = await bootKnexApplication("authorization-worker");
 const channel = "k_nex_runtime_invalidation";
 const pool = payload.db.pool as RuntimeExtensionPool;
-type SalesWorkerFence = Readonly<{ activeExecutionGeneration: string; fencingToken: number; leaseOwner: string; promotionRevision: number }>;
+type SalesWorkerFence = Readonly<{ applicationId: string; environment: string; activeExecutionGeneration: string; fencingToken: number; leaseOwner: string; promotionRevision: number }>;
 const executionGeneration = process.env.K_NEX_GENERATION;
 if (typeof executionGeneration !== "string" || !/^[a-z][a-z0-9-]{2,127}$/u.test(executionGeneration)) throw new Error("K_NEX_GENERATION must be the deployment execution generation.");
 async function currentSalesWorkerFence(): Promise<SalesWorkerFence | undefined> {
@@ -2393,7 +2426,7 @@ async function currentSalesWorkerFence(): Promise<SalesWorkerFence | undefined> 
   if (result.rows.length !== 1 || typeof generation !== "string" || generation !== executionGeneration ||
     !Number.isSafeInteger(tokenNumber) || tokenNumber < 1 || typeof owner !== "string" || owner.length < 1 ||
     !Number.isSafeInteger(promotionNumber) || promotionNumber < 0) return undefined;
-  return Object.freeze({ activeExecutionGeneration: generation, fencingToken: tokenNumber, leaseOwner: owner, promotionRevision: promotionNumber });
+  return Object.freeze({ applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment, activeExecutionGeneration: generation, fencingToken: tokenNumber, leaseOwner: owner, promotionRevision: promotionNumber });
 }
 const admittedFailures: unknown[] = [];
 function workerFailure(marker: string) {
@@ -2432,6 +2465,10 @@ let realtimeDispatching = false;
 let realtimeStopping = false;
 let dataMovementDispatching = false;
 let dataMovementStopping = false;
+let communicationsDispatching = false;
+let communicationsStopping = false;
+const providerSecrets = createGeneratedEnvironmentProviderSecretResolver();
+const providerTransport = createGeneratedBoundedReferenceProviderTransport(process.env.K_NEX_REFERENCE_PROVIDER_ENDPOINT);
 const realtimeAbort = new AbortController();
 const salesRealtimeOutboxConsumer = Object.freeze({
   applicationId: kNexIdentity.applicationId,
@@ -2463,11 +2500,23 @@ const dispatchDataMovement = async () => {
   finally { dataMovementDispatching = false; }
 };
 const dataMovementTimer = setInterval(() => { void dispatchDataMovement(); }, 100);
+const dispatchCommunications = async () => {
+  if (communicationsDispatching || communicationsStopping) return;
+  communicationsDispatching = true;
+  try {
+    const salesWorkerFence = await currentSalesWorkerFence();
+    // Due reminders run before bounded external provider work; provider lane is <=4×10s.
+    if (salesWorkerFence !== undefined) { await processGeneratedSalesReminders(pool, salesWorkerFence); await processGeneratedSalesCommunications(pool, salesWorkerFence, providerSecrets, providerTransport); }
+  } catch (error) { if (!communicationsStopping) workerFailure("K_NEX_COMMUNICATIONS_ERROR")(error); }
+  finally { communicationsDispatching = false; }
+};
+const communicationsTimer = setInterval(() => { void dispatchCommunications(); }, 100);
 authorizationWorker.start();
 workspacePageWorker.start();
 workspaceNavigationWorker.start();
 void dispatchRealtime();
 void dispatchDataMovement();
+void dispatchCommunications();
 await new Promise<void>((resolve) => {
   let seen = false;
   const stop = () => {
@@ -2485,11 +2534,14 @@ workspacePageWorker.stop();
 workspaceNavigationWorker.stop();
 realtimeStopping = true;
 dataMovementStopping = true;
+communicationsStopping = true;
 realtimeAbort.abort();
 clearInterval(realtimeTimer);
 clearInterval(dataMovementTimer);
+clearInterval(communicationsTimer);
 while (realtimeDispatching) await new Promise((resolve) => setTimeout(resolve, 10));
 while (dataMovementDispatching) await new Promise((resolve) => setTimeout(resolve, 10));
+while (communicationsDispatching) await new Promise((resolve) => setTimeout(resolve, 10));
 const workerDrains = await Promise.allSettled([authorizationWorker.idle(), workspacePageWorker.idle(), workspaceNavigationWorker.idle()]);
 const workerDrainFailures = workerDrains.filter((result): result is PromiseRejectedResult => result.status === "rejected");
 let shutdownFailure: unknown;
@@ -2512,6 +2564,7 @@ export function applicationAuthFiles(options: ApplicationAuthFilesOptions): Read
     "src/app/(workspace)/page.tsx": workspacePageSource(options.applicationName),
     "src/app/(workspace)/sales/page.tsx": salesRoutePageSource("sales.route.overview", "sales"),
     "src/app/(workspace)/sales/tasks/page.tsx": salesRoutePageSource("sales.route.tasks", "sales/tasks"),
+    "src/app/(workspace)/sales/notifications/page.tsx": salesRoutePageSource("sales.route.notifications", "sales/notifications"),
     "src/app/(workspace)/sales/accounts/page.tsx": salesRoutePageSource("sales.route.accounts", "sales/accounts"),
     "src/app/(workspace)/sales/accounts/[id]/page.tsx": salesRoutePageSource("sales.route.account-detail", "sales/accounts/[id]", true),
     "src/app/(workspace)/sales/contacts/page.tsx": salesRoutePageSource("sales.route.contacts", "sales/contacts"),
@@ -2530,6 +2583,8 @@ export function applicationAuthFiles(options: ApplicationAuthFilesOptions): Read
     "src/app/api/k-nex/navigation/revision/route.ts": navigationRevisionRouteSource(),
     "src/app/api/k-nex/navigation/sidebar/route.ts": navigationSidebarPreferenceRouteSource(),
     "src/app/api/k-nex/sales/actions/[actionId]/route.ts": salesActionRouteSource(),
+    "src/app/api/k-nex/sales/providers/email-reference/webhook/route.ts": salesProviderWebhookRouteSource("email.reference.v1"),
+    "src/app/api/k-nex/sales/providers/calendar-reference/webhook/route.ts": salesProviderWebhookRouteSource("calendar.reference.v1"),
     "src/app/api/k-nex/sales/authority-scopes/route.ts": salesScopeAdministrationRouteSource(),
     "src/app/api/k-nex/sales/export-artifact/route.ts": salesExportArtifactRouteSource(),
     "src/app/api/k-nex/sales/import-upload/route.ts": salesImportUploadRouteSource(),

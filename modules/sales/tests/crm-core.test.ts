@@ -14,14 +14,16 @@ import {
   salesLeadsCollection,
   salesAttachmentReferencesCollection,
   salesNotesCollection,
+  salesNotificationsCollection,
   salesOpportunitiesCollection,
   salesPipelinesCollection,
   salesPipelineStagesCollection,
   salesRelatedRecordTypes,
+  salesRemindersCollection,
   salesTasksCollection
 } from "@k-nex/module-sales/server";
 import { describe, expect, it } from "vitest";
-import { salesOpportunityStageUpdateDescriptor, salesOwnershipAssignDescriptor, salesTaskCreateDescriptor, salesTaskUpdateDescriptor, salesWorkflowActionInputRuntimeSchemas, salesWorkflowActionOutputRuntimeSchemas } from "../src/contracts.js";
+import { salesCommunicationActionInputRuntimeSchemas, salesOpportunityStageUpdateDescriptor, salesOwnershipAssignDescriptor, salesTaskCreateDescriptor, salesTaskUpdateDescriptor, salesWorkflowActionInputRuntimeSchemas, salesWorkflowActionOutputRuntimeSchemas } from "../src/contracts.js";
 
 const frozen = JSON.parse(readFileSync(new URL("../../../contracts/phase-13-crm-product-contract.v1.json", import.meta.url), "utf8")) as {
   readonly dataSemantics: { readonly polymorphicRelatedTargets: { readonly vocabulary: readonly string[] } };
@@ -35,7 +37,7 @@ const selectValues = (collection: { readonly fields: readonly { readonly name?: 
 
 describe("P13.2 CRM core", () => {
   it("registers deterministic internal-only collections", async () => {
-    expect(salesCoreCollectionSlugs).toEqual(["sales-accounts", "sales-contacts", "sales-leads", "sales-pipelines", "sales-pipeline-stages", "sales-activities", "sales-opportunities", "sales-tasks", "sales-notes", "sales-attachment-references", "sales-saved-views", "sales-import-jobs", "sales-import-rows", "sales-import-chunks", "sales-export-jobs", "sales-merge-lineage"]);
+    expect(salesCoreCollectionSlugs).toEqual(["sales-accounts", "sales-contacts", "sales-leads", "sales-pipelines", "sales-pipeline-stages", "sales-activities", "sales-opportunities", "sales-tasks", "sales-notes", "sales-attachment-references", "sales-saved-views", "sales-import-jobs", "sales-import-rows", "sales-import-chunks", "sales-export-jobs", "sales-merge-lineage", "sales-notifications", "sales-reminders"]);
     for (const collection of [salesAccountsCollection, salesLeadsCollection, salesOpportunitiesCollection, salesTasksCollection]) {
       expect(await collection.access?.create?.({} as never)).toBe(false);
       expect(await collection.access?.read?.({} as never)).toBe(false);
@@ -63,6 +65,11 @@ describe("P13.2 CRM core", () => {
     expect(salesRelatedRecordTypes).toEqual(["sales.account", "sales.contact", "sales.lead", "sales.opportunity", "sales.task"]);
     expect(field(salesActivitiesCollection, "relatedRecordType")).toMatchObject({ type: "select", required: true });
     expect(field(salesAttachmentReferencesCollection, "mediaType")).toMatchObject({ type: "text", required: true, maxLength: 128 });
+    expect(fields(salesNotificationsCollection)).toContain("referenceKind");
+    expect(fields(salesNotificationsCollection)).not.toContain("referenceType");
+    expect(field(salesNotificationsCollection, "deliveredAt")).toMatchObject({ type: "date", required: true });
+    for (const timestamp of ["readAt", "archivedAt"]) expect(await field(salesNotificationsCollection, timestamp)?.access?.update?.({} as never)).toBe(false);
+    for (const timestamp of ["dismissedAt", "cancelledAt", "failedAt"]) expect(await field(salesRemindersCollection, timestamp)?.access?.update?.({} as never)).toBe(false);
   });
 
   it("keeps contract, Payload options, and PostgreSQL scope trigger on one closed related-target vocabulary", () => {
@@ -145,7 +152,21 @@ describe("P13.2 CRM core", () => {
       "sales.merge.commit",
       "sales.opportunity.archive", "sales.opportunity.close", "sales.opportunity.create", "sales.opportunity.stage.update", "sales.opportunity.update",
       "sales.activity.cancel", "sales.activity.complete", "sales.activity.create", "sales.note.create", "sales.attachment.link", "sales.attachment.remove", "sales.ownership.assign", "sales.pipeline.archive", "sales.pipeline.update", "sales.saved-view.archive", "sales.saved-view.create", "sales.saved-view.update",
-      "sales.task.create", "sales.task.update"
+      "sales.task.create", "sales.task.update",
+      "sales.email.send", "sales.calendar.sync", "sales.reminder.schedule", "sales.notification.read", "sales.notification.archive", "sales.reminder.dismiss", "sales.integration.configure"
     ].sort());
+  });
+
+  it("closes communication inputs around host-owned recipient and secret resolution", () => {
+    const email = salesCommunicationActionInputRuntimeSchemas["sales.email.send"]!;
+    expect(email.safeParse({ providerId: "email.reference.v1", relatedRecordType: "sales.contact", relatedRecordId: "1", subject: "Follow-up", body: "Hello" }).success).toBe(true);
+    expect(email.safeParse({ providerId: "email.reference.v1", relatedRecordType: "sales.contact", relatedRecordId: "1", subject: "Follow-up", body: "Hello", recipient: "outside@example.test" }).success).toBe(false);
+    expect(email.safeParse({ providerId: "calendar.reference.v1", relatedRecordType: "sales.contact", relatedRecordId: "1", subject: "Follow-up", body: "Hello" }).success).toBe(false);
+    const configure = salesCommunicationActionInputRuntimeSchemas["sales.integration.configure"]!;
+    expect(configure.safeParse({ providerId: "email.reference.v1", expectedRevision: 0, operation: "activate" }).success).toBe(true);
+    expect(configure.safeParse({ providerId: "email.reference.v1", expectedRevision: 0, operation: "activate", secretReference: "secret-ref:v1:email-reference:default" }).success).toBe(false);
+    const reminder = salesCommunicationActionInputRuntimeSchemas["sales.reminder.schedule"]!;
+    expect(reminder.safeParse({ referenceKind: "task", referenceId: "1", expectedRevision: 1, scheduledAt: "2026-09-08T12:30:00.000Z", subject: "Follow-up" }).success).toBe(true);
+    expect(reminder.safeParse({ referenceKind: "task", referenceId: "1", expectedRevision: 1, scheduledAt: "2026-09-08T12:30:00+03:00", subject: "Follow-up" }).success).toBe(false);
   });
 });

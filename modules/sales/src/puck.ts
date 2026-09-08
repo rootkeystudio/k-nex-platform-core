@@ -59,7 +59,7 @@ function defaultBindings(definition: (typeof salesUiBlockDefinitions)[number]) {
   return undefined;
 }
 
-const fixedCrmBlocks = new Set(["sales.account-list", "sales.account-detail", "sales.contact-list", "sales.contact-detail", "sales.lead-list", "sales.lead-detail", "sales.opportunity-list", "sales.opportunity-detail", "sales.pipeline-settings", "sales.saved-views", "sales.imports", "sales.exports"]);
+const fixedCrmBlocks = new Set(["sales.account-list", "sales.account-detail", "sales.contact-list", "sales.contact-detail", "sales.lead-list", "sales.lead-detail", "sales.opportunity-list", "sales.opportunity-detail", "sales.notification-center", "sales.reminder-center", "sales.communication-actions", "sales.integration-settings", "sales.pipeline-settings", "sales.saved-views", "sales.imports", "sales.exports"]);
 const salesPuckDefinitions = salesUiBlockDefinitions.filter(({ id }) => !fixedCrmBlocks.has(id));
 
 export const salesPuckBlockAuthoring = Object.freeze(Object.fromEntries(salesPuckDefinitions.map((definition) => [definition.id, Object.freeze({

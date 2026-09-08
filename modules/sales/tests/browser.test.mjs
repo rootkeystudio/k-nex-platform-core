@@ -23,6 +23,8 @@ import {
   salesOpportunityDetailQuery,
   salesOpportunitiesQuery,
   salesOpportunityStageMutation,
+  salesProviderConfigurationsQuery,
+  salesIntegrationConfigureMutation,
   salesTasksQuery,
   salesTimelineQuery,
   salesOwnershipAssignMutation,
@@ -65,6 +67,9 @@ test("Sales browser factories use stable platform query/action metadata", async 
   ], ["sales.accounts", "sales.contacts", "sales.leads", "sales.account.detail", "sales.contact.detail", "sales.lead.detail", "sales.opportunity.detail"]);
   assert.equal(salesContactsQuery.selectedFields.includes("email"), false);
   assert.equal(salesLeadsQuery.selectedFields.includes("phone"), false);
+  assert.deepEqual(salesProviderConfigurationsQuery.source, { id: "sales.provider-configurations", version: 1 });
+  assert.deepEqual(salesProviderConfigurationsQuery.selectedFields, ["provider-id", "state", "revision", "updated-at", "revoked-at"]);
+  assert.deepEqual(salesIntegrationConfigureMutation.invalidation.sources, ["sales.provider-configurations"]);
 
   const identity = await salesTasksQuery.identity({}, context);
   assert.match(identity.key, /^sha256:[0-9a-f]{64}$/);
