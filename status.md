@@ -1,21 +1,21 @@
 # Project Status
 
-- **Updated:** 2026-09-08
+- **Updated:** 2026-09-09
 - **Phase:** Phase 13 — CRM-First Productization and Pilot Readiness
-- **Active task:** P13.9 — Prove upgrade, backup, restore, and realistic data migration
+- **Active task:** P13.10 — Gate 13 limited-beta closeout
 - **State:** Ready to start
 
 ## Last completed
 
-P13.8 completed: closed seven-report catalog, dashboard blocks, coherent snapshots and pagination, origin-specific manual/scheduled delivery authority, durable artifacts, late-bootstrap watermarks, and adversarial generated-application proofs; persistent Sol xhigh review PASS.
+P13.9 completed: exact Phase 12 migration chain and 150-record Sales upgrade, full target/data digests, current-v1 package/lock attestation, maintenance refusal, physical clean restore, real report artifact recovery, and generated-host Chromium restart; persistent Sol xhigh review PASS.
 
 ## Validation
 
-Node 24.19: architecture 35/35 + docs; contracts 229/229; runtime 596/596; UI runtime 77/77; Sales 70 Node + 81 Vitest with boundaries/pack; composition 167/167; Gate 1 current; exact report host/migration mirrors; P13.8 real PostgreSQL 19/19; generated HTTP/Chromium/PostgreSQL 1/1 including real pagination and schedule-only delivery/download; diff check.
+Node 24.19: P13.9 fixture build and syntax PASS; exact predecessor upgrade/backup/restore PostgreSQL 1/1; generated current-v1 clean-restore HTTP/Chromium/PostgreSQL 1/1 including report download, permissions, audit, web/worker restart; diff check.
 
 ## Next
 
-Begin P13.9 upgrade, backup, restore, and realistic data-migration proof in documented order.
+Begin P13.10 result document and cumulative Gate 13 limited-beta closeout.
 
 ## Blockers
 

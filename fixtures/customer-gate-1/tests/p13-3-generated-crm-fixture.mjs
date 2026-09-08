@@ -297,6 +297,7 @@ export async function withGeneratedCrmBrowserFixture(runBrowser) {
   let workerOutput = "";
   let applicationBackendSnapshot;
   let primaryFailure;
+  const applicationDatabase = { name: "p13_crm_browser_application" };
   try {
     const mirror = resolve(directory, "mirror"); mkdirSync(mirror);
     const manifest = JSON.parse(readFileSync(resolve(repositoryRoot, "releases/1.0.0/package-release-manifest.json"), "utf8"));
@@ -331,8 +332,8 @@ export async function withGeneratedCrmBrowserFixture(runBrowser) {
     const payloadPostgresEntry = applicationRequire.resolve("@payloadcms/db-postgres");
     const payloadPostgresConnect = readFileSync(resolve(dirname(payloadPostgresEntry), "connect.js"), "utf8");
     assert.ok(payloadPostgresConnect.includes("result.release();"), "Generated application omitted the required Payload Postgres reconnect release repair.");
-    await administrator.query("create database p13_crm_browser_application");
-    const databaseUrl = new URL(container.getConnectionUri()); databaseUrl.pathname = "/p13_crm_browser_application";
+    await administrator.query(`create database ${applicationDatabase.name}`);
+    const databaseUrl = new URL(container.getConnectionUri()); databaseUrl.pathname = `/${applicationDatabase.name}`;
     const port = await unusedPort(); const operatorPort = await unusedPort();
     referenceProvider = await startReferenceProvider();
     const operatorUriSan = `spiffe://k-nex.test/applications/${applicationId}/environments/${environmentName}/administration`; const operatorCredential = issueDoctorCredential(directory, operatorUriSan);
@@ -342,7 +343,7 @@ export async function withGeneratedCrmBrowserFixture(runBrowser) {
     applicationBackendSnapshot = async () => {
       const result = await administrator.query({
         text: "select state, coalesce(wait_event_type,'none') as wait_event_type, count(*)::int as count from pg_stat_activity where datname=$1 group by state, wait_event_type order by state, wait_event_type",
-        values: ["p13_crm_browser_application"], query_timeout: 2_000
+        values: [applicationDatabase.name], query_timeout: 2_000
       });
       return result.rows.map((row) => Object.freeze({ state: String(row.state), waitEventType: String(row.wait_event_type), count: Number(row.count) }));
     };
@@ -414,6 +415,26 @@ export async function withGeneratedCrmBrowserFixture(runBrowser) {
       await until(async () => workerOutput.slice(outputStart).includes("K_NEX_WORKER_READY"), `Generated CRM realtime worker did not start.\n${workerOutput.slice(outputStart)}`, worker);
     };
     const stopWorker = async () => { await stop(worker, "Generated CRM worker", () => workerOutput); worker = undefined; };
+    const restoreToCleanDatabase = async () => {
+      assert.equal(child, undefined, "Physical restore requires the generated CRM web host to be stopped.");
+      assert.equal(worker, undefined, "Physical restore requires the generated CRM worker to be stopped.");
+      const sourceDatabase = applicationDatabase.name;
+      const restoredDatabase = `p13_crm_browser_restore_${Date.now().toString(36)}`;
+      const backupPath = `/tmp/${restoredDatabase}.backup`;
+      const user = container.getUsername();
+      const dump = await container.exec(["pg_dump", "-U", user, "-Fc", "-f", backupPath, sourceDatabase]);
+      assert.equal(dump.exitCode, 0, dump.stderr);
+      const create = await container.exec(["createdb", "-U", user, restoredDatabase]);
+      assert.equal(create.exitCode, 0, create.stderr);
+      const restore = await container.exec(["pg_restore", "-U", user, "-d", restoredDatabase, "--exit-on-error", backupPath]);
+      assert.equal(restore.exitCode, 0, restore.stderr);
+      if (pool !== undefined) await pool.end();
+      applicationDatabase.name = restoredDatabase;
+      databaseUrl.pathname = `/${restoredDatabase}`;
+      environment.DATABASE_URL = databaseUrl.toString();
+      pool = new pg.Pool({ connectionString: databaseUrl.toString() });
+      return pool;
+    };
     const acknowledgeAbnormalWorkerExit = (closedWorker) => {
       assert.equal(worker, closedWorker, "Only the current generated CRM worker exit may be acknowledged.");
       assert.equal(closedWorkers.has(closedWorker), true, "Generated CRM worker close must be observed before acknowledging its abnormal exit.");
@@ -431,7 +452,7 @@ export async function withGeneratedCrmBrowserFixture(runBrowser) {
     stage("worker-ready");
     stage("browser-callback-start");
     const runDoctor = () => run("pnpm", ["knex:doctor"], { cwd: application, env: environment, stdio: "pipe" });
-    await runBrowser({ application, origin, personas, records, pool, connectionString: databaseUrl.toString(), applicationOutput: () => output, workerOutput: () => workerOutput, workerProcess: () => worker, startWorker, stopWorker, acknowledgeAbnormalWorkerExit, startWeb, stopWeb, issueAttachmentUploadReceipt, runDoctor });
+    await runBrowser({ application, origin, personas, records, pool, connectionString: databaseUrl.toString(), applicationOutput: () => output, workerOutput: () => workerOutput, workerProcess: () => worker, startWorker, stopWorker, acknowledgeAbnormalWorkerExit, startWeb, stopWeb, restoreToCleanDatabase, issueAttachmentUploadReceipt, runDoctor });
     stage("browser-callback-complete");
   } catch (error) {
     primaryFailure = error;
@@ -454,7 +475,7 @@ export async function withGeneratedCrmBrowserFixture(runBrowser) {
     });
     await cleanup(async () => { if (pool !== undefined) await pool.end(); });
     await cleanup(async () => {
-      const active = await administrator.query("select count(*)::int as count from pg_stat_activity where datname=$1", ["p13_crm_browser_application"]);
+      const active = await administrator.query("select count(*)::int as count from pg_stat_activity where datname=$1", [applicationDatabase.name]);
       assert.equal(active.rows[0]?.count, 0, "Generated CRM fixture retained an application PostgreSQL backend.");
     });
     await cleanup(async () => administrator.end());
