@@ -43,6 +43,12 @@ describe("UI runtime registry", () => {
     expect(Object.isFrozen(registry.sources[0])).toBe(true);
   });
 
+  it("keeps metric.scalar@2 source policy distinct from v1", () => {
+    const metric = { ...source, id: "sales.conversion", primaryContract: { id: "metric.scalar" as const, version: 2 as const }, outputFields: undefined, paginationModes: [] as const };
+    expect(() => createUiRuntimeRegistry({ blocks: [{ ...block, sourcePolicy: { required: true, contracts: [{ id: "metric.scalar", version: 2 }], requiredFields: [] } }], sources: [metric] })).not.toThrow();
+    expect(() => createUiRuntimeRegistry({ blocks: [{ ...block, sourcePolicy: { required: true, contracts: [{ id: "metric.scalar", version: 1 }], requiredFields: [] } }], sources: [metric] })).not.toThrow();
+  });
+
   it("rejects duplicate block and source identities", () => {
     expect(() => createUiRuntimeRegistry({ blocks: [block, block], sources: [] })).toThrow(/Duplicate UI block/);
     expect(() => createUiRuntimeRegistry({ blocks: [], sources: [source, source] })).toThrow(/Duplicate UI source/);

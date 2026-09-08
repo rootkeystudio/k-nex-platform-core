@@ -10,6 +10,7 @@ import {
   activePayloadPostgresTransaction,
   createPayloadPersistenceCapability,
   CurrentAuthorityPayloadPersistenceAuthorizer,
+  type RuntimeExtensionPool,
   type PayloadPersistenceCapabilityContext
 } from "@k-nex/payload-adapter";
 import { createHash } from "node:crypto";
@@ -18,6 +19,8 @@ import type { Endpoint, PayloadRequest } from "payload";
 import type { FixtureAuthorityContext, FixtureCurrentAuthority, FixtureDurableSalesAuthority } from "./current-authority.js";
 import { FixtureSalesDataMovementStore } from "./data-movement-host.js";
 import { createGeneratedSalesProviderGateway } from "./k-nex-sales-communications.js";
+import { createGeneratedSalesReportingGateway } from "./k-nex-sales-reports.js";
+import { readGeneratedSalesReportArtifact } from "./k-nex-sales-reports.js";
 
 interface ActionBody {
   readonly actionId?: unknown;
@@ -75,6 +78,7 @@ function actor(request: PayloadRequest) {
 function actionGrants(actionId: string) {
   if (actionId.startsWith("sales.import.") || actionId.startsWith("sales.export.") || actionId === "sales.merge.commit") return [] as const;
   if (actionId === "sales.integration.configure") return [] as const;
+  if (actionId === "sales.report.run" || actionId === "sales.report.schedule") return [] as const;
   if (actionId === "sales.email.send") return [
     { collection: "sales-activities", operations: ["create", "update"] },
     { collection: "sales-contacts", operations: ["find"] },
@@ -417,6 +421,12 @@ async function authorize(authority: FixtureCurrentAuthority, actionId: string, i
     if (!await durableFence(request, durable)) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales provider authority changed.");
     return Object.freeze({ actionId, ...identity });
   }
+  if (actionId === "sales.report.run" || actionId === "sales.report.schedule") {
+    if (!durable.permissionGrants.includes("sales.reports.read") || actionId === "sales.report.schedule" && !durable.permissionGrants.includes("sales.reports.schedule")) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales report authority is unavailable.");
+    await context.transaction.begin();
+    if (!await durableFence(request, durable)) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales report authority changed.");
+    return Object.freeze({ actionId, ...identity, recordScope: durable.recordScope, applicationWide: durable.applicationWide, authorizedTeamIds: durable.authorizedTeamIds, settingsRevision: durable.settingsRevision, reportingTimezone: durable.reportingTimezone, reportingCurrency: durable.reportingCurrency });
+  }
   if (actionId === "sales.email.send" || actionId === "sales.calendar.sync" || actionId === "sales.reminder.schedule") {
     const relation = actionId === "sales.email.send"
       ? details.relatedRecordType === "sales.contact" ? { collection: "sales-contacts" as const, recordType: "sales.contact" as const, id: details.relatedRecordId }
@@ -522,7 +532,10 @@ export function createActionEndpoint(registration: ScopedRegistrationResult, aut
       const communicationAuthority = Object.freeze({ context: Object.freeze({ applicationId: operation.durable.context.applicationId, environment: operation.durable.context.environment, actorId: operation.durable.context.actorId }), authorizationRevision: operation.durable.authorizationRevision, lifecycleRevision: operation.durable.lifecycleRevision, scopeRevision: operation.durable.scopeRevision, permissionGrants: operation.durable.permissionGrants });
       const providerGateway = ["sales.email.send", "sales.calendar.sync", "sales.integration.configure"].includes(action.descriptor.id)
         ? createGeneratedSalesProviderGateway(operation.request, communicationAuthority) : undefined;
-      return Object.freeze({ ...facts, authorizationRevision: operation.durable.authorizationRevision, lifecycleRevision: operation.durable.lifecycleRevision, salesScopeRevision: operation.durable.scopeRevision, ...(providerGateway === undefined ? {} : { providerGateway }), eventId: eventId(operation), ...(operation.replay === undefined ? {} : { idempotencyReplay: operation.replay }) });
+      const reportingAuthority = Object.freeze({ context: Object.freeze({ applicationId: operation.durable.context.applicationId, environment: operation.durable.context.environment, actorId: operation.durable.context.actorId }), authorizationRevision: operation.durable.authorizationRevision, lifecycleRevision: operation.durable.lifecycleRevision, scopeRevision: operation.durable.scopeRevision, recordScope: operation.durable.recordScope, applicationWide: operation.durable.applicationWide, authorizedTeamIds: operation.durable.authorizedTeamIds, permissionGrants: operation.durable.permissionGrants });
+      const reportingGateway = ["sales.report.run", "sales.report.schedule"].includes(action.descriptor.id)
+        ? createGeneratedSalesReportingGateway(operation.request, reportingAuthority) : undefined;
+      return Object.freeze({ ...facts, authorizationRevision: operation.durable.authorizationRevision, lifecycleRevision: operation.durable.lifecycleRevision, salesScopeRevision: operation.durable.scopeRevision, settingsRevision: operation.durable.settingsRevision, reportingTimezone: operation.durable.reportingTimezone, reportingCurrency: operation.durable.reportingCurrency, reportingAuthority: Object.freeze({ authorizationRevision: operation.durable.authorizationRevision, lifecycleRevision: operation.durable.lifecycleRevision, salesScopeRevision: operation.durable.scopeRevision, settingsRevision: operation.durable.settingsRevision, reportingTimezone: operation.durable.reportingTimezone, reportingCurrency: operation.durable.reportingCurrency }), ...(providerGateway === undefined ? {} : { providerGateway }), ...(reportingGateway === undefined ? {} : { reporting: reportingGateway }), eventId: eventId(operation), ...(operation.replay === undefined ? {} : { idempotencyReplay: operation.replay }) });
     } }
   );
   const gateway = new RegisteredActionGateway(registration, {
@@ -586,6 +599,25 @@ export function createActionEndpoint(registration: ScopedRegistrationResult, aut
         scopedRequests.delete(request);
         operations.delete(request);
       }
+    }
+  };
+}
+
+export function createSalesReportArtifactEndpoint(authority: FixtureCurrentAuthority): Endpoint {
+  return {
+    method: "get",
+    path: "/k-nex/sales/report-artifact",
+    handler: async (request) => {
+      if (request.user === null || request.user === undefined || request.user.collection !== "users") return Response.json({ code: "REPORT_ARTIFACT_FORBIDDEN" }, { status: 403 });
+      if (typeof request.url !== "string") return Response.json({ code: "REPORT_ARTIFACT_FORBIDDEN" }, { status: 403 });
+      const artifactId = new URL(request.url).searchParams.get("artifactId");
+      if (artifactId === null) return Response.json({ code: "REPORT_ARTIFACT_FORBIDDEN" }, { status: 403 });
+      try {
+        const durable = await authority.resolveDurableSalesAuthority(request, request.headers.get("x-correlation-id") ?? "fixture-report-artifact");
+        const reportAuthority = Object.freeze({ context: Object.freeze({ applicationId: durable.context.applicationId, environment: durable.context.environment, actorId: durable.context.actorId }), authorizationRevision: durable.authorizationRevision, lifecycleRevision: durable.lifecycleRevision, scopeRevision: durable.scopeRevision, recordScope: durable.recordScope, applicationWide: durable.applicationWide, authorizedTeamIds: durable.authorizedTeamIds, permissionGrants: durable.permissionGrants });
+        const result = await readGeneratedSalesReportArtifact(request.payload.db.pool as RuntimeExtensionPool, reportAuthority, artifactId);
+        return new Response(result.bytes as BodyInit, { status: 200, headers: { "content-type": result.contentType, "cache-control": "no-store", "content-disposition": "attachment; filename=report.csv" } });
+      } catch { return Response.json({ code: "REPORT_ARTIFACT_FORBIDDEN" }, { status: 403 }); }
     }
   };
 }

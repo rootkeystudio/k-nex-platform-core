@@ -1144,6 +1144,13 @@ import {
   salesOpportunityDetailDescriptor,
   salesPipelineSnapshotDescriptor,
   salesProviderConfigurationsDescriptor,
+  salesActivityByOwnerTeamDescriptor,
+  salesLeadConversionDescriptor,
+  salesPipelineValueByStageDescriptor,
+  salesSalesCycleDurationDescriptor,
+  salesTaskAgingDescriptor,
+  salesWeightedForecastDescriptor,
+  salesWonLostConversionDescriptor,
   salesSavedViewCalendarDescriptor,
   salesSavedViewDetailDescriptor,
   salesSavedViewKanbanDescriptor,
@@ -1161,7 +1168,7 @@ import { createUiDocumentRuntime, createUiRuntimeRegistry, prepareUiRuntimeDocum
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { io } from "socket.io-client";
 
-const runtime = createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: salesUiBlockDefinitions, sources: [salesAccountsDescriptor, salesAccountDetailDescriptor, salesContactsDescriptor, salesContactDetailDescriptor, salesLeadsDescriptor, salesLeadDetailDescriptor, salesOpportunitiesDescriptor, salesOpportunityDetailDescriptor, salesTasksDescriptor, salesTimelineDescriptor, salesPipelineSnapshotDescriptor, salesProviderConfigurationsDescriptor, salesSavedViewListDescriptor, salesSavedViewDetailDescriptor, salesSavedViewTableDescriptor, salesSavedViewKanbanDescriptor, salesSavedViewCalendarDescriptor, salesImportJobListDescriptor, salesImportJobDetailDescriptor, salesExportJobListDescriptor, salesExportJobDetailDescriptor, salesDedupeCandidatesDescriptor, salesNotificationsDescriptor, salesRemindersDescriptor] }));
+const runtime = createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: salesUiBlockDefinitions, sources: [salesAccountsDescriptor, salesAccountDetailDescriptor, salesContactsDescriptor, salesContactDetailDescriptor, salesLeadsDescriptor, salesLeadDetailDescriptor, salesOpportunitiesDescriptor, salesOpportunityDetailDescriptor, salesTasksDescriptor, salesTimelineDescriptor, salesPipelineSnapshotDescriptor, salesProviderConfigurationsDescriptor, salesSavedViewListDescriptor, salesSavedViewDetailDescriptor, salesSavedViewTableDescriptor, salesSavedViewKanbanDescriptor, salesSavedViewCalendarDescriptor, salesImportJobListDescriptor, salesImportJobDetailDescriptor, salesExportJobListDescriptor, salesExportJobDetailDescriptor, salesDedupeCandidatesDescriptor, salesNotificationsDescriptor, salesRemindersDescriptor, salesPipelineValueByStageDescriptor, salesWeightedForecastDescriptor, salesWonLostConversionDescriptor, salesLeadConversionDescriptor, salesActivityByOwnerTeamDescriptor, salesTaskAgingDescriptor, salesSalesCycleDurationDescriptor] }));
 type Projection = Readonly<{ document: UiDocument; permissions: readonly string[]; selection: Readonly<Record<string, unknown>>; sourceResults: Readonly<Record<string, DataSourceBindingResult<unknown>>>; stateHistory: readonly SalesStateHistoryEntry[]; timeline: DataSourceBindingResult<unknown> | null; watermark: string }>;
 const routeTopics: Readonly<Record<string, readonly string[]>> = Object.freeze({
   "sales.route.accounts": ["sales.realtime.accounts"], "sales.route.account-detail": ["sales.realtime.accounts", "sales.realtime.timeline"],
@@ -1173,12 +1180,13 @@ const routeTopics: Readonly<Record<string, readonly string[]>> = Object.freeze({
   "sales.route.settings": ["sales.realtime.provider-configurations"],
   "sales.route.imports": ["sales.realtime.accounts", "sales.realtime.contacts", "sales.realtime.leads", "sales.realtime.import-jobs"],
   "sales.route.exports": ["sales.realtime.accounts", "sales.realtime.contacts", "sales.realtime.leads", "sales.realtime.export-jobs"]
+  ,"sales.route.reports": []
 });
 const routeTitles: Readonly<Record<string, string>> = Object.freeze({
   "sales.route.overview": "Sales overview", "sales.route.tasks": "Sales tasks", "sales.route.opportunities": "Opportunities", "sales.route.settings": "Sales settings",
   "sales.route.accounts": "Accounts", "sales.route.account-detail": "Account detail", "sales.route.contacts": "Contacts", "sales.route.contact-detail": "Contact detail",
   "sales.route.leads": "Leads", "sales.route.lead-detail": "Lead detail", "sales.route.opportunity-detail": "Opportunity detail"
-  ,"sales.route.calendar": "Sales calendar", "sales.route.notifications": "Notifications", "sales.route.pipeline-settings": "Pipeline settings", "sales.route.saved-views": "Saved views", "sales.route.imports": "Imports", "sales.route.exports": "Exports"
+  ,"sales.route.calendar": "Sales calendar", "sales.route.notifications": "Notifications", "sales.route.pipeline-settings": "Pipeline settings", "sales.route.saved-views": "Saved views", "sales.route.imports": "Imports", "sales.route.exports": "Exports", "sales.route.reports": "Reports"
 });
 export function createSalesRouteRefreshScheduler(run: (signal: AbortSignal) => Promise<void>) {
   let pending = false;
@@ -1623,6 +1631,38 @@ export async function GET(request: Request) {
 `;
 }
 
+function salesReportArtifactRouteSource(): string {
+  return `import type { RuntimeExtensionPool } from "@k-nex/payload-adapter";
+
+import { currentPayloadAuthentication, currentSalesGeneration, kNexRequestContext } from "../../../../../k-nex-authority.js";
+import { bootKnexApplication } from "../../../../../boot.js";
+import { kNexIdentity } from "../../../../../k-nex-identity.js";
+import { readGeneratedSalesReportArtifact } from "../../../../../k-nex-sales-reports.js";
+import { workspaceSalesReportAdmission } from "../../../../../k-nex-sales-workspace.js";
+
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+export async function GET(request: Request) {
+  try {
+    const artifactId = new URL(request.url).searchParams.get("artifactId");
+    if (artifactId === null || artifactId.length < 1 || artifactId.length > 160) return Response.json({ code: "NOT_FOUND" }, { status: 404 });
+    const payload = await bootKnexApplication("sales-report-download");
+    const context = kNexRequestContext(new Headers(request.headers), "sales-report-download");
+    const authentication = await currentPayloadAuthentication(payload, context);
+    const actorId = authentication.user === null || typeof authentication.user !== "object" || !("id" in authentication.user) ? undefined : String(authentication.user.id);
+    if (actorId === undefined) return Response.json({ code: "REPORT_ARTIFACT_FORBIDDEN" }, { status: 403 });
+    const generation = await currentSalesGeneration(payload);
+    const pool = payload.db.pool as RuntimeExtensionPool;
+    const admission = await workspaceSalesReportAdmission(payload, context);
+    if (admission.context.actorId !== actorId || admission.authorizationRevision !== generation.state.authorizationRevision || admission.lifecycleRevision !== generation.state.lifecycleRevision || !admission.permissionGrants.includes("sales.reports.read")) return Response.json({ code: "REPORT_ARTIFACT_FORBIDDEN" }, { status: 403 });
+    const artifact = await readGeneratedSalesReportArtifact(pool, admission, artifactId);
+    return new Response(Buffer.from(artifact.bytes), { headers: { "cache-control": "no-store", "content-disposition": "attachment; filename=\\\"" + artifactId + ".csv\\\"", "content-type": artifact.contentType + "; charset=utf-8" } });
+  } catch (error) { return Response.json({ code: error instanceof Error && error.message === "REPORT_ARTIFACT_EXPIRED" ? "REPORT_ARTIFACT_EXPIRED" : "REPORT_ARTIFACT_FORBIDDEN" }, { status: error instanceof Error && error.message === "REPORT_ARTIFACT_EXPIRED" ? 410 : 403, headers: { "cache-control": "no-store" } }); }
+}
+`;
+}
+
 function salesScopeAdministrationSource(): string {
   return `import { createHash } from "node:crypto";
 
@@ -1901,7 +1941,9 @@ const expectedMigrationNames = Object.freeze([
   "20260906_000029_attachment_upload_admissions",
   "20260907_000030_pipeline_saved_views",
   "20260907_000031_data_movement",
-  "20260908_000032_communications"
+  "20260908_000032_communications",
+  "20260908_000033_crm_workflows",
+  "20260908_000034_reports"
 ]);
 const expectedRouteSources = Object.freeze([
   "src/app/(auth)/forbidden/page.tsx",
@@ -1914,6 +1956,7 @@ const expectedRouteSources = Object.freeze([
   "src/app/(workspace)/sales/accounts/page.tsx",
   "src/app/(workspace)/sales/calendar/page.tsx",
   "src/app/(workspace)/sales/exports/page.tsx",
+  "src/app/(workspace)/sales/reports/page.tsx",
   "src/app/(workspace)/sales/contacts/[id]/page.tsx",
   "src/app/(workspace)/sales/contacts/page.tsx",
   "src/app/(workspace)/sales/leads/[id]/page.tsx",
@@ -1951,6 +1994,7 @@ const expectedRouteSources = Object.freeze([
   "src/app/api/k-nex/sales/actions/[actionId]/route.ts",
   "src/app/api/k-nex/sales/authority-scopes/route.ts",
   "src/app/api/k-nex/sales/export-artifact/route.ts",
+  "src/app/api/k-nex/sales/report-artifact/route.ts",
   "src/app/api/k-nex/sales/import-upload/route.ts",
   "src/app/api/k-nex/sales/providers/calendar-reference/webhook/route.ts",
   "src/app/api/k-nex/sales/providers/email-reference/webhook/route.ts",
@@ -1986,6 +2030,7 @@ type ApplicationPlan = Readonly<{
   composition: Readonly<{ plugins: readonly string[]; builder: string; theme: string; databaseAdapter: string }>;
   packageSource: Readonly<{ kind: string; release: string; manifestDigest: string }>;
   payloadPostgresPatch: Readonly<{ package: string; upstream: string; fixes: readonly string[]; digest: string }>;
+  reporting: Readonly<{ primaryCurrency: string | null; provenance: "factory-configured" | "unconfigured" }>;
   migration: Readonly<{ owner: string; action: string; expectedPredecessorRevision: number }>;
 }>;
 
@@ -2033,20 +2078,24 @@ function sha256(value: string | Buffer): string { return "sha256:" + createHash(
 function archiveName(packageName: string, version: string): string { return packageName.slice(1).replace("/", "-") + "-" + version + ".tgz"; }
 
 function parseApplicationPlan(value: unknown): ApplicationPlan {
-  const plan = exactRecord(value, ["planVersion", "preset", "composition", "packageSource", "payloadPostgresPatch", "migration", "readiness", "lifecyclePlans"], "Application plan");
+  const plan = exactRecord(value, ["planVersion", "preset", "composition", "packageSource", "payloadPostgresPatch", "reporting", "migration", "readiness", "lifecyclePlans"], "Application plan");
   const composition = exactRecord(plan.composition, ["plugins", "builder", "theme", "databaseAdapter"], "Application composition");
   const packageSource = exactRecord(plan.packageSource, ["kind", "release", "manifestDigest"], "Application package source");
   const payloadPostgresPatch = exactRecord(plan.payloadPostgresPatch, ["package", "upstream", "fixes", "digest"], "Payload Postgres patch");
+  const reporting = exactRecord(plan.reporting, ["primaryCurrency", "provenance"], "Application reporting authority");
   const migration = exactRecord(plan.migration, ["owner", "action", "expectedPredecessorRevision"], "Application migration plan");
   if (plan.planVersion !== 1 || plan.preset !== "sales-reference" || packageSource.kind !== "packed-mirror" ||
     typeof packageSource.release !== "string" || typeof packageSource.manifestDigest !== "string" ||
     !Array.isArray(composition.plugins) || composition.plugins.some((value) => typeof value !== "string") ||
+    (reporting.primaryCurrency !== null && (typeof reporting.primaryCurrency !== "string" || !/^[A-Z]{3}$/u.test(reporting.primaryCurrency))) ||
+    (reporting.provenance !== "factory-configured" && reporting.provenance !== "unconfigured") ||
+    (reporting.provenance === "factory-configured" ? reporting.primaryCurrency === null : reporting.primaryCurrency !== null) ||
     !same(payloadPostgresPatch, { package: "@payloadcms/db-postgres@3.88.0", upstream: "payloadcms/payload#17831@134c89b7955d0dcde9137643ab86873ff542dbd4", fixes: ["#15674", "#16256"], digest: "sha256:0889c7c61e08478410dfcb1112415677fa9f50267901ee15c99e3deb1c9edf2f" }) ||
     typeof composition.builder !== "string" || typeof composition.theme !== "string" || composition.databaseAdapter !== "postgres" ||
     migration.owner !== "customer" || migration.action !== "review-and-apply" || migration.expectedPredecessorRevision !== 0 ||
     !same(plan.readiness, ["exact-package-inventory", "migration-revision", "sales-registration"]) ||
     !same(plan.lifecyclePlans, ["add", "disable", "enable", "upgrade"])) fail("Application plan is incompatible.");
-  return { composition: composition as ApplicationPlan["composition"], packageSource: packageSource as ApplicationPlan["packageSource"], payloadPostgresPatch: payloadPostgresPatch as ApplicationPlan["payloadPostgresPatch"], migration: migration as ApplicationPlan["migration"] };
+  return { composition: composition as ApplicationPlan["composition"], packageSource: packageSource as ApplicationPlan["packageSource"], payloadPostgresPatch: payloadPostgresPatch as ApplicationPlan["payloadPostgresPatch"], reporting: reporting as ApplicationPlan["reporting"], migration: migration as ApplicationPlan["migration"] };
 }
 
 function routeSources(root: string): readonly string[] {
@@ -2155,6 +2204,12 @@ async function assertSalesSchema(pool: RuntimeExtensionPool): Promise<void> {
     sales_import_rows: ["id", "import_job_id", "one_based_data_row", "row_digest", "canonical_mapped_json", "mapped_digest", "outcome", "target_record_id", "diagnostic_code", "created_at", "updated_at"],
     sales_import_chunks: ["id", "import_job_id", "chunk_index", "row_start", "row_end_exclusive", "input_digest", "state", "attempt", "worker_generation_id", "worker_fencing_token", "worker_promotion_revision", "worker_lease_owner", "lease_revision", "lease_expires_at", "completed_at", "result_digest", "created_at", "updated_at"],
     sales_export_jobs: ["id", "application_id", "environment", "actor_id", "target_object_type", "source_id", "source_version", "source_schema_version", "source_hash", "query_canonical_json", "query_digest", "selected_fields", "authorization_revision", "lifecycle_revision", "scope_revision", "field_grants", "permission_grants", "snapshot_revision", "snapshot_digest", "state", "revision", "row_count", "worker_generation_id", "worker_fencing_token", "worker_promotion_revision", "worker_lease_owner", "lease_revision", "lease_expires_at", "attempt", "artifact_id", "artifact_digest", "receipt_id", "created_at", "updated_at", "expires_at"],
+    sales_report_schedules: ["schedule_id", "application_id", "environment", "creator_id", "recipient_id", "report_id", "window_mode", "weekday", "local_time", "authorization_revision", "lifecycle_revision", "scope_revision", "revision", "state", "next_run_at", "audit", "created_at", "updated_at"],
+    sales_report_runs: ["run_id", "application_id", "environment", "creator_id", "recipient_id", "report_id", "window_mode", "scheduled_for", "requested_at", "authorization_revision", "lifecycle_revision", "scope_revision", "report_revision", "report_digest", "idempotency_key", "state", "revision", "attempt", "next_attempt_at", "worker_generation_id", "worker_fencing_token", "worker_promotion_revision", "worker_lease_owner", "lease_revision", "lease_expires_at", "artifact_id", "artifact_digest", "failure_code", "audit", "created_at", "updated_at", "terminal_at"],
+    sales_report_artifacts: ["artifact_id", "run_id", "bytes", "digest", "byte_length", "content_type", "created_at", "expires_at"],
+    sales_report_delivery_receipts: ["receipt_id", "run_id", "application_id", "environment", "recipient_id", "artifact_digest", "delivered_at", "evidence", "digest"],
+    sales_report_run_audit: ["audit_id", "run_id", "application_id", "environment", "revision", "from_state", "to_state", "action_id", "evidence", "digest", "occurred_at"],
+    sales_report_schedule_audit: ["audit_id", "schedule_id", "application_id", "environment", "revision", "evidence", "digest", "occurred_at"],
     sales_merge_lineage: ["id", "lineage_id", "application_id", "environment", "target_object_type", "winner_id", "winner_pre_revision", "winner_post_revision", "loser_id", "loser_pre_revision", "loser_post_revision", "match_kind", "normalizer_version", "actor_id", "authorization_revision", "winner_pre_digest", "winner_post_digest", "loser_pre_digest", "loser_post_digest", "rewritten_relation_counts", "lineage_digest", "committed_at", "created_at", "updated_at"]
   } as const;
   const tables = Object.keys(required);
@@ -2165,7 +2220,7 @@ async function assertSalesSchema(pool: RuntimeExtensionPool): Promise<void> {
   const actual = new Map<string, Set<string>>();
   for (const row of columns.rows) actual.set(row.table_name, (actual.get(row.table_name) ?? new Set()).add(row.column_name));
   const common = ["id", "application_id", "environment", "owner_id", "team_id", "created_by", "updated_by", "revision", "audit", "created_at", "updated_at"];
-  const hostOwned = new Set(["sales_import_jobs", "sales_import_rows", "sales_import_chunks", "sales_export_jobs", "sales_merge_lineage"]);
+  const hostOwned = new Set(["sales_import_jobs", "sales_import_rows", "sales_import_chunks", "sales_export_jobs", "sales_merge_lineage", "sales_report_schedules", "sales_report_runs", "sales_report_artifacts", "sales_report_delivery_receipts", "sales_report_run_audit", "sales_report_schedule_audit"]);
   if (tables.some((table) => {
     const fields = actual.get(table);
     return fields === undefined || [...(hostOwned.has(table) ? [] : common), ...required[table as keyof typeof required]].some((field) => !fields.has(field));
@@ -2180,7 +2235,7 @@ async function assertReportingTimezone(pool: RuntimeExtensionPool): Promise<void
   const state = await pool.query<{ settings_revision: number }>("select settings_revision from k_nex_system_settings_state where application_id=$1 and environment=$2", [kNexIdentity.applicationId, kNexIdentity.environment]);
   const documents = await pool.query<{ descriptor_schema_version: number; owner_scope_key: string; owner_kind: string; owner_namespace: string | null; owner_delivery_class: string | null; owner_extension_id: string | null; owner_generation: number | null; document_revision: number; settings_revision: number; values_json: unknown }>("select descriptor_schema_version,owner_scope_key,owner_kind,owner_namespace,owner_delivery_class,owner_extension_id,owner_generation,document_revision,settings_revision,values_json from k_nex_system_settings_documents where application_id=$1 and environment=$2 and descriptor_id='system.general'", [kNexIdentity.applicationId, kNexIdentity.environment]);
   const row = documents.rows[0]; const values = row?.values_json;
-  if (state.rows.length !== 1 || !Number.isSafeInteger(state.rows[0]?.settings_revision) || state.rows[0]!.settings_revision < 1 || documents.rows.length !== 1 || row?.descriptor_schema_version !== 2 || row.owner_scope_key !== "platform:system" || row.owner_kind !== "platform" || row.owner_namespace !== "system" || row.owner_delivery_class !== null || row.owner_extension_id !== null || row.owner_generation !== null || !Number.isSafeInteger(row.document_revision) || row.document_revision < 1 || !Number.isSafeInteger(row.settings_revision) || row.settings_revision < 1 || row.settings_revision > state.rows[0]!.settings_revision || values === null || typeof values !== "object" || Array.isArray(values) || !canonicalIana((values as Record<string, unknown>).reportingTimezone)) fail("Application reporting timezone readiness mismatch.");
+  if (state.rows.length !== 1 || !Number.isSafeInteger(state.rows[0]?.settings_revision) || state.rows[0]!.settings_revision < 1 || documents.rows.length !== 1 || row?.descriptor_schema_version !== 3 || row.owner_scope_key !== "platform:system" || row.owner_kind !== "platform" || row.owner_namespace !== "system" || row.owner_delivery_class !== null || row.owner_extension_id !== null || row.owner_generation !== null || !Number.isSafeInteger(row.document_revision) || row.document_revision < 1 || !Number.isSafeInteger(row.settings_revision) || row.settings_revision < 1 || row.settings_revision > state.rows[0]!.settings_revision || values === null || typeof values !== "object" || Array.isArray(values) || !canonicalIana((values as Record<string, unknown>).reportingTimezone) || typeof (values as Record<string, unknown>).reportingCurrency !== "string" || !/^[A-Z]{3}$/u.test((values as Record<string, unknown>).reportingCurrency as string)) fail("Application reporting settings v3 readiness mismatch.");
 }
 
 export async function reconcileKnexReadiness(payload: Payload) {
@@ -2405,6 +2460,7 @@ import { kNexIdentity } from "./k-nex-identity.js";
 import { processSalesDataMovement } from "./k-nex-sales-data-movement.js";
 import { createGeneratedBoundedReferenceProviderTransport, createGeneratedEnvironmentProviderSecretResolver, processGeneratedSalesCommunications, processGeneratedSalesReminders } from "./k-nex-sales-communications.js";
 import { processGeneratedSalesWorkflows } from "./k-nex-sales-workflows.js";
+import { processGeneratedSalesReports } from "./k-nex-sales-reports.js";
 
 const payload = await bootKnexApplication("authorization-worker");
 const channel = "k_nex_runtime_invalidation";
@@ -2470,6 +2526,8 @@ let communicationsDispatching = false;
 let communicationsStopping = false;
 let workflowsDispatching = false;
 let workflowsStopping = false;
+let reportsDispatching = false;
+let reportsStopping = false;
 const providerSecrets = createGeneratedEnvironmentProviderSecretResolver();
 const providerTransport = createGeneratedBoundedReferenceProviderTransport(process.env.K_NEX_REFERENCE_PROVIDER_ENDPOINT);
 const realtimeAbort = new AbortController();
@@ -2522,6 +2580,14 @@ const dispatchWorkflows = async () => {
   finally { workflowsDispatching = false; }
 };
 const workflowsTimer = setInterval(() => { void dispatchWorkflows(); }, 100);
+const dispatchReports = async () => {
+  if (reportsDispatching || reportsStopping) return;
+  reportsDispatching = true;
+  try { const salesWorkerFence = await currentSalesWorkerFence(); if (salesWorkerFence !== undefined) await processGeneratedSalesReports(pool, salesWorkerFence); }
+  catch (error) { if (!reportsStopping) workerFailure("K_NEX_REPORT_DELIVERY_ERROR")(error); }
+  finally { reportsDispatching = false; }
+};
+const reportsTimer = setInterval(() => { void dispatchReports(); }, 100);
 authorizationWorker.start();
 workspacePageWorker.start();
 workspaceNavigationWorker.start();
@@ -2529,6 +2595,7 @@ void dispatchRealtime();
 void dispatchDataMovement();
 void dispatchCommunications();
 void dispatchWorkflows();
+void dispatchReports();
 await new Promise<void>((resolve) => {
   let seen = false;
   const stop = () => {
@@ -2548,15 +2615,18 @@ realtimeStopping = true;
 dataMovementStopping = true;
     communicationsStopping = true;
     workflowsStopping = true;
+    reportsStopping = true;
 realtimeAbort.abort();
 clearInterval(realtimeTimer);
 clearInterval(dataMovementTimer);
     clearInterval(communicationsTimer);
     clearInterval(workflowsTimer);
+    clearInterval(reportsTimer);
 while (realtimeDispatching) await new Promise((resolve) => setTimeout(resolve, 10));
 while (dataMovementDispatching) await new Promise((resolve) => setTimeout(resolve, 10));
 while (communicationsDispatching) await new Promise((resolve) => setTimeout(resolve, 10));
 while (workflowsDispatching) await new Promise((resolve) => setTimeout(resolve, 10));
+while (reportsDispatching) await new Promise((resolve) => setTimeout(resolve, 10));
 const workerDrains = await Promise.allSettled([authorizationWorker.idle(), workspacePageWorker.idle(), workspaceNavigationWorker.idle()]);
 const workerDrainFailures = workerDrains.filter((result): result is PromiseRejectedResult => result.status === "rejected");
 let shutdownFailure: unknown;
@@ -2594,6 +2664,7 @@ export function applicationAuthFiles(options: ApplicationAuthFilesOptions): Read
     "src/app/(workspace)/sales/calendar/page.tsx": salesRoutePageSource("sales.route.calendar", "sales/calendar"),
     "src/app/(workspace)/sales/imports/page.tsx": salesRoutePageSource("sales.route.imports", "sales/imports"),
     "src/app/(workspace)/sales/exports/page.tsx": salesRoutePageSource("sales.route.exports", "sales/exports"),
+    "src/app/(workspace)/sales/reports/page.tsx": salesRoutePageSource("sales.route.reports", "sales/reports"),
     "src/app/api/k-nex/inventory/route.ts": inventoryRouteSource(),
     "src/app/api/k-nex/navigation/revision/route.ts": navigationRevisionRouteSource(),
     "src/app/api/k-nex/navigation/sidebar/route.ts": navigationSidebarPreferenceRouteSource(),
@@ -2602,6 +2673,7 @@ export function applicationAuthFiles(options: ApplicationAuthFilesOptions): Read
     "src/app/api/k-nex/sales/providers/calendar-reference/webhook/route.ts": salesProviderWebhookRouteSource("calendar.reference.v1"),
     "src/app/api/k-nex/sales/authority-scopes/route.ts": salesScopeAdministrationRouteSource(),
     "src/app/api/k-nex/sales/export-artifact/route.ts": salesExportArtifactRouteSource(),
+    "src/app/api/k-nex/sales/report-artifact/route.ts": salesReportArtifactRouteSource(),
     "src/app/api/k-nex/sales/import-upload/route.ts": salesImportUploadRouteSource(),
     "src/app/api/k-nex/sales/routes/[routeId]/route.ts": salesRouteProjectionRouteSource(),
     "src/app/api/readiness/route.ts": readinessRouteSource(),

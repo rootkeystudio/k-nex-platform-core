@@ -26,6 +26,14 @@ import {
   salesOpportunityDetailPageTemplate,
   salesOpportunityListBlockDescriptor,
   salesProviderConfigurationsDescriptor,
+  salesReportBlockId,
+  salesPipelineValueByStageDescriptor,
+  salesWeightedForecastDescriptor,
+  salesWonLostConversionDescriptor,
+  salesLeadConversionDescriptor,
+  salesActivityByOwnerTeamDescriptor,
+  salesTaskAgingDescriptor,
+  salesSalesCycleDurationDescriptor,
   salesSettingsPageTemplate,
   salesPageTemplates,
   salesReferenceMetadata,
@@ -65,7 +73,7 @@ const actor = {
   authenticated: true,
   permissions: new Set([
     "sales.tasks.read", "sales.tasks.write", "sales.opportunities.read", "sales.opportunities.write", "sales.opportunities.archive", "sales.opportunities.close", "sales.opportunities.amount.read", "sales.pipelines.read", "sales.settings.read",
-    "sales.accounts.read", "sales.accounts.write", "sales.accounts.archive", "sales.contacts.read", "sales.contacts.write", "sales.contacts.archive", "sales.contacts.channels.read", "sales.saved-views.read",
+    "sales.accounts.read", "sales.accounts.write", "sales.accounts.archive", "sales.contacts.read", "sales.contacts.write", "sales.contacts.archive", "sales.contacts.channels.read", "sales.saved-views.read", "sales.reports.read", "sales.reports.schedule",
     "sales.leads.read", "sales.leads.write", "sales.leads.archive", "sales.leads.qualify", "sales.leads.disqualify", "sales.leads.channels.read", "sales.activities.read", "sales.ownership.write"
   ])
 };
@@ -111,6 +119,13 @@ const notificationData = { fields: ["subject", "state", "created-at", "revision"
 const reminderData = { fields: ["subject", "state", "scheduled-at", "reference-kind", "reference-id", "revision"], rows: [{ key: "42", values: { subject: { kind: "text", value: "Follow up privately" }, state: { kind: "status", value: "delivered" }, "scheduled-at": { kind: "datetime", value: "2026-09-08T12:00:00.000Z" }, "reference-kind": { kind: "enum", value: "task" }, "reference-id": { kind: "integer", value: 1 }, revision: { kind: "integer", value: 2 } } }], page: { number: 1, pageSize: 25, hasNext: false } };
 const providerConfigurationData = { fields: ["provider-id", "state", "revision", "updated-at", "revoked-at"], rows: [{ key: "email.reference.v1", values: { "provider-id": { kind: "enum", value: "email.reference.v1" }, state: { kind: "status", value: "active" }, revision: { kind: "integer", value: 3 }, "updated-at": { kind: "datetime", value: "2026-09-08T12:00:00.000Z" }, "revoked-at": null } }], page: { number: 1, pageSize: 25, hasNext: false } };
 function sourceFor(definition) {
+  if (definition.id === salesReportBlockId(salesPipelineValueByStageDescriptor.id)) return salesPipelineValueByStageDescriptor;
+  if (definition.id === salesReportBlockId(salesWeightedForecastDescriptor.id)) return salesWeightedForecastDescriptor;
+  if (definition.id === salesReportBlockId(salesWonLostConversionDescriptor.id)) return salesWonLostConversionDescriptor;
+  if (definition.id === salesReportBlockId(salesLeadConversionDescriptor.id)) return salesLeadConversionDescriptor;
+  if (definition.id === salesReportBlockId(salesActivityByOwnerTeamDescriptor.id)) return salesActivityByOwnerTeamDescriptor;
+  if (definition.id === salesReportBlockId(salesTaskAgingDescriptor.id)) return salesTaskAgingDescriptor;
+  if (definition.id === salesReportBlockId(salesSalesCycleDurationDescriptor.id)) return salesSalesCycleDurationDescriptor;
   if (definition.id === "sales.calendar") return salesSavedViewCalendarDescriptor;
   if (definition.id === "sales.saved-view-table") return salesSavedViewTableDescriptor;
   if (definition.id.includes("kanban")) return salesSavedViewKanbanDescriptor;
@@ -132,6 +147,7 @@ function nodeFor(bridge) {
     input: source.id.includes(".detail") ? { id: "1" } : {},
     structuralCompatibilityHash: source.structuralCompatibilityHash,
     ...(source.id === salesTasksDescriptor.id ? { selectedFields: ["title", "status"] } : {}),
+    ...(source.id === salesPipelineValueByStageDescriptor.id ? { selectedFields: ["stage-id", "stage-name", "value"] } : source.id === salesActivityByOwnerTeamDescriptor.id ? { selectedFields: ["actor-id", "team-id", "count"] } : source.id === salesTaskAgingDescriptor.id ? { selectedFields: ["bucket", "count"] } : {}),
     ...(source.id === salesSavedViewCalendarDescriptor.id ? { selectedFields: ["type", "subject", "status", "scheduled-at", "occurred-at", "related-record-type", "related-record-id", "revision"] } : source.id === salesSavedViewTableDescriptor.id ? { selectedFields: ["name"] } : source.id === salesSavedViewKanbanDescriptor.id ? { selectedFields: ["row-kind", "name", "stage-id", "stage-metadata", "revision"] } : source.id === salesOpportunitiesDescriptor.id ? { selectedFields: ["name", "pipeline-id", "pipeline-revision", "stage-id", "stage-name", "stage-semantic", "stage-revision", "revision", "amount"] } : {})
     ,...(source.id === salesOpportunityDetailDescriptor.id ? { selectedFields: ["name", "owner-id", "team-id", "account-id", "primary-contact-id", "pipeline-id", "stage-id", "archive-status", "revision"] } : {})
     ,...(source.id === salesAccountDetailDescriptor.id ? { selectedFields: ["name", "owner-id", "team-id", "status", "revision"] } : source.id === salesAccountsDescriptor.id ? { selectedFields: ["name", "owner-id", "status", "revision"] } : {})
@@ -154,7 +170,11 @@ function nodeFor(bridge) {
 function sourceResultFor(bridge) {
   const source = bridge.definition.sourcePolicy === undefined ? undefined : sourceFor(bridge.definition);
   if (source === undefined) return undefined;
-  return { state: "success", data: source.id === salesTasksDescriptor.id ? tableData : source.id === salesSavedViewKanbanDescriptor.id ? kanbanData : source.id === salesSavedViewCalendarDescriptor.id ? { fields: ["type", "subject", "status", "scheduled-at", "occurred-at", "related-record-type", "related-record-id", "revision"], rows: [], page: { number: 1, pageSize: 25, hasNext: false } } : source.id === salesSavedViewTableDescriptor.id ? { fields: ["name"], rows: [], page: { number: 1, pageSize: 25, hasNext: false } } : source.id === salesAccountDetailDescriptor.id ? accountDetailData : source.id === salesAccountsDescriptor.id ? accountData : source.id === salesContactDetailDescriptor.id ? contactDetailData : source.id === salesContactsDescriptor.id ? contactData : source.id === salesLeadDetailDescriptor.id ? leadDetailData : source.id === salesLeadsDescriptor.id ? leadData : source.id === salesOpportunityDetailDescriptor.id ? opportunityDetailData : opportunityData };
+  const metric = { value: { kind: "integer", value: 1 } };
+  const reportTable = source.id === salesPipelineValueByStageDescriptor.id ? { fields: ["stage-id", "stage-name", "value"], rows: [{ key: "proposal", values: { "stage-id": { kind: "enum", value: "proposal" }, "stage-name": { kind: "text", value: "Proposal" }, value: { kind: "money", value: "100.00", currency: "USD", scale: 2 } } }], page: { number: 1, pageSize: 6, hasNext: false } }
+    : source.id === salesActivityByOwnerTeamDescriptor.id ? { fields: ["actor-id", "team-id", "count"], rows: [{ key: "owner-1", values: { "actor-id": { kind: "text", value: "owner-1" }, "team-id": null, count: { kind: "integer", value: 1 } } }], page: { number: 1, pageSize: 100, hasNext: false } }
+      : source.id === salesTaskAgingDescriptor.id ? { fields: ["bucket", "count"], rows: [{ key: "current", values: { bucket: { kind: "enum", value: "current" }, count: { kind: "integer", value: 1 } } }], page: { number: 1, pageSize: 5, hasNext: false } } : undefined;
+  return { state: "success", data: reportTable ?? (source.id.startsWith("sales.report.") ? metric : source.id === salesTasksDescriptor.id ? tableData : source.id === salesSavedViewKanbanDescriptor.id ? kanbanData : source.id === salesSavedViewCalendarDescriptor.id ? { fields: ["type", "subject", "status", "scheduled-at", "occurred-at", "related-record-type", "related-record-id", "revision"], rows: [], page: { number: 1, pageSize: 25, hasNext: false } } : source.id === salesSavedViewTableDescriptor.id ? { fields: ["name"], rows: [], page: { number: 1, pageSize: 25, hasNext: false } } : source.id === salesAccountDetailDescriptor.id ? accountDetailData : source.id === salesAccountsDescriptor.id ? accountData : source.id === salesContactDetailDescriptor.id ? contactDetailData : source.id === salesContactsDescriptor.id ? contactData : source.id === salesLeadDetailDescriptor.id ? leadDetailData : source.id === salesLeadsDescriptor.id ? leadData : source.id === salesOpportunityDetailDescriptor.id ? opportunityDetailData : opportunityData) };
 }
 
 test("Sales task table uses the same renderer outside Puck and through its authoring bridge", () => {
@@ -189,12 +209,12 @@ test("every Sales UI contribution renders, while only report-safe blocks reconci
     assert.equal(definition.descriptor.requiredStates.length, 4);
     assert.deepEqual(definition.actionPolicy, definition.descriptor.actionPolicy);
   }
-  assert.deepEqual([...kinds].sort(), ["calendar", "data-table", "detail", "form", "kanban", "settings-summary", "status"]);
+  assert.deepEqual([...kinds].sort(), ["calendar", "data-list", "data-table", "detail", "form", "kanban", "metric", "settings-summary", "status"]);
   const assertEquivalentRender = (actual, expected) => {
     assert.deepEqual({ ...actual, element: undefined }, { ...expected, element: undefined });
     assert.equal(renderToStaticMarkup(actual.element), renderToStaticMarkup(expected.element));
   };
-  assert.deepEqual(salesPuckBlockBridges.map(({ definition }) => definition.id), ["sales.task-table", "sales.task-quick-create", "sales.opportunity-kanban", "sales.settings-summary", "sales.calendar", "sales.saved-view-table"]);
+  assert.deepEqual(salesPuckBlockBridges.map(({ definition }) => definition.id), ["sales.task-table", "sales.task-quick-create", "sales.opportunity-kanban", "sales.settings-summary", "sales.calendar", "sales.saved-view-table", "sales.block.report.pipeline-value-by-stage", "sales.block.report.weighted-forecast", "sales.block.report.won-lost-conversion", "sales.block.report.lead-conversion", "sales.block.report.activity-by-owner-team", "sales.block.report.task-aging", "sales.block.report.sales-cycle-duration"]);
   for (const bridge of salesPuckBlockBridges) {
     const definition = salesUiBlockDefinitions.find(({ id }) => id === bridge.definition.id);
     assert.ok(definition);
@@ -204,7 +224,8 @@ test("every Sales UI contribution renders, while only report-safe blocks reconci
 
 test("every Sales Puck block preserves source/action authority and DOM role parity", () => {
   const blocks = salesPuckBlockBridges;
-  const runtime = createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: salesUiBlockDefinitions, sources: [salesTasksDescriptor, salesSavedViewTableDescriptor, salesSavedViewKanbanDescriptor, salesSavedViewCalendarDescriptor, salesOpportunitiesDescriptor, salesOpportunityDetailDescriptor, salesAccountsDescriptor, salesAccountDetailDescriptor, salesContactsDescriptor, salesContactDetailDescriptor, salesLeadsDescriptor, salesLeadDetailDescriptor] }));
+  const reportSources = [salesPipelineValueByStageDescriptor, salesWeightedForecastDescriptor, salesWonLostConversionDescriptor, salesLeadConversionDescriptor, salesActivityByOwnerTeamDescriptor, salesTaskAgingDescriptor, salesSalesCycleDurationDescriptor];
+  const runtime = createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: salesUiBlockDefinitions, sources: [salesTasksDescriptor, salesSavedViewTableDescriptor, salesSavedViewKanbanDescriptor, salesSavedViewCalendarDescriptor, salesOpportunitiesDescriptor, salesOpportunityDetailDescriptor, salesAccountsDescriptor, salesAccountDetailDescriptor, salesContactsDescriptor, salesContactDetailDescriptor, salesLeadsDescriptor, salesLeadDetailDescriptor, ...reportSources] }));
 
   for (const bridge of blocks) {
     assert.notEqual(bridge, undefined);
@@ -224,7 +245,7 @@ test("every Sales Puck block preserves source/action authority and DOM role pari
       preview: {
         surface: "workspace",
         actor,
-        sources: [salesTasksDescriptor, salesSavedViewTableDescriptor, salesSavedViewKanbanDescriptor, salesSavedViewCalendarDescriptor, salesOpportunitiesDescriptor, salesOpportunityDetailDescriptor, salesAccountsDescriptor, salesAccountDetailDescriptor, salesContactsDescriptor, salesContactDetailDescriptor, salesLeadsDescriptor, salesLeadDetailDescriptor],
+        sources: [salesTasksDescriptor, salesSavedViewTableDescriptor, salesSavedViewKanbanDescriptor, salesSavedViewCalendarDescriptor, salesOpportunitiesDescriptor, salesOpportunityDetailDescriptor, salesAccountsDescriptor, salesAccountDetailDescriptor, salesContactsDescriptor, salesContactDetailDescriptor, salesLeadsDescriptor, salesLeadDetailDescriptor, ...reportSources],
         present: presentUiRuntimeReact,
         ...(result === undefined ? {} : { sourceResults: { reference: result } })
       }
@@ -483,7 +504,7 @@ test("Sales UI contributions expose labelled semantic regions", () => {
 });
 
 test("Sales public UI inventory reconciles every canonical source action route page component and block", () => {
-  assert.deepEqual(salesWorkspaceUiContract.sourceIds, ["sales.account.detail", "sales.accounts", "sales.contact.detail", "sales.contacts", "sales.dedupe.candidates", "sales.export-job.detail", "sales.export-job.list", "sales.import-job.detail", "sales.import-job.list", "sales.lead.detail", "sales.leads", "sales.notifications", "sales.opportunities", "sales.opportunity.detail", "sales.pipeline.snapshot", "sales.provider-configurations", "sales.reminders", "sales.saved-view.calendar", "sales.saved-view.detail", "sales.saved-view.kanban", "sales.saved-view.list", "sales.saved-view.table", "sales.tasks", "sales.timeline"]);
+  assert.deepEqual(salesWorkspaceUiContract.sourceIds, ["sales.account.detail", "sales.accounts", "sales.contact.detail", "sales.contacts", "sales.dedupe.candidates", "sales.export-job.detail", "sales.export-job.list", "sales.import-job.detail", "sales.import-job.list", "sales.lead.detail", "sales.leads", "sales.notifications", "sales.opportunities", "sales.opportunity.detail", "sales.pipeline.snapshot", "sales.provider-configurations", "sales.reminders", "sales.report.activity-by-owner-team", "sales.report.lead-conversion", "sales.report.pipeline-value-by-stage", "sales.report.sales-cycle-duration", "sales.report.task-aging", "sales.report.weighted-forecast", "sales.report.won-lost-conversion", "sales.saved-view.calendar", "sales.saved-view.detail", "sales.saved-view.kanban", "sales.saved-view.list", "sales.saved-view.table", "sales.tasks", "sales.timeline"]);
   assert.equal(salesWorkspaceUiContract.actionIds.includes("sales.lead.qualify"), true);
   assert.equal(salesWorkspaceUiContract.pageTemplateIds.includes("sales.page.account-detail"), true);
   assert.equal(salesWorkspaceUiContract.routeIds.length >= 10, true);

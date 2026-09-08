@@ -6,16 +6,16 @@ import { createPuckBuilderProfileRegistry } from "@k-nex/builder-puck";
 import { createUiDocumentRuntime, createUiRuntimeRegistry, type BrowserDataTransport } from "@k-nex/ui-runtime";
 import { createGenericPuckBlockBridges } from "@k-nex/ui-builder-blocks";
 import { salesCreateTaskMutation, salesWorkflowMutations } from "../src/browser.js";
-import { salesAccountDetailDescriptor, salesAccountsDescriptor, salesContactDetailDescriptor, salesContactsDescriptor, salesLeadDetailDescriptor, salesLeadsDescriptor, salesOpportunityDetailDescriptor, salesPageTemplates, salesOpportunitiesDescriptor, salesOpportunityStageUpdateDescriptor, salesSavedViewCalendarDescriptor, salesSavedViewKanbanDescriptor, salesTaskCreateDescriptor, salesTaskUpdateDescriptor, salesTasksDescriptor } from "../src/contracts.js";
+import { salesAccountDetailDescriptor, salesAccountsDescriptor, salesContactDetailDescriptor, salesContactsDescriptor, salesLeadDetailDescriptor, salesLeadsDescriptor, salesOpportunityDetailDescriptor, salesPageTemplates, salesOpportunitiesDescriptor, salesOpportunityStageUpdateDescriptor, salesPipelineValueByStageDescriptor, salesWeightedForecastDescriptor, salesWonLostConversionDescriptor, salesLeadConversionDescriptor, salesActivityByOwnerTeamDescriptor, salesTaskAgingDescriptor, salesSalesCycleDurationDescriptor, salesReportRunDescriptor, salesReportScheduleDescriptor, salesSavedViewCalendarDescriptor, salesSavedViewKanbanDescriptor, salesTaskCreateDescriptor, salesTaskUpdateDescriptor, salesTasksDescriptor } from "../src/contracts.js";
 import { salesPuckBlockBridges } from "../src/puck.js";
 
-const sources = [salesTasksDescriptor, salesOpportunitiesDescriptor, salesOpportunityDetailDescriptor, salesAccountsDescriptor, salesAccountDetailDescriptor, salesContactsDescriptor, salesContactDetailDescriptor, salesLeadsDescriptor, salesLeadDetailDescriptor, salesSavedViewCalendarDescriptor, salesSavedViewKanbanDescriptor];
+const sources = [salesTasksDescriptor, salesOpportunitiesDescriptor, salesOpportunityDetailDescriptor, salesAccountsDescriptor, salesAccountDetailDescriptor, salesContactsDescriptor, salesContactDetailDescriptor, salesLeadsDescriptor, salesLeadDetailDescriptor, salesSavedViewCalendarDescriptor, salesSavedViewKanbanDescriptor, salesPipelineValueByStageDescriptor, salesWeightedForecastDescriptor, salesWonLostConversionDescriptor, salesLeadConversionDescriptor, salesActivityByOwnerTeamDescriptor, salesTaskAgingDescriptor, salesSalesCycleDurationDescriptor];
 
 const profile = {
   id: "workspace" as const,
   blocks: salesPuckBlockBridges.map(({ definition }) => ({ id: definition.id, version: definition.version })),
   sources: sources.map(({ id, version }) => ({ id, version })),
-  actions: [salesTaskCreateDescriptor, salesTaskUpdateDescriptor, salesOpportunityStageUpdateDescriptor, ...salesWorkflowMutations.map(({ action }) => action)].map(({ id, version }) => ({ id, version })),
+  actions: [salesTaskCreateDescriptor, salesTaskUpdateDescriptor, salesOpportunityStageUpdateDescriptor, salesReportRunDescriptor, salesReportScheduleDescriptor, ...salesWorkflowMutations.map(({ action }) => action)].map(({ id, version }) => ({ id, version })),
   publication: "save-layout" as const
 };
 

@@ -13,6 +13,7 @@ import {
   createPlatformPluginPolicyExecutable,
   createPlatformPluginRegistrationAuthorizationContribution,
   createTrustedAuthorizationSession,
+  canonicalIana,
   isEffectiveAuthorizationCatalogForGeneration,
   readAuthoritativeHotApplicationAuthorizationSource,
   AuthoritativeHotApplicationRuntime,
@@ -147,6 +148,9 @@ export interface FixtureDurableSalesAuthority {
   readonly scopeRevision: number;
   readonly authorizationRevision: number;
   readonly lifecycleRevision: number;
+  readonly settingsRevision: number;
+  readonly reportingTimezone: string;
+  readonly reportingCurrency: string;
   /** The exact static module.sales authorization generation bound to this process. */
   readonly moduleSalesAuthorizationGeneration: number;
   /** Exact ordered runtime generation IDs from that process-bound authorization generation. */
@@ -536,10 +540,13 @@ export function createFixtureCurrentAuthority(
       return target(permission, permissionId, `realtime-${topic.id}`);
     }
   );
-  const sameDurableAuthority = (left: FixtureDurableSalesAuthority, row: Record<string, unknown> | undefined, revision: Record<string, unknown> | undefined, grants: readonly Record<string, unknown>[], processBound: ProcessBoundSalesGeneration) =>
+  const sameDurableAuthority = (left: FixtureDurableSalesAuthority, row: Record<string, unknown> | undefined, revision: Record<string, unknown> | undefined, settings: Record<string, unknown> | undefined, grants: readonly Record<string, unknown>[], processBound: ProcessBoundSalesGeneration) =>
     row !== undefined && revision !== undefined && row.record_scope === left.recordScope && row.application_wide === left.applicationWide && row.mutation_allowed === left.mutationAllowed &&
     Array.isArray(row.authorized_team_ids) && JSON.stringify(row.authorized_team_ids) === JSON.stringify(left.authorizedTeamIds) && row.revision === left.scopeRevision &&
     revision.authorization_revision === left.authorizationRevision && revision.lifecycle_revision === left.lifecycleRevision &&
+    settings !== undefined && settings.descriptor_schema_version === 3 && settings.document_revision === settings.settings_revision && settings.settings_revision === left.settingsRevision &&
+    canonicalIana(settings.reportingTimezone) &&
+    typeof settings.reportingTimezone === "string" && settings.reportingTimezone === left.reportingTimezone && typeof settings.reportingCurrency === "string" && settings.reportingCurrency === left.reportingCurrency &&
     processBound.authorizationGeneration === left.moduleSalesAuthorizationGeneration && JSON.stringify(processBound.runtimeGenerationIds) === JSON.stringify(left.moduleSalesRuntimeGenerationIds) &&
     processBound.authorizationRevision === left.authorizationRevision && processBound.lifecycleRevision === left.lifecycleRevision &&
     JSON.stringify(effectivePermissionGrants(grants)) === JSON.stringify(left.permissionGrants) &&
@@ -583,32 +590,36 @@ export function createFixtureCurrentAuthority(
     async resolveDurableSalesAuthority(request, correlationId) {
       const current = fixture.context(request, correlationId);
       const database = pool(request);
-      const [scope, state, grants, processBound] = await Promise.all([
+      const [scope, state, grants, settings, processBound] = await Promise.all([
         database.query<Record<string, unknown>>("select record_scope, application_wide, mutation_allowed, authorized_team_ids, revision from sales_current_authority_scopes where application_id=$1 and environment=$2 and principal_id=$3 and state='active'", [owner.applicationId, owner.environment, current.actorId]),
         database.query<Record<string, unknown>>("select authorization_revision, lifecycle_revision from k_nex_authorization_state where application_id=$1", [owner.applicationId]),
         database.query<Record<string, unknown>>("select distinct g.permission_id from k_nex_role_assignments a join k_nex_role_permission_grants g on g.application_id=a.application_id and g.role_id=a.role_id where a.application_id=$1 and a.subject_kind='user' and a.subject_id=$2 and a.state='active' order by g.permission_id", [owner.applicationId, current.actorId]),
+        database.query<Record<string, unknown>>("select d.descriptor_schema_version,d.document_revision,d.settings_revision,d.values_json from k_nex_system_settings_documents d where d.application_id=$1 and d.environment=$2 and d.descriptor_id='system.general' and d.owner_scope_key='platform:system'", [owner.applicationId, owner.environment]),
         processBoundSalesGeneration(database, staticIdentityProvider, owner)
       ]);
-      const row = scope.rows[0]; const revision = state.rows[0];
+      const row = scope.rows[0]; const revision = state.rows[0]; const settingsRow = settings.rows[0]; const settingsValues = settingsRow?.values_json;
       if (scope.rows.length !== 1 || state.rows.length !== 1 || row === undefined || revision === undefined ||
         !["owned-or-assigned-team", "managed-teams-and-own", "application-sales-scope", "explicit-application-or-team-scope"].includes(String(row.record_scope)) ||
         typeof row.application_wide !== "boolean" || typeof row.mutation_allowed !== "boolean" || !Array.isArray(row.authorized_team_ids) || row.authorized_team_ids.length > 32 || row.authorized_team_ids.some((teamId) => typeof teamId !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,159}$/u.test(teamId)) || JSON.stringify(row.authorized_team_ids) !== JSON.stringify([...new Set(row.authorized_team_ids)].sort()) ||
-        !Number.isSafeInteger(row.revision) || !Number.isSafeInteger(revision.authorization_revision) || !Number.isSafeInteger(revision.lifecycle_revision) ||
+        !Number.isSafeInteger(row.revision) || !Number.isSafeInteger(revision.authorization_revision) || !Number.isSafeInteger(revision.lifecycle_revision) || settings.rows.length !== 1 || settingsRow === undefined || settingsRow.descriptor_schema_version !== 3 || !Number.isSafeInteger(settingsRow.document_revision) || !Number.isSafeInteger(settingsRow.settings_revision) || settingsRow.document_revision !== settingsRow.settings_revision || settingsValues === null || typeof settingsValues !== "object" || Array.isArray(settingsValues) || typeof (settingsValues as Record<string, unknown>).reportingTimezone !== "string" || !canonicalIana((settingsValues as Record<string, unknown>).reportingTimezone) || typeof (settingsValues as Record<string, unknown>).reportingCurrency !== "string" || !/^[A-Z]{3}$/u.test((settingsValues as Record<string, unknown>).reportingCurrency as string) ||
         processBound.authorizationRevision !== revision.authorization_revision || processBound.lifecycleRevision !== revision.lifecycle_revision) throw new TypeError("Durable Sales authority is unavailable.");
       const permissionGrants = effectivePermissionGrants(grants.rows);
-      const resolved = Object.freeze({ context: current, recordScope: row.record_scope as FixtureDurableSalesAuthority["recordScope"], applicationWide: row.application_wide, mutationAllowed: row.mutation_allowed, authorizedTeamIds: Object.freeze(row.authorized_team_ids.map(String)), scopeRevision: row.revision as number, authorizationRevision: revision.authorization_revision as number, lifecycleRevision: revision.lifecycle_revision as number, moduleSalesAuthorizationGeneration: processBound.authorizationGeneration, moduleSalesRuntimeGenerationIds: processBound.runtimeGenerationIds, permissionGrants, fieldGrants: effectiveMovementFieldGrants(permissionGrants) });
+      const resolved = Object.freeze({ context: current, recordScope: row.record_scope as FixtureDurableSalesAuthority["recordScope"], applicationWide: row.application_wide, mutationAllowed: row.mutation_allowed, authorizedTeamIds: Object.freeze(row.authorized_team_ids.map(String)), scopeRevision: row.revision as number, authorizationRevision: revision.authorization_revision as number, lifecycleRevision: revision.lifecycle_revision as number, settingsRevision: settingsRow.settings_revision as number, reportingTimezone: (settingsValues as Record<string, unknown>).reportingTimezone as string, reportingCurrency: (settingsValues as Record<string, unknown>).reportingCurrency as string, moduleSalesAuthorizationGeneration: processBound.authorizationGeneration, moduleSalesRuntimeGenerationIds: processBound.runtimeGenerationIds, permissionGrants, fieldGrants: effectiveMovementFieldGrants(permissionGrants) });
       durableContexts.set(request, resolved);
       return resolved;
     },
     async revalidateDurableSalesAuthority(request, durable) {
       const database = pool(request);
-      const [scope, state, grants, processBound] = await Promise.all([
+      const [scope, state, grants, settings, processBound] = await Promise.all([
         database.query<Record<string, unknown>>("select record_scope, application_wide, mutation_allowed, authorized_team_ids, revision from sales_current_authority_scopes where application_id=$1 and environment=$2 and principal_id=$3 and state='active'", [durable.context.applicationId, durable.context.environment, durable.context.actorId]),
         database.query<Record<string, unknown>>("select authorization_revision, lifecycle_revision from k_nex_authorization_state where application_id=$1", [durable.context.applicationId]),
         database.query<Record<string, unknown>>("select distinct g.permission_id from k_nex_role_assignments a join k_nex_role_permission_grants g on g.application_id=a.application_id and g.role_id=a.role_id where a.application_id=$1 and a.subject_kind='user' and a.subject_id=$2 and a.state='active' order by g.permission_id", [durable.context.applicationId, durable.context.actorId]),
+        database.query<Record<string, unknown>>("select d.descriptor_schema_version,d.document_revision,d.settings_revision,d.values_json from k_nex_system_settings_documents d where d.application_id=$1 and d.environment=$2 and d.descriptor_id='system.general' and d.owner_scope_key='platform:system'", [durable.context.applicationId, durable.context.environment]),
         processBoundSalesGeneration(database, staticIdentityProvider, owner)
       ]);
-      return scope.rows.length === 1 && state.rows.length === 1 && sameDurableAuthority(durable, scope.rows[0], state.rows[0], grants.rows, processBound);
+      const settingsRow = settings.rows[0]; const settingsValues = settingsRow?.values_json;
+      const normalizedSettings = settingsRow === undefined || settingsValues === null || typeof settingsValues !== "object" || Array.isArray(settingsValues) ? undefined : { ...settingsRow, reportingTimezone: (settingsValues as Record<string, unknown>).reportingTimezone, reportingCurrency: (settingsValues as Record<string, unknown>).reportingCurrency };
+      return scope.rows.length === 1 && state.rows.length === 1 && settings.rows.length === 1 && sameDurableAuthority(durable, scope.rows[0], state.rows[0], normalizedSettings, grants.rows, processBound);
     },
     durableSalesAuthority(request) {
       const resolved = durableContexts.get(request);

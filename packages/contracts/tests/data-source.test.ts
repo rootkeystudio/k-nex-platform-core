@@ -3,7 +3,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   assertDataSourceDefinition,
+  dataSourceReportExecutionDigestInput,
   DataSourceDescriptorSchema,
+  DataSourceReportExecutionSchema,
+  isIso4217CurrencyCode,
+  iso4217CurrencyScale,
   isDataSourceDefinition,
   MetricScalarSchema,
   TableRecordsSchema
@@ -76,6 +80,38 @@ describe("P2.2 data-source contracts", () => {
       expect(result.data.primaryContract.version).toBe(1);
     }
   });
+  it("accepts metric.scalar@2 but keeps table.records@1 exact", () => {
+    expect(DataSourceDescriptorSchema.safeParse({ ...metricDescriptor, primaryContract: { id: "metric.scalar", version: 2 } }).success).toBe(true);
+    expect(DataSourceDescriptorSchema.safeParse({ ...metricDescriptor, primaryContract: { id: "table.records", version: 2 } }).success).toBe(false);
+  });
+
+  it("keeps report execution evidence closed, digest-addressable, and ISO currency-bound", () => {
+    const evidence = {
+      applicationId: "customer-gate-1",
+      environment: "production",
+      source: { id: "sales.report.weighted-forecast", version: 1 },
+      sourceSchema: { id: "sales.report.weighted-forecast.output", version: 1 },
+      authorizationRevision: 7,
+      lifecycleRevision: 2,
+      salesScopeRevision: 5,
+      settingsRevision: 3,
+      reportingTimezone: "UTC",
+      reportingCurrency: "USD",
+      currencyScale: 2,
+      asOf: "2026-09-08T12:00:00.000Z",
+      windowMode: "as-of",
+      grouping: "none",
+      authorizedRecordCount: 4,
+      executionDigest: `sha256:${"a".repeat(64)}`
+    } as const;
+    expect(DataSourceReportExecutionSchema.safeParse(evidence).success).toBe(true);
+    expect(DataSourceReportExecutionSchema.safeParse({ ...evidence, extra: true }).success).toBe(false);
+    expect(dataSourceReportExecutionDigestInput(evidence)).not.toHaveProperty("executionDigest");
+    expect(isIso4217CurrencyCode("USD")).toBe(true);
+    expect(isIso4217CurrencyCode("ZZZ")).toBe(false);
+    expect(iso4217CurrencyScale("USD")).toBe(2);
+    expect(iso4217CurrencyScale("JPY")).toBe(0);
+  });
 
   it("accepts declared table field semantics and bounded operations", () => {
     expect(DataSourceDescriptorSchema.safeParse(tableDescriptor).success).toBe(true);
@@ -116,7 +152,7 @@ describe("P2.2 data-source contracts", () => {
       expect(DataSourceDescriptorSchema.safeParse({ ...tableDescriptor, limits: { ...limits, ...raised } }).success).toBe(false);
     }
     expect(DataSourceDescriptorSchema.safeParse({ ...tableDescriptor, limits: { ...limits, costClass: "unbounded" } }).success).toBe(false);
-    expect(DataSourceDescriptorSchema.safeParse({ ...metricDescriptor, primaryContract: { id: "metric.scalar", version: 2 } }).success).toBe(false);
+    expect(DataSourceDescriptorSchema.safeParse({ ...metricDescriptor, primaryContract: { id: "metric.scalar", version: 3 } }).success).toBe(false);
   });
 
   it("rejects unknown, executable, URL, and query metadata", () => {

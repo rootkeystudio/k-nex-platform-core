@@ -22,6 +22,7 @@ import { activePayloadPostgresTransaction, createPayloadPersistenceCapability, C
 import type { Endpoint, PayloadRequest } from "payload";
 import type { FixtureAuthorityContext, FixtureCurrentAuthority, FixtureDurableSalesAuthority, FixtureSalesProfile } from "./current-authority.js";
 import { FixtureSalesDataMovementStore } from "./data-movement-host.js";
+import { createGeneratedSalesReportingGateway } from "./k-nex-sales-reports.js";
 
 interface QueryBody {
   readonly sourceId?: unknown;
@@ -82,12 +83,68 @@ function durableCrmScope(current: FixtureDurableSalesAuthority) {
   return { and: records };
 }
 
+const reportPermissionIds = ["sales.exports.execute", "sales.reports.read", "sales.reports.schedule"] as const;
+const reportObjectPermissionIds = ["sales.activities.read", "sales.leads.read", "sales.opportunities.read", "sales.pipelines.read", "sales.tasks.read"] as const;
+const reportFieldPermissionIds = ["sales.opportunities.amount.read"] as const;
+
+function closedReportGrants<T extends string>(grants: readonly string[], allowed: readonly T[]): readonly T[] {
+  return Object.freeze([...new Set(grants.filter((grant): grant is T => allowed.includes(grant as T)))].sort());
+}
+
+/**
+ * Report aggregation is admitted only with the same process-bound generation
+ * and exact object/field grants that its Sales handler validates. Reports.read
+ * cannot stand in for a CRM source or amount-field grant.
+ */
+function durableReportingAuthority(durable: FixtureDurableSalesAuthority) {
+  const runtimeGenerationIds = durable.moduleSalesRuntimeGenerationIds;
+  if (runtimeGenerationIds.length !== 1 || typeof runtimeGenerationIds[0] !== "string" || runtimeGenerationIds[0].length < 1 || runtimeGenerationIds[0].length > 160) {
+    throw new TypeError("Sales report runtime generation is unavailable.");
+  }
+  const reportPermissionGrants = closedReportGrants(durable.permissionGrants, reportPermissionIds);
+  const objectPermissionGrants = closedReportGrants(durable.permissionGrants, reportObjectPermissionIds);
+  const fieldPermissionGrants = closedReportGrants(durable.permissionGrants, reportFieldPermissionIds);
+  const context = Object.freeze({ applicationId: durable.context.applicationId, environment: durable.context.environment, actorId: durable.context.actorId });
+  const authority = Object.freeze({
+    context,
+    authorizationRevision: durable.authorizationRevision,
+    lifecycleRevision: durable.lifecycleRevision,
+    scopeRevision: durable.scopeRevision,
+    recordScope: durable.recordScope,
+    applicationWide: durable.applicationWide,
+    authorizedTeamIds: durable.authorizedTeamIds,
+    permissionGrants: reportPermissionGrants,
+    runtimeGenerationId: runtimeGenerationIds[0],
+    reportPermissionGrants,
+    objectPermissionGrants,
+    fieldPermissionGrants
+  });
+  const facts = Object.freeze({
+    authorizationRevision: durable.authorizationRevision,
+    lifecycleRevision: durable.lifecycleRevision,
+    salesScopeRevision: durable.scopeRevision,
+    settingsRevision: durable.settingsRevision,
+    reportingTimezone: durable.reportingTimezone,
+    reportingCurrency: durable.reportingCurrency,
+    runtimeGenerationId: runtimeGenerationIds[0],
+    reportPermissionGrants,
+    objectPermissionGrants,
+    fieldPermissionGrants
+  });
+  return Object.freeze({ authority, facts });
+}
+
 function salesPolicy(authority: FixtureCurrentAuthority, resolve: (value: unknown) => FixtureDurableSalesAuthority): DataSourcePolicyService {
   return {
     authorize({ descriptor, authorizationContext }) {
       const durable = resolve(authorizationContext);
       const current = durable.context;
       const profile = authority.salesProfile(current);
+    if (descriptor.id.startsWith("sales.report.")) return {
+      sourceAllowed: durable.permissionGrants.includes("sales.reports.read"),
+      recordScope: { kind: descriptor.id, where: durableCrmScope(durable) },
+      allowedFields: descriptor.outputFields?.map(({ id }) => id) ?? []
+    };
     if (descriptor.id === "sales.tasks") return {
       sourceAllowed: true,
       recordScope: { kind: "sales.tasks", where: durableScope(durable, "status", taskStatus(profile)) },
@@ -187,7 +244,8 @@ function queryGateway(registration: RegistrationResult, authority: FixtureCurren
         ], new CurrentAuthorityPayloadPersistenceAuthorizer(authority.adapter, current, ({ collection, operation }) => authority.payload(collection, operation)), {
           guard: async () => durableFence(request, durable)
         });
-        return Object.freeze({ ...persistence, dataMovement: new FixtureSalesDataMovementStore(request, durable) });
+        const reporting = durableReportingAuthority(durable);
+        return Object.freeze({ ...persistence, dataMovement: new FixtureSalesDataMovementStore(request, durable), reporting: createGeneratedSalesReportingGateway(request, reporting.authority), reportingAuthority: reporting.facts });
       }
     }),
     catalog: catalog(registration),

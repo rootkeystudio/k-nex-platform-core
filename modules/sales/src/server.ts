@@ -2,6 +2,10 @@ import { createHash } from "node:crypto";
 
 import {
   canonicalJson,
+  dataSourceReportExecutionDigestInput,
+  DataSourceReportExecutionSchema,
+  iso4217CurrencyScale,
+  isIso4217CurrencyCode,
   TableRecordsSchema,
   type RuntimeSchema,
   type DataSourceDefinition,
@@ -141,6 +145,24 @@ import {
   salesProviderConfigurationFields,
   salesProviderConfigurationsDescriptor,
   salesProviderConfigurationsOutputRuntimeSchema,
+  salesReportDescriptors,
+  salesPipelineValueByStageDescriptor,
+  salesPipelineValueByStageOutputRuntimeSchema,
+  salesWeightedForecastDescriptor,
+  salesWonLostConversionDescriptor,
+  salesLeadConversionDescriptor,
+  salesActivityByOwnerTeamDescriptor,
+  salesActivityByOwnerTeamOutputRuntimeSchema,
+  salesTaskAgingDescriptor,
+  salesTaskAgingOutputRuntimeSchema,
+  salesSalesCycleDurationDescriptor,
+  salesMetricOutputRuntimeSchema,
+  salesMetricOutputRuntimeV2Schema,
+  salesReportRunDescriptor,
+  salesReportScheduleDescriptor,
+  salesReportActionDescriptors,
+  salesReportActionInputRuntimeSchemas,
+  salesReportActionOutputRuntimeSchemas,
   salesCommunicationActionDescriptors,
   salesCommunicationActionInputRuntimeSchemas,
   salesCommunicationActionOutputRuntimeSchemas,
@@ -160,6 +182,8 @@ import {
   type SalesReportingTimezone,
   type SalesSavedViewSourceId,
   type SalesSavedViewVisibility,
+  type SalesReportId,
+  type SalesReportWindowMode,
   type CreateTaskInput,
   type CreateTaskOutput,
   type UpdateOpportunityStageInput,
@@ -468,6 +492,192 @@ export const salesImportJobDetailDefinition: DataSourceDefinition = { descriptor
 export const salesExportJobListDefinition: DataSourceDefinition = { descriptor: salesExportJobListDescriptor, inputSchema: salesEmptyInputRuntimeSchema, outputSchema: salesExportJobListOutputRuntimeSchema };
 export const salesExportJobDetailDefinition: DataSourceDefinition = { descriptor: salesExportJobDetailDescriptor, inputSchema: salesExportJobDetailInputRuntimeSchema, outputSchema: salesExportJobDetailOutputRuntimeSchema };
 export const salesDedupeCandidatesDefinition: DataSourceDefinition = { descriptor: salesDedupeCandidatesDescriptor, inputSchema: salesDedupeCandidatesInputRuntimeSchema, outputSchema: salesDedupeCandidatesOutputRuntimeSchema };
+
+/** Closed underlying grants prevent reports from treating sales.reports.read as a substitute for CRM object/field authority. */
+export const salesReportPermissionGrants = ["sales.exports.execute", "sales.reports.read", "sales.reports.schedule"] as const;
+export const salesReportObjectPermissionGrants = ["sales.activities.read", "sales.leads.read", "sales.opportunities.read", "sales.pipelines.read", "sales.tasks.read"] as const;
+export const salesReportFieldPermissionGrants = ["sales.opportunities.amount.read"] as const;
+type SalesReportPermissionGrant = typeof salesReportPermissionGrants[number];
+type SalesReportObjectPermissionGrant = typeof salesReportObjectPermissionGrants[number];
+type SalesReportFieldPermissionGrant = typeof salesReportFieldPermissionGrants[number];
+type SalesReportGrouping = "none" | "stage" | "owner-team" | "aging-bucket";
+
+/** Current server-owned authority/settings facts. The host must lock and recheck these with every report aggregation or durable delivery transition. */
+export type SalesReportingAuthority = Readonly<{
+  readonly authorizationRevision: number;
+  readonly lifecycleRevision: number;
+  readonly salesScopeRevision: number;
+  readonly settingsRevision: number;
+  readonly reportingTimezone: string;
+  readonly reportingCurrency: string;
+  readonly runtimeGenerationId: string;
+  readonly reportPermissionGrants: readonly SalesReportPermissionGrant[];
+  readonly objectPermissionGrants: readonly SalesReportObjectPermissionGrant[];
+  readonly fieldPermissionGrants: readonly SalesReportFieldPermissionGrant[];
+}>;
+export type SalesReportResult = Readonly<{ readonly applicationId: string; readonly environment: string; readonly actorId: string; readonly authority: SalesReportingAuthority; readonly reportId: SalesReportId; readonly windowMode: "as-of" | SalesReportWindowMode; readonly query: DataSourceQueryControls; readonly selectedFields: readonly string[]; readonly recordScope: unknown }>;
+export type SalesReportResultMetadata = import("@k-nex/contracts").DataSourceReportExecution;
+export type SalesReportReadResult = Readonly<{ readonly data: unknown; readonly metadata: SalesReportResultMetadata }>;
+export type SalesReportActionCall = Readonly<{ readonly applicationId: string; readonly environment: string; readonly actorId: string; readonly authority: SalesReportingAuthority; readonly idempotencyKey: string; readonly input: Readonly<Record<string, unknown>>; readonly signal: AbortSignal }>;
+/** Composition owns persistence, current authorization rechecks, settings revisions, fencing, audit and outbox. */
+export interface SalesReportingGateway {
+  read(input: SalesReportResult): Promise<SalesReportReadResult>;
+  run(input: SalesReportActionCall): Promise<unknown>;
+  schedule(input: SalesReportActionCall): Promise<unknown>;
+}
+function reportingGateway(value: unknown, error: "source" | "action"): SalesReportingGateway {
+  const candidate = isRecord(value) && isRecord(value.reporting) ? value.reporting : undefined;
+  if (candidate === undefined || typeof candidate.read !== "function" || typeof candidate.run !== "function" || typeof candidate.schedule !== "function") {
+    if (error === "source") throw new DataSourceGatewayError("SOURCE_FORBIDDEN", 403, "Sales reporting authority is unavailable.");
+    throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales reporting authority is unavailable.");
+  }
+  return candidate as unknown as SalesReportingGateway;
+}
+function sortedClosedGrants<T extends string>(value: unknown, allowed: readonly T[]): value is readonly T[] {
+  return Array.isArray(value) && value.every((grant): grant is T => typeof grant === "string" && allowed.includes(grant as T)) &&
+    canonicalJson([...new Set(value)].sort()) === canonicalJson(value);
+}
+const reportRequirements: Readonly<Record<SalesReportId, Readonly<{ objects: readonly SalesReportObjectPermissionGrant[]; fields: readonly SalesReportFieldPermissionGrant[]; grouping: SalesReportGrouping }>>> = Object.freeze({
+  "sales.report.pipeline-value-by-stage": Object.freeze({ objects: ["sales.opportunities.read", "sales.pipelines.read"] as const, fields: ["sales.opportunities.amount.read"] as const, grouping: "stage" }),
+  "sales.report.weighted-forecast": Object.freeze({ objects: ["sales.opportunities.read", "sales.pipelines.read"] as const, fields: ["sales.opportunities.amount.read"] as const, grouping: "none" }),
+  "sales.report.won-lost-conversion": Object.freeze({ objects: ["sales.opportunities.read", "sales.pipelines.read"] as const, fields: [] as const, grouping: "none" }),
+  "sales.report.lead-conversion": Object.freeze({ objects: ["sales.leads.read"] as const, fields: [] as const, grouping: "none" }),
+  "sales.report.activity-by-owner-team": Object.freeze({ objects: ["sales.activities.read"] as const, fields: [] as const, grouping: "owner-team" }),
+  "sales.report.task-aging": Object.freeze({ objects: ["sales.tasks.read"] as const, fields: [] as const, grouping: "aging-bucket" }),
+  "sales.report.sales-cycle-duration": Object.freeze({ objects: ["sales.opportunities.read"] as const, fields: [] as const, grouping: "none" })
+});
+function reportingAuthority(value: unknown, error: "source" | "action", reportId?: SalesReportId, action?: "run" | "schedule"): SalesReportingAuthority {
+  const authority = isRecord(value) && isRecord(value.reportingAuthority) ? value.reportingAuthority : undefined;
+  if (authority === undefined || !["authorizationRevision", "lifecycleRevision", "salesScopeRevision", "settingsRevision", "reportingTimezone", "reportingCurrency", "runtimeGenerationId", "reportPermissionGrants", "objectPermissionGrants", "fieldPermissionGrants"].every((key) => Object.hasOwn(authority, key)) || Object.keys(authority).length !== 10 ||
+    typeof authority.authorizationRevision !== "number" || !Number.isSafeInteger(authority.authorizationRevision) || authority.authorizationRevision < 1 || typeof authority.lifecycleRevision !== "number" || !Number.isSafeInteger(authority.lifecycleRevision) || authority.lifecycleRevision < 0 || typeof authority.salesScopeRevision !== "number" || !Number.isSafeInteger(authority.salesScopeRevision) || authority.salesScopeRevision < 1 || typeof authority.settingsRevision !== "number" || !Number.isSafeInteger(authority.settingsRevision) || authority.settingsRevision < 1 ||
+    typeof authority.reportingTimezone !== "string" || !isIso4217CurrencyCode(authority.reportingCurrency) || typeof authority.runtimeGenerationId !== "string" || authority.runtimeGenerationId.length < 1 || authority.runtimeGenerationId.length > 160 ||
+    !sortedClosedGrants(authority.reportPermissionGrants, salesReportPermissionGrants) || !sortedClosedGrants(authority.objectPermissionGrants, salesReportObjectPermissionGrants) || !sortedClosedGrants(authority.fieldPermissionGrants, salesReportFieldPermissionGrants) ||
+    !authority.reportPermissionGrants.includes("sales.reports.read") || action === "run" && !authority.reportPermissionGrants.includes("sales.exports.execute") || action === "schedule" && !authority.reportPermissionGrants.includes("sales.reports.schedule")) {
+    if (error === "source") throw new DataSourceGatewayError("SOURCE_FORBIDDEN", 403, "Sales reporting authority is unavailable.");
+    throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales reporting authority is unavailable.");
+  }
+  try {
+    if (new Intl.DateTimeFormat("en-US", { timeZone: authority.reportingTimezone }).resolvedOptions().timeZone !== authority.reportingTimezone) throw new Error("noncanonical");
+  } catch {
+    if (error === "source") throw new DataSourceGatewayError("SOURCE_FORBIDDEN", 403, "Sales reporting authority is unavailable.");
+    throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales reporting authority is unavailable.");
+  }
+  const parsed = Object.freeze({ authorizationRevision: authority.authorizationRevision as number, lifecycleRevision: authority.lifecycleRevision as number, salesScopeRevision: authority.salesScopeRevision as number, settingsRevision: authority.settingsRevision as number, reportingTimezone: authority.reportingTimezone, reportingCurrency: authority.reportingCurrency, runtimeGenerationId: authority.runtimeGenerationId, reportPermissionGrants: Object.freeze([...authority.reportPermissionGrants]), objectPermissionGrants: Object.freeze([...authority.objectPermissionGrants]), fieldPermissionGrants: Object.freeze([...authority.fieldPermissionGrants]) });
+  if (reportId !== undefined) {
+    const required = reportRequirements[reportId];
+    if (required.objects.some((grant) => !parsed.objectPermissionGrants.includes(grant)) || required.fields.some((grant) => !parsed.fieldPermissionGrants.includes(grant))) {
+      if (error === "source") throw new DataSourceGatewayError("SOURCE_FORBIDDEN", 403, "Sales report underlying authority is unavailable.");
+      throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales report underlying authority is unavailable.");
+    }
+  }
+  return parsed;
+}
+const reportWindowed = new Set<SalesReportId>(["sales.report.won-lost-conversion", "sales.report.lead-conversion", "sales.report.activity-by-owner-team", "sales.report.sales-cycle-duration"]);
+function reportWindow(reportId: SalesReportId, value: unknown): "as-of" | SalesReportWindowMode {
+  if (reportWindowed.has(reportId)) {
+    if (typeof value !== "string" || !["current-reporting-week", "previous-complete-reporting-week", "current-reporting-month", "previous-complete-reporting-month"].includes(value)) throw new DataSourceGatewayError("INVALID_QUERY_INPUT", 400, "Sales report window is invalid.");
+    return value as SalesReportWindowMode;
+  }
+  if (value !== undefined) throw new DataSourceGatewayError("INVALID_QUERY_INPUT", 400, "Sales report does not accept a window.");
+  return "as-of";
+}
+function reportReadData(value: unknown, call: SalesReportResult): unknown {
+  if (!isRecord(value) || !Object.hasOwn(value, "data") || !Object.hasOwn(value, "metadata") || Object.keys(value).length !== 2 || !isRecord(value.metadata)) throw new DataSourceGatewayError("SOURCE_FORBIDDEN", 403, "Sales report result metadata is invalid.");
+  const parsedMetadata = DataSourceReportExecutionSchema.safeParse(value.metadata);
+  if (!parsedMetadata.success) throw new DataSourceGatewayError("SOURCE_FORBIDDEN", 403, "Sales report result metadata is invalid.");
+  const metadata = parsedMetadata.data;
+  const required = reportRequirements[call.reportId];
+  const currencyScale = iso4217CurrencyScale(call.authority.reportingCurrency);
+  if (currencyScale === undefined) throw new DataSourceGatewayError("SOURCE_FORBIDDEN", 403, "Sales report result metadata is invalid.");
+  const expected: Readonly<Record<string, unknown>> = Object.freeze({
+    applicationId: call.applicationId,
+    environment: call.environment,
+    source: Object.freeze({ id: call.reportId, version: 1 }),
+    sourceSchema: Object.freeze({ id: `${call.reportId}.output`, version: 1 }),
+    authorizationRevision: call.authority.authorizationRevision,
+    lifecycleRevision: call.authority.lifecycleRevision,
+    salesScopeRevision: call.authority.salesScopeRevision,
+    settingsRevision: call.authority.settingsRevision,
+    reportingTimezone: call.authority.reportingTimezone,
+    reportingCurrency: call.authority.reportingCurrency,
+    currencyScale,
+    asOf: metadata.asOf,
+    windowMode: call.windowMode,
+    grouping: required.grouping,
+    authorizedRecordCount: metadata.authorizedRecordCount
+  });
+  const executionDigest = `sha256:${createHash("sha256").update(canonicalJson(expected)).digest("hex")}`;
+  if (Object.keys(metadata).length !== 16 || Object.entries(expected).some(([key, expectedValue]) => canonicalJson((metadata as Readonly<Record<string, unknown>>)[key]) !== canonicalJson(expectedValue)) || metadata.executionDigest !== executionDigest ||
+    !Number.isFinite(Date.parse(metadata.asOf)) || new Date(metadata.asOf).toISOString() !== metadata.asOf || canonicalJson(dataSourceReportExecutionDigestInput(metadata)) !== canonicalJson(expected)) {
+    throw new DataSourceGatewayError("SOURCE_FORBIDDEN", 403, "Sales report result metadata is invalid.");
+  }
+  return Object.freeze({ data: value.data, reportExecution: metadata });
+}
+function reportSourceHandler(reportId: SalesReportId): DataSourceHandler {
+  return async (context) => {
+    const descriptor = salesReportDescriptors.find(({ id }) => id === reportId)!;
+    const input = context.input as Readonly<Record<string, unknown>>;
+    if (!isRecord(input) || Object.keys(input).some((key) => key !== "window-mode") || context.query.filters.length !== 0 || context.query.sort.length !== 0 || descriptor.primaryContract.id === "metric.scalar" && context.query.page !== undefined || descriptor.primaryContract.id === "table.records" && context.query.page === undefined) throw new DataSourceGatewayError("INVALID_QUERY_INPUT", 400, "Sales report query is invalid.");
+    const selectedFields = [...context.selectedFields]; const allowedFields = new Set((descriptor.outputFields ?? []).map(({ id }) => id));
+    if (descriptor.primaryContract.id === "metric.scalar" ? selectedFields.length !== 0 : selectedFields.length === 0 || new Set(selectedFields).size !== selectedFields.length || selectedFields.some((field) => !allowedFields.has(field))) throw new DataSourceGatewayError("SOURCE_FORBIDDEN", 403, "Sales report field selection is invalid.");
+    const identity = sourceIdentity(context.request); const actor = payloadUser(context.actor);
+    if (actor === undefined) throw new DataSourceGatewayError("SOURCE_FORBIDDEN", 403, "Sales reports require a user actor.");
+    const call = Object.freeze({ ...identity, actorId: actor.id, authority: reportingAuthority(context.request, "source", reportId), reportId, windowMode: reportWindow(reportId, input["window-mode"]), query: context.query, selectedFields, recordScope: context.recordScope });
+    return reportReadData(await reportingGateway(context.request, "source").read(call), call);
+  };
+}
+export const salesPipelineValueByStageHandler = reportSourceHandler("sales.report.pipeline-value-by-stage");
+export const salesWeightedForecastHandler = reportSourceHandler("sales.report.weighted-forecast");
+export const salesWonLostConversionHandler = reportSourceHandler("sales.report.won-lost-conversion");
+export const salesLeadConversionHandler = reportSourceHandler("sales.report.lead-conversion");
+export const salesActivityByOwnerTeamHandler = reportSourceHandler("sales.report.activity-by-owner-team");
+export const salesTaskAgingHandler = reportSourceHandler("sales.report.task-aging");
+export const salesSalesCycleDurationHandler = reportSourceHandler("sales.report.sales-cycle-duration");
+export const salesPipelineValueByStageDefinition: DataSourceDefinition = { descriptor: salesPipelineValueByStageDescriptor, inputSchema: salesEmptyInputRuntimeSchema, outputSchema: salesPipelineValueByStageOutputRuntimeSchema };
+export const salesWeightedForecastDefinition: DataSourceDefinition = { descriptor: salesWeightedForecastDescriptor, inputSchema: salesEmptyInputRuntimeSchema, outputSchema: salesMetricOutputRuntimeSchema };
+export const salesWonLostConversionDefinition: DataSourceDefinition = { descriptor: salesWonLostConversionDescriptor, inputSchema: { safeParse(value) { return reportWindowedInput(value); } }, outputSchema: salesMetricOutputRuntimeV2Schema };
+export const salesLeadConversionDefinition: DataSourceDefinition = { descriptor: salesLeadConversionDescriptor, inputSchema: { safeParse(value) { return reportWindowedInput(value); } }, outputSchema: salesMetricOutputRuntimeV2Schema };
+export const salesActivityByOwnerTeamDefinition: DataSourceDefinition = { descriptor: salesActivityByOwnerTeamDescriptor, inputSchema: { safeParse(value) { return reportWindowedInput(value); } }, outputSchema: salesActivityByOwnerTeamOutputRuntimeSchema };
+export const salesTaskAgingDefinition: DataSourceDefinition = { descriptor: salesTaskAgingDescriptor, inputSchema: salesEmptyInputRuntimeSchema, outputSchema: salesTaskAgingOutputRuntimeSchema };
+export const salesSalesCycleDurationDefinition: DataSourceDefinition = { descriptor: salesSalesCycleDurationDescriptor, inputSchema: { safeParse(value) { return reportWindowedInput(value); } }, outputSchema: salesMetricOutputRuntimeV2Schema };
+function reportWindowedInput(value: unknown): ReturnType<RuntimeSchema<Readonly<Record<string, unknown>>>["safeParse"]> {
+  if (!isRecord(value) || Object.keys(value).some((key) => key !== "window-mode") || value["window-mode"] !== undefined && (typeof value["window-mode"] !== "string" || !["current-reporting-week", "previous-complete-reporting-week", "current-reporting-month", "previous-complete-reporting-month"].includes(value["window-mode"]))) return { success: false as const, error: new Error("Sales report input is invalid.") };
+  return { success: true as const, data: Object.freeze({ ...(value["window-mode"] === undefined ? {} : { "window-mode": value["window-mode"] }) }) };
+}
+export const salesReportActionHandler: ActionHandler = async ({ authorizationContext, input, idempotencyKey, signal }) => {
+  const actionId = isRecord(authorizationContext) && typeof authorizationContext.actionId === "string" ? authorizationContext.actionId : undefined;
+  if (actionId !== salesReportRunDescriptor.id && actionId !== salesReportScheduleDescriptor.id || typeof idempotencyKey !== "string" || idempotencyKey.length === 0) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales report action is forbidden.");
+  const parsedInput = salesReportActionInputRuntimeSchemas[actionId]!.safeParse(input); if (!parsedInput.success) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales report input is invalid.");
+  const authorization = writeAuthorization(authorizationContext, actionId);
+  const output = salesReportActionOutputRuntimeSchemas[actionId]!;
+  const replay = idempotencyReplay(authorization, output); if (replay !== undefined) return replay;
+  const reportId = parsedInput.data.reportId;
+  if (typeof reportId !== "string" || !salesReportDescriptors.some(({ id }) => id === reportId)) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales report ID is invalid.");
+  const window = parsedInput.data.windowMode;
+  if (actionId === salesReportRunDescriptor.id || parsedInput.data.operation === "upsert") {
+    try { reportWindow(reportId as SalesReportId, reportWindowed.has(reportId as SalesReportId) ? window : window === "as-of" ? undefined : window); } catch { throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales report window is invalid."); }
+  }
+  if (actionId === salesReportScheduleDescriptor.id) {
+    const schedule = parsedInput.data; const upsert = schedule.operation === "upsert";
+    const allowed = upsert ? ["operation", "reportId", "recipientId", "expectedRevision", "weekday", "localTime", "windowMode"] : ["operation", "reportId", "recipientId", "expectedRevision"];
+    const expectedRevision = schedule.expectedRevision; const weekday = schedule.weekday; const localTime = schedule.localTime;
+    const validRevision = typeof expectedRevision === "number" && Number.isSafeInteger(expectedRevision) && expectedRevision >= (upsert ? 0 : 1);
+    const validWeekday = typeof weekday === "number" && Number.isSafeInteger(weekday) && weekday >= 1 && weekday <= 7;
+    if ((schedule.operation !== "upsert" && schedule.operation !== "cancel") || Object.keys(schedule).some((key) => !allowed.includes(key)) || typeof schedule.recipientId !== "string" || !actorIdPattern.test(schedule.recipientId) || !validRevision || upsert && (!validWeekday || typeof localTime !== "string" || !/^([01][0-9]|2[0-3]):[0-5][0-9]$/u.test(localTime))) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales report schedule is invalid.");
+  }
+  const call = Object.freeze({ applicationId: authorization.applicationId, environment: authorization.environment, actorId: authorization.actorId, authority: reportingAuthority(authorizationContext, "action", reportId as SalesReportId, actionId === salesReportRunDescriptor.id ? "run" : "schedule"), idempotencyKey, input: parsedInput.data, signal });
+  const result = actionId === salesReportRunDescriptor.id ? await reportingGateway(authorizationContext, "action").run(call) : await reportingGateway(authorizationContext, "action").schedule(call);
+  const parsedOutput = output.safeParse(result); if (!parsedOutput.success) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales report result is invalid.");
+  if (actionId === salesReportRunDescriptor.id && parsedOutput.data.state !== "queued" || actionId === salesReportScheduleDescriptor.id && (parsedOutput.data.reportId !== reportId || parsedOutput.data.recipientId !== parsedInput.data.recipientId || parsedOutput.data.state !== (parsedInput.data.operation === "cancel" ? "cancelled" : "active"))) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales report result does not match its request.");
+  return parsedOutput.data;
+};
+export const salesReportActionDefinitions: readonly ActionDefinition[] = Object.freeze(salesReportActionDescriptors.map((descriptor) => ({ descriptor, inputSchema: salesReportActionInputRuntimeSchemas[descriptor.id]!, outputSchema: salesReportActionOutputRuntimeSchemas[descriptor.id]! })));
+/** The host supplies the fenced durable queue implementation; Sales never receives a database or transport capability. */
+export interface SalesReportDeliveryGateway { process(): Promise<unknown>; }
+export async function salesReportDeliveryJob(input: Readonly<{ gateway: SalesReportDeliveryGateway }>): Promise<unknown> {
+  if (input.gateway === undefined || typeof input.gateway.process !== "function") throw new Error("Sales report delivery gateway is unavailable.");
+  return await input.gateway.process();
+}
 
 export {
   salesCreateTaskToolDescriptor,
@@ -3484,6 +3694,7 @@ export const salesRegistration = definePluginRegistration({
     context.register("sources", salesNotificationsDescriptor.id, { descriptor: salesNotificationsDescriptor, inputSchema: salesEmptyInputRuntimeSchema, outputSchema: salesNotificationsOutputRuntimeSchema });
     context.register("sources", salesRemindersDescriptor.id, { descriptor: salesRemindersDescriptor, inputSchema: salesEmptyInputRuntimeSchema, outputSchema: salesRemindersOutputRuntimeSchema });
     context.register("sources", salesProviderConfigurationsDescriptor.id, { descriptor: salesProviderConfigurationsDescriptor, inputSchema: salesEmptyInputRuntimeSchema, outputSchema: salesProviderConfigurationsOutputRuntimeSchema });
+    for (const definition of [salesPipelineValueByStageDefinition, salesWeightedForecastDefinition, salesWonLostConversionDefinition, salesLeadConversionDefinition, salesActivityByOwnerTeamDefinition, salesTaskAgingDefinition, salesSalesCycleDurationDefinition]) context.register("sources", definition.descriptor.id, definition);
     context.register("sources", salesPipelineSnapshotDescriptor.id, salesPipelineSnapshotDefinition);
     context.register("sources", salesSavedViewListDescriptor.id, salesSavedViewListDefinition);
     context.register("sources", salesSavedViewDetailDescriptor.id, salesSavedViewDetailDefinition);
@@ -3503,6 +3714,7 @@ export const salesRegistration = definePluginRegistration({
     context.register("actions", salesOwnershipAssignDescriptor.id, salesOwnershipAssignDefinition);
     for (const definition of salesDataMovementActionDefinitions) context.register("actions", definition.descriptor.id, definition);
     for (const definition of salesCommunicationActionDefinitions) context.register("actions", definition.descriptor.id, definition);
+    for (const definition of salesReportActionDefinitions) context.register("actions", definition.descriptor.id, definition);
     context.register("tools", salesSearchTasksDescriptor.id, salesSearchTasksDescriptor);
     context.register("tools", salesCreateTaskToolDescriptor.id, salesCreateTaskToolDescriptor);
     for (const descriptor of salesEventDescriptors) context.register("events", descriptor.id, descriptor);
@@ -3540,9 +3752,11 @@ export const salesRegistration = definePluginRegistration({
     context.register("jobs", salesReferenceMetadata.job.id, salesReferenceMetadata.job);
     context.register("jobs", salesReferenceMetadata.reminderJob.id, salesReferenceMetadata.reminderJob);
     context.register("jobs", salesReferenceMetadata.workflowJob.id, salesReferenceMetadata.workflowJob);
+    context.register("jobs", salesReferenceMetadata.reportJob.id, salesReferenceMetadata.reportJob);
     context.bind(salesReferenceMetadata.job.id, salesPipelineAuditJob as (...args: never[]) => unknown);
     context.bind(salesReferenceMetadata.reminderJob.id, salesReminderDeliveryJob as (...args: never[]) => unknown);
     context.bind(salesReferenceMetadata.workflowJob.id, salesCrmWorkflowExecutionJob as (...args: never[]) => unknown);
+    context.bind(salesReferenceMetadata.reportJob.id, salesReportDeliveryJob as (...args: never[]) => unknown);
   },
   dataHandlers: (context) => {
     context.bind("sources", salesTasksDescriptor.id, salesTasksHandler);
@@ -3558,6 +3772,13 @@ export const salesRegistration = definePluginRegistration({
     context.bind("sources", salesNotificationsDescriptor.id, salesNotificationsHandler);
     context.bind("sources", salesRemindersDescriptor.id, salesRemindersHandler);
     context.bind("sources", salesProviderConfigurationsDescriptor.id, salesProviderConfigurationsHandler);
+    context.bind("sources", salesPipelineValueByStageDescriptor.id, salesPipelineValueByStageHandler);
+    context.bind("sources", salesWeightedForecastDescriptor.id, salesWeightedForecastHandler);
+    context.bind("sources", salesWonLostConversionDescriptor.id, salesWonLostConversionHandler);
+    context.bind("sources", salesLeadConversionDescriptor.id, salesLeadConversionHandler);
+    context.bind("sources", salesActivityByOwnerTeamDescriptor.id, salesActivityByOwnerTeamHandler);
+    context.bind("sources", salesTaskAgingDescriptor.id, salesTaskAgingHandler);
+    context.bind("sources", salesSalesCycleDurationDescriptor.id, salesSalesCycleDurationHandler);
     context.bind("sources", salesPipelineSnapshotDescriptor.id, salesPipelineSnapshotHandler);
     context.bind("sources", salesSavedViewListDescriptor.id, salesSavedViewListHandler);
     context.bind("sources", salesSavedViewDetailDescriptor.id, salesSavedViewDetailHandler);
@@ -3577,6 +3798,7 @@ export const salesRegistration = definePluginRegistration({
     context.bind("actions", salesOwnershipAssignDescriptor.id, salesOwnershipAssignHandler as ActionHandler);
     for (const definition of salesDataMovementActionDefinitions) context.bind("actions", definition.descriptor.id, salesDataMovementActionHandler);
     for (const definition of salesCommunicationActionDefinitions) context.bind("actions", definition.descriptor.id, salesCommunicationActionHandler);
+    for (const definition of salesReportActionDefinitions) context.bind("actions", definition.descriptor.id, salesReportActionHandler);
     for (const descriptor of salesEventDescriptors) context.bind("events", descriptor.id, salesEventAfterChange as (...args: never[]) => unknown);
     for (const descriptor of salesRealtimeTopicDescriptors) context.bind("realtimeTopics", descriptor.id, createSalesRealtimeRelay as (...args: never[]) => unknown);
   },

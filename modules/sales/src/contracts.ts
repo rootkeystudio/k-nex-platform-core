@@ -9,10 +9,13 @@ import type {
   SystemSettingsDescriptor,
   PluginUiContributionDescriptor,
   RuntimeSchema,
+  JsonValue,
+  MetricScalar,
+  MetricScalarV2,
   TableRecords,
   DataSourceQueryControls
 } from "@k-nex/contracts";
-import { TableRecordsSchema, canonicalJson } from "@k-nex/contracts";
+import { MetricScalarSchema, MetricScalarV2Schema, TableRecordsSchema, canonicalJson } from "@k-nex/contracts";
 import { isSalesCalendarDate, salesCrmActionDescriptors, salesCrmRouteDescriptors } from "./crm-authority.js";
 
 export const salesRecordIdPattern = "^(?:[1-9][0-9]{0,8}|1[0-9]{9}|20[0-9]{8}|21[0-3][0-9]{7}|214[0-6][0-9]{6}|2147[0-3][0-9]{5}|21474[0-7][0-9]{4}|214748[0-2][0-9]{3}|2147483[0-5][0-9]{2}|21474836[0-3][0-9]|214748364[0-7])$";
@@ -75,6 +78,45 @@ export const salesTasksDescriptor: DataSourceDescriptor = {
 
 type SalesSourceField = NonNullable<DataSourceDescriptor["outputFields"]>[number];
 const crmField = (id: string, kind: SalesSourceField["kind"], permission: string, nullable = false): SalesSourceField => ({ id, kind, binding: nullable ? "optional" : "required", nullable, permission, sortable: false, filterOperators: [] });
+
+/** The P13.8 catalog is closed: no persisted report definition can select a source, field, or expression. */
+export const salesReportWindowModes = ["current-reporting-week", "previous-complete-reporting-week", "current-reporting-month", "previous-complete-reporting-month"] as const;
+export type SalesReportWindowMode = typeof salesReportWindowModes[number];
+export type SalesReportId = "sales.report.pipeline-value-by-stage" | "sales.report.weighted-forecast" | "sales.report.won-lost-conversion" | "sales.report.lead-conversion" | "sales.report.activity-by-owner-team" | "sales.report.task-aging" | "sales.report.sales-cycle-duration";
+export type SalesReportBlockId = "sales.block.report.pipeline-value-by-stage" | "sales.block.report.weighted-forecast" | "sales.block.report.won-lost-conversion" | "sales.block.report.lead-conversion" | "sales.block.report.activity-by-owner-team" | "sales.block.report.task-aging" | "sales.block.report.sales-cycle-duration";
+/** Contribution IDs share one global runtime namespace, so report blocks intentionally differ from their bound sources. */
+export function salesReportBlockId(reportId: string): SalesReportBlockId {
+  return `sales.block.${reportId.slice("sales.".length)}` as SalesReportBlockId;
+}
+const salesReportLimits = Object.freeze({ maxFilters: 0, maxSorts: 0, maxBodyBytes: 1_024, maxResultBytes: 65_536, maxDepth: 3, timeoutMs: 1_000, maxConcurrency: 4, ratePerMinute: 60, burst: 10, costClass: "high" as const, maxCost: 20 });
+const salesReportInputFields: NonNullable<DataSourceDescriptor["inputFields"]> = [{ id: "window-mode", kind: "enum", required: false, nullable: false }];
+const reportSource = (id: SalesReportId, title: string, primaryContract: "metric.scalar" | "table.records", structuralCompatibilityHash: string, outputFields?: readonly SalesSourceField[], maxPageSize = 1, primaryContractVersion: 1 | 2 = 1): DataSourceDescriptor => Object.freeze({
+  id, version: 1, ownerPluginId: "module.sales", primaryContract: { id: primaryContract, version: primaryContractVersion }, sourceSchema: { id: `${id}.output`, version: 1 }, audience: "authenticated", surfaces: ["workspace"] as ("workspace")[], permission: "sales.reports.read",
+  structuralCompatibilityHash, presentationMetadataRevision: 1, title, inputFields: id === "sales.report.pipeline-value-by-stage" || id === "sales.report.weighted-forecast" || id === "sales.report.task-aging" ? [] : salesReportInputFields,
+  ...(outputFields === undefined ? {} : { outputFields: [...outputFields] }), paginationModes: primaryContract === "metric.scalar" ? [] as ("offset" | "cursor")[] : ["offset"] as ("offset" | "cursor")[], limits: { maxSelectedFields: primaryContract === "metric.scalar" ? 1 : outputFields!.length, maxPageSize, ...salesReportLimits }, cacheClass: "authorization-context"
+});
+export const salesPipelineValueByStageFields = [crmField("stage-id", "enum", "sales.reports.read"), crmField("stage-name", "text", "sales.reports.read"), crmField("value", "money", "sales.reports.read")] as const;
+export const salesActivityByOwnerTeamFields = [crmField("actor-id", "text", "sales.reports.read"), crmField("team-id", "text", "sales.reports.read", true), crmField("count", "integer", "sales.reports.read")] as const;
+export const salesTaskAgingFields = [crmField("bucket", "enum", "sales.reports.read"), crmField("count", "integer", "sales.reports.read")] as const;
+export const salesPipelineValueByStageDescriptor = reportSource("sales.report.pipeline-value-by-stage", "Pipeline value by stage", "table.records", "sha256:fbe5f2350361d169f3880d1e8019d5a1bbd980d80f4398adeab5451eab1daade", salesPipelineValueByStageFields, 6);
+export const salesWeightedForecastDescriptor = reportSource("sales.report.weighted-forecast", "Weighted forecast", "metric.scalar", "sha256:e16047f1d46f40e182bf2441a8daec2b2c672a01272797d6a2d6799c035ed939");
+export const salesWonLostConversionDescriptor = reportSource("sales.report.won-lost-conversion", "Won/lost conversion", "metric.scalar", "sha256:1a29447e8416ca2a9d924fc66cd21d451104a4609f6adb7d5c347eacc805bdfa", undefined, 1, 2);
+export const salesLeadConversionDescriptor = reportSource("sales.report.lead-conversion", "Lead conversion", "metric.scalar", "sha256:6bb22b4b78d476ad2888ca180c9e7d2d118185123f86dd4b930fa4265287bff8", undefined, 1, 2);
+export const salesActivityByOwnerTeamDescriptor = reportSource("sales.report.activity-by-owner-team", "Activity by owner and team", "table.records", "sha256:73e704de7aa802060e0e5dcf2ba9ef8362ae37515021291923d50328a19865f2", salesActivityByOwnerTeamFields, 100);
+export const salesTaskAgingDescriptor = reportSource("sales.report.task-aging", "Task aging", "table.records", "sha256:878314d2152844db4fdd52e995ead9cfd44d1abc18ac131ab4d61094003b24eb", salesTaskAgingFields, 5);
+export const salesSalesCycleDurationDescriptor = reportSource("sales.report.sales-cycle-duration", "Sales cycle duration", "metric.scalar", "sha256:642f222257c7db97e0e5b2e7c0544e17632355dc28622bb7ceef4258fe6c303d", undefined, 1, 2);
+export const salesReportDescriptors = Object.freeze([salesPipelineValueByStageDescriptor, salesWeightedForecastDescriptor, salesWonLostConversionDescriptor, salesLeadConversionDescriptor, salesActivityByOwnerTeamDescriptor, salesTaskAgingDescriptor, salesSalesCycleDurationDescriptor] as const);
+
+function reportTableRuntime(allowedFields: readonly string[], maxRows: number): RuntimeSchema<TableRecords> { return { safeParse(value) {
+  const parsed = TableRecordsSchema.safeParse(value); if (!parsed.success || parsed.data.fields.length === 0 || parsed.data.fields.some((field) => !allowedFields.includes(field))) return invalidRuntimeValue("Sales report table output is invalid.");
+  if (parsed.data.page.pageSize > maxRows || parsed.data.rows.length > maxRows || parsed.data.rows.some((row) => Object.keys(row.values).length !== parsed.data.fields.length || parsed.data.fields.some((field) => !Object.hasOwn(row.values, field)))) return invalidRuntimeValue("Sales report table output is invalid.");
+  return parsed;
+} }; }
+export const salesPipelineValueByStageOutputRuntimeSchema = reportTableRuntime(salesPipelineValueByStageFields.map(({ id }) => id), 6);
+export const salesActivityByOwnerTeamOutputRuntimeSchema = reportTableRuntime(salesActivityByOwnerTeamFields.map(({ id }) => id), 100);
+export const salesTaskAgingOutputRuntimeSchema = reportTableRuntime(salesTaskAgingFields.map(({ id }) => id), 5);
+export const salesMetricOutputRuntimeSchema: RuntimeSchema<MetricScalar> = { safeParse(value) { return MetricScalarSchema.safeParse(value); } };
+export const salesMetricOutputRuntimeV2Schema: RuntimeSchema<MetricScalarV2> = { safeParse(value) { return MetricScalarV2Schema.safeParse(value); } };
 
 export const salesOpportunityFields: NonNullable<DataSourceDescriptor["outputFields"]> = [
   { id: "name", kind: "text", binding: "required", nullable: false, permission: "sales.opportunities.read", sortable: true, filterOperators: ["eq", "contains"] },
@@ -900,6 +942,8 @@ export const salesNotificationReadDescriptor = workflowActionDescriptor("sales.n
 export const salesNotificationArchiveDescriptor = workflowActionDescriptor("sales.notification.archive");
 export const salesReminderDismissDescriptor = workflowActionDescriptor("sales.reminder.dismiss");
 export const salesIntegrationConfigureDescriptor = workflowActionDescriptor("sales.integration.configure");
+export const salesReportRunDescriptor = workflowActionDescriptor("sales.report.run");
+export const salesReportScheduleDescriptor = workflowActionDescriptor("sales.report.schedule");
 
 function actionRuntime(descriptor: ActionDescriptor): RuntimeSchema<Readonly<Record<string, unknown>>> {
   return { safeParse(value) {
@@ -1002,6 +1046,9 @@ export const salesDataMovementActionInputRuntimeSchemas = Object.freeze(Object.f
 export const salesCommunicationActionDescriptors = Object.freeze([salesEmailSendDescriptor, salesCalendarSyncDescriptor, salesReminderScheduleDescriptor, salesNotificationReadDescriptor, salesNotificationArchiveDescriptor, salesReminderDismissDescriptor, salesIntegrationConfigureDescriptor]);
 export const salesCommunicationActionInputRuntimeSchemas = Object.freeze(Object.fromEntries(salesCommunicationActionDescriptors.map((descriptor) => [descriptor.id, actionRuntime(descriptor)])) as Readonly<Record<string, RuntimeSchema<Readonly<Record<string, unknown>>>>>) ;
 export const salesCommunicationActionOutputRuntimeSchemas = Object.freeze(Object.fromEntries(salesCommunicationActionDescriptors.map((descriptor) => [descriptor.id, actionOutputRuntime(descriptor)])) as Readonly<Record<string, RuntimeSchema<Readonly<Record<string, unknown>>>>>) ;
+export const salesReportActionDescriptors = Object.freeze([salesReportRunDescriptor, salesReportScheduleDescriptor] as const);
+export const salesReportActionInputRuntimeSchemas = Object.freeze(Object.fromEntries(salesReportActionDescriptors.map((descriptor) => [descriptor.id, actionRuntime(descriptor)])) as Readonly<Record<string, RuntimeSchema<Readonly<Record<string, unknown>>>>>) ;
+export const salesReportActionOutputRuntimeSchemas = Object.freeze(Object.fromEntries(salesReportActionDescriptors.map((descriptor) => [descriptor.id, actionOutputRuntime(descriptor)])) as Readonly<Record<string, RuntimeSchema<Readonly<Record<string, unknown>>>>>) ;
 const sha256DigestPattern = /^sha256:[0-9a-f]{64}$/u;
 function movementActionOutputRuntime(descriptor: ActionDescriptor): RuntimeSchema<Readonly<Record<string, unknown>>> {
   const base = actionOutputRuntime(descriptor);
@@ -1168,7 +1215,7 @@ export const salesRouteDescriptors = Object.freeze([
   {
     id: "sales.route.opportunity-detail", ownerPluginId: "module.sales", path: "/sales/opportunities/:id", parameters: { id: { type: "string" } }, surface: "workspace", audience: "authenticated", permission: "sales.opportunities.read", viewId: "sales.page.opportunity-detail"
   },
-  ...salesCrmRouteDescriptors.filter(({ id }) => ["sales.route.calendar", "sales.route.notifications", "sales.route.pipeline-settings", "sales.route.saved-views", "sales.route.imports", "sales.route.exports"].includes(id))
+  ...salesCrmRouteDescriptors.filter(({ id }) => ["sales.route.calendar", "sales.route.notifications", "sales.route.pipeline-settings", "sales.route.saved-views", "sales.route.imports", "sales.route.exports", "sales.route.reports"].includes(id))
 ] satisfies readonly PluginRouteDescriptor[]);
 
 export const salesNavigationDescriptors = Object.freeze([
@@ -1179,6 +1226,14 @@ export const salesNavigationDescriptors = Object.freeze([
     route: { routeId: "sales.route.overview", params: {} },
     permission: "sales.reports.read",
     order: 10
+  },
+  {
+    id: "sales.navigation.reports",
+    ownerPluginId: "module.sales",
+    labelMessageId: "sales.message.navigation-reports",
+    route: { routeId: "sales.route.reports", params: {} },
+    permission: "sales.reports.read",
+    order: 11
   },
   {
     id: "sales.navigation.tasks",
@@ -1339,7 +1394,7 @@ export const salesLeadsPageTemplate = crmPageTemplate({ id: "sales.page.leads", 
 export const salesLeadDetailPageTemplate = crmPageTemplate({ id: "sales.page.lead-detail", routeId: "sales.route.lead-detail", permission: "sales.leads.read", source: salesLeadDetailDescriptor, fields: ["display-name", "source", "owner-id", "team-id", "status", "archive-status", "revision", "decided-at", "qualified-at", "disqualified-at", "qualified-account-id", "qualified-contact-id", "qualified-opportunity-id"], blockId: "sales.lead-detail", detail: true, actions: [salesLeadUpdateDescriptor, salesLeadQualifyDescriptor, salesLeadDisqualifyDescriptor, salesLeadArchiveDescriptor, salesOwnershipAssignDescriptor, salesActivityCreateDescriptor, salesActivityCompleteDescriptor, salesActivityCancelDescriptor, salesNoteCreateDescriptor, salesAttachmentLinkDescriptor, salesAttachmentRemoveDescriptor] });
 export const salesOpportunityDetailPageTemplate = crmPageTemplate({ id: "sales.page.opportunity-detail", routeId: "sales.route.opportunity-detail", permission: "sales.opportunities.read", source: salesOpportunityDetailDescriptor, fields: ["name", "owner-id", "team-id", "account-id", "primary-contact-id", "pipeline-id", "stage-id", "archive-status", "expected-close-date", "revision"], blockId: "sales.opportunity-detail", blockVersion: 3, detail: true, actions: [salesOpportunityUpdateDescriptor, salesOpportunityStageUpdateDescriptor, salesOpportunityCloseDescriptor, salesOpportunityArchiveDescriptor, salesOwnershipAssignDescriptor, salesActivityCreateDescriptor, salesActivityCompleteDescriptor, salesActivityCancelDescriptor, salesNoteCreateDescriptor, salesAttachmentLinkDescriptor, salesAttachmentRemoveDescriptor] });
 
-function p134Page(input: { id: string; routeId: string; permission: string; sources: readonly DataSourceDescriptor[]; actions: readonly ActionDescriptor[]; blocks: readonly { nodeId: string; id: string; source?: DataSourceDescriptor; fields?: readonly string[]; input?: Readonly<Record<string, never>>; action?: ActionDescriptor }[] }): PluginPageTemplateDescriptor {
+function p134Page(input: { id: string; routeId: string; permission: string; sources: readonly DataSourceDescriptor[]; actions: readonly ActionDescriptor[]; blocks: readonly { nodeId: string; id: string; source?: DataSourceDescriptor; fields?: readonly string[]; input?: Readonly<Record<string, JsonValue>>; action?: ActionDescriptor }[] }): PluginPageTemplateDescriptor {
   return { id: input.id, version: 1, ownerPluginId: "module.sales", route: { routeId: input.routeId, params: {} }, surface: "workspace", profile: "workspace", permission: input.permission,
     publicationPolicy: { ownership: "customer", adoption: "explicit" }, requirements: { capabilities: [], sources: input.sources.map(({ id, version }) => ({ id, version })), actions: input.actions.map(({ id, version }) => ({ id, version })), blocks: [...new Set(input.blocks.map(({ id }) => id))].map((id) => ({ id, version: 1 })) },
     document: { id: input.id, version: 1, schemaVersion: 1, profile: "workspace", regions: { main: input.blocks.map((block) => ({ id: block.nodeId, type: block.id, version: 1, props: {}, bindings: { ...(block.source === undefined ? {} : { source: { source: { id: block.source.id, version: block.source.version }, input: block.input ?? {}, structuralCompatibilityHash: block.source.structuralCompatibilityHash, selectedFields: [...(block.fields ?? [])] } }), ...(block.action === undefined ? {} : { action: { id: block.action.id, version: block.action.version } }) } })) } } };
@@ -1370,6 +1425,15 @@ export const salesExportsPageTemplate = p134Page({ id: "sales.page.exports", rou
   { nodeId: "export-list", id: "sales.exports", source: salesExportJobListDescriptor, fields: salesExportJobListFields.map(({ id }) => id), action: salesExportCreateDescriptor },
   { nodeId: "export-detail", id: "sales.exports", source: salesExportJobDetailDescriptor, fields: salesExportJobDetailFields.map(({ id }) => id), action: salesExportCancelDescriptor }
 ] });
+export const salesReportsPageTemplate = p134Page({ id: "sales.page.reports", routeId: "sales.route.reports", permission: "sales.reports.read", sources: salesReportDescriptors, actions: [salesReportRunDescriptor, salesReportScheduleDescriptor], blocks: [
+  { nodeId: "pipeline-value-by-stage", id: salesReportBlockId(salesPipelineValueByStageDescriptor.id), source: salesPipelineValueByStageDescriptor, fields: salesPipelineValueByStageFields.map(({ id }) => id), action: salesReportRunDescriptor },
+  { nodeId: "weighted-forecast", id: salesReportBlockId(salesWeightedForecastDescriptor.id), source: salesWeightedForecastDescriptor, fields: [], action: salesReportRunDescriptor },
+  { nodeId: "won-lost-conversion", id: salesReportBlockId(salesWonLostConversionDescriptor.id), source: salesWonLostConversionDescriptor, input: { "window-mode": "current-reporting-week" }, fields: [], action: salesReportRunDescriptor },
+  { nodeId: "lead-conversion", id: salesReportBlockId(salesLeadConversionDescriptor.id), source: salesLeadConversionDescriptor, input: { "window-mode": "current-reporting-week" }, fields: [], action: salesReportRunDescriptor },
+  { nodeId: "activity-by-owner-team", id: salesReportBlockId(salesActivityByOwnerTeamDescriptor.id), source: salesActivityByOwnerTeamDescriptor, input: { "window-mode": "current-reporting-week" }, fields: salesActivityByOwnerTeamFields.map(({ id }) => id), action: salesReportRunDescriptor },
+  { nodeId: "task-aging", id: salesReportBlockId(salesTaskAgingDescriptor.id), source: salesTaskAgingDescriptor, fields: salesTaskAgingFields.map(({ id }) => id), action: salesReportRunDescriptor },
+  { nodeId: "sales-cycle-duration", id: salesReportBlockId(salesSalesCycleDurationDescriptor.id), source: salesSalesCycleDurationDescriptor, input: { "window-mode": "current-reporting-week" }, fields: [], action: salesReportScheduleDescriptor }
+] });
 export const salesNotificationsPageTemplate = p134Page({ id: "sales.page.notifications", routeId: "sales.route.notifications", permission: "sales.notifications.read", sources: [salesNotificationsDescriptor, salesRemindersDescriptor], actions: [salesNotificationReadDescriptor, salesNotificationArchiveDescriptor, salesReminderDismissDescriptor, salesReminderScheduleDescriptor], blocks: [
   { nodeId: "notification-list", id: "sales.notification-center", source: salesNotificationsDescriptor, fields: salesNotificationFields.map(({ id }) => id), action: salesNotificationReadDescriptor },
   { nodeId: "notification-archive", id: "sales.notification-center", source: salesNotificationsDescriptor, fields: salesNotificationFields.map(({ id }) => id), action: salesNotificationArchiveDescriptor },
@@ -1381,7 +1445,7 @@ export const salesPageTemplates = Object.freeze([
   salesOverviewPageTemplate, salesTaskPageTemplate, salesOpportunitiesPageTemplate, salesSettingsPageTemplate,
   salesAccountsPageTemplate, salesAccountDetailPageTemplate, salesContactsPageTemplate, salesContactDetailPageTemplate,
   salesLeadsPageTemplate, salesLeadDetailPageTemplate, salesOpportunityDetailPageTemplate,
-  salesCalendarPageTemplate, salesNotificationsPageTemplate, salesPipelineSettingsPageTemplate, salesSavedViewsPageTemplate, salesImportsPageTemplate, salesExportsPageTemplate
+  salesCalendarPageTemplate, salesNotificationsPageTemplate, salesPipelineSettingsPageTemplate, salesSavedViewsPageTemplate, salesImportsPageTemplate, salesExportsPageTemplate, salesReportsPageTemplate
 ]);
 
 const salesTaskUiPolicy: Omit<PluginUiContributionDescriptor, "id" | "version" | "ownerPluginId" | "kind"> = {
@@ -1490,6 +1554,12 @@ export const salesLeadListBlockDescriptor = crmUiBlock("sales.lead-list", "sales
 export const salesLeadDetailBlockDescriptor = crmUiBlock("sales.lead-detail", "sales.leads.read", ["display-name", "source", "owner-id", "team-id", "status", "archive-status", "revision", "decided-at", "qualified-at", "disqualified-at", "qualified-account-id", "qualified-contact-id", "qualified-opportunity-id"], [salesLeadUpdateDescriptor, salesLeadQualifyDescriptor, salesLeadDisqualifyDescriptor, salesLeadArchiveDescriptor, salesOwnershipAssignDescriptor, ...salesInteractionActions]);
 export const salesImportsBlockDescriptor: PluginUiContributionDescriptor = { ...uiContribution("sales.imports", "block", "sales.imports.read", { required: false, contracts: [{ id: "table.records", version: 1 }], requiredFields: [] }, { required: false, actions: [salesImportDryRunDescriptor, salesImportCommitDescriptor, salesImportCancelDescriptor, salesMergeCommitDescriptor].map(({ id, version }) => ({ id, version })) }), version: 1, propsSchema: { type: "object", properties: {}, additionalProperties: false } };
 export const salesExportsBlockDescriptor: PluginUiContributionDescriptor = { ...uiContribution("sales.exports", "block", "sales.exports.read", { required: false, contracts: [{ id: "table.records", version: 1 }], requiredFields: [] }, { required: false, actions: [salesExportCreateDescriptor, salesExportCancelDescriptor].map(({ id, version }) => ({ id, version })) }), version: 1, propsSchema: { type: "object", properties: {}, additionalProperties: false } };
+function reportBlock(descriptor: DataSourceDescriptor, fields: readonly string[]): PluginUiContributionDescriptor {
+  return { ...uiContribution(salesReportBlockId(descriptor.id as SalesReportId), "block", "sales.reports.read", { required: true, contracts: [descriptor.primaryContract], requiredFields: [...fields] }, { required: false, actions: [salesReportRunDescriptor, salesReportScheduleDescriptor].map(({ id, version }) => ({ id, version })) }), version: 1, propsSchema: emptyPropsSchema };
+}
+export const salesReportBlockDescriptors = Object.freeze([
+  reportBlock(salesPipelineValueByStageDescriptor, salesPipelineValueByStageFields.map(({ id }) => id)), reportBlock(salesWeightedForecastDescriptor, []), reportBlock(salesWonLostConversionDescriptor, []), reportBlock(salesLeadConversionDescriptor, []), reportBlock(salesActivityByOwnerTeamDescriptor, salesActivityByOwnerTeamFields.map(({ id }) => id)), reportBlock(salesTaskAgingDescriptor, salesTaskAgingFields.map(({ id }) => id)), reportBlock(salesSalesCycleDurationDescriptor, [])
+] as const);
 
 export const salesUiComponentDescriptors: readonly PluginUiContributionDescriptor[] = Object.freeze([
   salesTaskTableComponentDescriptor, salesQuickCreateComponentDescriptor,
@@ -1500,7 +1570,7 @@ export const salesUiBlockDescriptors: readonly PluginUiContributionDescriptor[] 
   salesTaskTableBlockDescriptor, salesQuickCreateBlockDescriptor,
   salesOpportunityListBlockDescriptor, salesOpportunityDetailBlockDescriptor, salesOpportunityKanbanBlockDescriptor, salesSettingsSummaryBlockDescriptor,
   salesAccountListBlockDescriptor, salesAccountDetailBlockDescriptor, salesContactListBlockDescriptor, salesContactDetailBlockDescriptor, salesLeadListBlockDescriptor, salesLeadDetailBlockDescriptor,
-  salesCalendarBlockDescriptor, salesNotificationsBlockDescriptor, salesRemindersBlockDescriptor, salesCommunicationActionsBlockDescriptor, salesIntegrationSettingsBlockDescriptor, salesPipelineSettingsBlockDescriptor, salesSavedViewsBlockDescriptor, salesSavedViewTableBlockDescriptor, salesImportsBlockDescriptor, salesExportsBlockDescriptor
+  salesCalendarBlockDescriptor, salesNotificationsBlockDescriptor, salesRemindersBlockDescriptor, salesCommunicationActionsBlockDescriptor, salesIntegrationSettingsBlockDescriptor, salesPipelineSettingsBlockDescriptor, salesSavedViewsBlockDescriptor, salesSavedViewTableBlockDescriptor, salesImportsBlockDescriptor, salesExportsBlockDescriptor, ...salesReportBlockDescriptors
 ]);
 
 export const salesEventDescriptors = Object.freeze([
@@ -1514,6 +1584,8 @@ export const salesEventDescriptors = Object.freeze([
   { id: "sales.event.notification-changed", version: 1, ownerPluginId: "module.sales", eventClass: "durable-integration", sourceId: "sales.notifications" },
   { id: "sales.event.reminder-changed", version: 1, ownerPluginId: "module.sales", eventClass: "durable-integration", sourceId: "sales.reminders" },
   { id: "sales.event.provider-configuration-changed", version: 1, ownerPluginId: "module.sales", eventClass: "durable-integration", sourceId: "sales.provider-configurations" },
+  // Runtime contribution descriptors require a source reference; this event has no realtime topic or source projection.
+  { id: "sales.event.report-run-changed", version: 1, ownerPluginId: "module.sales", eventClass: "durable-integration", sourceId: "sales.report.pipeline-value-by-stage" },
   { id: "sales.event.workflow.opportunity-proposal-entered", version: 1, ownerPluginId: "module.sales", eventClass: "durable-workflow", sourceId: "sales.opportunities" },
   { id: "sales.event.workflow.lead-owner-assigned", version: 1, ownerPluginId: "module.sales", eventClass: "durable-workflow", sourceId: "sales.leads" },
   { id: "sales.event.workflow.activity-scheduled", version: 1, ownerPluginId: "module.sales", eventClass: "durable-workflow", sourceId: "sales.timeline" },
@@ -1568,13 +1640,14 @@ export const salesReferenceMetadata = Object.freeze({
   job: { id: "sales.job.pipeline-audit", version: 2, ownerPluginId: "module.sales", timeoutMs: 5_000, maxConcurrency: 1, idempotent: true },
   reminderJob: { id: "sales.job.reminder-delivery", version: 1, ownerPluginId: "module.sales", timeoutMs: 5_000, maxConcurrency: 4, idempotent: true },
   workflowJob: { id: "sales.job.crm-workflow-execution", version: 1, ownerPluginId: "module.sales", timeoutMs: 10_000, maxConcurrency: 16, idempotent: true },
+  reportJob: { id: "sales.job.report-delivery", version: 1, ownerPluginId: "module.sales", timeoutMs: 10_000, maxConcurrency: 4, idempotent: true },
   localization: {
     id: "sales.localization.en", version: 2, ownerPluginId: "module.sales", locale: "en",
     messages: {
       "sales.message.overview": "Overview", "sales.message.tasks": "Tasks",
       "sales.message.opportunities": "Opportunities", "sales.message.settings": "Settings",
       "sales.message.navigation-overview": "Overview", "sales.message.navigation-tasks": "Tasks",
-      "sales.message.navigation-opportunities": "Opportunities", "sales.message.navigation-settings": "Settings", "sales.message.navigation-accounts": "Accounts", "sales.message.navigation-contacts": "Contacts", "sales.message.navigation-leads": "Leads", "sales.message.navigation-notifications": "Notifications",
+      "sales.message.navigation-opportunities": "Opportunities", "sales.message.navigation-settings": "Settings", "sales.message.navigation-reports": "Reports", "sales.message.navigation-accounts": "Accounts", "sales.message.navigation-contacts": "Contacts", "sales.message.navigation-leads": "Leads", "sales.message.navigation-notifications": "Notifications",
       "sales.message.template-v2": "Adopt CRM core template version 2.",
       "sales.message.template-v3": "Adopt CRM opportunity template version 3.",
       "sales.message.template-v4": "Adopt CRM pipeline and saved-view template version 4.",

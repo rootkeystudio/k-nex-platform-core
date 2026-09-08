@@ -24,6 +24,10 @@ import {
   salesMergeCommitDescriptor,
   salesNotificationsDescriptor,
   salesProviderConfigurationsDescriptor,
+  salesReportDescriptors,
+  salesReportBlockId,
+  salesReportRunDescriptor,
+  salesReportScheduleDescriptor,
   salesRemindersDescriptor,
   salesNotificationReadDescriptor,
   salesNotificationArchiveDescriptor,
@@ -277,6 +281,8 @@ export function salesTaskTableRenderer(input: UiBlockRenderInput): Readonly<Sale
 
 function rendererKind(id: string): "data-table" | "metric" | "form" | "data-list" | "detail" | "status" | "settings-summary" | "kanban" | "calendar" {
   if (id === "sales.calendar") return "calendar";
+  if (["sales.report.weighted-forecast", "sales.report.won-lost-conversion", "sales.report.lead-conversion", "sales.report.sales-cycle-duration"].map(salesReportBlockId).includes(id as never)) return "metric";
+  if (["sales.report.pipeline-value-by-stage", "sales.report.activity-by-owner-team", "sales.report.task-aging"].map(salesReportBlockId).includes(id as never)) return "data-list";
   if (id.includes("kanban")) return "kanban";
   if (id.includes("revenue")) return "metric";
   if (id.includes("quick-create")) return "form";
@@ -411,6 +417,23 @@ function SalesCommunicationActionForm({ input, title }: { readonly input: UiBloc
     try { await input.dispatchAction({ action: input.action, input: actionInput, nodeId: input.node.id }); setNotice(`${title} completed.`); } catch { setNotice(`${title} failed. Check values and current authority.`); }
   };
   return createElement(Form, { label: title, onSubmit: submit, children: [...fields, createElement(FormActions, { key: "actions", children: createElement("button", { type: "submit", disabled: input.action === undefined || input.dispatchAction === undefined }, actionLabel(actionId)) }), createElement("p", { key: "notice", role: "status", "aria-live": "polite" }, notice)] });
+}
+
+/** Static report actions expose only frozen IDs and weekly schedule fields; no query or recipient address can enter the browser contract. */
+function SalesReportActionForm({ input, title }: { readonly input: UiBlockRenderInput; readonly title: string }) {
+  const actionId = input.action?.id; const reportId = input.node.bindings?.source?.source.id;
+  const windowed = reportId === "sales.report.won-lost-conversion" || reportId === "sales.report.lead-conversion" || reportId === "sales.report.activity-by-owner-team" || reportId === "sales.report.sales-cycle-duration";
+  const [values, setValues] = useState<Readonly<Record<string, string>>>({ windowMode: windowed ? "current-reporting-week" : "as-of", recipientId: "", expectedRevision: "0", weekday: "1", localTime: "09:00" }); const [notice, setNotice] = useState("");
+  const field = (name: string, label: string) => createElement(TextInput, { key: name, name, label, value: values[name] ?? "", required: true, onChange: (value: string) => setValues((current) => ({ ...current, [name]: value })) });
+  const submit = async () => {
+    if (input.action === undefined || input.dispatchAction === undefined || reportId === undefined) return;
+    const base = { reportId, windowMode: values.windowMode };
+    const actionInput = actionId === salesReportRunDescriptor.id ? base : { operation: "upsert", ...base, recipientId: values.recipientId, expectedRevision: Number(values.expectedRevision), weekday: Number(values.weekday), localTime: values.localTime };
+    try { await input.dispatchAction({ action: input.action, input: actionInput, nodeId: input.node.id }); setNotice(`${title} queued.`); } catch { setNotice(`${title} failed. Check current authority and schedule values.`); }
+  };
+  const fields: ReactNode[] = [windowed ? createElement(Select, { key: "window", name: "windowMode", label: "Reporting window", value: values.windowMode ?? "current-reporting-week", required: true, options: [{ id: "current-reporting-week", label: "Current reporting week" }, { id: "previous-complete-reporting-week", label: "Previous reporting week" }, { id: "current-reporting-month", label: "Current reporting month" }, { id: "previous-complete-reporting-month", label: "Previous reporting month" }], onChange: (value: string) => setValues((current) => ({ ...current, windowMode: value })) }) : null];
+  if (actionId === salesReportScheduleDescriptor.id) fields.push(field("recipientId", "Recipient user ID"), field("expectedRevision", "Expected revision"), field("weekday", "Weekday (1-7)"), field("localTime", "Local time (HH:MM)"));
+  return createElement(Form, { label: title, onSubmit: submit, children: [...fields, createElement(FormActions, { key: "actions", children: createElement("button", { type: "submit", disabled: input.action === undefined || input.dispatchAction === undefined || reportId === undefined }, actionId === salesReportScheduleDescriptor.id ? "Schedule weekly report" : "Export report") }), createElement("p", { key: "notice", role: "status", "aria-live": "polite" }, notice)] });
 }
 
 /** Fixed recipient delivery controls preserve source row CAS identity; server enforces recipient scope. */
@@ -842,6 +865,7 @@ function detailActionAllowed(input: UiBlockRenderInput, record: TableRecords["ro
 }
 
 function contributionElement(kind: ReturnType<typeof rendererKind>, input: UiBlockRenderInput, title: string): unknown {
+  if (input.action?.id === salesReportRunDescriptor.id || input.action?.id === salesReportScheduleDescriptor.id) return componentElement(Section, { label: title, children: createElement("div", {}, queryElement(kind, input, title) as ReactNode, componentElement(SalesReportActionForm, { input, title }) as ReactNode) });
   if (input.node.type === "sales.notification-center" || input.node.type === "sales.reminder-center") return componentElement(SalesRecipientDeliveryBlock, { input, title });
   if (input.node.type === "sales.integration-settings") return componentElement(Section, { label: title, children: createElement("div", {}, queryElement("data-list", input, `${title} status`) as ReactNode, componentElement(SalesCommunicationActionForm, { input, title }) as ReactNode) });
   if (input.node.type === "sales.communication-actions") return componentElement(SalesCommunicationActionForm, { input, title });
@@ -943,13 +967,13 @@ export const salesWorkspaceUiContract = Object.freeze({
     salesPipelineSnapshotDescriptor.id, salesSavedViewCalendarDescriptor.id, salesSavedViewDetailDescriptor.id,
     salesSavedViewKanbanDescriptor.id, salesSavedViewListDescriptor.id, salesSavedViewTableDescriptor.id,
     salesImportJobListDescriptor.id, salesImportJobDetailDescriptor.id, salesExportJobListDescriptor.id,
-    salesExportJobDetailDescriptor.id, salesDedupeCandidatesDescriptor.id, salesNotificationsDescriptor.id, salesRemindersDescriptor.id, salesProviderConfigurationsDescriptor.id
+    salesExportJobDetailDescriptor.id, salesDedupeCandidatesDescriptor.id, salesNotificationsDescriptor.id, salesRemindersDescriptor.id, salesProviderConfigurationsDescriptor.id, ...salesReportDescriptors.map(({ id }) => id)
   ].sort()),
   actionIds: Object.freeze([salesOpportunityStageUpdateDescriptor.id, salesTaskCreateDescriptor.id, salesTaskUpdateDescriptor.id,
     salesPipelineUpdateDescriptor.id, salesPipelineArchiveDescriptor.id, salesSavedViewCreateDescriptor.id,
     salesSavedViewUpdateDescriptor.id, salesSavedViewArchiveDescriptor.id, salesImportDryRunDescriptor.id,
     salesImportCommitDescriptor.id, salesImportCancelDescriptor.id, salesExportCreateDescriptor.id,
-    salesExportCancelDescriptor.id, salesMergeCommitDescriptor.id, salesNotificationReadDescriptor.id, salesNotificationArchiveDescriptor.id, salesReminderDismissDescriptor.id, salesReminderScheduleDescriptor.id, salesEmailSendDescriptor.id, salesCalendarSyncDescriptor.id, salesIntegrationConfigureDescriptor.id, ...salesWorkflowMutations.map(({ action }) => action.id)].sort()),
+    salesExportCancelDescriptor.id, salesMergeCommitDescriptor.id, salesNotificationReadDescriptor.id, salesNotificationArchiveDescriptor.id, salesReminderDismissDescriptor.id, salesReminderScheduleDescriptor.id, salesEmailSendDescriptor.id, salesCalendarSyncDescriptor.id, salesIntegrationConfigureDescriptor.id, salesReportRunDescriptor.id, salesReportScheduleDescriptor.id, ...salesWorkflowMutations.map(({ action }) => action.id)].sort()),
   routeIds: Object.freeze(salesRouteDescriptors.map(({ id }) => id)),
   pageTemplateIds: Object.freeze(salesPageTemplates.map(({ id }) => id).sort()),
   componentIds: Object.freeze(salesUiComponentDescriptors.map(({ id }) => id)),

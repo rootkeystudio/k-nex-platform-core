@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-09-08
 - **Phase:** Phase 13 — CRM-First Productization and Pilot Readiness
-- **Active task:** P13.8 — Add CRM reports and dashboard blocks
+- **Active task:** P13.9 — Prove upgrade, backup, restore, and realistic data migration
 - **State:** Ready to start
 
 ## Last completed
 
-P13.7 completed three compile-time CRM workflows with dedicated durable triggers, bounded fenced execution, claim-time source validation, immutable audit/outbox/effect receipts, retry/dead-letter recovery, and restart-safe exactly-once effects. Persistent Sol xhigh review: PASS.
+P13.8 completed: closed seven-report catalog, dashboard blocks, coherent snapshots and pagination, origin-specific manual/scheduled delivery authority, durable artifacts, late-bootstrap watermarks, and adversarial generated-application proofs; persistent Sol xhigh review PASS.
 
 ## Validation
 
-Node 24.19: architecture 34/34 + direct contract/docs; Sales 69 Node + 81 Vitest with boundaries/pack; composition 165/165; fixture build, Gate 1 generated-current, and template parity; P13.7 real PostgreSQL 15/15; generated HTTP/restarted-worker/PostgreSQL 1/1; diff check. All passed.
+Node 24.19: architecture 35/35 + docs; contracts 229/229; runtime 596/596; UI runtime 77/77; Sales 70 Node + 81 Vitest with boundaries/pack; composition 167/167; Gate 1 current; exact report host/migration mirrors; P13.8 real PostgreSQL 19/19; generated HTTP/Chromium/PostgreSQL 1/1 including real pagination and schedule-only delivery/download; diff check.
 
 ## Next
 
-Begin P13.8 CRM reports and dashboard blocks in documented task order.
+Begin P13.9 upgrade, backup, restore, and realistic data-migration proof in documented order.
 
 ## Blockers
 

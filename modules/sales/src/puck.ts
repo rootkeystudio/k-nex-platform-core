@@ -11,6 +11,14 @@ import {
   salesOpportunityCreateDescriptor,
   salesOpportunityDetailDescriptor,
   salesOpportunityStageUpdateDescriptor,
+  salesPipelineValueByStageDescriptor,
+  salesWeightedForecastDescriptor,
+  salesWonLostConversionDescriptor,
+  salesLeadConversionDescriptor,
+  salesActivityByOwnerTeamDescriptor,
+  salesTaskAgingDescriptor,
+  salesSalesCycleDurationDescriptor,
+  salesReportBlockId,
   salesSavedViewCalendarDescriptor,
   salesSavedViewKanbanDescriptor,
   salesSavedViewTableDescriptor,
@@ -37,6 +45,14 @@ const labels: Readonly<Record<string, string>> = Object.freeze({
 
 function defaultBindings(definition: (typeof salesUiBlockDefinitions)[number]) {
   const id = definition.id;
+  const report = id === salesReportBlockId(salesPipelineValueByStageDescriptor.id) ? { descriptor: salesPipelineValueByStageDescriptor, fields: ["stage-id", "stage-name", "value"] }
+    : id === salesReportBlockId(salesWeightedForecastDescriptor.id) ? { descriptor: salesWeightedForecastDescriptor, fields: [] }
+      : id === salesReportBlockId(salesWonLostConversionDescriptor.id) ? { descriptor: salesWonLostConversionDescriptor, fields: [], input: { "window-mode": "current-reporting-week" } }
+        : id === salesReportBlockId(salesLeadConversionDescriptor.id) ? { descriptor: salesLeadConversionDescriptor, fields: [], input: { "window-mode": "current-reporting-week" } }
+          : id === salesReportBlockId(salesActivityByOwnerTeamDescriptor.id) ? { descriptor: salesActivityByOwnerTeamDescriptor, fields: ["actor-id", "team-id", "count"], input: { "window-mode": "current-reporting-week" } }
+            : id === salesReportBlockId(salesTaskAgingDescriptor.id) ? { descriptor: salesTaskAgingDescriptor, fields: ["bucket", "count"] }
+              : id === salesReportBlockId(salesSalesCycleDurationDescriptor.id) ? { descriptor: salesSalesCycleDurationDescriptor, fields: [], input: { "window-mode": "current-reporting-week" } } : undefined;
+  if (report !== undefined) return { source: { source: { id: report.descriptor.id, version: report.descriptor.version }, input: report.input ?? {}, structuralCompatibilityHash: report.descriptor.structuralCompatibilityHash, selectedFields: report.fields } };
   if (id === "sales.calendar") return { source: { source: { id: salesSavedViewCalendarDescriptor.id, version: salesSavedViewCalendarDescriptor.version }, input: {}, structuralCompatibilityHash: salesSavedViewCalendarDescriptor.structuralCompatibilityHash, selectedFields: ["type", "subject", "status", "scheduled-at", "occurred-at", "related-record-type", "related-record-id", "revision"] } };
   if (id === "sales.saved-view-table") return { source: { source: { id: salesSavedViewTableDescriptor.id, version: salesSavedViewTableDescriptor.version }, input: {}, structuralCompatibilityHash: salesSavedViewTableDescriptor.structuralCompatibilityHash, selectedFields: ["name"] } };
   if (id === "sales.task-table") return { source: { source: { id: salesTasksDescriptor.id, version: salesTasksDescriptor.version }, input: {}, structuralCompatibilityHash: salesTasksDescriptor.structuralCompatibilityHash, selectedFields: ["title", "status"] } };
@@ -64,9 +80,9 @@ const salesPuckDefinitions = salesUiBlockDefinitions.filter(({ id }) => !fixedCr
 
 export const salesPuckBlockAuthoring = Object.freeze(Object.fromEntries(salesPuckDefinitions.map((definition) => [definition.id, Object.freeze({
   label: labels[definition.id] ?? definition.id.split(/[.-]/u).slice(1).map((part) => part[0]!.toUpperCase() + part.slice(1)).join(" "),
-  fields: Object.freeze(definition.id === "sales.calendar" || definition.id === "sales.saved-view-table" ? [] : [{ prop: "title", label: "Title", kind: "text" as const }]),
+  fields: Object.freeze(definition.id === "sales.calendar" || definition.id === "sales.saved-view-table" || definition.id.startsWith("sales.block.report.") ? [] : [{ prop: "title", label: "Title", kind: "text" as const }]),
   allowChildren: false,
-  defaultProps: Object.freeze(definition.id === "sales.calendar" || definition.id === "sales.saved-view-table" ? {} : { title: labels[definition.id] ?? definition.id }),
+  defaultProps: Object.freeze(definition.id === "sales.calendar" || definition.id === "sales.saved-view-table" || definition.id.startsWith("sales.block.report.") ? {} : { title: labels[definition.id] ?? definition.id }),
   ...(defaultBindings(definition) === undefined ? {} : { defaultBindings: defaultBindings(definition) })
 })])));
 

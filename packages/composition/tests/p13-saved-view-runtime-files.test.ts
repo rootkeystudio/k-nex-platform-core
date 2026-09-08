@@ -195,7 +195,7 @@ describe("generated P13.4 Saved View runtime closure", () => {
       new Set(["sales.account.detail", "sales.contact.detail", "sales.lead.detail", "sales.opportunity.detail"]),
       states,
       async () => current,
-      new Map([["sales.saved-view.kanban", { definition: { descriptor: { id: "sales.saved-view.kanban", version: 1, structuralCompatibilityHash: "kanban-hash", primaryContract: { id: "table.records" } } } }]]),
+      new Map([["sales.saved-view.kanban", { definition: { descriptor: { id: "sales.saved-view.kanban", version: 1, structuralCompatibilityHash: "kanban-hash", primaryContract: { id: "table.records" }, paginationModes: ["offset"], limits: { maxPageSize: 100 } } } }]]),
       () => ({ query: async () => { dispatched += 1; throw new Error("gateway must not dispatch"); } }),
       JSON.stringify,
       async () => ({ revision: 8 }),
@@ -368,7 +368,7 @@ describe("generated P13.4 Saved View runtime closure", () => {
     expect(sales).toContain("const detail = salesRecordDetailSources.has(descriptor.id)");
     expect(sales).toContain("recheckSalesSavedViewExecution({ fence: plan.fence");
     expect(sales).toContain("new ApplicationReportingTimezoneResolver(new EffectiveSettingsProvider");
-    expect(sales).toContain("descriptor_id='system.general' and descriptor_schema_version=2");
+    expect(sales).toContain("descriptor_id='system.general' and descriptor_schema_version=3");
     expect(sales).toContain("EffectiveSettingsDocumentSchema.safeParse");
     expect(sales).toContain("plan.fence?.reportingTimezone");
     expect(sales).toContain('await savedViewState.client.query("commit")');

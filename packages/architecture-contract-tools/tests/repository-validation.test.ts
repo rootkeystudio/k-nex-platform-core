@@ -501,6 +501,32 @@ describe("P0.4 executable repository validation", () => {
     }
   });
 
+  it("freezes the seven static CRM reports, authority parity, and bounded report delivery", async () => {
+    const contract = await phase13Contract();
+    expect(validatePhase13ProductContract(contract)).toEqual([]);
+    const reports = ((contract.dataSemantics as Record<string, unknown>).reports as Record<string, unknown>);
+    const catalog = reports.catalog as Array<Record<string, unknown>>;
+    expect(catalog.map(({ id }) => id)).toEqual([
+      "sales.metric.pipeline-value-by-stage", "sales.metric.weighted-forecast", "sales.metric.won-lost-conversion", "sales.metric.lead-conversion", "sales.metric.activity-by-owner-team", "sales.metric.task-aging", "sales.metric.sales-cycle-duration"
+    ]);
+    const descriptors = reports.sourceDescriptors as Record<string, DataSourceDescriptor>;
+    expect(DataSourceDescriptorSchema.safeParse(descriptors["sales.report.weighted-forecast"]).success).toBe(true);
+    expect(DataSourceDescriptorSchema.safeParse(descriptors["sales.report.pipeline-value-by-stage"]).success).toBe(true);
+
+    const mutations: Array<[string, (value: Record<string, unknown>) => void]> = [
+      ["dynamic report catalog", (value) => { (((value.dataSemantics as Record<string, unknown>).reports as Record<string, unknown>).catalog as Array<Record<string, unknown>>)[0]!.id = "sales.metric.customer-defined"; }],
+      ["report source output widening", (value) => { const descriptors = (((value.dataSemantics as Record<string, unknown>).reports as Record<string, unknown>).sourceDescriptors as Record<string, Record<string, unknown>>); ((descriptors["sales.report.pipeline-value-by-stage"]!.outputFields as Array<Record<string, unknown>>)).push({ id: "raw-row", kind: "text" }); }],
+      ["recipient address input", (value) => { const run = ((((value.dataSemantics as Record<string, unknown>).reports as Record<string, unknown>).exportAndSchedule as Record<string, unknown>).schedule as Record<string, unknown>); (((run.input as Record<string, unknown>).oneOf as Record<string, string[]>).upsert.push("recipientAddress")); }],
+      ["unbounded recurrence", (value) => { const schedule = ((((value.dataSemantics as Record<string, unknown>).reports as Record<string, unknown>).exportAndSchedule as Record<string, unknown>).schedule as Record<string, unknown>); (((schedule.input as Record<string, unknown>).oneOf as Record<string, string[]>).upsert.push("cron")); }],
+      ["currency authority drift", (value) => { (value.dataSemantics as Record<string, unknown>).reportingCurrency = "default USD"; }]
+    ];
+    for (const [name, mutate] of mutations) {
+      const invalid = structuredClone(contract);
+      mutate(invalid);
+      expect(validatePhase13ProductContract(invalid).map(({ code }) => code), name).toContain("PHASE13_PRODUCT_CONTRACT_INVALID");
+    }
+  });
+
   it("accepts the repository through the complete TypeScript validator", async () => {
     expect(await validateRepository(repositoryRoot)).toEqual([]);
   }, 30_000);

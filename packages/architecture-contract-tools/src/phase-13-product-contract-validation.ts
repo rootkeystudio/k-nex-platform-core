@@ -14,7 +14,7 @@ const requiredProtectedFields = ["id", "applicationId", "environment", "ownerId"
 const requiredRelatedRecordTargets = ["sales.account", "sales.contact", "sales.lead", "sales.opportunity", "sales.task"];
 const requiredAttackIds = Array.from({ length: 15 }, (_, index) => `P13-ATK-${String(index + 1).padStart(2, "0")}`);
 const taskId = /^P13\.(?:2|3|4|5|6|7|8|9|10)$/;
-const acceptedContractDigest = "sha256:844daef473cd95bb8ad30adb503104e9c49e066ad68156a9727737bd842f4f9c";
+const acceptedContractDigest = "sha256:b43e3def0bf336eda0c24c847601267dfcdc7903719d2ab507c4e488b1456269";
 const opportunityStateSource = "locked referenced pipeline-stage.semantic only; stage ID spelling never denotes state";
 const pipelineStageOpaqueIdMigration = "P13.4 uses fixed UUIDv5 bytes and receipt-bound mapping to atomically rewrite only mutable stage ID and allowed-transition references; immutable audit, idempotency request/result, and published-document evidence stays byte-preserved";
 const pipelineSemantics = ["qualification", "discovery", "proposal", "negotiation", "won", "lost"];
@@ -24,6 +24,42 @@ const administrationSourceIds = ["sales.pipeline.snapshot", "sales.saved-view.li
 const savedViewSourceIds = [...executionSourceIds, ...administrationSourceIds];
 const savedViewTargetIds = ["sales.object.account", "sales.object.contact", "sales.object.lead", "sales.object.opportunity", "sales.object.task", "sales.object.activity"];
 const sourceLimits = { maxSelectedFields: 8, maxPageSize: 100, maxFilters: 8, maxSorts: 2, maxBodyBytes: 32_768, maxResultBytes: 1_048_576, maxDepth: 6, timeoutMs: 5_000, maxConcurrency: 4, ratePerMinute: 300, burst: 30, costClass: "medium", maxCost: 100 };
+const reportWindowModes = ["current-reporting-week", "previous-complete-reporting-week", "current-reporting-month", "previous-complete-reporting-month"];
+const reportLimits = { maxFilters: 0, maxSorts: 0, maxBodyBytes: 1_024, maxResultBytes: 65_536, maxDepth: 3, timeoutMs: 1_000, maxConcurrency: 4, ratePerMinute: 60, burst: 10, costClass: "high", maxCost: 20 } as const;
+const reportingTimezoneSemantics = "one canonical IANA application/environment setting system.general.reportingTimezone (descriptor schema v3, required default UTC), resolved read-only with the same positive settings revision as reportingCurrency; aliases, invalid zones, and stale revisions are rejected; it is the only reporting/calendar timezone authority";
+const reportingCurrencySemantics = "one canonical ISO-4217 uppercase application/environment setting system.general.reportingCurrency (descriptor schema v3, required and no default), resolved read-only with the same positive settings revision as reportingTimezone; P13.8 migrates v2 only when one prior canonical application currency is proven, otherwise maintenance-required; mixed-currency aggregation and FX conversion are forbidden";
+const reportCatalog = [
+  { id: "sales.metric.pipeline-value-by-stage", sourceId: "sales.report.pipeline-value-by-stage", blockId: "sales.block.report.pipeline-value-by-stage", outputContract: "table.records@1", windowModes: ["as-of"] },
+  { id: "sales.metric.weighted-forecast", sourceId: "sales.report.weighted-forecast", blockId: "sales.block.report.weighted-forecast", outputContract: "metric.scalar@1", windowModes: ["as-of"] },
+  { id: "sales.metric.won-lost-conversion", sourceId: "sales.report.won-lost-conversion", blockId: "sales.block.report.won-lost-conversion", outputContract: "metric.scalar@2", windowModes: reportWindowModes },
+  { id: "sales.metric.lead-conversion", sourceId: "sales.report.lead-conversion", blockId: "sales.block.report.lead-conversion", outputContract: "metric.scalar@2", windowModes: reportWindowModes },
+  { id: "sales.metric.activity-by-owner-team", sourceId: "sales.report.activity-by-owner-team", blockId: "sales.block.report.activity-by-owner-team", outputContract: "table.records@1", windowModes: reportWindowModes },
+  { id: "sales.metric.task-aging", sourceId: "sales.report.task-aging", blockId: "sales.block.report.task-aging", outputContract: "table.records@1", windowModes: ["as-of"] },
+  { id: "sales.metric.sales-cycle-duration", sourceId: "sales.report.sales-cycle-duration", blockId: "sales.block.report.sales-cycle-duration", outputContract: "metric.scalar@2", windowModes: reportWindowModes }
+] as const;
+
+function reportOutputField(id: string, kind: string, binding: "required" | "optional" = "required", nullable = false): Record<string, unknown> {
+  return sourceField(id, kind, binding, nullable, "sales.reports.read", false, []);
+}
+
+function expectedReportDescriptor(spec: typeof reportCatalog[number]): Record<string, unknown> {
+  const metric = spec.outputContract.startsWith("metric.scalar@");
+  const outputFields = spec.sourceId === "sales.report.pipeline-value-by-stage"
+    ? [reportOutputField("stage-id", "enum"), reportOutputField("stage-name", "text"), reportOutputField("value", "money")]
+    : spec.sourceId === "sales.report.activity-by-owner-team"
+      ? [reportOutputField("actor-id", "text"), reportOutputField("team-id", "text", "optional", true), reportOutputField("count", "integer")]
+      : spec.sourceId === "sales.report.task-aging"
+        ? [reportOutputField("bucket", "enum"), reportOutputField("count", "integer")]
+        : undefined;
+  const maxPageSize = spec.sourceId === "sales.report.pipeline-value-by-stage" ? 6 : spec.sourceId === "sales.report.task-aging" ? 5 : spec.sourceId === "sales.report.activity-by-owner-team" ? 100 : 1;
+  const descriptor: Record<string, unknown> = {
+    id: spec.sourceId, version: 1, ownerPluginId: "module.sales", primaryContract: { id: metric ? "metric.scalar" : "table.records", version: metric && spec.outputContract === "metric.scalar@2" ? 2 : 1 }, sourceSchema: { id: `${spec.sourceId}.output`, version: 1 }, audience: "authenticated", surfaces: ["workspace"], permission: "sales.reports.read", structuralCompatibilityHash: "", presentationMetadataRevision: 1,
+    title: spec.sourceId === "sales.report.pipeline-value-by-stage" ? "Pipeline value by stage" : spec.sourceId === "sales.report.weighted-forecast" ? "Weighted forecast" : spec.sourceId === "sales.report.won-lost-conversion" ? "Won/lost conversion" : spec.sourceId === "sales.report.lead-conversion" ? "Lead conversion" : spec.sourceId === "sales.report.activity-by-owner-team" ? "Activity by owner and team" : spec.sourceId === "sales.report.task-aging" ? "Task aging" : "Sales cycle duration",
+    inputFields: spec.windowModes[0] === "as-of" ? [] : [{ id: "window-mode", kind: "enum", required: false, nullable: false }], ...(outputFields === undefined ? {} : { outputFields }), paginationModes: metric ? [] : ["offset"], limits: { maxSelectedFields: metric ? 1 : outputFields!.length, maxPageSize, ...reportLimits }, cacheClass: "authorization-context"
+  };
+  descriptor.structuralCompatibilityHash = descriptorStructuralHash(descriptor);
+  return descriptor;
+}
 
 function sourceField(id: string, kind: string, binding: "required" | "optional", nullable: boolean, permission: string, sortable: boolean, filterOperators: string[]): Record<string, unknown> {
   return { id, kind, binding, nullable, permission, sortable, filterOperators };
@@ -63,7 +99,7 @@ function expectedAdministrationDescriptor(id: string): Record<string, unknown> {
 }
 
 function descriptorStructuralHash(descriptor: Record<string, unknown>): string {
-  const projection = { id: descriptor.id, version: descriptor.version, primaryContract: descriptor.primaryContract, sourceSchema: descriptor.sourceSchema, inputFields: descriptor.inputFields, outputFields: descriptor.outputFields, paginationModes: descriptor.paginationModes, limits: descriptor.limits };
+  const projection = { id: descriptor.id, version: descriptor.version, primaryContract: descriptor.primaryContract, sourceSchema: descriptor.sourceSchema, inputFields: descriptor.inputFields, ...(descriptor.outputFields === undefined ? {} : { outputFields: descriptor.outputFields }), paginationModes: descriptor.paginationModes, limits: descriptor.limits };
   return `sha256:${createHash("sha256").update(canonicalJson(projection)).digest("hex")}`;
 }
 
@@ -108,6 +144,31 @@ function sameJson(actual: unknown, expected: unknown): boolean {
 
 function exactKeys(value: Record<string, unknown> | undefined, expected: readonly string[]): boolean {
   return value !== undefined && sameSet(Object.keys(value), expected);
+}
+
+function validPhase13Reports(value: Record<string, unknown> | undefined): boolean {
+  if (value === undefined || !exactKeys(value, ["ownerPluginId", "catalog", "route", "page", "blocks", "executionEnvelope", "sourceDescriptors", "interactive", "exportAndSchedule", "authority", "closedSchema"]) || value.ownerPluginId !== "module.sales" || !sameJson(value.catalog, reportCatalog)) return false;
+  const expectedBlockIds = reportCatalog.map(({ blockId }) => blockId);
+  if (!sameJson(value.route, { id: "sales.route.reports", path: "/sales/reports", permission: "sales.reports.read" }) || !sameJson(value.page, { id: "sales.page.reports", version: 1, routeId: "sales.route.reports", permission: "sales.reports.read", blockIds: expectedBlockIds })) return false;
+  const expectedBlocks = reportCatalog.map(({ blockId, sourceId, outputContract }) => ({ id: blockId, version: 1, sourceId, primaryContract: outputContract, permission: "sales.reports.read" }));
+  if (!sameJson(value.blocks, expectedBlocks)) return false;
+  const expectedExecutionEnvelope = { field: "reportExecution", requiredForSourceIds: reportCatalog.map(({ sourceId }) => sourceId), fields: ["applicationId", "environment", "source", "sourceSchema", "authorizationRevision", "lifecycleRevision", "salesScopeRevision", "settingsRevision", "reportingTimezone", "reportingCurrency", "currencyScale", "asOf", "windowMode", "grouping", "authorizedRecordCount", "executionDigest"], executionDigest: "sha256 lowercase digest of canonical reportExecution fields excluding executionDigest and excluding metric/table data" };
+  if (!sameJson(value.executionEnvelope, expectedExecutionEnvelope)) return false;
+  const sourceDescriptors = record(value.sourceDescriptors);
+  if (sourceDescriptors === undefined || !sameSet(Object.keys(sourceDescriptors), reportCatalog.map(({ sourceId }) => sourceId))) return false;
+  for (const spec of reportCatalog) {
+    const actual = sourceDescriptors[spec.sourceId]; const expected = expectedReportDescriptor(spec);
+    if (!DataSourceDescriptorSchema.safeParse(actual).success || canonicalJson(actual) !== canonicalJson(expected)) return false;
+  }
+  const exportAndSchedule = record(value.exportAndSchedule);
+  const run = record(exportAndSchedule?.run); const schedule = record(exportAndSchedule?.schedule); const job = record(exportAndSchedule?.job);
+  const expectedRun = { actionId: "sales.report.run", version: 1, purpose: "manual export only", input: { required: ["reportId", "windowMode"], additionalProperties: false }, output: { required: ["reportRunId", "state", "revision"], state: "queued", additionalProperties: false } };
+  const expectedSchedule = { actionId: "sales.report.schedule", version: 1, purpose: "one weekly delivery schedule per application/environment/creatorId/recipientId/reportId", input: { oneOf: { upsert: ["operation", "reportId", "recipientId", "expectedRevision", "weekday", "localTime", "windowMode"], cancel: ["operation", "reportId", "recipientId", "expectedRevision"] }, operations: ["upsert", "cancel"], expectedRevision: "0 creates; positive revision CAS-updates or cancels", additionalProperties: false }, output: { required: ["reportId", "recipientId", "state", "revision"], states: ["active", "cancelled"], additionalProperties: false } };
+  const expectedJob = { id: "sales.job.report-delivery", version: 1, states: ["queued", "running", "succeeded", "dead-letter"], maxActiveSchedulesPerCreator: 7, maxAttempts: 3, backoff: "bounded: 15 seconds, 30 seconds; no retry after third attempt", maxArtifactRows: 100, maxArtifactBytes: 1_048_576, artifactFormat: "UTF-8 RFC4180 CSV with CRLF and no BOM", fence: "PostgreSQL worker-generation fence, fencing token, promotion revision, lease owner, lease expiry, expected revision, and CAS; stale owners cannot claim, effect, or complete", idempotency: "sha256-canonical-json-v1 over applicationId, environment, reportId, windowMode, recipientId, scheduledFor or manual action idempotency key", auditOutbox: "enqueue, every run transition, schedule CAS, artifact receipt, and delivery receipt atomically append immutable audit plus sales.event.report-run-changed durable-integration outbox evidence; event has no source or realtime projection", retention: "raw report artifacts and transport outbox rows retain 30 days; schedules, run metadata, safe failure code, immutable audit, receipt, and digest retain application lifetime; raw CRM rows, recipient addresses, and secrets are never retained" };
+  if (!exactKeys(exportAndSchedule, ["run", "schedule", "job", "reauthorization"]) || !sameJson(run, expectedRun) || !sameJson(schedule, expectedSchedule) || !sameJson(job, expectedJob) || exportAndSchedule?.reauthorization !== "enqueue, claim, delivery, and download recheck current sales.reports.read plus every underlying source/field/record scope; manual export additionally requires sales.exports.execute; schedule upsert/cancel additionally requires sales.reports.schedule; recipient is an active user identity with current report authority, never a caller-supplied address; denied/stale/revoked recipients produce no artifact or delivery") return false;
+  return value.interactive === "each source is synchronous only within its descriptor budget: current-authority rows and field grants are rechecked before aggregation; server owns UTC asOf and current reporting timezone/currency revision; input is empty for as-of reports or exact optional window-mode for windowed reports; query filters, sort, pagination beyond the three bounded table sources, arbitrary ranges, SQL, expressions, and customer-defined report IDs are rejected" &&
+    value.authority === "report and dashboard execution begins from the same current authorized source/field/record scopes as the underlying CRM sources, then may only aggregate/redact; workspace-page ACL, saved block placement, cached result, export, schedule, and realtime state never add a record, field, team, or recipient" &&
+    sameJson(value.closedSchema, { additionalProperties: false, forbidden: ["reportDefinition", "customMetric", "sql", "expression", "query", "url", "recipientAddress", "cron", "timezoneOverride", "currencyOverride", "fx", "rawRows"] });
 }
 
 function validPhase13Workflows(value: Record<string, unknown> | undefined, objectSet: ReadonlySet<string>, actionSet: ReadonlySet<string>): boolean {
@@ -397,7 +458,7 @@ export function validatePhase13ProductContract(value: unknown): RepositoryDiagno
   const diagnostics: RepositoryDiagnostic[] = [];
   try {
     const actualDigest = `sha256:${createHash("sha256").update(canonicalJson(contract)).digest("hex")}`;
-    if (actualDigest !== acceptedContractDigest) diagnostics.push(diagnostic("PHASE13_PRODUCT_CONTRACT_DRIFT", "$", `Contract digest ${actualDigest} differs from the accepted P13.7 digest.`, "Review the semantic change and update the accepted digest only with an accepted product-contract decision."));
+    if (actualDigest !== acceptedContractDigest) diagnostics.push(diagnostic("PHASE13_PRODUCT_CONTRACT_DRIFT", "$", `Contract digest ${actualDigest} differs from the accepted P13.8 digest.`, "Review the semantic change and update the accepted digest only with an accepted product-contract decision."));
   } catch (error) {
     diagnostics.push(diagnostic("PHASE13_PRODUCT_CONTRACT_INVALID", "$", `Phase 13 product contract is not canonical JSON data: ${error instanceof Error ? error.message : String(error)}.`, "Restore a canonical JSON-compatible contract."));
   }
@@ -597,6 +658,7 @@ export function validatePhase13ProductContract(value: unknown): RepositoryDiagno
   const configuredPipeline = record(dataSemantics?.pipelineConfiguration);
   const configuredSavedView = record(dataSemantics?.savedViewConfiguration);
   const dataMovement = record(dataSemantics?.dataMovement);
+  const reports = record(dataSemantics?.reports);
   const polymorphicRelatedTargets = record(dataSemantics?.polymorphicRelatedTargets);
   const objectSpecificRelatedIntent = record(polymorphicRelatedTargets?.objectSpecificIntent);
   const retention = record(contract.retention);
@@ -619,7 +681,7 @@ export function validatePhase13ProductContract(value: unknown): RepositoryDiagno
   const pipelineStageObject = objects.find(({ id }) => id === "sales.object.pipeline-stage");
   const savedViewObject = objects.find(({ id }) => id === "sales.object.saved-view");
   const persistedObjectsValid = sameJson(pipelineStageObject?.requiredFields, ["stageId", "name", "semantic", "position", "probabilityBasisPoints", "allowedTransitionStageIds", "requiredFieldIds", "status", "revision"]) && sameJson(savedViewObject?.requiredFields, ["name", "ownerId", "visibility", "definition", "status", "revision"]) && sameJson(savedViewObject?.derivedFields, { targetObjectId: "definition.targetObjectId exactly", viewKind: "definition.kind exactly" });
-  if ([dataSemantics?.money, dataSemantics?.calendarDate, dataSemantics?.instant, dataSemantics?.reportingTimezone].some((value) => typeof value !== "string" || value === "") || !ownershipValid || !leadQualificationValid || !protectedFieldMutationValid || !opportunityMutationValid || !noteCorrectionValid || !persistedObjectsValid || !validPipelineConfiguration(configuredPipeline) || !validSavedViewConfiguration(configuredSavedView) || !validDataMovement(dataMovement, matrix) || opportunity?.stateSource !== opportunityStateSource || !sameSet(strings(polymorphicRelatedTargets?.vocabulary), requiredRelatedRecordTargets) || polymorphicRelatedTargets?.sharedIntent !== "Activities, Notes, Attachment references, and optional Task links may name only this closed target vocabulary and must resolve in their own application and environment." || JSON.stringify(objectSpecificRelatedIntent) !== JSON.stringify({ "sales.object.activity": "required interaction target", "sales.object.note": "required timeline target", "sales.object.attachment-reference": "required storage-reference target", "sales.object.task": "optional follow-up target" }) || retention?.defaultDeletion !== "soft-archive" || retention?.importExportArtifactsDays !== 30 || [retention?.domainRows, retention?.mergeLineage, retention?.audit, retention?.attachmentBytes].some((value) => typeof value !== "string" || value === "") || nonGoals.length < 10 || !nonGoals.includes("second-vertical") || !nonGoals.includes("public-cms") || duplicateIds(nonGoals).length > 0) diagnostics.push(diagnostic("PHASE13_PRODUCT_CONTRACT_INVALID", "$/dataSemantics", "Data semantics, stage identity, pipeline/saved-view bounds, import/export/merge safety, mutation admissions, polymorphic target vocabulary, retention, and non-goals must be closed, concrete, and preserve CRM-only scope.", "Restore complete product boundary semantics."));
+  if ([dataSemantics?.money, dataSemantics?.calendarDate, dataSemantics?.instant].some((value) => typeof value !== "string" || value === "") || dataSemantics?.reportingTimezone !== reportingTimezoneSemantics || dataSemantics?.reportingCurrency !== reportingCurrencySemantics || !validPhase13Reports(reports) || !ownershipValid || !leadQualificationValid || !protectedFieldMutationValid || !opportunityMutationValid || !noteCorrectionValid || !persistedObjectsValid || !validPipelineConfiguration(configuredPipeline) || !validSavedViewConfiguration(configuredSavedView) || !validDataMovement(dataMovement, matrix) || opportunity?.stateSource !== opportunityStateSource || !sameSet(strings(polymorphicRelatedTargets?.vocabulary), requiredRelatedRecordTargets) || polymorphicRelatedTargets?.sharedIntent !== "Activities, Notes, Attachment references, and optional Task links may name only this closed target vocabulary and must resolve in their own application and environment." || JSON.stringify(objectSpecificRelatedIntent) !== JSON.stringify({ "sales.object.activity": "required interaction target", "sales.object.note": "required timeline target", "sales.object.attachment-reference": "required storage-reference target", "sales.object.task": "optional follow-up target" }) || retention?.defaultDeletion !== "soft-archive" || retention?.importExportArtifactsDays !== 30 || [retention?.domainRows, retention?.mergeLineage, retention?.audit, retention?.attachmentBytes].some((value) => typeof value !== "string" || value === "") || nonGoals.length < 10 || !nonGoals.includes("second-vertical") || !nonGoals.includes("public-cms") || duplicateIds(nonGoals).length > 0) diagnostics.push(diagnostic("PHASE13_PRODUCT_CONTRACT_INVALID", "$/dataSemantics", "Data semantics, reporting currency/catalog/execution bounds, stage identity, pipeline/saved-view bounds, import/export/merge safety, mutation admissions, polymorphic target vocabulary, retention, and non-goals must be closed, concrete, and preserve CRM-only scope.", "Restore complete product boundary semantics."));
   const beta = record(contract.betaCriteria);
   const dataset = record(beta?.representativeDataset);
   const dogfood = record(beta?.dogfood);

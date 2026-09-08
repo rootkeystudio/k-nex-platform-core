@@ -127,7 +127,8 @@ describe("create-knex-app", () => {
       "20260907_000030_pipeline_saved_views",
       "20260907_000031_data_movement",
       "20260908_000032_communications",
-      "20260908_000033_crm_workflows"
+      "20260908_000033_crm_workflows",
+      "20260908_000034_reports"
     ]);
     const attachmentAdmissions = first.files["src/migrations/20260906_000029_attachment_upload_admissions.ts"]!;
     expect(attachmentAdmissions).toContain('CREATE TABLE "k_nex_sales_attachment_upload_admissions"');
@@ -512,7 +513,7 @@ describe("create-knex-app", () => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), "create-knex-app-cli-"))); roots.push(root);
     const script = fileURLToPath(new URL("../../../scripts/create-knex-app.mjs", import.meta.url));
     const planned = join(root, "planned");
-    const output = execFileSync(process.execPath, [script, "--target", planned, "--id", "cli-planned", "--name", "CLI Planned", "--database", "external", "--workspace", "--plan-only"], { encoding: "utf8" });
+    const output = execFileSync(process.execPath, [script, "--target", planned, "--id", "cli-planned", "--name", "CLI Planned", "--database", "external", "--workspace", "--plan-only"], { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });
     expect(JSON.parse(output).applicationId).toBe("cli-planned");
     expect(JSON.parse(output).installCommands).toEqual([]);
     expect(existsSync(planned)).toBe(false);

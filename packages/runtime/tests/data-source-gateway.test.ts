@@ -1,6 +1,8 @@
+import { createHash } from "node:crypto";
+
 import { describe, expect, it } from "vitest";
 
-import { MetricScalarSchema, TableRecordsSchema, type DataSourceDefinition } from "@k-nex/contracts";
+import { canonicalJson, MetricScalarSchema, TableRecordsSchema, type DataSourceDefinition } from "@k-nex/contracts";
 
 import {
   BoundedQueryBudgetEvaluator,
@@ -175,6 +177,22 @@ describe("P2.3 staged data-source gateway", () => {
         data: metricValue
       });
     }
+  });
+
+  it("preserves validated report execution evidence beside unchanged source data", async () => {
+    const stages = recordingStages([]);
+    const reportExecutionBase = {
+      applicationId: "customer-gate-1", environment: "production",
+      source: { id: definition.descriptor.id, version: 2 }, sourceSchema: { id: definition.descriptor.sourceSchema.id, version: 3 },
+      authorizationRevision: 7, lifecycleRevision: 2, salesScopeRevision: 5, settingsRevision: 3,
+      reportingTimezone: "UTC", reportingCurrency: "USD", currencyScale: 2,
+      asOf: "2026-09-08T00:00:00.000Z", windowMode: "as-of" as const, grouping: "none" as const, authorizedRecordCount: 1
+    };
+    const reportExecution = { ...reportExecutionBase, executionDigest: `sha256:${createHash("sha256").update(canonicalJson(reportExecutionBase)).digest("hex")}` };
+    stages.dispatcher.dispatch = () => ({ data: metricValue, reportExecution });
+    const result = await new DataSourceGateway(stages).query({ ...request, input: {}, query: { filters: [], sort: [] }, selectedFields: [] });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.body).toMatchObject({ data: metricValue, reportExecution });
   });
 
   it.each<StageName>([
@@ -371,6 +389,13 @@ describe("P2.3 staged data-source gateway", () => {
     expect(() => source.validate(definition, { ...metricValue, undeclared: true })).toThrowError(DataSourceGatewayError);
     expect(contract.validate(definition.descriptor, metricValue)).toEqual(metricValue);
     expect(() => contract.validate(definition.descriptor, { value: { kind: "integer", value: 1 }, extensions: {} })).toThrowError(DataSourceGatewayError);
+  });
+
+  it("dispatches metric.scalar versions exactly", () => {
+    const contract = new CanonicalOutputContractValidator();
+    const unavailable = { value: { kind: "percentage", value: null } };
+    expect(contract.validate({ ...definition.descriptor, primaryContract: { id: "metric.scalar", version: 2 } }, unavailable)).toEqual(unavailable);
+    expect(() => contract.validate(definition.descriptor, unavailable)).toThrowError(DataSourceGatewayError);
   });
 
   it("fails closed for an unknown source and normalizes malformed problem metadata", async () => {

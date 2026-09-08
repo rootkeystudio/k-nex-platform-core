@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { workspacePageApplicationFiles } from "../src/workspace-page-application-files.js";
+import { applicationAuthFiles } from "../src/application-auth-files.js";
 
 type GeneratedEditorSession = Readonly<{
   persistence: Readonly<{
@@ -42,8 +43,8 @@ function strictModeGeneratedEditorSession(source: string): Readonly<{ session: G
     .replace(/  if \(unavailable === "access"\) return <section[^\n]*\n/u, "")
     .replace(/  if \(unavailable === "authority"\) return <section[^\n]*\n/u, "")
     .replace(/  return <WorkspacePuckEditorHost[^\n]*\/>;\n/u, "  return session;\n");
-  const WorkspacePageEditor = new Function("useState", "useRef", "useEffect", "useMemo", "WorkspaceEditorSession", "createAuthorizedPuckBuilderProfile", "WorkspacePuckEditorHost", "presentUiRuntimeReact", "genericPuckBlockBridges", "salesPuckBlockBridges", "salesOpportunitiesDescriptor", "salesTasksDescriptor", "salesPipelineSnapshotDescriptor", "salesSavedViewListDescriptor", "salesSavedViewDetailDescriptor", "salesSavedViewTableDescriptor", "salesSavedViewKanbanDescriptor", "salesSavedViewCalendarDescriptor", "fetch", "crypto", `${executable}\nreturn WorkspacePageEditor;`)(
-    useState, useRef, useEffect, useMemo, WorkspaceEditorSession, () => ({}), () => undefined, () => undefined, [], [], {}, {}, {}, {}, {}, {}, {}, {},
+  const WorkspacePageEditor = new Function("useState", "useRef", "useEffect", "useMemo", "WorkspaceEditorSession", "createAuthorizedPuckBuilderProfile", "WorkspacePuckEditorHost", "presentUiRuntimeReact", "genericPuckBlockBridges", "salesPuckBlockBridges", "salesOpportunitiesDescriptor", "salesTasksDescriptor", "salesPipelineSnapshotDescriptor", "salesSavedViewListDescriptor", "salesSavedViewDetailDescriptor", "salesSavedViewTableDescriptor", "salesSavedViewKanbanDescriptor", "salesSavedViewCalendarDescriptor", "salesPipelineValueByStageDescriptor", "salesWeightedForecastDescriptor", "salesWonLostConversionDescriptor", "salesLeadConversionDescriptor", "salesActivityByOwnerTeamDescriptor", "salesTaskAgingDescriptor", "salesSalesCycleDurationDescriptor", "fetch", "crypto", `${executable}\nreturn WorkspacePageEditor;`)(
+    useState, useRef, useEffect, useMemo, WorkspaceEditorSession, () => ({}), () => undefined, () => undefined, [], [], {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {},
     async (_input: string, init?: Readonly<{ method?: string; signal?: AbortSignal }>) => {
       if (init?.method === "POST" && init.signal !== undefined) mutationSignals.push(init.signal);
       return { ok: true, status: 200, json: async () => ({ watermark }) };
@@ -149,6 +150,50 @@ describe("generated workspace page builder policy", () => {
     expect(runtime).not.toContain("builder-puck");
     expect(runtime).not.toContain("PuckBlock");
     expect(editor).toContain('blocks: [...genericPuckBlockBridges, ...salesPuckBlockBridges]');
+  });
+
+  it("admits the fixed report bridges only through registered current-authority sources", () => {
+    const files = workspacePageApplicationFiles({ applicationId: "customer-alpha" });
+    const runtime = files["src/k-nex-workspace-pages.ts"]!;
+    const editor = files["src/app/components/k-nex-workspace-page-editor.tsx"]!;
+    const sales = files["src/k-nex-sales-workspace.ts"]!;
+    const reportDescriptors = [
+      "salesPipelineValueByStageDescriptor",
+      "salesWeightedForecastDescriptor",
+      "salesWonLostConversionDescriptor",
+      "salesLeadConversionDescriptor",
+      "salesActivityByOwnerTeamDescriptor",
+      "salesTaskAgingDescriptor",
+      "salesSalesCycleDurationDescriptor"
+    ];
+
+    for (const descriptor of reportDescriptors) {
+      expect(editor).toContain(descriptor);
+      expect(runtime).toContain(descriptor);
+    }
+    expect(editor).toContain('blocks: [...genericPuckBlockBridges, ...salesPuckBlockBridges]');
+    expect(editor).toContain("authority: initialProjection.authority");
+    expect(runtime).toContain('const registered = contribution("blocks", bridge.definition.id, bridge.definition.version)');
+    expect(runtime).toContain('registered?.id === bridge.definition.id && registered.version === bridge.definition.version');
+    expect(runtime).toContain('const registered = contribution("sources", candidate.id, candidate.version)');
+    expect(runtime).toContain('registered.id !== candidate.id || registered.version !== candidate.version || !permissions.has(registered.permission)');
+    expect(sales).toContain('request.descriptor.id.startsWith("sales.report.") ? { kind: request.descriptor.id, where: salesRecordWhere(current) }');
+    expect(sales).toContain('permissions.includes(request.descriptor.permission)');
+    expect(sales).toContain('const reportObjectPermissionIds = Object.freeze(["sales.activities.read", "sales.leads.read", "sales.opportunities.read", "sales.pipelines.read", "sales.tasks.read"] as const);');
+    expect(sales).toContain('const reportFieldPermissionIds = Object.freeze(["sales.opportunities.amount.read"] as const);');
+    expect(sales).toContain('currentSalesGeneration(payload)');
+    expect(sales).toContain('runtimeGenerationId, recordScope: current.salesScope.recordScope, applicationWide: current.salesScope.applicationWide, authorizedTeamIds: current.salesScope.authorizedTeamIds, permissionGrants: reportPermissions, objectPermissionGrants: reportObjectPermissions, fieldPermissionGrants: reportFieldPermissions');
+    expect(sales).toContain('if (actionId === "sales.report.run") return Object.freeze({ collection: "sales-report-runs", operations: Object.freeze([] as const), permissionId: "sales.exports.execute" });');
+  });
+
+  it("reuses exact current report admission for artifact download without an application-wide scope substitute", () => {
+    const route = applicationAuthFiles({ applicationId: "customer-alpha", applicationName: "Customer Alpha", theme: "minimal" })["src/app/api/k-nex/sales/report-artifact/route.ts"]!;
+    expect(route).toContain('import { workspaceSalesReportAdmission } from "../../../../../k-nex-sales-workspace.js";');
+    expect(route).toContain("const admission = await workspaceSalesReportAdmission(payload, context);");
+    expect(route).toContain("admission.context.actorId !== actorId");
+    expect(route).toContain("!admission.permissionGrants.includes(\"sales.reports.read\")");
+    expect(route).toContain("readGeneratedSalesReportArtifact(pool, admission, artifactId)");
+    expect(route).not.toContain('recordScope: "application-sales-scope", applicationWide: true');
   });
 
   it("derives the workspace owner override from the revision-pinned active owner assignment", () => {
@@ -366,7 +411,7 @@ describe("generated workspace page builder policy", () => {
     expect(sales).toContain("pageNumber > 1_000_000");
     expect(sales).toContain("timeline ? requestedPage > 4");
     expect(sales).toContain("detail || administrationPageSize !== undefined ? 1 : requestedPage");
-    expect(sales).toContain("page: { number: sourcePage, size: administrationPageSize ?? 25 }");
+    expect(sales).toContain("page: { number: sourcePage, size: boundedPageSize }");
     expect(runtime).toContain("const currentState = await kNexAuthority(payload).store.readState(scope.applicationId, scope.environment);");
     expect(runtime).toContain("currentState.authorizationRevision !== session.watermark.authorizationRevision || currentState.lifecycleRevision !== session.watermark.lifecycleRevision");
   });

@@ -151,7 +151,7 @@ describe("P13.2 CRM core", () => {
       "sales.lead.archive", "sales.lead.create", "sales.lead.disqualify", "sales.lead.qualify", "sales.lead.update",
       "sales.merge.commit",
       "sales.opportunity.archive", "sales.opportunity.close", "sales.opportunity.create", "sales.opportunity.stage.update", "sales.opportunity.update",
-      "sales.activity.cancel", "sales.activity.complete", "sales.activity.create", "sales.note.create", "sales.attachment.link", "sales.attachment.remove", "sales.ownership.assign", "sales.pipeline.archive", "sales.pipeline.update", "sales.saved-view.archive", "sales.saved-view.create", "sales.saved-view.update",
+      "sales.activity.cancel", "sales.activity.complete", "sales.activity.create", "sales.note.create", "sales.attachment.link", "sales.attachment.remove", "sales.ownership.assign", "sales.pipeline.archive", "sales.pipeline.update", "sales.report.run", "sales.report.schedule", "sales.saved-view.archive", "sales.saved-view.create", "sales.saved-view.update",
       "sales.task.create", "sales.task.update",
       "sales.email.send", "sales.calendar.sync", "sales.reminder.schedule", "sales.notification.read", "sales.notification.archive", "sales.reminder.dismiss", "sales.integration.configure"
     ].sort());

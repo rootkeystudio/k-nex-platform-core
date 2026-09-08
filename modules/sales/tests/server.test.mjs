@@ -39,8 +39,17 @@ import {
   salesOpportunityStageInputRuntimeSchema,
   salesOpportunityStageOutputRuntimeSchema,
   salesPageTemplates,
+  salesReportsPageTemplate,
   salesNotificationsPageTemplate,
   salesProviderConfigurationsDescriptor,
+  salesReportDescriptors,
+  salesWonLostConversionDescriptor,
+  salesLeadConversionDescriptor,
+  salesSalesCycleDurationDescriptor,
+  salesWeightedForecastDescriptor,
+  salesReportRunDescriptor,
+  salesReportScheduleDescriptor,
+  salesMetricOutputRuntimeSchema,
   salesReferenceMetadata,
   salesUiBlockDescriptors,
   salesUiComponentDescriptors,
@@ -68,6 +77,8 @@ import {
   salesWorkflowActionDefinitions,
   salesWorkflowActionHandler,
   salesCommunicationActionHandler,
+  salesReportActionHandler,
+  salesWeightedForecastHandler,
   salesPermissionPolicyExecutors,
   projectSalesStateHistory,
   createSalesImportGenesisAudit,
@@ -351,7 +362,7 @@ test("Sales registers active successor sources and frozen authority", () => {
     register: (kind, id) => contributions.push([kind, id]),
     bindRenderer: (kind, id) => bindings.push([kind, id])
   });
-  assert.deepEqual(contributions.filter(([kind]) => kind === "sources").map(([, id]) => id).sort(), ["sales.account.detail", "sales.accounts", "sales.contact.detail", "sales.contacts", "sales.dedupe.candidates", "sales.export-job.detail", "sales.export-job.list", "sales.import-job.detail", "sales.import-job.list", "sales.lead.detail", "sales.leads", "sales.notifications", "sales.opportunities", "sales.opportunity.detail", "sales.pipeline.snapshot", "sales.provider-configurations", "sales.reminders", "sales.saved-view.calendar", "sales.saved-view.detail", "sales.saved-view.kanban", "sales.saved-view.list", "sales.saved-view.table", "sales.tasks", "sales.timeline"]);
+  assert.deepEqual(contributions.filter(([kind]) => kind === "sources").map(([, id]) => id).sort(), ["sales.account.detail", "sales.accounts", "sales.contact.detail", "sales.contacts", "sales.dedupe.candidates", "sales.export-job.detail", "sales.export-job.list", "sales.import-job.detail", "sales.import-job.list", "sales.lead.detail", "sales.leads", "sales.notifications", "sales.opportunities", "sales.opportunity.detail", "sales.pipeline.snapshot", "sales.provider-configurations", "sales.reminders", "sales.report.activity-by-owner-team", "sales.report.lead-conversion", "sales.report.pipeline-value-by-stage", "sales.report.sales-cycle-duration", "sales.report.task-aging", "sales.report.weighted-forecast", "sales.report.won-lost-conversion", "sales.saved-view.calendar", "sales.saved-view.detail", "sales.saved-view.kanban", "sales.saved-view.list", "sales.saved-view.table", "sales.tasks", "sales.timeline"]);
   assert.deepEqual(contributions.filter(([kind]) => kind === "actions").map(([, id]) => id).sort(), salesManifest.contributions.actions && Object.keys(salesManifest.contributions.actions).sort());
   assert.deepEqual(contributions.filter(([kind]) => kind === "tools").map(([, id]) => id).sort(), ["sales.tools.create-task", "sales.tools.search-tasks"]);
   assert.deepEqual(contributions.filter(([kind]) => kind === "permissions").map(([, id]) => id).sort(), salesCrmPermissionDescriptors.map(({ id }) => id).sort());
@@ -363,10 +374,48 @@ test("Sales registers active successor sources and frozen authority", () => {
   assert.deepEqual(contributions.filter(([kind]) => kind === "pageTemplates").map(([, id]) => id), salesPageTemplates.map(({ id }) => id));
   assert.deepEqual(contributions.filter(([kind]) => kind === "components").map(([, id]) => id), salesUiComponentDescriptors.map(({ id }) => id));
   assert.deepEqual(contributions.filter(([kind]) => kind === "blocks").map(([, id]) => id), salesUiBlockDescriptors.map(({ id }) => id));
-  assert.deepEqual(bindings.filter(([kind]) => kind === "sources").map(([, id]) => id).sort(), ["sales.account.detail", "sales.accounts", "sales.contact.detail", "sales.contacts", "sales.dedupe.candidates", "sales.export-job.detail", "sales.export-job.list", "sales.import-job.detail", "sales.import-job.list", "sales.lead.detail", "sales.leads", "sales.notifications", "sales.opportunities", "sales.opportunity.detail", "sales.pipeline.snapshot", "sales.provider-configurations", "sales.reminders", "sales.saved-view.calendar", "sales.saved-view.detail", "sales.saved-view.kanban", "sales.saved-view.list", "sales.saved-view.table", "sales.tasks", "sales.timeline"]);
+  assert.deepEqual(bindings.filter(([kind]) => kind === "sources").map(([, id]) => id).sort(), ["sales.account.detail", "sales.accounts", "sales.contact.detail", "sales.contacts", "sales.dedupe.candidates", "sales.export-job.detail", "sales.export-job.list", "sales.import-job.detail", "sales.import-job.list", "sales.lead.detail", "sales.leads", "sales.notifications", "sales.opportunities", "sales.opportunity.detail", "sales.pipeline.snapshot", "sales.provider-configurations", "sales.reminders", "sales.report.activity-by-owner-team", "sales.report.lead-conversion", "sales.report.pipeline-value-by-stage", "sales.report.sales-cycle-duration", "sales.report.task-aging", "sales.report.weighted-forecast", "sales.report.won-lost-conversion", "sales.saved-view.calendar", "sales.saved-view.detail", "sales.saved-view.kanban", "sales.saved-view.list", "sales.saved-view.table", "sales.tasks", "sales.timeline"]);
   assert.deepEqual(bindings.filter(([kind]) => kind === "actions").map(([, id]) => id).sort(), salesManifest.contributions.actions && Object.keys(salesManifest.contributions.actions).sort());
   assert.deepEqual(bindings.filter(([kind]) => kind === "components").map(([, id]) => id), salesUiComponentDescriptors.map(({ id }) => id));
   assert.deepEqual(bindings.filter(([kind]) => kind === "blocks").map(([, id]) => id), salesUiBlockDescriptors.map(({ id }) => id));
+});
+
+test("P13.8 report catalog is closed, source-bound, and delegates only through the reporting gateway", async () => {
+  assert.deepEqual(salesReportDescriptors.map(({ id }) => id), ["sales.report.pipeline-value-by-stage", "sales.report.weighted-forecast", "sales.report.won-lost-conversion", "sales.report.lead-conversion", "sales.report.activity-by-owner-team", "sales.report.task-aging", "sales.report.sales-cycle-duration"]);
+  for (const descriptor of salesReportDescriptors) {
+    assert.equal(DataSourceDescriptorSchema.safeParse(descriptor).success, true);
+    assert.equal(descriptor.permission, "sales.reports.read");
+    assert.equal(descriptor.limits.timeoutMs, 1_000);
+    assert.equal(descriptor.limits.maxDepth, 3);
+    assert.equal(descriptor.limits.maxFilters, 0);
+    assert.equal(descriptor.limits.maxSorts, 0);
+  }
+  assert.equal(salesMetricOutputRuntimeSchema.safeParse({ value: { kind: "money", value: "12.50", currency: "USD", scale: 2 } }).success, true);
+  assert.deepEqual([salesWonLostConversionDescriptor, salesLeadConversionDescriptor, salesSalesCycleDurationDescriptor].map(({ primaryContract }) => primaryContract), [{ id: "metric.scalar", version: 2 }, { id: "metric.scalar", version: 2 }, { id: "metric.scalar", version: 2 }]);
+  assert.deepEqual(salesWeightedForecastDescriptor.primaryContract, { id: "metric.scalar", version: 1 });
+  assert.deepEqual(salesNavigationDescriptors.find(({ id }) => id === "sales.navigation.reports"), { id: "sales.navigation.reports", ownerPluginId: "module.sales", labelMessageId: "sales.message.navigation-reports", route: { routeId: "sales.route.reports", params: {} }, permission: "sales.reports.read", order: 11 });
+  const reportInputs = Object.fromEntries(salesReportsPageTemplate.document.regions.main.map((node) => [node.id, node.bindings?.source?.input]));
+  assert.deepEqual(reportInputs, {
+    "pipeline-value-by-stage": {}, "weighted-forecast": {}, "won-lost-conversion": { "window-mode": "current-reporting-week" }, "lead-conversion": { "window-mode": "current-reporting-week" }, "activity-by-owner-team": { "window-mode": "current-reporting-week" }, "task-aging": {}, "sales-cycle-duration": { "window-mode": "current-reporting-week" }
+  });
+  const reportAuthority = { authorizationRevision: 7, lifecycleRevision: 2, salesScopeRevision: 5, settingsRevision: 3, reportingTimezone: "UTC", reportingCurrency: "USD", runtimeGenerationId: "runtime-sales-1", reportPermissionGrants: ["sales.reports.read"], objectPermissionGrants: ["sales.opportunities.read", "sales.pipelines.read"], fieldPermissionGrants: ["sales.opportunities.amount.read"] };
+  const weightedMetadataBase = { applicationId: "customer-gate-1", environment: "production", source: { id: "sales.report.weighted-forecast", version: 1 }, sourceSchema: { id: "sales.report.weighted-forecast.output", version: 1 }, authorizationRevision: 7, lifecycleRevision: 2, salesScopeRevision: 5, settingsRevision: 3, reportingTimezone: "UTC", reportingCurrency: "USD", currencyScale: 2, asOf: "2026-09-08T00:00:00.000Z", windowMode: "as-of", grouping: "none", authorizedRecordCount: 1 };
+  const weightedMetadata = { ...weightedMetadataBase, executionDigest: `sha256:${createHash("sha256").update(canonicalJson(weightedMetadataBase)).digest("hex")}` };
+  const reads = [];
+  const metric = await salesWeightedForecastHandler({
+    actor: { effectiveActor: { kind: "user", id: "seller-1" } }, input: {}, selectedFields: [], query: { filters: [], sort: [] }, recordScope: { kind: "application", where: { applicationId: { equals: "customer-gate-1" } } }, signal: new AbortController().signal,
+    request: { applicationIdentity: { applicationId: "customer-gate-1", environment: "production" }, reportingAuthority: reportAuthority, reporting: { read: async (call) => { reads.push(call); return { data: { value: { kind: "money", value: "12.50", currency: "USD", scale: 2 } }, metadata: weightedMetadata }; }, run: async () => { throw new Error("unused"); }, schedule: async () => { throw new Error("unused"); } } }
+  });
+  assert.deepEqual(metric, { data: { value: { kind: "money", value: "12.50", currency: "USD", scale: 2 } }, reportExecution: weightedMetadata });
+  assert.deepEqual(reads.map(({ reportId, windowMode, selectedFields }) => ({ reportId, windowMode, selectedFields })), [{ reportId: "sales.report.weighted-forecast", windowMode: "as-of", selectedFields: [] }]);
+  const calls = [];
+  const authorizationContext = { actionId: "sales.report.run", applicationId: "customer-gate-1", environment: "production", actorId: "seller-1", ownerId: "seller-1", authorizationRevision: 7, lifecycleRevision: 2, salesScopeRevision: 5, reportingAuthority: { ...reportAuthority, reportPermissionGrants: ["sales.exports.execute", "sales.reports.read"] }, reporting: { read: async () => { throw new Error("unused"); }, run: async (call) => { calls.push(call); return { reportRunId: "report-run-1", state: "queued", revision: 1 }; }, schedule: async () => { throw new Error("unused"); } } };
+  const run = await salesReportActionHandler({ authorizationContext, input: { reportId: "sales.report.weighted-forecast", windowMode: "as-of" }, idempotencyKey: "report-run-key-1", signal: new AbortController().signal });
+  assert.deepEqual(run, { reportRunId: "report-run-1", state: "queued", revision: 1 });
+  assert.equal(calls[0].input.reportId, "sales.report.weighted-forecast");
+  await assert.rejects(() => salesReportActionHandler({ authorizationContext: { ...authorizationContext, actionId: salesReportScheduleDescriptor.id }, input: { operation: "upsert", reportId: "sales.report.task-aging", recipientId: "seller-1", expectedRevision: 0, weekday: 8, localTime: "09:00", windowMode: "as-of" }, idempotencyKey: "report-schedule-key-1", signal: new AbortController().signal }), /Sales report input is invalid/);
+  assert.equal(salesReportRunDescriptor.inputSchema.additionalProperties, false);
+  assert.equal(salesReportScheduleDescriptor.inputSchema.additionalProperties, false);
 });
 
 test("Sales settings, permissions, routes, and navigation use strict platform contracts", () => {
@@ -402,7 +451,8 @@ test("Sales P13.2 policy bindings and role templates are static same-owner decla
       assert.ok(binding, `${descriptor.id} must have one policy binding`);
       const row = salesCrmObjectFieldActionMatrix.find((candidate) => [candidate.readPermissionId, candidate.writePermissionId, candidate.archivePermissionId, ...Object.values(candidate.sensitiveFields ?? {}), ...Object.values(candidate.actionPermissions ?? {})].includes(descriptor.id));
       const operationPolicy = descriptor.id === "sales.ownership.write" ? "sales.policy.ownership.current"
-        : descriptor.id === "sales.records.merge" ? "sales.policy.merge.current" : row?.recordPolicyId;
+        : descriptor.id === "sales.records.merge" ? "sales.policy.merge.current"
+          : descriptor.id === "sales.reports.read" ? "sales.policy.reports.current" : row?.recordPolicyId;
       assert.equal(binding.policyReference, operationPolicy);
     }
   }
@@ -494,7 +544,7 @@ test("Sales registers source/action-backed tools with strict write policy", () =
 
 test("Sales declares event-to-realtime invalidation mappings", () => {
   assert.deepEqual(salesEventDescriptors.map(({ id }) => id).sort(), [
-    "sales.event.account-changed", "sales.event.contact-changed", "sales.event.export-job-changed", "sales.event.import-job-changed", "sales.event.lead-changed", "sales.event.notification-changed", "sales.event.opportunity-changed", "sales.event.provider-configuration-changed", "sales.event.reminder-changed", "sales.event.task-changed", "sales.event.timeline-changed", "sales.event.workflow-execution-changed", "sales.event.workflow.activity-scheduled", "sales.event.workflow.lead-owner-assigned", "sales.event.workflow.opportunity-proposal-entered"
+    "sales.event.account-changed", "sales.event.contact-changed", "sales.event.export-job-changed", "sales.event.import-job-changed", "sales.event.lead-changed", "sales.event.notification-changed", "sales.event.opportunity-changed", "sales.event.provider-configuration-changed", "sales.event.reminder-changed", "sales.event.report-run-changed", "sales.event.task-changed", "sales.event.timeline-changed", "sales.event.workflow-execution-changed", "sales.event.workflow.activity-scheduled", "sales.event.workflow.lead-owner-assigned", "sales.event.workflow.opportunity-proposal-entered"
   ]);
   const eventIds = new Set(salesEventDescriptors.map(({ id }) => id));
   const sourceIds = new Set(salesManifest.contributions.sources && Object.keys(salesManifest.contributions.sources));

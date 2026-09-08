@@ -199,7 +199,7 @@ function audit(actionId, resourceId, actorId, fromState, toState, revision, key,
 async function seedRecords(pool, ids) {
   const teamId = `team:${ids.owner}`;
   await pool.query("insert into k_nex_system_settings_state (application_id,environment,settings_revision) values ($1,$2,1) on conflict (application_id,environment) do update set settings_revision=greatest(k_nex_system_settings_state.settings_revision,1)", [applicationId, environmentName]);
-  await pool.query("insert into k_nex_system_settings_documents (application_id,environment,descriptor_id,descriptor_schema_version,owner_scope_key,owner_kind,owner_namespace,owner_delivery_class,owner_extension_id,owner_generation,document_revision,settings_revision,values_json) values ($1,$2,'system.general',2,'platform:system','platform','system',null,null,null,1,1,$3::jsonb)", [applicationId, environmentName, JSON.stringify({ siteName: "K-Nex", reportingTimezone: "UTC" })]);
+  await pool.query("insert into k_nex_system_settings_documents (application_id,environment,descriptor_id,descriptor_schema_version,owner_scope_key,owner_kind,owner_namespace,owner_delivery_class,owner_extension_id,owner_generation,document_revision,settings_revision,values_json) values ($1,$2,'system.general',3,'platform:system','platform','system',null,null,null,1,1,$3::jsonb)", [applicationId, environmentName, JSON.stringify({ reportingTimezone: "UTC", reportingCurrency: "USD" })]);
   const insertAccount = async (name, ownerId = ids.owner, team = teamId) => {
     const row = (await pool.query("insert into sales_accounts (application_id,environment,owner_id,team_id,created_by,updated_by,name) values ($1,$2,$3,$4,$3,$3,$5) returning id", [applicationId, environmentName, ownerId, team, name])).rows[0];
     await pool.query("update sales_accounts set audit=$2::jsonb where id=$1", [row.id, JSON.stringify([audit("sales.account.create", row.id, ownerId, "absent", "active", 1, `account-create-${row.id}`, { ownerId, teamId: team })])]);
@@ -318,14 +318,14 @@ export async function withGeneratedCrmBrowserFixture(runBrowser) {
     const provisional = await verifier.verifyManifest(manifest);
     for (const theme of ["minimal", "neobrutalism"]) {
       const lockApp = resolve(directory, `lock-${theme}`);
-      factory.applyCreateKnexApplication(factory.planCreateKnexApplication({ applicationId: `p13-crm-lock-${theme}`, applicationName: "P13 CRM lock", theme, database: "external", packageSource: { kind: "packed-mirror", directory: mirror, authority: verifier.packageReleaseAuthority, release: provisional } }), lockApp);
+      factory.applyCreateKnexApplication(factory.planCreateKnexApplication({ applicationId: `p13-crm-lock-${theme}`, applicationName: "P13 CRM lock", theme, database: "external", primaryCurrency: "USD", packageSource: { kind: "packed-mirror", directory: mirror, authority: verifier.packageReleaseAuthority, release: provisional } }), lockApp);
       run("pnpm", ["install", "--lockfile-only", "--no-frozen-lockfile", "--ignore-scripts"], { cwd: lockApp, stdio: "pipe" });
       const lock = readFileSync(resolve(lockApp, "pnpm-lock.yaml")); const digest = `sha256:${createHash("sha256").update(lock).digest("hex")}`;
       writeFileSync(resolve(mirror, `factory-lock-sales-reference-${theme}-${digest.slice(7)}.yaml`), lock); manifest.factoryLockTemplates[theme].digest = digest;
     }
     const release = await verifier.verifyManifest(manifest);
     const application = resolve(directory, "application");
-    factory.applyCreateKnexApplication(factory.planCreateKnexApplication({ applicationId, applicationName: "P13 CRM Browser", theme: "minimal", database: "external", packageSource: { kind: "packed-mirror", directory: mirror, authority: verifier.packageReleaseAuthority, release } }), application);
+    factory.applyCreateKnexApplication(factory.planCreateKnexApplication({ applicationId, applicationName: "P13 CRM Browser", theme: "minimal", database: "external", primaryCurrency: "USD", packageSource: { kind: "packed-mirror", directory: mirror, authority: verifier.packageReleaseAuthority, release } }), application);
     run("pnpm", ["install", "--frozen-lockfile"], { cwd: application, stdio: "pipe" });
     const applicationRequire = createRequire(resolve(application, "package.json"));
     const payloadPostgresEntry = applicationRequire.resolve("@payloadcms/db-postgres");
@@ -336,7 +336,8 @@ export async function withGeneratedCrmBrowserFixture(runBrowser) {
     const port = await unusedPort(); const operatorPort = await unusedPort();
     referenceProvider = await startReferenceProvider();
     const operatorUriSan = `spiffe://k-nex.test/applications/${applicationId}/environments/${environmentName}/administration`; const operatorCredential = issueDoctorCredential(directory, operatorUriSan);
-    const environment = { ...process.env, DATABASE_URL: databaseUrl.toString(), K_NEX_ENVIRONMENT: environmentName, K_NEX_GENERATION: "sales-generation-1", K_NEX_PUBLIC_ORIGIN: `http://127.0.0.1:${port}`, PAYLOAD_SECRET: randomBytes(32).toString("hex"), K_NEX_PROVIDER_SECRET_EMAIL_REFERENCE: "p136-fixture-email-provider-secret", K_NEX_PROVIDER_SECRET_CALENDAR_REFERENCE: "p136-fixture-calendar-provider-secret", K_NEX_REFERENCE_PROVIDER_ENDPOINT: referenceProvider.endpoint, K_NEX_ADMINISTRATION_OPERATOR_HOST: "127.0.0.1", K_NEX_ADMINISTRATION_OPERATOR_PORT: String(operatorPort), K_NEX_ADMINISTRATION_OPERATOR_CLIENT_CERT: operatorCredential.certificate, K_NEX_ADMINISTRATION_OPERATOR_CLIENT_KEY: operatorCredential.key, K_NEX_ADMINISTRATION_OPERATOR_CA_CERT: operatorCredential.certificate, K_NEX_ADMINISTRATION_OPERATOR_URI_SAN: operatorUriSan, K_NEX_ADMINISTRATION_OPERATOR_IDENTITY: "fixture.p13-doctor" };
+    const staticSourceCommit = "a".repeat(40); const staticApplicationDigest = `sha256:${"b".repeat(64)}`;
+    const environment = { ...process.env, DATABASE_URL: databaseUrl.toString(), K_NEX_ENVIRONMENT: environmentName, K_NEX_GENERATION: "sales-generation-1", K_NEX_SOURCE_COMMIT: staticSourceCommit, K_NEX_APPLICATION_DIGEST: staticApplicationDigest, K_NEX_PUBLIC_ORIGIN: `http://127.0.0.1:${port}`, PAYLOAD_SECRET: randomBytes(32).toString("hex"), K_NEX_PROVIDER_SECRET_EMAIL_REFERENCE: "p136-fixture-email-provider-secret", K_NEX_PROVIDER_SECRET_CALENDAR_REFERENCE: "p136-fixture-calendar-provider-secret", K_NEX_REFERENCE_PROVIDER_ENDPOINT: referenceProvider.endpoint, K_NEX_ADMINISTRATION_OPERATOR_HOST: "127.0.0.1", K_NEX_ADMINISTRATION_OPERATOR_PORT: String(operatorPort), K_NEX_ADMINISTRATION_OPERATOR_CLIENT_CERT: operatorCredential.certificate, K_NEX_ADMINISTRATION_OPERATOR_CLIENT_KEY: operatorCredential.key, K_NEX_ADMINISTRATION_OPERATOR_CA_CERT: operatorCredential.certificate, K_NEX_ADMINISTRATION_OPERATOR_URI_SAN: operatorUriSan, K_NEX_ADMINISTRATION_OPERATOR_IDENTITY: "fixture.p13-doctor" };
     const origin = `http://127.0.0.1:${port}`;
     applicationBackendSnapshot = async () => {
       const result = await administrator.query({
@@ -385,6 +386,11 @@ export async function withGeneratedCrmBrowserFixture(runBrowser) {
       `insert into runtime_static_deployments(application_id,environment,revision,active_generation_id,active_generation,rollback_window,state_digest)
        values($1,$2,1,'sales-generation-1','{"generationId":"sales-generation-1"}'::jsonb,'{"state":"open"}'::jsonb,$3)`,
       [applicationId, environmentName, `sha256:${createHash("sha256").update("p13-crm-browser-static-generation-1").digest("hex")}`]
+    );
+    await pool.query(
+      `insert into runtime_extensions(application_id,environment,delivery_class,extension_id,revision,disposition,active_generation_id,active_generation,state_digest)
+       values($1,$2,'platform-plugin','module.sales',1,'active','sales-generation-1',$3::jsonb,$4)`,
+      [applicationId, environmentName, JSON.stringify({ authority: "static-build", generationId: "sales-generation-1", sourceCommit: staticSourceCommit, applicationDigest: staticApplicationDigest }), `sha256:${createHash("sha256").update("p13-crm-browser-runtime-sales-generation-1").digest("hex")}`]
     );
     await pool.query(
       `insert into runtime_worker_generation_fences(application_id,environment,active_execution_generation,fencing_token,lease_owner,lease_expires_at,promotion_revision)

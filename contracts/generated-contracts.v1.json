@@ -30,6 +30,7 @@
     "schemas/application-manifest.v1.schema.json",
     "schemas/event.v1.schema.json",
     "schemas/metric-scalar.v1.schema.json",
+    "schemas/metric-scalar.v2.schema.json",
     "schemas/table-records.v1.schema.json",
     "schemas/theme-profile.v1.schema.json",
     "schemas/theme-profile-publication-event.v1.schema.json",
@@ -46,6 +47,10 @@
     {
       "id": "metric.scalar@1",
       "schema": "schemas/metric-scalar.v1.schema.json"
+    },
+    {
+      "id": "metric.scalar@2",
+      "schema": "schemas/metric-scalar.v2.schema.json"
     },
     {
       "id": "table.records@1",

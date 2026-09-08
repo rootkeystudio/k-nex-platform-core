@@ -1,5 +1,5 @@
 import {
-  MetricScalarSchema,
+  metricScalarSchemaForVersion,
   DataSourceBindingResultSchema,
   dataSourceTableProjectionIsValid,
   resolveDataSourceFieldSelection,
@@ -220,7 +220,7 @@ function normalizeSourceResult(
   if (!envelope.success) return undefined;
   const value = envelope.data;
   if (value.state === "success" || value.state === "stale" || value.state === "refetching") {
-    const schema = descriptor.primaryContract.id === "metric.scalar" ? MetricScalarSchema : TableRecordsSchema;
+    const schema = descriptor.primaryContract.id === "metric.scalar" ? metricScalarSchemaForVersion(descriptor.primaryContract.version as 1 | 2) : TableRecordsSchema;
     const parsed = schema.safeParse(value.data);
     if (!parsed.success) return undefined;
     if (descriptor.primaryContract.id === "table.records" && !tableProjectionMatchesAuthority(descriptor, node, actor, parsed.data as never)) return undefined;

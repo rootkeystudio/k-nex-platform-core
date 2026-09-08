@@ -24,6 +24,7 @@ import {
   HotApplicationManifestSchema,
   MigrationCompatibilityPlanSchema,
   MetricScalarSchema,
+  MetricScalarV2Schema,
   PackageReleaseManifestSchema,
   RuntimeInventorySchema,
   RuntimeExtensionInventorySchema,
@@ -267,6 +268,7 @@ const primaryArtifacts = [
   { path: "schemas/application-manifest.v1.schema.json", value: applicationJsonSchema() },
   { path: "schemas/event.v1.schema.json", value: eventJsonSchema() },
   { path: "schemas/metric-scalar.v1.schema.json", value: jsonSchema(MetricScalarSchema) },
+  { path: "schemas/metric-scalar.v2.schema.json", value: jsonSchema(MetricScalarV2Schema) },
   { path: "schemas/table-records.v1.schema.json", value: jsonSchema(TableRecordsSchema) },
   { path: "schemas/theme-profile.v1.schema.json", value: themeProfileJsonSchema() },
   { path: "schemas/theme-profile-publication-event.v1.schema.json", value: jsonSchema(ThemeProfilePublicationEventSchema) },
@@ -281,6 +283,7 @@ const primaryArtifacts = [
 
 const outputContractSchemas = [
   { id: "metric.scalar@1", schema: "schemas/metric-scalar.v1.schema.json" },
+  { id: "metric.scalar@2", schema: "schemas/metric-scalar.v2.schema.json" },
   { id: "table.records@1", schema: "schemas/table-records.v1.schema.json" }
 ] as const;
 

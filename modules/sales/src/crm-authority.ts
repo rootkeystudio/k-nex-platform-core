@@ -30,7 +30,7 @@ export const salesCrmObjectFieldActionMatrix = Object.freeze([
   { objectId: "sales.object.account", readPermissionId: "sales.accounts.read", writePermissionId: "sales.accounts.write", archivePermissionId: "sales.accounts.archive", recordPolicyId: "sales.policy.accounts.current", actionPermissions: { "sales.account.create": "sales.accounts.write", "sales.account.update": "sales.accounts.write", "sales.account.archive": "sales.accounts.archive", "sales.merge.commit": "sales.records.merge" } },
   { objectId: "sales.object.contact", readPermissionId: "sales.contacts.read", writePermissionId: "sales.contacts.write", archivePermissionId: "sales.contacts.archive", recordPolicyId: "sales.policy.contacts.current", sensitiveFields: { email: "sales.contacts.channels.read", phone: "sales.contacts.channels.read" }, actionPermissions: { "sales.contact.create": "sales.contacts.write", "sales.contact.update": "sales.contacts.write", "sales.contact.archive": "sales.contacts.archive", "sales.merge.commit": "sales.records.merge" } },
   { objectId: "sales.object.lead", readPermissionId: "sales.leads.read", writePermissionId: "sales.leads.write", archivePermissionId: "sales.leads.archive", recordPolicyId: "sales.policy.leads.current", sensitiveFields: { email: "sales.leads.channels.read", phone: "sales.leads.channels.read" }, actionPermissions: { "sales.lead.create": "sales.leads.write", "sales.lead.update": "sales.leads.write", "sales.lead.qualify": "sales.leads.qualify", "sales.lead.disqualify": "sales.leads.disqualify", "sales.lead.archive": "sales.leads.archive" } },
-  { objectId: "sales.object.opportunity", readPermissionId: "sales.opportunities.read", writePermissionId: "sales.opportunities.write", archivePermissionId: "sales.opportunities.archive", recordPolicyId: "sales.policy.opportunities.current", sensitiveFields: { amount: "sales.opportunities.amount.read" }, actionPermissions: { "sales.opportunity.create": "sales.opportunities.write", "sales.opportunity.update": "sales.opportunities.write", "sales.opportunity.stage.update": "sales.opportunities.stage.update", "sales.opportunity.close": "sales.opportunities.close", "sales.opportunity.archive": "sales.opportunities.archive", "sales.report.run": "sales.reports.read" } },
+  { objectId: "sales.object.opportunity", readPermissionId: "sales.opportunities.read", writePermissionId: "sales.opportunities.write", archivePermissionId: "sales.opportunities.archive", recordPolicyId: "sales.policy.opportunities.current", sensitiveFields: { amount: "sales.opportunities.amount.read" }, actionPermissions: { "sales.opportunity.create": "sales.opportunities.write", "sales.opportunity.update": "sales.opportunities.write", "sales.opportunity.stage.update": "sales.opportunities.stage.update", "sales.opportunity.close": "sales.opportunities.close", "sales.opportunity.archive": "sales.opportunities.archive" } },
   { objectId: "sales.object.pipeline", readPermissionId: "sales.pipelines.read", writePermissionId: "sales.pipelines.configure", recordPolicyId: "sales.policy.pipelines.current", actionPermissions: { "sales.pipeline.update": "sales.pipelines.configure", "sales.pipeline.archive": "sales.pipelines.configure" } },
   { objectId: "sales.object.pipeline-stage", readPermissionId: "sales.pipelines.read", writePermissionId: "sales.pipelines.configure", recordPolicyId: "sales.policy.pipelines.current" },
   { objectId: "sales.object.activity", readPermissionId: "sales.activities.read", writePermissionId: "sales.activities.write", recordPolicyId: "sales.policy.activities.current", sensitiveFields: { providerMetadata: "sales.communications.metadata.read" }, actionPermissions: { "sales.activity.create": "sales.activities.write", "sales.activity.complete": "sales.activities.write", "sales.activity.cancel": "sales.activities.write", "sales.email.send": "sales.communications.email.send", "sales.calendar.sync": "sales.communications.calendar.sync" } },
@@ -64,6 +64,7 @@ for (const row of salesCrmObjectFieldActionMatrix) {
 // ownership dispatches the target object, while merge requires both account and contact checks.
 permissionPolicies.set("sales.ownership.write", "sales.policy.ownership.current");
 permissionPolicies.set("sales.records.merge", "sales.policy.merge.current");
+permissionPolicies.set("sales.reports.read", "sales.policy.reports.current");
 
 function policyBinding(id: string, scope: PermissionPolicyBinding["scope"], policyReference: string): PermissionPolicyBinding {
   return { schemaVersion: 1, id: `${id}.policy`, publisher, permissionId: id, policyReference, scope, failureMode: "deny", timeoutMs: 1_000 };
@@ -94,12 +95,12 @@ export const salesCrmRoleTemplates: readonly RoleTemplate[] = Object.freeze([
 ]);
 
 const operationActionPermissions = Object.freeze({
-  "sales.ownership.assign": "sales.ownership.write", "sales.report.schedule": "sales.reports.schedule", "sales.settings.update": "sales.settings.write", "sales.integration.configure": "sales.settings.write",
+  "sales.ownership.assign": "sales.ownership.write", "sales.report.run": "sales.exports.execute", "sales.report.schedule": "sales.reports.schedule", "sales.settings.update": "sales.settings.write", "sales.integration.configure": "sales.settings.write",
   "sales.import.dry-run": "sales.imports.execute", "sales.import.commit": "sales.imports.execute", "sales.import.cancel": "sales.imports.execute",
   "sales.export.create": "sales.exports.execute", "sales.export.cancel": "sales.exports.execute"
 } as const);
 const operationActionPolicies = Object.freeze({
-  "sales.ownership.assign": "sales.policy.ownership.current",
+  "sales.ownership.assign": "sales.policy.ownership.current", "sales.report.run": "sales.policy.exports.current",
   "sales.report.schedule": "sales.policy.reports.schedule.current",
   "sales.settings.update": "sales.policy.settings.current",
   "sales.integration.configure": "sales.policy.settings.current",
@@ -148,6 +149,10 @@ export function isSalesCalendarDate(value: unknown): value is string {
   return typeof value === "string" && new RegExp(salesCalendarDatePattern, "u").test(value) && new Date(`${value}T00:00:00.000Z`).toISOString().slice(0, 10) === value;
 }
 const calendarDate = { type: "string" as const, minLength: 10, maxLength: 10, description: "Exact Gregorian YYYY-MM-DD date in years 0001 through 9999." };
+const reportId = { type: "string" as const, enum: ["sales.report.pipeline-value-by-stage", "sales.report.weighted-forecast", "sales.report.won-lost-conversion", "sales.report.lead-conversion", "sales.report.activity-by-owner-team", "sales.report.task-aging", "sales.report.sales-cycle-duration"] };
+const reportWindowMode = { type: "string" as const, enum: ["as-of", "current-reporting-week", "previous-complete-reporting-week", "current-reporting-month", "previous-complete-reporting-month"] };
+const weeklyWeekday = { type: "integer" as const, minimum: 1, maximum: 7 };
+const weeklyLocalTime = { type: "string" as const, minLength: 5, maxLength: 5 };
 const opportunityMoney = { type: "object" as const, properties: {
   kind: { type: "string" as const, enum: ["money"] }, value: { type: "string" as const, minLength: 1, maxLength: 128 },
   currency: { type: "string" as const, minLength: 3, maxLength: 3 }, scale: { type: "integer" as const, minimum: 0, maximum: 18 }
@@ -230,6 +235,8 @@ const workflowActionInputs: Readonly<Record<string, ActionDescriptor["inputSchem
   "sales.notification.archive": mutationInput({ id: recordId, expectedRevision: revision }, ["id", "expectedRevision"]),
   "sales.reminder.dismiss": mutationInput({ id: recordId, expectedRevision: revision }, ["id", "expectedRevision"]),
   "sales.integration.configure": mutationInput({ providerId: { type: "string" as const, enum: ["email.reference.v1", "calendar.reference.v1"] }, expectedRevision: configurationRevision, operation: { type: "string" as const, enum: ["activate", "revoke"] } }, ["providerId", "expectedRevision", "operation"]),
+  "sales.report.run": mutationInput({ reportId, windowMode: reportWindowMode }, ["reportId", "windowMode"]),
+  "sales.report.schedule": mutationInput({ operation: { type: "string" as const, enum: ["upsert", "cancel"] }, reportId, recipientId: principalIdentity, expectedRevision: configurationRevision, weekday: weeklyWeekday, localTime: weeklyLocalTime, windowMode: reportWindowMode }, ["operation", "reportId", "recipientId", "expectedRevision"]),
   "sales.note.create": mutationInput({ relatedRecordType, relatedRecordId: recordId, body: { type: "string" as const, minLength: 1, maxLength: 10_000 }, replacesNoteId: recordId }, ["relatedRecordType", "relatedRecordId", "body"]),
   "sales.attachment.link": mutationInput({ relatedRecordType, relatedRecordId: recordId, storageReference: shortText, filename: shortText, mediaType, byteSize: { type: "integer" as const, minimum: 0, maximum: 1_073_741_824 } }, ["relatedRecordType", "relatedRecordId", "storageReference", "filename", "mediaType", "byteSize"]),
   "sales.attachment.remove": mutationInput({ id: recordId, expectedRevision: revision }, ["id", "expectedRevision"]),
@@ -251,6 +258,8 @@ const workflowOutputStatuses: Readonly<Record<string, readonly string[]>> = Obje
   "sales.pipeline.update": ["active"], "sales.pipeline.archive": ["archived"], "sales.saved-view.create": ["active"], "sales.saved-view.update": ["active"], "sales.saved-view.archive": ["archived"]
 });
 function workflowOutput(id: string): ActionDescriptor["outputSchema"] {
+  if (id === "sales.report.run") return mutationInput({ reportRunId: { type: "string", minLength: 3, maxLength: 128 }, state: { type: "string", enum: ["queued"] }, revision }, ["reportRunId", "state", "revision"]);
+  if (id === "sales.report.schedule") return mutationInput({ reportId, recipientId: principalIdentity, state: { type: "string", enum: ["active", "cancelled"] }, revision }, ["reportId", "recipientId", "state", "revision"]);
   if (id === "sales.integration.configure") return mutationInput({ providerId: { type: "string", enum: ["email.reference.v1", "calendar.reference.v1"] }, revision: { type: "integer", minimum: 1 }, status: { type: "string", enum: ["accepted"] } }, ["providerId", "revision", "status"]);
   if (id === "sales.import.dry-run") return mutationInput({ importJobId: safeId, revision: { type: "integer", enum: [2] }, state: { type: "string", enum: ["validated"] }, uploadDigest: sha256Digest, acceptedRows: { type: "integer", minimum: 0, maximum: 10_000 }, rejectedRows: { type: "integer", minimum: 0, maximum: 10_000 }, diagnosticDigest: sha256Digest }, ["importJobId", "revision", "state", "uploadDigest", "acceptedRows", "rejectedRows", "diagnosticDigest"]);
   if (id === "sales.import.commit") return mutationInput({ importJobId: safeId, revision: { type: "integer", minimum: 3, maximum: Number.MAX_SAFE_INTEGER }, state: { type: "string", enum: ["queued"] }, receiptId: { type: "string", minLength: 1, maxLength: 128 } }, ["importJobId", "revision", "state", "receiptId"]);

@@ -24,7 +24,7 @@ import {
 import resolvedJson from "../.k-nex/generated/k-nex.resolved.json" with { type: "json" };
 import { runtimeRegistration } from "../.k-nex/generated/runtime-registration.js";
 import { createDataSourceQueryEndpoint } from "./data-source-endpoint.js";
-import { createActionEndpoint } from "./action-endpoint.js";
+import { createActionEndpoint, createSalesReportArtifactEndpoint } from "./action-endpoint.js";
 import {
   createFixtureCurrentAuthority,
   createFixtureHotApplicationRuntimeRegistry,
@@ -145,7 +145,7 @@ export function createGate1Application(options: CreateGate1ApplicationOptions): 
       secret: options.payloadSecret,
       custom: { kNexApplicationId: "customer-gate-1", kNexEnvironment: "production" },
       plugins: mcp === undefined ? [] : [mcp],
-      endpoints: [createRuntimeInventoryEndpoint(inventory), createDataSourceQueryEndpoint(scopedRegistration, authority), createActionEndpoint(scopedRegistration, authority), ...createSalesDataMovementEndpoints(authority), ...generatedSalesProviderWebhookEndpoints("customer-gate-1", "production", createGeneratedEnvironmentProviderSecretResolver())]
+      endpoints: [createRuntimeInventoryEndpoint(inventory), createDataSourceQueryEndpoint(scopedRegistration, authority), createActionEndpoint(scopedRegistration, authority), createSalesReportArtifactEndpoint(authority), ...createSalesDataMovementEndpoints(authority), ...generatedSalesProviderWebhookEndpoints("customer-gate-1", "production", createGeneratedEnvironmentProviderSecretResolver())]
     },
     baseCollections: [usersCollection],
     databaseUrl: options.databaseUrl,

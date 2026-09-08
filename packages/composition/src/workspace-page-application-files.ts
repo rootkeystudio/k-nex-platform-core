@@ -21,7 +21,7 @@ import {
   type WorkspacePageSnapshot
 } from "@k-nex/payload-adapter";
 import { createAuthorizedPuckBuilderProfile } from "@k-nex/builder-puck";
-import { salesOpportunitiesDescriptor, salesOpportunityStageUpdateDescriptor, salesPipelineArchiveDescriptor, salesPipelineSnapshotDescriptor, salesPipelineUpdateDescriptor, salesSavedViewArchiveDescriptor, salesSavedViewCalendarDescriptor, salesSavedViewCreateDescriptor, salesSavedViewDetailDescriptor, salesSavedViewKanbanDescriptor, salesSavedViewListDescriptor, salesSavedViewTableDescriptor, salesSavedViewUpdateDescriptor, salesTaskCreateDescriptor, salesTaskUpdateDescriptor, salesTasksDescriptor } from "@k-nex/module-sales/contracts";
+import { salesActivityByOwnerTeamDescriptor, salesLeadConversionDescriptor, salesOpportunitiesDescriptor, salesOpportunityStageUpdateDescriptor, salesPipelineArchiveDescriptor, salesPipelineSnapshotDescriptor, salesPipelineUpdateDescriptor, salesPipelineValueByStageDescriptor, salesReportRunDescriptor, salesReportScheduleDescriptor, salesSavedViewArchiveDescriptor, salesSavedViewCalendarDescriptor, salesSavedViewCreateDescriptor, salesSavedViewDetailDescriptor, salesSavedViewKanbanDescriptor, salesSavedViewListDescriptor, salesSavedViewTableDescriptor, salesSavedViewUpdateDescriptor, salesSalesCycleDurationDescriptor, salesTaskAgingDescriptor, salesTaskCreateDescriptor, salesTaskUpdateDescriptor, salesTasksDescriptor, salesWeightedForecastDescriptor, salesWonLostConversionDescriptor } from "@k-nex/module-sales/contracts";
 import { salesPuckBlockBridges } from "@k-nex/module-sales/puck";
 import { genericPuckBlockBridges } from "@k-nex/ui-builder-blocks";
 import { genericUiBlockDefinitions } from "@k-nex/ui-builder-blocks/runtime";
@@ -190,7 +190,7 @@ export async function openWorkspaceForm(request: Request, boundary: string) {
 function workspaceSalesServerSource(): string {
   return `import { createHash } from "node:crypto";
 
-import { EffectiveSettingsDocumentSchema, canonicalJson, type DataSourceBindingResult, type DataSourceDefinition, type UiDocument, type UiNode } from "@k-nex/contracts";
+import { EffectiveSettingsDocumentSchema, canonicalJson, isIso4217CurrencyCode, type DataSourceBindingResult, type DataSourceDefinition, type UiDocument, type UiNode } from "@k-nex/contracts";
 import { canonicalSalesSavedViewJson, salesOpportunitiesDescriptor, salesOpportunityStageUpdateDescriptor, salesPipelineArchiveDescriptor, salesPipelineSnapshotDescriptor, salesPipelineUpdateDescriptor, salesSavedViewArchiveDescriptor, salesSavedViewCalendarDescriptor, salesSavedViewCreateDescriptor, salesSavedViewDetailDescriptor, salesSavedViewKanbanDescriptor, salesSavedViewListDescriptor, salesSavedViewTableDescriptor, salesSavedViewUpdateDescriptor, salesTaskCreateDescriptor, salesTaskUpdateDescriptor, salesTasksDescriptor, type SalesSavedViewSourceId } from "@k-nex/module-sales/contracts";
 import { recheckSalesSavedViewExecution, resolveSalesSavedViewExecution, type SalesPersistedSavedView, type SalesSavedViewExecutionPersistence } from "@k-nex/module-sales/server";
 import {
@@ -223,13 +223,14 @@ import {
   PayloadRequestAuthenticator,
   type PayloadPersistenceCapabilityContext
 } from "@k-nex/payload-adapter";
-import type { Payload, PayloadRequest } from "payload";
+import { commitTransaction, initTransaction, killTransaction, type Payload, type PayloadRequest } from "payload";
 
-import { currentPayloadAuthentication, kNexAuthority, type KnexRequestContext } from "./k-nex-authority.js";
+import { currentPayloadAuthentication, currentSalesGeneration, kNexAuthority, type KnexRequestContext } from "./k-nex-authority.js";
 import { kNexIdentity } from "./k-nex-identity.js";
 import { kNexSalesRegistry } from "./k-nex-registry.js";
 import { GeneratedSalesDataMovementStore } from "./k-nex-sales-data-movement.js";
 import { createGeneratedSalesProviderConfigurationReadGateway, createGeneratedSalesProviderGateway, type GeneratedSalesProviderConfigurationReadGateway, type GeneratedSalesProviderGateway } from "./k-nex-sales-communications.js";
+import { createGeneratedSalesReportingGateway, type GeneratedSalesReportingGateway } from "./k-nex-sales-reports.js";
 import { systemGeneralSettingsDescriptor } from "./k-nex-system-theme-settings.js";
 
 const sourceDefinitions = new Map(kNexSalesRegistry.scopedRegistration.contributions.sources.map((entry) => [entry.id, entry.value as DataSourceDefinition]));
@@ -257,14 +258,14 @@ function workspacePageRuntimeClientSource(): string {
   return `"use client";
 
 import type { DataSourceBindingResult, UiDocument } from "@k-nex/contracts";
-import { salesOpportunitiesDescriptor, salesPipelineSnapshotDescriptor, salesSavedViewCalendarDescriptor, salesSavedViewDetailDescriptor, salesSavedViewKanbanDescriptor, salesSavedViewListDescriptor, salesSavedViewTableDescriptor, salesTasksDescriptor } from "@k-nex/module-sales/contracts";
+import { salesActivityByOwnerTeamDescriptor, salesLeadConversionDescriptor, salesOpportunitiesDescriptor, salesPipelineSnapshotDescriptor, salesPipelineValueByStageDescriptor, salesSalesCycleDurationDescriptor, salesSavedViewCalendarDescriptor, salesSavedViewDetailDescriptor, salesSavedViewKanbanDescriptor, salesSavedViewListDescriptor, salesSavedViewTableDescriptor, salesTaskAgingDescriptor, salesTasksDescriptor, salesWeightedForecastDescriptor, salesWonLostConversionDescriptor } from "@k-nex/module-sales/contracts";
 import { salesUiBlockDefinitions } from "@k-nex/module-sales/ui";
 import { presentUiRuntimeReact } from "@k-nex/ui-components";
 import { genericUiBlockDefinitions } from "@k-nex/ui-builder-blocks/runtime";
 import { createUiDocumentRuntime, createUiRuntimeRegistry, presentUiRuntimeResult } from "@k-nex/ui-runtime";
 import { useEffect, useMemo, useState } from "react";
 
-const runtime = createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: [...genericUiBlockDefinitions, ...salesUiBlockDefinitions], sources: [salesOpportunitiesDescriptor, salesTasksDescriptor, salesPipelineSnapshotDescriptor, salesSavedViewListDescriptor, salesSavedViewDetailDescriptor, salesSavedViewTableDescriptor, salesSavedViewKanbanDescriptor, salesSavedViewCalendarDescriptor] }));
+const runtime = createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: [...genericUiBlockDefinitions, ...salesUiBlockDefinitions], sources: [salesOpportunitiesDescriptor, salesTasksDescriptor, salesPipelineSnapshotDescriptor, salesSavedViewListDescriptor, salesSavedViewDetailDescriptor, salesSavedViewTableDescriptor, salesSavedViewKanbanDescriptor, salesSavedViewCalendarDescriptor, salesPipelineValueByStageDescriptor, salesWeightedForecastDescriptor, salesWonLostConversionDescriptor, salesLeadConversionDescriptor, salesActivityByOwnerTeamDescriptor, salesTaskAgingDescriptor, salesSalesCycleDurationDescriptor] }));
 type Watermark = Readonly<{ authorizationRevision: number; lifecycleRevision: number; pageRevision: number; accessRevision: number; publicationPointerRevision: number; publicationRevisionId: string; themePublicationRevision: number; themeActiveRevisionId: string; themeStateDigest: string }>;
 type Projection = Readonly<{ document: UiDocument; permissions: readonly string[]; sourceResults: Readonly<Record<string, DataSourceBindingResult<unknown>>>; themeRevision: string; themeMode: "light" | "dark" | "system"; themeCss: string; watermark: Watermark }>;
 
@@ -373,7 +374,7 @@ function workspacePageEditorClientSource(): string {
   return `"use client";
 
 import type { UiDocument } from "@k-nex/contracts";
-import { salesOpportunitiesDescriptor, salesPipelineSnapshotDescriptor, salesSavedViewCalendarDescriptor, salesSavedViewDetailDescriptor, salesSavedViewKanbanDescriptor, salesSavedViewListDescriptor, salesSavedViewTableDescriptor, salesTasksDescriptor } from "@k-nex/module-sales/contracts";
+import { salesActivityByOwnerTeamDescriptor, salesLeadConversionDescriptor, salesOpportunitiesDescriptor, salesPipelineSnapshotDescriptor, salesPipelineValueByStageDescriptor, salesSalesCycleDurationDescriptor, salesSavedViewCalendarDescriptor, salesSavedViewDetailDescriptor, salesSavedViewKanbanDescriptor, salesSavedViewListDescriptor, salesSavedViewTableDescriptor, salesTaskAgingDescriptor, salesTasksDescriptor, salesWeightedForecastDescriptor, salesWonLostConversionDescriptor } from "@k-nex/module-sales/contracts";
 import { salesPuckBlockBridges } from "@k-nex/module-sales/puck";
 import { presentUiRuntimeReact } from "@k-nex/ui-components";
 import { genericPuckBlockBridges } from "@k-nex/ui-builder-blocks";
@@ -428,7 +429,7 @@ export function WorkspacePageEditor({ pageId, initialProjection }: Readonly<{ pa
   }, [pageId, initialProjection.watermark]);
   const profile = useMemo(() => createAuthorizedPuckBuilderProfile({
     profile: "workspace", publication: "save-layout", blocks: [...genericPuckBlockBridges, ...salesPuckBlockBridges],
-    sources: [salesOpportunitiesDescriptor, salesTasksDescriptor, salesPipelineSnapshotDescriptor, salesSavedViewListDescriptor, salesSavedViewDetailDescriptor, salesSavedViewTableDescriptor, salesSavedViewKanbanDescriptor, salesSavedViewCalendarDescriptor], authority: initialProjection.authority,
+    sources: [salesOpportunitiesDescriptor, salesTasksDescriptor, salesPipelineSnapshotDescriptor, salesSavedViewListDescriptor, salesSavedViewDetailDescriptor, salesSavedViewTableDescriptor, salesSavedViewKanbanDescriptor, salesSavedViewCalendarDescriptor, salesPipelineValueByStageDescriptor, salesWeightedForecastDescriptor, salesWonLostConversionDescriptor, salesLeadConversionDescriptor, salesActivityByOwnerTeamDescriptor, salesTaskAgingDescriptor, salesSalesCycleDurationDescriptor], authority: initialProjection.authority,
     preview: { surface: "workspace", actor: { authenticated: true, permissions: new Set(initialProjection.permissions) }, present: presentUiRuntimeReact }
   }), [initialProjection.authority, initialProjection.permissions]);
   const session = useMemo(() => new WorkspaceEditorSession({
@@ -479,6 +480,9 @@ export default async function EditWorkspacePage({ params }: Readonly<{ params: P
 
 function workspaceSalesServerTailSource(): string {
 return `type WorkspaceSalesScope = Readonly<{ recordScope: "owned-or-assigned-team" | "managed-teams-and-own" | "application-sales-scope" | "explicit-application-or-team-scope"; applicationWide: boolean; mutationAllowed: boolean; authorizedTeamIds: readonly string[]; revision: number }>;
+type WorkspaceSalesReportingAuthority = Readonly<{ settingsRevision: number; reportingTimezone: string; reportingCurrency: string }>;
+type SalesReportingAuthorityFacts = Readonly<{ authorizationRevision: number; lifecycleRevision: number; salesScopeRevision: number; settingsRevision: number; reportingTimezone: string; reportingCurrency: string; runtimeGenerationId: string; reportPermissionGrants: readonly ("sales.exports.execute" | "sales.reports.read" | "sales.reports.schedule")[]; objectPermissionGrants: readonly ("sales.activities.read" | "sales.leads.read" | "sales.opportunities.read" | "sales.pipelines.read" | "sales.tasks.read")[]; fieldPermissionGrants: readonly "sales.opportunities.amount.read"[] }>;
+export type WorkspaceSalesReportAdmission = Readonly<{ context: Readonly<{ applicationId: string; environment: string; actorId: string }>; authorizationRevision: number; lifecycleRevision: number; scopeRevision: number; runtimeGenerationId: string; recordScope: WorkspaceSalesScope["recordScope"]; applicationWide: boolean; authorizedTeamIds: readonly string[]; permissionGrants: readonly ("sales.exports.execute" | "sales.reports.read" | "sales.reports.schedule")[]; objectPermissionGrants: readonly ("sales.activities.read" | "sales.leads.read" | "sales.opportunities.read" | "sales.pipelines.read" | "sales.tasks.read")[]; fieldPermissionGrants: readonly "sales.opportunities.amount.read"[] }>;
 const workspaceSalesAuthorityBrand: unique symbol = Symbol("workspace-sales-current-authority");
 type WorkspaceSalesAuthorization = Readonly<{ principal: Readonly<{ kind: "user"; id: string }>; effectiveActor: Readonly<{ kind: "user"; id: string }>; salesScope: WorkspaceSalesScope; authorizationRevision: number; lifecycleRevision: number; [workspaceSalesAuthorityBrand]: true }>;
 
@@ -559,6 +563,18 @@ async function readSalesAuthority(payload: Payload): Promise<Readonly<{ authoriz
   return Object.freeze({ authorizationRevision: row.authorization_revision as number, lifecycleRevision: row.lifecycle_revision as number });
 }
 
+async function readSalesReportingAuthority(payload: Payload): Promise<WorkspaceSalesReportingAuthority> {
+  const result = await (payload.db.pool as unknown as { query(text: string, values: readonly unknown[]): Promise<{ rows: Record<string, unknown>[] }> }).query(
+    "select d.descriptor_schema_version,d.document_revision,d.settings_revision,d.values_json,s.settings_revision as state_revision from k_nex_system_settings_documents d join k_nex_system_settings_state s on s.application_id=d.application_id and s.environment=d.environment where d.application_id=$1 and d.environment=$2 and d.descriptor_id='system.general' and d.owner_scope_key='platform:system' for share",
+    [kNexIdentity.applicationId, kNexIdentity.environment]
+  );
+  const row = result.rows[0]; const values = row?.values_json;
+  if (result.rows.length !== 1 || row?.descriptor_schema_version !== 3 || !positiveSafeInteger(row.document_revision) || !positiveSafeInteger(row.settings_revision) || row.settings_revision !== row.state_revision || values === null || typeof values !== "object" || Array.isArray(values)) throw new TypeError("Sales reporting settings are unavailable.");
+  const settings = values as Record<string, unknown>;
+  if (!isIso4217CurrencyCode(settings.reportingCurrency) || !canonicalIana(settings.reportingTimezone)) throw new TypeError("Sales reporting settings are unavailable.");
+  return Object.freeze({ settingsRevision: row.settings_revision as number, reportingTimezone: settings.reportingTimezone as string, reportingCurrency: settings.reportingCurrency });
+}
+
 async function dataMovementFieldGrants(payload: Payload, context: KnexRequestContext, current: WorkspaceSalesAuthorization) {
   const grants: Array<"sales.object.contact:email" | "sales.object.contact:phone" | "sales.object.lead:email" | "sales.object.lead:phone"> = [];
   for (const [permissionId, targetObjectType] of [["sales.contacts.channels.read", "sales.object.contact"], ["sales.leads.channels.read", "sales.object.lead"]] as const) {
@@ -578,6 +594,9 @@ const dataMovementPermissionIds = Object.freeze([
 const communicationsPermissionIds = Object.freeze([
   "sales.communications.email.send", "sales.communications.calendar.sync", "sales.communications.metadata.read", "sales.settings.write", "sales.reminders.write", "sales.notifications.write"
 ] as const);
+const reportPermissionIds = Object.freeze(["sales.exports.execute", "sales.reports.read", "sales.reports.schedule"] as const);
+const reportObjectPermissionIds = Object.freeze(["sales.activities.read", "sales.leads.read", "sales.opportunities.read", "sales.pipelines.read", "sales.tasks.read"] as const);
+const reportFieldPermissionIds = Object.freeze(["sales.opportunities.amount.read"] as const);
 
 /** Durable movement work may only retain current, exact permission facts. */
 async function dataMovementPermissionGrants(payload: Payload, context: KnexRequestContext, current: WorkspaceSalesAuthorization) {
@@ -593,19 +612,43 @@ async function communicationsPermissionGrants(payload: Payload, context: KnexReq
   ));
   return Object.freeze(grants.filter((permissionId): permissionId is typeof communicationsPermissionIds[number] => permissionId !== undefined));
 }
+async function reportPermissionGrants(payload: Payload, context: KnexRequestContext, current: WorkspaceSalesAuthorization) {
+  const grants = await Promise.all(reportPermissionIds.map(async (permissionId) =>
+    await allowed(payload, context, permissionId, undefined, undefined, undefined, current) ? permissionId : undefined
+  ));
+  return Object.freeze(grants.filter((permissionId): permissionId is typeof reportPermissionIds[number] => permissionId !== undefined));
+}
+async function reportObjectPermissionGrants(payload: Payload, context: KnexRequestContext, current: WorkspaceSalesAuthorization) {
+  const grants = await Promise.all(reportObjectPermissionIds.map(async (permissionId) =>
+    await allowed(payload, context, permissionId, undefined, undefined, undefined, current) ? permissionId : undefined
+  ));
+  return Object.freeze(grants.filter((permissionId): permissionId is typeof reportObjectPermissionIds[number] => permissionId !== undefined));
+}
+async function reportFieldPermissionGrants(payload: Payload, context: KnexRequestContext, current: WorkspaceSalesAuthorization) {
+  const grants = await Promise.all(reportFieldPermissionIds.map(async (permissionId) =>
+    await allowed(payload, context, permissionId, undefined, undefined, undefined, current) ? permissionId : undefined
+  ));
+  return Object.freeze(grants.filter((permissionId): permissionId is typeof reportFieldPermissionIds[number] => permissionId !== undefined));
+}
 
 async function actor(payload: Payload, context: KnexRequestContext) {
   const authentication = await currentPayloadAuthentication(payload, context);
   const user = authentication.user;
   if (typeof user !== "object" || user === null || !("id" in user) || user.id === undefined || user.id === null) throw new TypeError("Sales authentication is unavailable.");
-  const [salesScope, authority] = await Promise.all([readSalesScope(payload, String(user.id)), readSalesAuthority(payload)]);
+  const [salesScope, authority, reportingAuthority, activeGeneration] = await Promise.all([readSalesScope(payload, String(user.id)), readSalesAuthority(payload), readSalesReportingAuthority(payload), currentSalesGeneration(payload)]);
   const current = authorization(user, salesScope, authority);
-  const [fieldGrants, permissionGrants, communicationsPermissions] = await Promise.all([
+  const [fieldGrants, permissionGrants, communicationsPermissions, reportPermissions, reportObjectPermissions, reportFieldPermissions] = await Promise.all([
     dataMovementFieldGrants(payload, context, current),
     dataMovementPermissionGrants(payload, context, current),
-    communicationsPermissionGrants(payload, context, current)
+    communicationsPermissionGrants(payload, context, current),
+    reportPermissionGrants(payload, context, current),
+    reportObjectPermissionGrants(payload, context, current),
+    reportFieldPermissionGrants(payload, context, current)
   ]);
-  const request = { payload, user: authentication.user ?? null, headers: context.headers } as PayloadRequest & { dataMovement?: GeneratedSalesDataMovementStore; providerGateway?: GeneratedSalesProviderGateway; providerConfigurationReadGateway?: GeneratedSalesProviderConfigurationReadGateway };
+  const generation = activeGeneration.generation;
+  const runtimeGenerationId = generation !== undefined && generation.runtimeGenerationIds.length === 1 ? generation.runtimeGenerationIds[0] : undefined;
+  if (typeof runtimeGenerationId !== "string" || runtimeGenerationId.length < 1 || runtimeGenerationId.length > 160) throw new TypeError("Sales reporting generation is unavailable.");
+  const request = { payload, user: authentication.user ?? null, headers: context.headers } as PayloadRequest & { dataMovement?: GeneratedSalesDataMovementStore; providerGateway?: GeneratedSalesProviderGateway; providerConfigurationReadGateway?: GeneratedSalesProviderConfigurationReadGateway; reporting?: GeneratedSalesReportingGateway; reportingAuthority?: Readonly<SalesReportingAuthorityFacts> };
   const dataMovement = new GeneratedSalesDataMovementStore(request, Object.freeze({
     context: Object.freeze({ applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment, actorId: current.effectiveActor.id }),
     authorizationRevision: current.authorizationRevision, lifecycleRevision: current.lifecycleRevision, scopeRevision: current.salesScope.revision,
@@ -616,10 +659,19 @@ async function actor(payload: Payload, context: KnexRequestContext) {
     authorizationRevision: current.authorizationRevision, lifecycleRevision: current.lifecycleRevision, scopeRevision: current.salesScope.revision, permissionGrants: communicationsPermissions
   }));
   const providerConfigurationReadGateway = createGeneratedSalesProviderConfigurationReadGateway(request, Object.freeze({ context: Object.freeze({ applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment, actorId: current.effectiveActor.id }), authorizationRevision: current.authorizationRevision, lifecycleRevision: current.lifecycleRevision, scopeRevision: current.salesScope.revision, permissionGrants: communicationsPermissions }));
+  const reportAdmission: WorkspaceSalesReportAdmission = Object.freeze({ context: Object.freeze({ applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment, actorId: current.effectiveActor.id }), authorizationRevision: current.authorizationRevision, lifecycleRevision: current.lifecycleRevision, scopeRevision: current.salesScope.revision, runtimeGenerationId, recordScope: current.salesScope.recordScope, applicationWide: current.salesScope.applicationWide, authorizedTeamIds: current.salesScope.authorizedTeamIds, permissionGrants: reportPermissions, objectPermissionGrants: reportObjectPermissions, fieldPermissionGrants: reportFieldPermissions });
+  const reporting = createGeneratedSalesReportingGateway(request, reportAdmission);
   request.dataMovement = dataMovement;
   request.providerGateway = providerGateway;
   request.providerConfigurationReadGateway = providerConfigurationReadGateway;
-  return { authorization: current, request, dataMovement, providerGateway, providerConfigurationReadGateway };
+  request.reportingAuthority = Object.freeze({ authorizationRevision: current.authorizationRevision, lifecycleRevision: current.lifecycleRevision, salesScopeRevision: current.salesScope.revision, ...reportingAuthority, runtimeGenerationId, reportPermissionGrants: reportPermissions, objectPermissionGrants: reportObjectPermissions, fieldPermissionGrants: reportFieldPermissions });
+  request.reporting = reporting;
+  return { authorization: current, request, dataMovement, providerGateway, providerConfigurationReadGateway, reporting, reportingAuthority: request.reportingAuthority, reportAdmission };
+}
+
+/** Artifact/download paths reuse same current actor/scope/grant admission as interactive reports. */
+export async function workspaceSalesReportAdmission(payload: Payload, context: KnexRequestContext): Promise<WorkspaceSalesReportAdmission> {
+  return (await actor(payload, context)).reportAdmission;
 }
 
 function salesRecordWhere(current: ReturnType<typeof authorization>) {
@@ -670,6 +722,8 @@ function salesActionGrant(actionId: string) {
   if (actionId === "sales.calendar.sync") return Object.freeze({ collection: "sales-activities", operations: Object.freeze(["find"] as const), permissionId: "sales.communications.calendar.sync" });
   // Configuration has no Payload collection; provider configuration remains host-owned SQL state.
   if (actionId === "sales.integration.configure") return Object.freeze({ collection: "sales-provider-configurations", operations: Object.freeze([] as const), permissionId: "sales.settings.write" });
+  if (actionId === "sales.report.run") return Object.freeze({ collection: "sales-report-runs", operations: Object.freeze([] as const), permissionId: "sales.exports.execute" });
+  if (actionId === "sales.report.schedule") return Object.freeze({ collection: "sales-report-schedules", operations: Object.freeze([] as const), permissionId: "sales.reports.schedule" });
   if (actionId === "sales.notification.read" || actionId === "sales.notification.archive") return Object.freeze({ collection: "sales-notifications", operations: Object.freeze(["find", "update"] as const), permissionId: "sales.notifications.write" });
   if (actionId === "sales.reminder.dismiss") return Object.freeze({ collection: "sales-reminders", operations: Object.freeze(["find", "update"] as const), permissionId: "sales.reminders.write" });
   if (actionId === "sales.reminder.schedule") return Object.freeze({ collection: "sales-reminders", operations: Object.freeze(["create", "update"] as const), permissionId: "sales.reminders.write" });
@@ -713,6 +767,8 @@ function salesActionCapabilityGrants(actionId: string) {
   if (actionId === "sales.reminder.schedule") return [primary,
     Object.freeze({ collection: "sales-tasks", operations: Object.freeze(["find"] as const), permissionId: "sales.tasks.read" }),
     Object.freeze({ collection: "sales-activities", operations: Object.freeze(["find"] as const), permissionId: "sales.activities.read" })];
+  if (actionId === "sales.report.run") return [primary];
+  if (actionId === "sales.report.schedule") return [primary];
   return [primary, ...relatedTargets];
 }
 
@@ -948,7 +1004,7 @@ async function lockSalesReportingTimezone(request: PayloadRequest, actionId: str
   if (definition === null || typeof definition !== "object" || Array.isArray(definition) || (definition as Readonly<Record<string, unknown>>).kind !== "calendar") return undefined;
   const transaction = await activePayloadPostgresTransaction(request);
   const stateRows = postgresRows(await transaction.execute(sql\`SELECT "settings_revision" FROM "k_nex_system_settings_state" WHERE "application_id"=\${kNexIdentity.applicationId} AND "environment"=\${kNexIdentity.environment} FOR SHARE\`));
-  const documentRows = postgresRows(await transaction.execute(sql\`SELECT "owner_kind","owner_namespace","owner_delivery_class","owner_extension_id","owner_generation","document_revision","settings_revision","values_json" FROM "k_nex_system_settings_documents" WHERE "application_id"=\${kNexIdentity.applicationId} AND "environment"=\${kNexIdentity.environment} AND "descriptor_id"='system.general' AND "descriptor_schema_version"=2 AND "owner_scope_key"='platform:system' FOR SHARE\`));
+  const documentRows = postgresRows(await transaction.execute(sql\`SELECT "owner_kind","owner_namespace","owner_delivery_class","owner_extension_id","owner_generation","document_revision","settings_revision","values_json" FROM "k_nex_system_settings_documents" WHERE "application_id"=\${kNexIdentity.applicationId} AND "environment"=\${kNexIdentity.environment} AND "descriptor_id"='system.general' AND "descriptor_schema_version"=3 AND "owner_scope_key"='platform:system' FOR SHARE\`));
   if (stateRows.length !== 1 || documentRows.length !== 1) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales reporting timezone is unavailable.");
   const stateRaw = stateRows[0]; const documentRaw = documentRows[0];
   if (stateRaw === null || typeof stateRaw !== "object" || Array.isArray(stateRaw) || documentRaw === null || typeof documentRaw !== "object" || Array.isArray(documentRaw)) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales reporting timezone is unavailable.");
@@ -1105,7 +1161,8 @@ const workspaceCurrentSalesPolicy = (permissions: readonly string[], current: Wo
         : request.descriptor.id === "sales.saved-view.list" || request.descriptor.id === "sales.saved-view.detail" ? { kind: "sales.saved-views", where: savedViewMetadataWhere(current) }
           : request.descriptor.id === "sales.notifications" ? { kind: "sales.notifications", where: recipientOnlyWhere(current) }
             : request.descriptor.id === "sales.reminders" ? { kind: "sales.reminders", where: recipientOnlyWhere(current) }
-          : ["sales.opportunities", "sales.opportunity.detail", "sales.tasks", "sales.accounts", "sales.account.detail", "sales.contacts", "sales.contact.detail", "sales.leads", "sales.lead.detail", "sales.timeline"].includes(request.descriptor.id) || dataMovementSources.has(request.descriptor.id) ? { kind: request.descriptor.id, where: salesRecordWhere(current) } : undefined;
+            : request.descriptor.id.startsWith("sales.report.") ? { kind: request.descriptor.id, where: salesRecordWhere(current) }
+              : ["sales.opportunities", "sales.opportunity.detail", "sales.tasks", "sales.accounts", "sales.account.detail", "sales.contacts", "sales.contact.detail", "sales.leads", "sales.lead.detail", "sales.timeline"].includes(request.descriptor.id) || dataMovementSources.has(request.descriptor.id) ? { kind: request.descriptor.id, where: salesRecordWhere(current) } : undefined;
     if (recordScope === undefined || execution && (plan?.fieldAuthority === undefined || plan.metadataScope === undefined)) return { sourceAllowed: false, recordScope: undefined, allowedFields: [] };
     const allowedFields: string[] = [];
     const candidates = execution ? plan!.fieldAuthority!.filter(({ select }) => select).map(({ fieldId }) => fieldId) : request.descriptor.outputFields?.map(({ id }) => id) ?? [];
@@ -1117,7 +1174,7 @@ const workspaceCurrentSalesPolicy = (permissions: readonly string[], current: Wo
   }
 });
 
-function workspaceSalesGateway(payload: Payload, context: KnexRequestContext, permissions: readonly string[], current: ReturnType<typeof authorization>, plan?: Awaited<ReturnType<typeof resolveSalesSavedViewExecution>>): DataSourceGateway {
+function workspaceSalesGateway(payload: Payload, context: KnexRequestContext, permissions: readonly string[], current: ReturnType<typeof authorization>, plan?: Awaited<ReturnType<typeof resolveSalesSavedViewExecution>>, reportingAuthority?: SalesReportingAuthorityFacts): DataSourceGateway {
   return new DataSourceGateway({
     authenticator: new PayloadRequestAuthenticator({
       actor: () => current,
@@ -1154,7 +1211,16 @@ function workspaceSalesGateway(payload: Payload, context: KnexRequestContext, pe
         const executionAuthority = plan?.metadataScope !== undefined && plan.targetRecordScope !== undefined && plan.fieldAuthority !== undefined
             ? Object.freeze({ metadataScope: plan.metadataScope, targetRecordScope: plan.targetRecordScope, fieldAuthority: plan.fieldAuthority, ...(plan.fence?.reportingTimezone === undefined ? {} : { reportingTimezone: plan.fence.reportingTimezone }) }) : undefined;
         const dataMovement = (request as PayloadRequest & { dataMovement?: GeneratedSalesDataMovementStore }).dataMovement;
-        return Object.freeze({ ...capability, applicationIdentity: Object.freeze({ applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment }), ...(dataMovement === undefined ? {} : { dataMovement }), ...(executionAuthority === undefined ? {} : { salesSavedViewExecutionAuthority: executionAuthority }) });
+        const reporting = createGeneratedSalesReportingGateway(request, Object.freeze({
+          context: Object.freeze({ applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment, actorId: current.effectiveActor.id }),
+          authorizationRevision: current.authorizationRevision, lifecycleRevision: current.lifecycleRevision, scopeRevision: current.salesScope.revision,
+          recordScope: current.salesScope.recordScope, applicationWide: current.salesScope.applicationWide, authorizedTeamIds: current.salesScope.authorizedTeamIds,
+          runtimeGenerationId: reportingAuthority?.runtimeGenerationId ?? (() => { throw new TypeError("Sales reporting generation is unavailable."); })(),
+          permissionGrants: Object.freeze(permissions.filter((permission): permission is "sales.exports.execute" | "sales.reports.read" | "sales.reports.schedule" => permission === "sales.exports.execute" || permission === "sales.reports.read" || permission === "sales.reports.schedule")),
+          objectPermissionGrants: reportingAuthority?.objectPermissionGrants ?? (() => { throw new TypeError("Sales reporting authority is unavailable."); })(),
+          fieldPermissionGrants: reportingAuthority?.fieldPermissionGrants ?? (() => { throw new TypeError("Sales reporting authority is unavailable."); })()
+        }));
+        return Object.freeze({ ...capability, applicationIdentity: Object.freeze({ applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment }), ...(dataMovement === undefined ? {} : { dataMovement }), reporting, ...(reportingAuthority === undefined ? {} : { reportingAuthority }), ...(executionAuthority === undefined ? {} : { salesSavedViewExecutionAuthority: executionAuthority }) });
       }
     }),
     catalog: { lookup: (sourceId) => sources.get(sourceId) },
@@ -1284,10 +1350,10 @@ function savedViewPersistence(client: SavedViewQueryClient, current: WorkspaceSa
     return view.definition.fields.flatMap((fieldId) => { const rule = authority.fields[fieldId]; return rule === undefined || !permissions.includes(rule.permission) ? [] : [{ fieldId, select: rule.operations.includes("select"), filter: rule.operations.includes("filter"), sort: rule.operations.includes("sort") }]; });
   };
   const reportingTimezone = new ApplicationReportingTimezoneResolver(new EffectiveSettingsProvider({
-    list: async (applicationId: string, environment: string) => [Object.freeze({ descriptor: systemGeneralSettingsDescriptor, identity: Object.freeze({ applicationId, environment, descriptorId: "system.general", descriptorSchemaVersion: 2, owner: Object.freeze({ kind: "platform" as const, namespace: "system" }) }), lifecycle: "active" as const })]
+    list: async (applicationId: string, environment: string) => [Object.freeze({ descriptor: systemGeneralSettingsDescriptor, identity: Object.freeze({ applicationId, environment, descriptorId: "system.general", descriptorSchemaVersion: 3, owner: Object.freeze({ kind: "platform" as const, namespace: "system" }) }), lifecycle: "active" as const })]
   }, { read: async (identity) => {
     const state = (await client.query("select settings_revision from k_nex_system_settings_state where application_id=$1 and environment=$2 for share", [identity.applicationId, identity.environment])).rows[0];
-    const document = (await client.query("select owner_kind,owner_namespace,owner_delivery_class,owner_extension_id,owner_generation,document_revision,settings_revision,values_json from k_nex_system_settings_documents where application_id=$1 and environment=$2 and descriptor_id='system.general' and descriptor_schema_version=2 and owner_scope_key='platform:system' for share", [identity.applicationId, identity.environment])).rows[0];
+    const document = (await client.query("select owner_kind,owner_namespace,owner_delivery_class,owner_extension_id,owner_generation,document_revision,settings_revision,values_json from k_nex_system_settings_documents where application_id=$1 and environment=$2 and descriptor_id='system.general' and descriptor_schema_version=3 and owner_scope_key='platform:system' for share", [identity.applicationId, identity.environment])).rows[0];
     if (!positiveSafeInteger(state?.settings_revision) || document === undefined || document.owner_kind !== "platform" || document.owner_namespace !== "system" || document.owner_delivery_class !== null || document.owner_extension_id !== null || document.owner_generation !== null || !positiveSafeInteger(document.document_revision) || !positiveSafeInteger(document.settings_revision) || document.settings_revision > state.settings_revision || document.values_json === null || typeof document.values_json !== "object" || Array.isArray(document.values_json)) return undefined;
     const parsed = EffectiveSettingsDocumentSchema.safeParse({ schemaVersion: 1, state: "effective", identity, documentRevision: document.document_revision, settingsRevision: document.settings_revision, values: document.values_json });
     if (!parsed.success) return undefined;
@@ -1452,7 +1518,7 @@ export async function loadWorkspaceSalesSources(payload: Payload, context: KnexR
     const descriptor = source?.definition.descriptor;
     if (descriptor === undefined || descriptor.version !== binding.source.version || descriptor.structuralCompatibilityHash !== binding.structuralCompatibilityHash) throw new TypeError("Workspace Sales source binding is unavailable.");
     const savedViewPlan = savedViewState?.plans.get(node.id);
-    const gateway = workspaceSalesGateway(payload, context, permissions, current.authorization, savedViewPlan);
+    const gateway = workspaceSalesGateway(payload, context, permissions, current.authorization, savedViewPlan, current.reportingAuthority);
     const selectedFields = savedViewPlan?.selectedFields ?? binding.selectedFields ?? descriptor.outputFields?.filter(({ binding }) => binding === "required").map(({ id }) => id) ?? [];
     const detail = salesRecordDetailSources.has(descriptor.id);
     const timeline = descriptor.id === "sales.timeline";
@@ -1465,13 +1531,14 @@ export async function loadWorkspaceSalesSources(payload: Payload, context: KnexR
       return { "related-record-type": (configured as Record<string, unknown>)["related-record-type"], "related-record-id": routeParams.id };
     })() : binding.input);
     const administrationPageSize = descriptor.id === "sales.pipeline.snapshot" ? 6 : descriptor.id === "sales.saved-view.detail" ? 33 : undefined;
+    const boundedPageSize = Math.min(administrationPageSize ?? 25, descriptor.limits.maxPageSize);
     const requestedPage = pageNodeId === undefined || pageNodeId === node.id ? pageNumber : 1;
     const sourcePage = timeline ? requestedPage > 4 ? (() => { throw new TypeError("Sales timeline page exceeds its bounded contract."); })() : requestedPage : detail || administrationPageSize !== undefined ? 1 : requestedPage;
     const query = savedViewPlan?.query ?? (descriptor.primaryContract.id === "metric.scalar"
       ? { filters: [], sort: [] }
       : descriptor.paginationModes.includes("cursor")
         ? { cursor: { size: administrationPageSize ?? 100 }, filters: [], sort: [] }
-        : { page: { number: sourcePage, size: administrationPageSize ?? 25 }, filters: [], sort: [] });
+        : { page: { number: sourcePage, size: boundedPageSize }, filters: [], sort: [] });
     const loadKey = canonicalJson({ source: binding.source, sourceInput, selectedFields, query });
     const existing = loaded.get(loadKey);
     if (existing !== undefined) { output[node.id] = existing; continue; }
@@ -1480,7 +1547,7 @@ export async function loadWorkspaceSalesSources(payload: Payload, context: KnexR
       const result = { state: "success", data: { fields: [...selectedFields], rows: [], page: { number: page.number, pageSize: page.size, hasNext: false } } } as const;
       loaded.set(loadKey, result); output[node.id] = result; continue;
     }
-    const response = await gateway.query({
+    const runQuery = () => gateway.query({
       correlationId: context.correlationId,
       rawRequest: current.request,
       sourceId: descriptor.id,
@@ -1490,6 +1557,16 @@ export async function loadWorkspaceSalesSources(payload: Payload, context: KnexR
       selectedFields,
       signal
     });
+    let ownsReportTransaction = false;
+    if (descriptor.id.startsWith("sales.report.")) ownsReportTransaction = await initTransaction(current.request);
+    let response: Awaited<ReturnType<DataSourceGateway["query"]>>;
+    try {
+      response = await runQuery();
+      if (ownsReportTransaction) await commitTransaction(current.request);
+    } catch (error) {
+      if (ownsReportTransaction) await killTransaction(current.request).catch(() => undefined);
+      throw error;
+    }
     if (response.ok) { if (descriptor.id === "sales.saved-view.detail") { if (savedViewState === undefined) throw new TypeError("Saved View detail transaction is unavailable."); await validateSavedViewDetail(savedViewState.client, current.authorization, response.body.data); } const result = { state: "success", data: response.body.data } as const; loaded.set(loadKey, result); output[node.id] = result; continue; }
     if (response.status === 403) {
       const result = {
@@ -1550,13 +1627,15 @@ export async function executeWorkspaceSalesAction(payload: Payload, context: Kne
       await persistence.transaction.begin();
       await lockSalesPipelineReferences(current.request, action.id, request.input);
       actionReportingTimezone = await lockSalesReportingTimezone(current.request, action.id, request.input);
-      return { actor: current.authorization, request: persistence, authorizationContext: Object.freeze({ ...context, actionId: action.id, dataMovement: current.dataMovement, providerGateway: current.providerGateway }) };
+      return { actor: current.authorization, request: persistence, authorizationContext: Object.freeze({ ...context, actionId: action.id, dataMovement: current.dataMovement, providerGateway: current.providerGateway, reporting: current.reporting, reportingAuthority: current.reportingAuthority }) };
     }
   }, { authorize: async ({ action, input, authenticated }) => {
     if (input === null || typeof input !== "object" || Array.isArray(input) ||
       ["applicationId", "environment", "createdBy", "updatedBy", "revision", "audit", ...(action.descriptor.id === "sales.ownership.assign" ? [] : ["ownerId", "teamId"])].some((key) => key in input)) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales action facts are forbidden.");
     const actionInput = input as Readonly<Record<string, unknown>>;
     const current = workspaceSalesAuthorization(authenticated.actor);
+    const reporting = (authenticated.authorizationContext as { readonly reporting?: GeneratedSalesReportingGateway }).reporting;
+    const reportingAuthority = (authenticated.authorizationContext as { readonly reportingAuthority?: SalesReportingAuthorityFacts }).reportingAuthority;
     const dataMovement = action.descriptor.id.startsWith("sales.import.") || action.descriptor.id.startsWith("sales.export.") || action.descriptor.id === "sales.merge.commit"
       ? (authenticated.authorizationContext as { readonly dataMovement?: GeneratedSalesDataMovementStore }).dataMovement : undefined;
     const providerGateway = action.descriptor.id === "sales.email.send" || action.descriptor.id === "sales.calendar.sync" || action.descriptor.id === "sales.integration.configure"
@@ -1700,6 +1779,8 @@ export async function executeWorkspaceSalesAction(payload: Payload, context: Kne
       salesScopeRevision: current.salesScope.revision,
       ...(dataMovement === undefined ? {} : { dataMovement }),
       ...(providerGateway === undefined ? {} : { providerGateway }),
+      ...(reporting === undefined ? {} : { reporting }),
+      ...(reportingAuthority === undefined ? {} : { reportingAuthority }),
       ...(communicationRelationAdmission === undefined ? {} : { communicationRelationAdmission }),
       ownerId: typeof record?.ownerId === "string" ? record.ownerId : actorId,
       ...(typeof record?.teamId === "string" ? { teamId: record.teamId } : topLevelOwnedCreate ? { teamId: personalTeam } : {}),
@@ -1715,7 +1796,7 @@ export async function executeWorkspaceSalesAction(payload: Payload, context: Kne
       ...(resourceId === undefined ? {} : { resourceId }),
       eventId: salesActionEventId(currentAuthorization, action.descriptor.id, idempotency.idempotencyKey, idempotency.requestDigest),
       ...(replay === undefined ? {} : { idempotencyReplay: replay }) });
-  }});
+        }});
   try {
     const response = await gateway.execute({ correlationId: context.correlationId, rawRequest: Object.freeze({}), actionId: action.id, input, idempotencyKey, signal });
     if (response.ok && idempotency !== undefined && currentAuthorization !== undefined && idempotency.replay === undefined) await completeSalesActionIdempotency(idempotency, currentAuthorization, response.body.data);
@@ -2169,12 +2250,12 @@ async function workspaceBuilderProfile(payload: Payload, context: KnexRequestCon
   if (signal.aborted) throw new TypeError("Workspace document validation was revoked.");
   const permissions = new Set(await workspaceSalesPermissions(payload, context, signal));
   if (signal.aborted) throw new TypeError("Workspace document validation was revoked.");
-  const sources = [salesOpportunitiesDescriptor, salesTasksDescriptor, salesPipelineSnapshotDescriptor, salesSavedViewListDescriptor, salesSavedViewDetailDescriptor, salesSavedViewTableDescriptor, salesSavedViewKanbanDescriptor, salesSavedViewCalendarDescriptor].flatMap((candidate) => {
+  const sources = [salesOpportunitiesDescriptor, salesTasksDescriptor, salesPipelineSnapshotDescriptor, salesSavedViewListDescriptor, salesSavedViewDetailDescriptor, salesSavedViewTableDescriptor, salesSavedViewKanbanDescriptor, salesSavedViewCalendarDescriptor, salesPipelineValueByStageDescriptor, salesWeightedForecastDescriptor, salesWonLostConversionDescriptor, salesLeadConversionDescriptor, salesActivityByOwnerTeamDescriptor, salesTaskAgingDescriptor, salesSalesCycleDurationDescriptor].flatMap((candidate) => {
     const registered = contribution("sources", candidate.id, candidate.version) as typeof candidate | undefined;
     if (registered === undefined || registered.id !== candidate.id || registered.version !== candidate.version || !permissions.has(registered.permission)) return [];
     return [{ ...registered, ...(registered.outputFields === undefined ? {} : { outputFields: registered.outputFields.filter(({ permission }) => permissions.has(permission)) }) }];
   });
-  const actions = [salesTaskCreateDescriptor, salesTaskUpdateDescriptor, salesOpportunityStageUpdateDescriptor, salesPipelineUpdateDescriptor, salesPipelineArchiveDescriptor, salesSavedViewCreateDescriptor, salesSavedViewUpdateDescriptor, salesSavedViewArchiveDescriptor].flatMap((candidate) => {
+  const actions = [salesTaskCreateDescriptor, salesTaskUpdateDescriptor, salesOpportunityStageUpdateDescriptor, salesPipelineUpdateDescriptor, salesPipelineArchiveDescriptor, salesSavedViewCreateDescriptor, salesSavedViewUpdateDescriptor, salesSavedViewArchiveDescriptor, salesReportRunDescriptor, salesReportScheduleDescriptor].flatMap((candidate) => {
     const registered = contribution("actions", candidate.id, candidate.version) as typeof candidate | undefined;
     return registered === undefined || registered.id !== candidate.id || registered.version !== candidate.version || !permissions.has(registered.permission) ? [] : [{ id: registered.id, version: registered.version }];
   });
@@ -2426,8 +2507,8 @@ export async function loadWorkspacePageEditorProjection(payload: Payload, contex
     const detail = session.detail;
     if (detail.workingCopy === undefined) throw new TypeError("Workspace page working copy is unavailable.");
     const permissions = await workspaceSalesPermissions(payload, context, session.signal);
-    const sources = [salesOpportunitiesDescriptor, salesTasksDescriptor, salesPipelineSnapshotDescriptor, salesSavedViewListDescriptor, salesSavedViewDetailDescriptor, salesSavedViewTableDescriptor, salesSavedViewKanbanDescriptor, salesSavedViewCalendarDescriptor];
-    const actions = [salesTaskCreateDescriptor, salesTaskUpdateDescriptor, salesOpportunityStageUpdateDescriptor, salesPipelineUpdateDescriptor, salesPipelineArchiveDescriptor, salesSavedViewCreateDescriptor, salesSavedViewUpdateDescriptor, salesSavedViewArchiveDescriptor];
+    const sources = [salesOpportunitiesDescriptor, salesTasksDescriptor, salesPipelineSnapshotDescriptor, salesSavedViewListDescriptor, salesSavedViewDetailDescriptor, salesSavedViewTableDescriptor, salesSavedViewKanbanDescriptor, salesSavedViewCalendarDescriptor, salesPipelineValueByStageDescriptor, salesWeightedForecastDescriptor, salesWonLostConversionDescriptor, salesLeadConversionDescriptor, salesActivityByOwnerTeamDescriptor, salesTaskAgingDescriptor, salesSalesCycleDurationDescriptor];
+    const actions = [salesTaskCreateDescriptor, salesTaskUpdateDescriptor, salesOpportunityStageUpdateDescriptor, salesPipelineUpdateDescriptor, salesPipelineArchiveDescriptor, salesSavedViewCreateDescriptor, salesSavedViewUpdateDescriptor, salesSavedViewArchiveDescriptor, salesReportRunDescriptor, salesReportScheduleDescriptor];
     const authority = Object.freeze({
       blocks: [...genericPuckBlockBridges, ...salesPuckBlockBridges.filter(({ definition }) => definition.permission === undefined || permissions.includes(definition.permission))].map(({ definition }) => ({ id: definition.id, version: definition.version })),
       sources: sources.filter(({ permission }) => permissions.includes(permission)).map(({ id, version }) => ({ id, version })),

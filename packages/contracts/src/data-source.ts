@@ -74,13 +74,46 @@ const uniqueFieldIds = (values: readonly { id: string }[], path: string, context
 
 export const DataSourcePrimaryContractSchema = z.strictObject({
   id: z.enum(["metric.scalar", "table.records"]),
-  version: z.literal(1)
+  version: z.number().int().positive()
+}).superRefine((value, context) => {
+  if (value.id === "table.records" && value.version !== 1 || value.id === "metric.scalar" && value.version !== 1 && value.version !== 2) context.addIssue({ code: "custom", path: ["version"], message: "Unsupported primary contract version." });
 });
 
 export const DataSourceSourceSchemaSchema = z.strictObject({
   id: namespacedIdSchema,
   version: positiveVersionSchema
 });
+
+/**
+ * Optional execution evidence carried beside a successful source result. Report
+ * sources use it to bind an otherwise unchanged metric/table payload to the
+ * current authority and reporting settings that admitted the aggregation.
+ */
+export const DataSourceReportExecutionSchema = z.strictObject({
+  applicationId: z.string().regex(/^[a-z][a-z0-9-]{0,127}$/),
+  environment: z.string().regex(/^[a-z][a-z0-9-]{0,127}$/),
+  source: DataSourceSourceSchemaSchema,
+  sourceSchema: DataSourceSourceSchemaSchema,
+  authorizationRevision: positiveVersionSchema,
+  lifecycleRevision: z.number().finite().int().min(0).max(1_000_000),
+  salesScopeRevision: positiveVersionSchema,
+  settingsRevision: positiveVersionSchema,
+  reportingTimezone: z.string().min(1).max(128),
+  reportingCurrency: z.string().regex(/^[A-Z]{3}$/),
+  currencyScale: z.number().finite().int().min(0).max(6),
+  asOf: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
+  windowMode: z.enum(["as-of", "current-reporting-week", "previous-complete-reporting-week", "current-reporting-month", "previous-complete-reporting-month"]),
+  grouping: z.enum(["none", "stage", "owner-team", "aging-bucket"]),
+  authorizedRecordCount: z.number().finite().int().min(0).max(1_000_000),
+  executionDigest: z.string().regex(/^sha256:[0-9a-f]{64}$/)
+});
+export type DataSourceReportExecution = z.infer<typeof DataSourceReportExecutionSchema>;
+
+/** Exact canonical input for report execution evidence; metric/table payload is deliberately excluded. */
+export function dataSourceReportExecutionDigestInput(value: DataSourceReportExecution) {
+  const { executionDigest: _executionDigest, ...metadata } = value;
+  return Object.freeze(metadata);
+}
 
 export const DataSourceInputFieldSchema = z.strictObject({
   id: TableFieldIdSchema,
