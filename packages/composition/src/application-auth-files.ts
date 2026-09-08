@@ -2404,6 +2404,7 @@ import { shutdownKnexApplication } from "./k-nex-authority.js";
 import { kNexIdentity } from "./k-nex-identity.js";
 import { processSalesDataMovement } from "./k-nex-sales-data-movement.js";
 import { createGeneratedBoundedReferenceProviderTransport, createGeneratedEnvironmentProviderSecretResolver, processGeneratedSalesCommunications, processGeneratedSalesReminders } from "./k-nex-sales-communications.js";
+import { processGeneratedSalesWorkflows } from "./k-nex-sales-workflows.js";
 
 const payload = await bootKnexApplication("authorization-worker");
 const channel = "k_nex_runtime_invalidation";
@@ -2467,6 +2468,8 @@ let dataMovementDispatching = false;
 let dataMovementStopping = false;
 let communicationsDispatching = false;
 let communicationsStopping = false;
+let workflowsDispatching = false;
+let workflowsStopping = false;
 const providerSecrets = createGeneratedEnvironmentProviderSecretResolver();
 const providerTransport = createGeneratedBoundedReferenceProviderTransport(process.env.K_NEX_REFERENCE_PROVIDER_ENDPOINT);
 const realtimeAbort = new AbortController();
@@ -2511,12 +2514,21 @@ const dispatchCommunications = async () => {
   finally { communicationsDispatching = false; }
 };
 const communicationsTimer = setInterval(() => { void dispatchCommunications(); }, 100);
+const dispatchWorkflows = async () => {
+  if (workflowsDispatching || workflowsStopping) return;
+  workflowsDispatching = true;
+  try { const salesWorkerFence = await currentSalesWorkerFence(); if (salesWorkerFence !== undefined) await processGeneratedSalesWorkflows(pool, salesWorkerFence); }
+  catch (error) { if (!workflowsStopping) workerFailure("K_NEX_WORKFLOW_EXECUTION_ERROR")(error); }
+  finally { workflowsDispatching = false; }
+};
+const workflowsTimer = setInterval(() => { void dispatchWorkflows(); }, 100);
 authorizationWorker.start();
 workspacePageWorker.start();
 workspaceNavigationWorker.start();
 void dispatchRealtime();
 void dispatchDataMovement();
 void dispatchCommunications();
+void dispatchWorkflows();
 await new Promise<void>((resolve) => {
   let seen = false;
   const stop = () => {
@@ -2534,14 +2546,17 @@ workspacePageWorker.stop();
 workspaceNavigationWorker.stop();
 realtimeStopping = true;
 dataMovementStopping = true;
-communicationsStopping = true;
+    communicationsStopping = true;
+    workflowsStopping = true;
 realtimeAbort.abort();
 clearInterval(realtimeTimer);
 clearInterval(dataMovementTimer);
-clearInterval(communicationsTimer);
+    clearInterval(communicationsTimer);
+    clearInterval(workflowsTimer);
 while (realtimeDispatching) await new Promise((resolve) => setTimeout(resolve, 10));
 while (dataMovementDispatching) await new Promise((resolve) => setTimeout(resolve, 10));
 while (communicationsDispatching) await new Promise((resolve) => setTimeout(resolve, 10));
+while (workflowsDispatching) await new Promise((resolve) => setTimeout(resolve, 10));
 const workerDrains = await Promise.allSettled([authorizationWorker.idle(), workspacePageWorker.idle(), workspaceNavigationWorker.idle()]);
 const workerDrainFailures = workerDrains.filter((result): result is PromiseRejectedResult => result.status === "rejected");
 let shutdownFailure: unknown;

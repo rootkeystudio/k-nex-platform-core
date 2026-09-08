@@ -402,15 +402,20 @@ Acceptance:
 
 ### P13.7 — Add bounded CRM workflows
 
-Implement registered triggers, closed conditions, and declared actions/jobs for a small accepted automation set.
+Implement the exact static-only `module.sales` catalog in the product contract. It contains three compile-time rules: Opportunity `discovery → proposal` creates one owner follow-up Task; accepted Lead ownership assignment emits one fixed non-sensitive assignment notice to the new owner; accepted scheduled Activity schedules one Reminder exactly 15 minutes before, clamped to acceptance time when earlier. Each rule uses a dedicated `durable-workflow` event, declares one effect, and has fan-out 1/depth 1. Customer data cannot add or alter definitions, UI, permissions, triggers, conditions, effects, recipients, or jobs.
+
+Persist executions through fixed job `sales.job.crm-workflow-execution` only. Allow states `queued`, `running`, `succeeded`, and `dead-letter`; claim at batch size 16 (hard maximum 32), retry at most three times with bounded backoff, and retain only safe failure codes and non-sensitive execution evidence. Canonical JSON idempotency binds application/environment, workflow, trigger event/digest, target, and effect. PostgreSQL fence/token, promotion revision, lease, expected revision, and CAS protect claim/effect/terminal transitions; stale workers have zero effects. Accepted-trigger → queued and every queued → running, running → queued retry, running → succeeded, and running → dead-letter transition atomically append immutable execution audit and internal `sales.event.workflow-execution-changed` v1 `durable-integration` outbox evidence. It has no source or realtime projection; transport rows retain 30 days while execution metadata, audit, receipt, digest, and safe failure evidence retain for the application lifetime.
+
+Before the Task effect, recheck the original actor, current Opportunity authorization/scope, current Opportunity revision/state, and accepted owner; mismatch yields a safe terminal failure with zero effect. Preserve original Opportunity owner and relation. Keep Lead notice fixed and non-sensitive; reference navigation reauthorizes current Lead access. Before Reminder insertion, recheck target Activity remains scheduled at accepted revision/actor; cancel, complete, or stale yields safe terminal failure with zero effect. Owner notification and reminder are explicit system-after-acceptance duties from the accepted transition and cannot widen recipient or record scope. Closed schemas forbid arbitrary code, expressions, SQL, network/URL access, prompts, dynamic tools, and customer-authored UI or permissions.
 
 Acceptance:
 
-- no arbitrary code/expression/network;
-- exact trigger/action schema;
-- loop and fan-out budgets;
-- outbox/retry/dead-letter;
-- authority transition documented and audited;
+- exactly three dedicated durable-workflow triggers, one effect each, no generic changed-event reinterpretation;
+- exact trigger/effect schema with closed keys, recipient/record bounds, 16/32 batch, depth/fan-out, three-attempt backoff, and four execution states;
+- canonical idempotency plus application/environment isolation and fence/lease/CAS stale-worker denial;
+- atomic audit/outbox and safe failure/retention evidence;
+- actor/current-auth/scope plus current Opportunity revision/state/owner recheck for Task; scheduled Activity revision/actor recheck for Reminder; fixed non-sensitive Lead notice with navigation reauthorization;
+- no arbitrary code/expression/SQL/network/URL/prompt/dynamic tools or customer-authored definitions/UI/permissions;
 - unrelated customer/workflow remains healthy.
 
 ### P13.8 — Add CRM reports and dashboard blocks

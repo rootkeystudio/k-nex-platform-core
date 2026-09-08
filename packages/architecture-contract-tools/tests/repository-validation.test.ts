@@ -118,7 +118,7 @@ describe("P0.4 executable repository validation", () => {
     ((missingRouteAuthority.permissions as Record<string, unknown>).routePermissions as unknown[]).pop();
     expect(validatePhase13ProductContract(missingRouteAuthority).map(({ code }) => code)).toContain("PHASE13_PRODUCT_CONTRACT_INVALID");
 
-    for (const section of ["target", "permissions", "lifecycles", "metrics", "attacks", "nonGoals", "dataSemantics", "retention"]) {
+    for (const section of ["target", "permissions", "lifecycles", "metrics", "workflows", "attacks", "nonGoals", "dataSemantics", "retention"]) {
       const missingSection = structuredClone(await phase13Contract());
       delete missingSection[section];
       expect(validatePhase13ProductContract(missingSection).map(({ code }) => code), section).toContain("PHASE13_PRODUCT_CONTRACT_INVALID");
@@ -470,6 +470,34 @@ describe("P0.4 executable repository validation", () => {
       const changed = structuredClone(await phase13Contract());
       mutate(changed);
       expect(validatePhase13ProductContract(changed).map(({ code }) => code), name).toContain("PHASE13_PRODUCT_CONTRACT_DRIFT");
+    }
+  });
+
+  it("accepts only the three bounded static CRM workflow rules", async () => {
+    const contract = await phase13Contract();
+    expect(validatePhase13ProductContract(contract)).toEqual([]);
+    const workflows = contract.workflows as Record<string, unknown>;
+    expect(workflows.deliveryClass).toBe("static-only");
+    expect(workflows.catalog).toHaveLength(3);
+    const catalog = workflows.catalog as Array<Record<string, unknown>>;
+    expect((catalog[0]!.trigger as Record<string, unknown>).transition).toEqual({ fromSemantic: "discovery", toSemantic: "proposal" });
+    expect((catalog[1]!.effect as Record<string, unknown>).content).toBe("Lead assigned to you; open Lead only after current authorization recheck");
+
+    const mutations: Array<[string, (value: Record<string, unknown>) => void]> = [
+      ["wrong proposal predecessor", (value) => { const catalog = (value.workflows as Record<string, unknown>).catalog as Array<Record<string, unknown>>; ((catalog[0]!.trigger as Record<string, unknown>).transition as Record<string, unknown>).fromSemantic = "negotiation"; }],
+      ["generic changed event", (value) => { const catalog = (value.workflows as Record<string, unknown>).catalog as Array<Record<string, unknown>>; ((catalog[0]!.trigger as Record<string, unknown>).eventId) = "sales.event.opportunity.changed"; }],
+      ["second effect fanout", (value) => { const catalog = (value.workflows as Record<string, unknown>).catalog as Array<Record<string, unknown>>; catalog[0]!.fanout = 2; }],
+      ["activity reminder offset", (value) => { const catalog = (value.workflows as Record<string, unknown>).catalog as Array<Record<string, unknown>>; (catalog[2]!.effect as Record<string, unknown>).offsetMinutes = -14; }],
+      ["open condition schema", (value) => { const catalog = (value.workflows as Record<string, unknown>).catalog as Array<Record<string, unknown>>; (catalog[0]!.condition as Record<string, unknown>).code = "customer supplied"; }],
+      ["unsafe execution state", (value) => { const execution = ((value.workflows as Record<string, unknown>).execution as Record<string, unknown>); execution.states = ["queued", "running", "succeeded", "paused", "dead-letter"]; }],
+      ["workflow transition event projection", (value) => { const transition = (((value.workflows as Record<string, unknown>).execution as Record<string, unknown>).transitionEvent as Record<string, unknown>); transition.realtimeProjection = "sales.realtime.timeline"; }],
+      ["workflow transport retention drift", (value) => { const execution = ((value.workflows as Record<string, unknown>).execution as Record<string, unknown>); execution.retention = "application-lifetime outbox"; }],
+      ["customer workflow source", (value) => { ((value.workflows as Record<string, unknown>).authority as Record<string, unknown>).source = "customer-authored"; }]
+    ];
+    for (const [name, mutate] of mutations) {
+      const invalid = structuredClone(contract);
+      mutate(invalid);
+      expect(validatePhase13ProductContract(invalid).map(({ code }) => code), name).toContain("PHASE13_PRODUCT_CONTRACT_INVALID");
     }
   });
 

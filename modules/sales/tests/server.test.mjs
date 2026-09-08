@@ -23,6 +23,7 @@ import {
   salesCreateTaskToolDescriptor,
   salesCreateTaskOutputRuntimeSchema,
   salesEventDescriptors,
+  salesWorkflowTriggerDescriptors,
   salesNavigationDescriptors,
   salesOpportunityFields,
   salesOpportunitiesDescriptor,
@@ -493,15 +494,25 @@ test("Sales registers source/action-backed tools with strict write policy", () =
 
 test("Sales declares event-to-realtime invalidation mappings", () => {
   assert.deepEqual(salesEventDescriptors.map(({ id }) => id).sort(), [
-    "sales.event.account-changed", "sales.event.contact-changed", "sales.event.export-job-changed", "sales.event.import-job-changed", "sales.event.lead-changed", "sales.event.notification-changed", "sales.event.opportunity-changed", "sales.event.provider-configuration-changed", "sales.event.reminder-changed", "sales.event.task-changed", "sales.event.timeline-changed"
+    "sales.event.account-changed", "sales.event.contact-changed", "sales.event.export-job-changed", "sales.event.import-job-changed", "sales.event.lead-changed", "sales.event.notification-changed", "sales.event.opportunity-changed", "sales.event.provider-configuration-changed", "sales.event.reminder-changed", "sales.event.task-changed", "sales.event.timeline-changed", "sales.event.workflow-execution-changed", "sales.event.workflow.activity-scheduled", "sales.event.workflow.lead-owner-assigned", "sales.event.workflow.opportunity-proposal-entered"
   ]);
   const eventIds = new Set(salesEventDescriptors.map(({ id }) => id));
   const sourceIds = new Set(salesManifest.contributions.sources && Object.keys(salesManifest.contributions.sources));
   const permissionIds = new Set(salesCrmPermissionDescriptors.map(({ id }) => id));
   for (const event of salesEventDescriptors) {
-    assert.equal(event.eventClass, "durable-integration");
+    assert.equal(["durable-integration", "durable-workflow"].includes(event.eventClass), true);
     assert.equal(sourceIds.has(event.sourceId), true);
   }
+  assert.deepEqual(salesEventDescriptors.find(({ id }) => id === "sales.event.workflow-execution-changed"), {
+    id: "sales.event.workflow-execution-changed", version: 1, ownerPluginId: "module.sales", eventClass: "durable-integration", sourceId: "sales.timeline"
+  });
+  assert.equal(salesRealtimeTopicDescriptors.some(({ eventId }) => eventId === "sales.event.workflow-execution-changed"), false);
+  assert.deepEqual(salesWorkflowTriggerDescriptors, [
+    { id: "sales.workflow.opportunity-proposal-follow-up", version: 1, eventId: "sales.event.workflow.opportunity-proposal-entered", eventClass: "durable-workflow", actionId: "sales.opportunity.stage.update", effectKind: "create-owner-follow-up-task", targetCollection: "sales-opportunities", recipient: "accepted-owner", fanout: 1, depth: 1 },
+    { id: "sales.workflow.lead-owner-assigned-notification", version: 1, eventId: "sales.event.workflow.lead-owner-assigned", eventClass: "durable-workflow", actionId: "sales.ownership.assign", effectKind: "notify-new-owner", targetCollection: "sales-leads", recipient: "accepted-owner", fanout: 1, depth: 1 },
+    { id: "sales.workflow.scheduled-activity-reminder", version: 1, eventId: "sales.event.workflow.activity-scheduled", eventClass: "durable-workflow", actionId: "sales.activity.create", effectKind: "schedule-reminder", targetCollection: "sales-activities", recipient: "original-actor", fanout: 1, depth: 1 }
+  ]);
+  assert.deepEqual(salesReferenceMetadata.workflowJob, { id: "sales.job.crm-workflow-execution", version: 1, ownerPluginId: "module.sales", timeoutMs: 10_000, maxConcurrency: 16, idempotent: true });
   for (const topic of salesRealtimeTopicDescriptors) {
     assert.equal(eventIds.has(topic.eventId), true);
     assert.equal(sourceIds.has(topic.sourceId), true);
@@ -590,6 +601,9 @@ test("Sales durable events project task and opportunity invalidations through th
   assert.deepEqual(publications.at(-1).channel, { topicId: "sales.realtime.provider-configurations", params: {} });
   assert.deepEqual(publications.at(-1).message, { topic: "sales.realtime.provider-configurations", source: "sales.provider-configurations", event: "sales.event.provider-configuration-changed", correlation: "correlation-1", dedupe: "provider-configuration-1" });
   assert.equal(JSON.stringify(publications.at(-1)).includes("providerId"), false);
+  const publicationCount = publications.length;
+  await run({ ...base, id: "workflow-execution-1", type: "sales.event.workflow-execution-changed", payload: { state: "succeeded", revision: 2, environment: "production" } });
+  assert.equal(publications.length, publicationCount);
 });
 
 test("Sales durable event hook binds the exact final audit transition and closed event contract", async () => {
@@ -613,6 +627,36 @@ test("Sales durable event hook binds the exact final audit transition and closed
     { operation: "create" },
     { applicationId: "customer-other" }
   ]) await assert.rejects(run(candidate), /does not match/);
+});
+
+test("Sales workflow trigger hook emits only closed dedicated workflow envelopes", async () => {
+  const transition = { actionId: "sales.opportunity.stage.update", resourceId: "8", applicationId: "customer-gate-1", environment: "production", fromState: "discovery-stage", toState: "proposal-stage", occurredAt: "2026-09-08T00:00:00.000Z", actorId: "user-1", revision: 1, idempotencyKey: "opportunity-proposal-8" };
+  const workflow = { type: "sales.event.workflow.opportunity-proposal-entered", workflowId: "sales.workflow.opportunity-proposal-follow-up", workflowVersion: 1, effectKind: "create-owner-follow-up-task", acceptedOwnerId: "user-2", recipientId: "user-2", authorizationRevision: 9, lifecycleRevision: 3, scopeRevision: 4 };
+  const event = { eventId: transition.idempotencyKey, type: "sales.event.opportunity-changed", stateField: "stageId", transition, workflow };
+  const doc = { id: 8, applicationId: "customer-gate-1", environment: "production", ownerId: "user-2", stageId: "proposal-stage", revision: 1, audit: [transition] };
+  const run = async (candidate = {}) => {
+    const writes = [];
+    const req = {
+      headers: new Headers(), transactionID: "tx",
+      payload: {
+        config: { custom: { kNexApplicationId: "customer-gate-1" } },
+        db: { sessions: { tx: { db: { execute: async (query) => { writes.push(query); return { rows: [] }; } } } } }
+      }
+    };
+    await salesEventAfterChange({ collection: { slug: candidate.collection ?? "sales-opportunities" }, context: { kNexSalesEvent: { ...event, ...(candidate.event ?? {}) } }, doc: { ...doc, ...(candidate.doc ?? {}) }, operation: "update", req });
+    return writes;
+  };
+  assert.equal((await run()).length, 2);
+  for (const candidate of [
+    { event: { workflow: { ...workflow, recipientId: "user-3" } } },
+    { event: { workflow: { ...workflow, effectKind: "notify-new-owner" } } },
+    { event: { workflow: { ...workflow, authorizationRevision: 0 } } },
+    { doc: { ownerId: "user-3" } }
+  ]) await assert.rejects(run(candidate), /workflow trigger facts/);
+  const leadTransition = { actionId: "sales.ownership.assign", resourceId: "9", applicationId: "customer-gate-1", environment: "production", fromState: "working", toState: "working", occurredAt: "2026-09-08T00:00:00.000Z", actorId: "user-1", revision: 2, idempotencyKey: "lead-owner-9", ownership: { oldOwnerId: "user-1", newOwnerId: "user-2", oldTeamId: null, newTeamId: null } };
+  assert.equal((await run({ collection: "sales-leads", event: { eventId: leadTransition.idempotencyKey, type: "sales.event.lead-changed", stateField: "status", transition: leadTransition, workflow: { type: "sales.event.workflow.lead-owner-assigned", workflowId: "sales.workflow.lead-owner-assigned-notification", workflowVersion: 1, effectKind: "notify-new-owner", acceptedOwnerId: "user-2", recipientId: "user-2", authorizationRevision: 9, lifecycleRevision: 3, scopeRevision: 4 } }, doc: { id: 9, ownerId: "user-2", status: "working", revision: 2, audit: [{ ...leadTransition, revision: 1, idempotencyKey: "lead-owner-8" }, leadTransition] } })).length, 2);
+  const activityTransition = { actionId: "sales.activity.create", resourceId: "10", applicationId: "customer-gate-1", environment: "production", fromState: "absent", toState: "scheduled", occurredAt: "2026-09-08T00:00:00.000Z", actorId: "user-1", revision: 1, idempotencyKey: "activity-scheduled-10" };
+  assert.equal((await run({ collection: "sales-activities", event: { eventId: activityTransition.idempotencyKey, type: "sales.event.timeline-changed", stateField: "status", transition: activityTransition, workflow: { type: "sales.event.workflow.activity-scheduled", workflowId: "sales.workflow.scheduled-activity-reminder", workflowVersion: 1, effectKind: "schedule-reminder", acceptedOwnerId: "user-1", recipientId: "user-1", authorizationRevision: 9, lifecycleRevision: 3, scopeRevision: 4, scheduledAt: "2026-09-08T01:00:00.000Z" } }, doc: { id: 10, ownerId: "user-1", createdBy: "user-1", status: "scheduled", scheduledAt: "2026-09-08T01:00:00.000Z", revision: 1, audit: [activityTransition] } })).length, 2);
 });
 
 test("Sales output schemas enforce canonical task shapes", () => {
@@ -1032,17 +1076,19 @@ test("Sales task CAS admits one close and rejects its replay without another wri
 
 test("Sales opportunity stage history appends one complete audit entry per accepted transition", async () => {
   const state = { id: "2", name: "Platform rollout", ownerId: "user-1", pipelineId: 17, stageId: qualificationStageId, archiveStatus: "active", revision: 1, audit: [{ kind: "phase-13-legacy-upgrade", receiptDigest: `sha256:${"0".repeat(64)}`, legacyStage: "lead", ownershipGenesis: { ownerId: "user-1", teamId: null } }] };
+  const contexts = [];
   const request = {
     payload: {
       create: async () => ({}),
       find: async (options) => p134StageFind(state, options),
       update: async (options) => {
+        contexts.push(options.context);
         Object.assign(state, { stageId: options.data.stageId, revision: options.data.revision, audit: options.data.audit });
         return { docs: [structuredClone(state)], errors: [] };
       }
     }
   };
-  const authorizationContext = { actionId: "sales.opportunity.stage.update", resourceId: "2", applicationId: "customer-gate-1", environment: "production", actorId: "user-1", ownerId: "user-1" };
+  const authorizationContext = { actionId: "sales.opportunity.stage.update", resourceId: "2", applicationId: "customer-gate-1", environment: "production", actorId: "user-1", ownerId: "user-1", authorizationRevision: 4, lifecycleRevision: 2, salesScopeRevision: 7 };
   const stages = [discoveryStageId, proposalStageId, negotiationStageId];
   for (const stage of stages) {
     const result = await salesOpportunityStageUpdateHandler({
@@ -1060,6 +1106,12 @@ test("Sales opportunity stage history appends one complete audit entry per accep
       idempotencyKey: `opp-${stages[index]}-1`
     });
   }
+  assert.equal(contexts.filter(({ kNexSalesEvent }) => kNexSalesEvent.workflow !== undefined).length, 1);
+  assert.deepEqual(contexts[1].kNexSalesEvent.workflow, {
+    type: "sales.event.workflow.opportunity-proposal-entered", workflowId: "sales.workflow.opportunity-proposal-follow-up", workflowVersion: 1,
+    effectKind: "create-owner-follow-up-task", acceptedOwnerId: "user-1", recipientId: "user-1",
+    authorizationRevision: 4, lifecycleRevision: 2, scopeRevision: 7
+  });
 });
 
 test("Sales opportunity stage update rejects archived records before audit or mutation", async () => {
@@ -1116,7 +1168,7 @@ test("Sales update actions use actor-scoped Payload updates exactly once", async
       }
     }
   };
-  const auth = (actionId, resourceId) => ({ actionId, resourceId, applicationId: "customer-gate-1", environment: "production", actorId: "user-1", ownerId: "user-1" });
+  const auth = (actionId, resourceId) => ({ actionId, resourceId, applicationId: "customer-gate-1", environment: "production", actorId: "user-1", ownerId: "user-1", authorizationRevision: 4, lifecycleRevision: 2, salesScopeRevision: 7 });
   const base = { actor: handlerContext().actor, request, idempotencyKey: "update-1", signal: new AbortController().signal };
   assert.deepEqual(await salesTaskUpdateHandler({ ...base, authorizationContext: auth("sales.task.update", "1"), input: { id: "1", expectedRevision: 1, expectedStatus: "open", status: "completed" } }), { id: "1", title: "Existing", status: "completed", revision: 2 });
   assert.deepEqual(await salesOpportunityStageUpdateHandler({ ...base, authorizationContext: auth("sales.opportunity.stage.update", "2"), input: stageMove("2", 1, discoveryStageId, proposalStageId) }), { id: "2", pipelineId: "17", stageId: proposalStageId, revision: 2 });

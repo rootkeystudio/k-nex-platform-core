@@ -685,6 +685,10 @@ interface SalesWriteAuthorization {
   readonly actorId: string;
   readonly ownerId: string;
   readonly teamId?: string;
+  /** Current host facts captured with a durable workflow trigger. */
+  readonly authorizationRevision?: number;
+  readonly lifecycleRevision?: number;
+  readonly salesScopeRevision?: number;
   readonly resourceId?: string;
   readonly communicationRelationAdmission?: SalesCommunicationRelationAdmission;
   readonly idempotencyReplay?: unknown;
@@ -724,13 +728,30 @@ type SalesEventType =
   | "sales.event.lead-changed"
   | "sales.event.notification-changed"
   | "sales.event.reminder-changed"
+  | "sales.event.workflow.opportunity-proposal-entered"
+  | "sales.event.workflow.lead-owner-assigned"
+  | "sales.event.workflow.activity-scheduled"
   | "sales.event.timeline-changed";
+
+type SalesWorkflowTrigger = Readonly<{
+  type: "sales.event.workflow.opportunity-proposal-entered" | "sales.event.workflow.lead-owner-assigned" | "sales.event.workflow.activity-scheduled";
+  workflowId: "sales.workflow.opportunity-proposal-follow-up" | "sales.workflow.lead-owner-assigned-notification" | "sales.workflow.scheduled-activity-reminder";
+  workflowVersion: 1;
+  effectKind: "create-owner-follow-up-task" | "notify-new-owner" | "schedule-reminder";
+  acceptedOwnerId: string;
+  recipientId: string;
+  authorizationRevision: number;
+  lifecycleRevision: number;
+  scopeRevision: number;
+  scheduledAt?: string;
+}>;
 
 interface SalesEventContext {
   readonly eventId: string;
   readonly type: SalesEventType;
   readonly stateField: "status" | "stageId" | "archiveStatus" | "state";
   readonly transition: SalesAuditEntry;
+  readonly workflow?: SalesWorkflowTrigger;
 }
 
 interface SalesAuditEntry {
@@ -749,8 +770,8 @@ interface SalesAuditEntry {
   readonly dataMovement?: Readonly<{ kind: "import"; importJobId: number; oneBasedDataRow: number; rowDigest: string } | { kind: "merge"; role: "survivor" | "merged"; lineageId: string }>;
 }
 
-function eventContext(type: SalesEventContext["type"], transition: SalesAuditEntry, stateField: SalesEventContext["stateField"] = type === "sales.event.opportunity-changed" ? "stageId" : "status"): { readonly kNexSalesEvent: SalesEventContext } {
-  return Object.freeze({ kNexSalesEvent: Object.freeze({ eventId: transition.idempotencyKey, type, stateField, transition }) });
+function eventContext(type: SalesEventContext["type"], transition: SalesAuditEntry, stateField: SalesEventContext["stateField"] = type === "sales.event.opportunity-changed" ? "stageId" : "status", workflow?: SalesWorkflowTrigger): { readonly kNexSalesEvent: SalesEventContext } {
+  return Object.freeze({ kNexSalesEvent: Object.freeze({ eventId: transition.idempotencyKey, type, stateField, transition, ...(workflow === undefined ? {} : { workflow }) }) });
 }
 
 function applicationId(request: PayloadRequest): string {
@@ -775,6 +796,34 @@ function salesEventContract(actionId: string, collection: string): Readonly<{ ty
   if (collection === "sales-notifications" && ["sales.notification.read", "sales.notification.archive"].includes(actionId)) return { type: "sales.event.notification-changed", stateField: "state" };
   if (collection === "sales-reminders" && ["sales.reminder.schedule", "sales.reminder.dismiss"].includes(actionId)) return { type: "sales.event.reminder-changed", stateField: "state" };
   return undefined;
+}
+
+function validWorkflowTrigger(event: SalesEventContext, document: Record<string, unknown>): SalesWorkflowTrigger | undefined {
+  const workflow = event.workflow;
+  if (workflow === undefined) return undefined;
+  const transition = event.transition;
+  const revisionsValid = Number.isSafeInteger(workflow.authorizationRevision) && workflow.authorizationRevision >= 1 &&
+    Number.isSafeInteger(workflow.lifecycleRevision) && workflow.lifecycleRevision >= 0 &&
+    Number.isSafeInteger(workflow.scopeRevision) && workflow.scopeRevision >= 1;
+  const common = revisionsValid && workflow.workflowVersion === 1 && workflow.acceptedOwnerId === String(document.ownerId) &&
+    workflow.acceptedOwnerId.length > 0 && workflow.recipientId.length > 0;
+  const opportunity = workflow.type === "sales.event.workflow.opportunity-proposal-entered" &&
+    workflow.workflowId === "sales.workflow.opportunity-proposal-follow-up" && workflow.effectKind === "create-owner-follow-up-task" &&
+    workflow.recipientId === workflow.acceptedOwnerId && transition.actionId === "sales.opportunity.stage.update";
+  const lead = workflow.type === "sales.event.workflow.lead-owner-assigned" &&
+    workflow.workflowId === "sales.workflow.lead-owner-assigned-notification" && workflow.effectKind === "notify-new-owner" &&
+    workflow.recipientId === workflow.acceptedOwnerId && transition.actionId === "sales.ownership.assign" &&
+    transition.ownership?.newOwnerId === workflow.acceptedOwnerId;
+  const activity = workflow.type === "sales.event.workflow.activity-scheduled" &&
+    workflow.workflowId === "sales.workflow.scheduled-activity-reminder" && workflow.effectKind === "schedule-reminder" &&
+    workflow.recipientId === transition.actorId && transition.actionId === "sales.activity.create" &&
+    transition.fromState === "absent" && transition.toState === "scheduled" && document.status === "scheduled" &&
+    document.createdBy === transition.actorId && typeof workflow.scheduledAt === "string" && document.scheduledAt === workflow.scheduledAt;
+  if (!common || ![opportunity, lead, activity].filter(Boolean).length ||
+    (workflow.type === "sales.event.workflow.activity-scheduled" ? !activity : workflow.scheduledAt !== undefined)) {
+    throw new Error("Sales workflow trigger facts do not match the committed record.");
+  }
+  return workflow;
 }
 
 export const salesEventAfterChange: CollectionAfterChangeHook = async ({ collection, context, doc, operation, req }) => {
@@ -820,6 +869,23 @@ export const salesEventAfterChange: CollectionAfterChangeHook = async ({ collect
     },
     retentionUntil
   });
+  const workflow = validWorkflowTrigger(event, document);
+  if (workflow !== undefined) {
+    const workflowEventId = `sales-workflow-${createHash("sha256").update(canonicalJson({ triggerEventId: event.eventId, workflow })).digest("hex")}`;
+    await writeTransactionalOutboxEvent({ req, event: {
+      id: workflowEventId, type: workflow.type, schemaVersion: 1, messageClass: "durable-workflow", occurredAt,
+      applicationId: applicationId(req), pluginId: "module.sales", actor: { id: transition.actorId, type: "user" },
+      correlationId: req.headers.get("x-correlation-id") ?? event.eventId, causationId: event.eventId, idempotencyKey: workflowEventId,
+      payload: {
+        applicationId: transition.applicationId, environment: transition.environment, workflowId: workflow.workflowId,
+        workflowVersion: workflow.workflowVersion, effectKind: workflow.effectKind, targetId: transition.resourceId,
+        acceptedRevision: transition.revision, originalActorId: transition.actorId, acceptedOwnerId: workflow.acceptedOwnerId,
+        recipientId: workflow.recipientId, authRevision: workflow.authorizationRevision,
+        lifecycleRevision: workflow.lifecycleRevision, scopeRevision: workflow.scopeRevision, acceptedAt: occurredAt,
+        ...(workflow.scheduledAt === undefined ? {} : { scheduledAt: workflow.scheduledAt })
+      }
+    }, retentionUntil });
+  }
   return doc;
 };
 
@@ -888,6 +954,18 @@ export function salesReminderDeliveryJob(input: Readonly<{ reminderId: string; a
   if (input.signal.aborted) throw input.signal.reason;
   if (!isSalesRecordId(input.reminderId) || !applicationIdPattern.test(input.applicationId) || !environmentPattern.test(input.environment) || !actorIdPattern.test(input.recipientId) || !Number.isSafeInteger(input.fencingToken) || input.fencingToken < 1) throw new Error("Sales reminder delivery input is invalid.");
   return Object.freeze({ pluginId: "module.sales" as const, jobId: "sales.job.reminder-delivery" as const, reminderId: input.reminderId, fencingToken: input.fencingToken });
+}
+
+/** Trusted host owns the fenced PostgreSQL workflow processor; Sales only exposes its fixed job identity. */
+export interface SalesCrmWorkflowExecutionGateway {
+  process(): Promise<unknown>;
+}
+
+export async function salesCrmWorkflowExecutionJob(input: Readonly<{ gateway: SalesCrmWorkflowExecutionGateway }>): Promise<unknown> {
+  if (input === null || typeof input !== "object" || input.gateway === null || typeof input.gateway !== "object" || typeof input.gateway.process !== "function") {
+    throw new Error("Sales CRM workflow job requires the trusted host processor.");
+  }
+  return await input.gateway.process();
 }
 
 interface DecimalAmount {
@@ -2018,12 +2096,49 @@ function writeAuthorization(value: unknown, actionId: string, resourceId?: strin
   if (!isRecord(decision) || decision.actionId !== actionId || typeof decision.applicationId !== "string" || decision.applicationId.length === 0 ||
     typeof decision.environment !== "string" || decision.environment.length === 0 || typeof decision.actorId !== "string" || decision.actorId.length === 0 ||
     typeof decision.ownerId !== "string" || decision.ownerId.length === 0 || decision.teamId !== undefined && (typeof decision.teamId !== "string" || decision.teamId.length === 0) ||
+    decision.authorizationRevision !== undefined && (typeof decision.authorizationRevision !== "number" || !Number.isSafeInteger(decision.authorizationRevision) || decision.authorizationRevision < 1) ||
+    decision.lifecycleRevision !== undefined && (typeof decision.lifecycleRevision !== "number" || !Number.isSafeInteger(decision.lifecycleRevision) || decision.lifecycleRevision < 0) ||
+    decision.salesScopeRevision !== undefined && (typeof decision.salesScopeRevision !== "number" || !Number.isSafeInteger(decision.salesScopeRevision) || decision.salesScopeRevision < 1) ||
     resourceId !== undefined && decision.resourceId !== resourceId || actionId !== "sales.lead.qualify" && Object.hasOwn(decision, "linkedRecordAdmissions") ||
     !["sales.email.send", "sales.calendar.sync", "sales.reminder.schedule"].includes(actionId) && Object.hasOwn(decision, "communicationRelationAdmission") ||
     !["sales.contact.create", "sales.contact.update", "sales.lead.create", "sales.lead.update", "sales.opportunity.create", "sales.opportunity.update"].includes(actionId) && Object.hasOwn(decision, "protectedFieldAdmissions") || actionId !== "sales.note.create" && Object.hasOwn(decision, "noteReplacementAdmission")) {
     throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales write authorization is invalid.");
   }
   return decision as unknown as SalesWriteAuthorization;
+}
+
+function workflowAuthorityFacts(authorization: SalesWriteAuthorization): Readonly<{ authorizationRevision: number; lifecycleRevision: number; scopeRevision: number }> {
+  const authorizationRevision = authorization.authorizationRevision;
+  const lifecycleRevision = authorization.lifecycleRevision;
+  const scopeRevision = authorization.salesScopeRevision;
+  if (typeof authorizationRevision !== "number" || !Number.isSafeInteger(authorizationRevision) || authorizationRevision < 1 ||
+    typeof lifecycleRevision !== "number" || !Number.isSafeInteger(lifecycleRevision) || lifecycleRevision < 0 ||
+    typeof scopeRevision !== "number" || !Number.isSafeInteger(scopeRevision) || scopeRevision < 1) {
+    throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales workflow authority facts are unavailable.");
+  }
+  return Object.freeze({ authorizationRevision, lifecycleRevision, scopeRevision });
+}
+
+function workflowTrigger(input: Readonly<{
+  type: SalesWorkflowTrigger["type"];
+  workflowId: SalesWorkflowTrigger["workflowId"];
+  effectKind: SalesWorkflowTrigger["effectKind"];
+  acceptedOwnerId: string;
+  recipientId: string;
+  authorization: SalesWriteAuthorization;
+  scheduledAt?: string;
+}>): SalesWorkflowTrigger {
+  if (!actorIdPattern.test(input.acceptedOwnerId) || !actorIdPattern.test(input.recipientId) ||
+    input.acceptedOwnerId.length > 160 || input.recipientId.length > 160 ||
+    input.scheduledAt !== undefined && !validAuditTimestamp(input.scheduledAt)) {
+    throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales workflow trigger facts are invalid.");
+  }
+  const facts = workflowAuthorityFacts(input.authorization);
+  return Object.freeze({
+    type: input.type, workflowId: input.workflowId, workflowVersion: 1, effectKind: input.effectKind,
+    acceptedOwnerId: input.acceptedOwnerId, recipientId: input.recipientId,
+    ...facts, ...(input.scheduledAt === undefined ? {} : { scheduledAt: input.scheduledAt })
+  });
 }
 
 function qualificationAdmissions(authorization: SalesWriteAuthorization, input: WorkflowActionInput): void {
@@ -2356,7 +2471,10 @@ export const salesOpportunityStageUpdateHandler: ActionHandler<UpdateOpportunity
     where: current.where,
     data: { stageId: parsed.data.destinationStageId, updatedBy: authorization.actorId, revision, audit: appendWorkflowAudit(current.audit, transition, "sales-opportunities", parsed.data.destinationStageId, "stageId", current.document.ownerId as string, typeof current.document.teamId === "string" ? current.document.teamId : null) }, depth: 0, overrideAccess: true,
     ...(user === undefined ? {} : { user }), req: payloadRequest,
-    context: eventContext("sales.event.opportunity-changed", transition)
+    context: eventContext("sales.event.opportunity-changed", transition, "stageId", source?.semantic === "discovery" && destination?.semantic === "proposal" ? workflowTrigger({
+      type: "sales.event.workflow.opportunity-proposal-entered", workflowId: "sales.workflow.opportunity-proposal-follow-up", effectKind: "create-owner-follow-up-task",
+      acceptedOwnerId: String(current.document.ownerId), recipientId: String(current.document.ownerId), authorization
+    }) : undefined)
   });
   if (update.errors.length > 0 || update.docs.length !== 1) throw new ActionGatewayError("STALE_RECORD", 409, "Sales opportunity changed before the stage update.");
   const [pipelineFence, sourceFence, destinationFence] = await Promise.all([
@@ -2753,7 +2871,10 @@ async function workflowCreate(payloadRequest: SalesPayloadRequest, authorization
   const state = workflowState(created, spec.stateField);
   if (typeof created.ownerId !== "string" || created.ownerId.length === 0) throw new ActionGatewayError("STALE_RECORD", 409, "Sales record ownership is invalid.");
   const audit = withOwnershipGenesis(auditEntry(authorization, actionId, id, 1, "absent", state, eventId), created.ownerId, typeof created.teamId === "string" ? created.teamId : null);
-  const finalized = await payloadRequest.payload.update({ collection: spec.collection, id, data: { audit: appendWorkflowAudit([], audit, spec.collection, state, spec.stateField, created.ownerId, typeof created.teamId === "string" ? created.teamId : null) }, depth: 0, overrideAccess: true, ...(user === undefined ? {} : { user }), req: payloadRequest, context: eventContext(workflowEvent(actionId), audit, spec.stateField) }) as SalesWorkflowDocument;
+  const finalized = await payloadRequest.payload.update({ collection: spec.collection, id, data: { audit: appendWorkflowAudit([], audit, spec.collection, state, spec.stateField, created.ownerId, typeof created.teamId === "string" ? created.teamId : null) }, depth: 0, overrideAccess: true, ...(user === undefined ? {} : { user }), req: payloadRequest, context: eventContext(workflowEvent(actionId), audit, spec.stateField, actionId === "sales.activity.create" ? workflowTrigger({
+    type: "sales.event.workflow.activity-scheduled", workflowId: "sales.workflow.scheduled-activity-reminder", effectKind: "schedule-reminder",
+    acceptedOwnerId: created.ownerId, recipientId: authorization.actorId, authorization, scheduledAt: String(created.scheduledAt)
+  }) : undefined) }) as SalesWorkflowDocument;
   if (String(finalized.id) !== id || finalized.revision !== 1) throw new ActionGatewayError("STALE_RECORD", 409, "Sales audit finalization failed.");
   if (signal.aborted) throw signal.reason;
   return actionId === "sales.opportunity.create"
@@ -3261,7 +3382,10 @@ export const salesOwnershipAssignHandler: ActionHandler<OwnershipInput, Ownershi
   });
   const event = parsed.recordType === "sales.account" ? "sales.event.account-changed" : parsed.recordType === "sales.contact" ? "sales.event.contact-changed" : parsed.recordType === "sales.lead" ? "sales.event.lead-changed" : "sales.event.opportunity-changed";
   const audit = appendWorkflowAudit(current.audit, transition, collection, current.state, stateField, parsed.ownerId, parsed.teamId ?? null);
-  const updated = await workflowPayload(request).payload.update({ collection, where: current.where, data: { ownerId: parsed.ownerId, ...(parsed.teamId === undefined ? { teamId: null } : { teamId: parsed.teamId }), updatedBy: authorization.actorId, revision, audit }, depth: 0, overrideAccess: true, req: workflowPayload(request), context: eventContext(event, transition, stateField) });
+  const updated = await workflowPayload(request).payload.update({ collection, where: current.where, data: { ownerId: parsed.ownerId, ...(parsed.teamId === undefined ? { teamId: null } : { teamId: parsed.teamId }), updatedBy: authorization.actorId, revision, audit }, depth: 0, overrideAccess: true, req: workflowPayload(request), context: eventContext(event, transition, stateField, parsed.recordType === "sales.lead" ? workflowTrigger({
+    type: "sales.event.workflow.lead-owner-assigned", workflowId: "sales.workflow.lead-owner-assigned-notification", effectKind: "notify-new-owner",
+    acceptedOwnerId: parsed.ownerId, recipientId: parsed.ownerId, authorization
+  }) : undefined) });
   if (updated.errors.length !== 0 || updated.docs.length !== 1) throw new ActionGatewayError("STALE_RECORD", 409, "Sales ownership changed before update.");
   return Object.freeze({ recordType: parsed.recordType, id: parsed.id, revision, ownerId: parsed.ownerId, ...(parsed.teamId === undefined ? {} : { teamId: parsed.teamId }) });
 };
@@ -3415,8 +3539,10 @@ export const salesRegistration = definePluginRegistration({
   jobs: (context) => {
     context.register("jobs", salesReferenceMetadata.job.id, salesReferenceMetadata.job);
     context.register("jobs", salesReferenceMetadata.reminderJob.id, salesReferenceMetadata.reminderJob);
+    context.register("jobs", salesReferenceMetadata.workflowJob.id, salesReferenceMetadata.workflowJob);
     context.bind(salesReferenceMetadata.job.id, salesPipelineAuditJob as (...args: never[]) => unknown);
     context.bind(salesReferenceMetadata.reminderJob.id, salesReminderDeliveryJob as (...args: never[]) => unknown);
+    context.bind(salesReferenceMetadata.workflowJob.id, salesCrmWorkflowExecutionJob as (...args: never[]) => unknown);
   },
   dataHandlers: (context) => {
     context.bind("sources", salesTasksDescriptor.id, salesTasksHandler);

@@ -1695,6 +1695,9 @@ export async function executeWorkspaceSalesAction(payload: Payload, context: Kne
     if ((action.descriptor.id === "sales.saved-view.update" || action.descriptor.id === "sales.saved-view.archive") && savedViewCurrent === undefined || (action.descriptor.id === "sales.saved-view.create" || action.descriptor.id === "sales.saved-view.update") && savedViewDestination === undefined) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales Saved View authority is unavailable.");
     const replay = await reserveSalesActionIdempotency(idempotency, currentAuthorization);
     return Object.freeze({ actionId: action.descriptor.id, applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment, actorId,
+      authorizationRevision: current.authorizationRevision,
+      lifecycleRevision: current.lifecycleRevision,
+      salesScopeRevision: current.salesScope.revision,
       ...(dataMovement === undefined ? {} : { dataMovement }),
       ...(providerGateway === undefined ? {} : { providerGateway }),
       ...(communicationRelationAdmission === undefined ? {} : { communicationRelationAdmission }),

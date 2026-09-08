@@ -30,6 +30,22 @@ interface CapabilityRequest {
 }
 interface ActionOperation { readonly request: PayloadRequest; readonly actionId: string; readonly key: string; readonly digest: string; readonly durable: FixtureDurableSalesAuthority; replay?: unknown; }
 
+type FixtureActionAuthorizationContext = FixtureAuthorityContext & Readonly<{
+  authorizationRevision: number;
+  lifecycleRevision: number;
+  salesScopeRevision: number;
+}>;
+
+function actionAuthorizationContext(context: FixtureAuthorityContext, durable: FixtureDurableSalesAuthority): FixtureActionAuthorizationContext {
+  const { authorizationRevision, lifecycleRevision, scopeRevision } = durable;
+  if (!Number.isSafeInteger(authorizationRevision) || authorizationRevision < 1 ||
+    !Number.isSafeInteger(lifecycleRevision) || lifecycleRevision < 0 ||
+    !Number.isSafeInteger(scopeRevision) || scopeRevision < 1) {
+    throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales current-authority revisions are unavailable.");
+  }
+  return Object.freeze({ ...context, authorizationRevision, lifecycleRevision, salesScopeRevision: scopeRevision });
+}
+
 function digest(value: unknown) { return `sha256:${createHash("sha256").update(canonicalJson(value)).digest("hex")}`; }
 function eventId(operation: ActionOperation) { return `sales-action-${createHash("sha256").update(canonicalJson({ applicationId: operation.durable.context.applicationId, environment: operation.durable.context.environment, actorId: operation.durable.context.actorId, actionId: operation.actionId, key: operation.key, digest: operation.digest })).digest("hex")}`; }
 async function reserve(operation: ActionOperation): Promise<void> {
@@ -506,7 +522,7 @@ export function createActionEndpoint(registration: ScopedRegistrationResult, aut
       const communicationAuthority = Object.freeze({ context: Object.freeze({ applicationId: operation.durable.context.applicationId, environment: operation.durable.context.environment, actorId: operation.durable.context.actorId }), authorizationRevision: operation.durable.authorizationRevision, lifecycleRevision: operation.durable.lifecycleRevision, scopeRevision: operation.durable.scopeRevision, permissionGrants: operation.durable.permissionGrants });
       const providerGateway = ["sales.email.send", "sales.calendar.sync", "sales.integration.configure"].includes(action.descriptor.id)
         ? createGeneratedSalesProviderGateway(operation.request, communicationAuthority) : undefined;
-      return Object.freeze({ ...facts, ...(providerGateway === undefined ? {} : { providerGateway }), eventId: eventId(operation), ...(operation.replay === undefined ? {} : { idempotencyReplay: operation.replay }) });
+      return Object.freeze({ ...facts, authorizationRevision: operation.durable.authorizationRevision, lifecycleRevision: operation.durable.lifecycleRevision, salesScopeRevision: operation.durable.scopeRevision, ...(providerGateway === undefined ? {} : { providerGateway }), eventId: eventId(operation), ...(operation.replay === undefined ? {} : { idempotencyReplay: operation.replay }) });
     } }
   );
   const gateway = new RegisteredActionGateway(registration, {
@@ -515,6 +531,7 @@ export function createActionEndpoint(registration: ScopedRegistrationResult, aut
       const context = authority.context(raw, request.correlationId);
       const durable = authority.durableSalesAuthority(raw);
       if (!durable.mutationAllowed) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales action scope is unavailable.");
+      const authorizationContext = actionAuthorizationContext(context, durable);
       const persistence = capability(raw, request.actionId, context, durable, authority);
       scopedRequests.set(raw, persistence);
       const operation = operations.get(raw);
@@ -523,7 +540,7 @@ export function createActionEndpoint(registration: ScopedRegistrationResult, aut
       return {
         actor: actor(raw),
         request: persistence,
-        authorizationContext: context
+        authorizationContext
       };
     }
   }, {

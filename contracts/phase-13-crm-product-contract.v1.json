@@ -1866,6 +1866,104 @@
       "emptyResult": "null"
     }
   ],
+  "workflows": {
+    "deliveryClass": "static-only",
+    "ownerPluginId": "module.sales",
+    "catalog": [
+      {
+        "id": "sales.workflow.opportunity-proposal-follow-up",
+        "version": 1,
+        "trigger": {
+          "eventId": "sales.event.workflow.opportunity-proposal-entered",
+          "messageClass": "durable-workflow",
+          "objectId": "sales.object.opportunity",
+          "transition": { "fromSemantic": "discovery", "toSemantic": "proposal" }
+        },
+        "condition": { "kind": "accepted-opportunity-stage-transition" },
+        "effect": {
+          "kind": "create-owner-follow-up-task",
+          "actionId": "sales.task.create",
+          "targetObjectId": "sales.object.task",
+          "recipient": "opportunity.ownerId",
+          "relation": "opportunity"
+        },
+        "fanout": 1,
+        "depth": 1
+      },
+      {
+        "id": "sales.workflow.lead-owner-assigned-notification",
+        "version": 1,
+        "trigger": {
+          "eventId": "sales.event.workflow.lead-owner-assigned",
+          "messageClass": "durable-workflow",
+          "objectId": "sales.object.lead",
+          "transition": { "kind": "owner-assignment", "to": "newOwnerId" }
+        },
+        "condition": { "kind": "accepted-lead-ownership-transition" },
+        "effect": {
+          "kind": "notify-new-owner",
+          "targetObjectId": "sales.object.notification",
+          "recipient": "newOwnerId",
+          "relation": "lead",
+          "content": "Lead assigned to you; open Lead only after current authorization recheck"
+        },
+        "fanout": 1,
+        "depth": 1
+      },
+      {
+        "id": "sales.workflow.scheduled-activity-reminder",
+        "version": 1,
+        "trigger": {
+          "eventId": "sales.event.workflow.activity-scheduled",
+          "messageClass": "durable-workflow",
+          "objectId": "sales.object.activity",
+          "transition": { "kind": "activity-scheduled", "to": "scheduled" }
+        },
+        "condition": { "kind": "accepted-scheduled-activity" },
+        "effect": {
+          "kind": "schedule-reminder",
+          "actionId": "sales.reminder.schedule",
+          "targetObjectId": "sales.object.reminder",
+          "recipient": "activity.actorId",
+          "relation": "activity",
+          "offsetMinutes": -15,
+          "clamp": "max(acceptedAt, scheduledAt - 15 minutes)"
+        },
+        "fanout": 1,
+        "depth": 1
+      }
+    ],
+    "execution": {
+      "jobId": "sales.job.crm-workflow-execution",
+      "persistedOnly": true,
+      "states": ["queued", "running", "succeeded", "dead-letter"],
+      "batchSize": 16,
+      "maxBatchSize": 32,
+      "maxDepth": 1,
+      "maxFanout": 1,
+      "maxAttempts": 3,
+      "backoff": "bounded: 15 seconds, 30 seconds; no retry after third attempt",
+      "triggerEvents": "dedicated durable-workflow events only; generic *.changed events are forbidden",
+      "oneEffectPerRule": true,
+      "idempotency": "sha256-canonical-json-v1 over applicationId, environment, workflowId, triggerEventId, triggerEventDigest, targetId, effect",
+      "isolation": "applicationId and environment are persisted and matched on trigger, claim, effect, and completion",
+      "fence": "PostgreSQL worker-generation fence, fencing token, promotion revision, lease owner, lease expiry, expected revision, and CAS; stale owners cannot claim, transition, or effect",
+      "audit": "accepted-trigger to queued and every queued to running, running to queued retry, running to succeeded, and running to dead-letter transition append immutable execution audit and one internal transition outbox event in the same transaction; effect receipt binds the terminal audit",
+      "transitionEvent": { "id": "sales.event.workflow-execution-changed", "version": 1, "messageClass": "durable-integration", "sourceProjection": "none", "realtimeProjection": "none" },
+      "failureCodes": ["WORKFLOW_AUTH_RECHECK_FAILED", "WORKFLOW_SCOPE_RECHECK_FAILED", "WORKFLOW_STALE_FENCE", "WORKFLOW_IDEMPOTENCY_CONFLICT", "WORKFLOW_TARGET_MISSING", "WORKFLOW_EFFECT_FAILED", "WORKFLOW_RETRY_EXHAUSTED"],
+      "retention": "workflow trigger and internal transition outbox transport rows retain 30 days; execution metadata, safe failure code, immutable audit, receipt, and digest retain application lifetime; raw payloads and secrets never retained"
+    },
+    "authority": {
+      "taskEffect": "recheck original actor, current Opportunity authorization and current Opportunity scope, current Opportunity revision/state, and ownerId still equal to the accepted transition revision/state/owner immediately before Task creation; any mismatch is a safe terminal authorization/scope/target failure with zero effect; target remains original Opportunity owner and original Opportunity relation",
+      "systemEffects": "owner notification is a fixed non-sensitive assignment notice and any reference navigation reauthorizes current Lead access; reminder rechecks target Activity still scheduled at accepted revision and actor immediately before insertion, and cancel, complete, or stale Activity yields a safe terminal failure with zero effect; both are explicit system-after-acceptance duties derived from accepted domain transitions and cannot widen recipient or record scope",
+      "source": "module.sales compile-time registry only; customer data cannot add or alter definitions, triggers, conditions, effects, permissions, recipients, or jobs"
+    },
+    "closedSchema": {
+      "additionalProperties": false,
+      "forbidden": ["code", "expression", "sql", "network", "url", "prompt", "dynamicTools", "customerDefinitions", "customerUi", "customerPermissions"],
+      "conditions": "closed exact enumerations and accepted transition facts only"
+    }
+  },
   "dataSemantics": {
     "money": "{ kind: money, value: canonical exact decimal string, currency: ISO-4217-uppercase iff value is present, scale: integer, rounding?: declared mode }; no binary floating point or FX conversion",
     "calendarDate": "YYYY-MM-DD without timezone conversion",

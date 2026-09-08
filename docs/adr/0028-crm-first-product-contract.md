@@ -156,6 +156,20 @@ P13.3 invalidation IDs are fixed one-to-one: `sales.event.account-changed` → `
 
 P13.6 provider configuration status has one public projection: `sales.provider-configurations` → `sales.event.provider-configuration-changed` → `sales.realtime.provider-configurations`. The source requires `sales.settings.read` and exposes exactly `provider-id`, `state`, `revision`, `updated-at`, and nullable `revoked-at`. Secret references and secret values are never projected into the source, event, realtime payload, UI, or browser. The existing mutation identity remains `sales.integration.configure`.
 
+## P13.7 bounded workflow catalog
+
+P13.7 freezes one compile-time, `module.sales`-owned catalog. Customer data cannot add or alter workflow definitions, UI, permissions, triggers, conditions, effects, recipients, or jobs. Triggers are dedicated `durable-workflow` events; generic `*.changed` events are not workflow triggers.
+
+| Rule | Dedicated trigger | One declared effect |
+|---|---|---|
+| Opportunity enters `proposal` | `sales.event.workflow.opportunity-proposal-entered` with the locked `discovery → proposal` semantic transition | Create exactly one Task for the Opportunity owner, related to that Opportunity |
+| Lead owner assigned | `sales.event.workflow.lead-owner-assigned` from the accepted ownership transition | Deliver one fixed non-sensitive assignment notice to the new owner; any Lead navigation reauthorizes current access |
+| Activity scheduled | `sales.event.workflow.activity-scheduled` from the accepted scheduled Activity transition | Schedule exactly one Reminder at `scheduledAt − 15 minutes`, clamped to `acceptedAt` when earlier |
+
+Each rule has fan-out 1 and depth 1; effects cannot chain into another workflow. Persisted executions run only through `sales.job.crm-workflow-execution`, in `queued → running → succeeded | dead-letter` states, batches of 16 (hard maximum 32), at most three attempts, and bounded backoff. Canonical JSON idempotency binds application, environment, workflow, trigger event/digest, target, and effect. Execution claim, effect, and terminal CAS require the current application/environment, worker-generation fence/token, promotion revision, lease, and expected revision; stale owners have no effect. Accepted-trigger → queued and every queued → running, running → queued retry, running → succeeded, and running → dead-letter transition atomically append immutable execution audit and one internal `sales.event.workflow-execution-changed` v1 `durable-integration` outbox event; it has no source or realtime projection. Its transport rows retain 30 days. Execution metadata, safe failure code, immutable audit, receipt, and digest retain for the application lifetime; raw payloads and secrets are not retained.
+
+The task effect rechecks the original actor, current Opportunity authorization/scope, current Opportunity revision/state, and that ownerId still equals the accepted transition owner immediately before creation; a mismatch is a safe terminal failure with zero effect. It remains tied to the original Opportunity owner and record. The fixed Lead assignment notice is non-sensitive, and reference navigation reauthorizes current Lead access. Reminder insertion rechecks that the target Activity remains scheduled at its accepted revision and actor; cancellation, completion, or staleness is a safe terminal failure with zero effect. Notification and reminder are explicit system-after-acceptance duties derived from the accepted domain transition; neither can widen recipient or record scope. The schema is closed and forbids code, expressions, SQL, network/URL access, prompts, dynamic tools, and customer-authored UI or permissions.
+
 ## Metric contract and ownership
 
 Sales product maintainers own metric definitions and schema. Sales administrators own application pipeline configuration and reporting timezone. Sales managers own saved report filters and operational review. Platform maintainers own authorization, exact decimal/time primitives, bounded execution, page embedding, and export delivery. No collection or field may define its own conflicting metric.

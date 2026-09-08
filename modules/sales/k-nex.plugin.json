@@ -133,13 +133,13 @@
       "sales.calendar": "required", "sales.notification-center": "required", "sales.reminder-center": "required", "sales.communication-actions": "required", "sales.integration-settings": "required", "sales.pipeline-settings": "required", "sales.saved-views": "required", "sales.saved-view-table": "required", "sales.imports": "required", "sales.exports": "required"
     },
     "events": {
-      "sales.event.task-changed": "required", "sales.event.opportunity-changed": "required", "sales.event.account-changed": "required", "sales.event.contact-changed": "required", "sales.event.lead-changed": "required", "sales.event.import-job-changed": "required", "sales.event.export-job-changed": "required", "sales.event.notification-changed": "required", "sales.event.reminder-changed": "required", "sales.event.provider-configuration-changed": "required", "sales.event.timeline-changed": "required"
+      "sales.event.task-changed": "required", "sales.event.opportunity-changed": "required", "sales.event.account-changed": "required", "sales.event.contact-changed": "required", "sales.event.lead-changed": "required", "sales.event.import-job-changed": "required", "sales.event.export-job-changed": "required", "sales.event.notification-changed": "required", "sales.event.reminder-changed": "required", "sales.event.provider-configuration-changed": "required", "sales.event.workflow.opportunity-proposal-entered": "required", "sales.event.workflow.lead-owner-assigned": "required", "sales.event.workflow.activity-scheduled": "required", "sales.event.workflow-execution-changed": "required", "sales.event.timeline-changed": "required"
     },
     "realtimeTopics": {
       "sales.realtime.tasks": "required", "sales.realtime.opportunities": "required", "sales.realtime.accounts": "required", "sales.realtime.contacts": "required", "sales.realtime.leads": "required", "sales.realtime.import-jobs": "required", "sales.realtime.export-jobs": "required", "sales.realtime.notifications": "required", "sales.realtime.reminders": "required", "sales.realtime.provider-configurations": "required", "sales.realtime.timeline": "required"
     },
     "jobs": {
-      "sales.job.pipeline-audit": "required", "sales.job.reminder-delivery": "required"
+      "sales.job.pipeline-audit": "required", "sales.job.reminder-delivery": "required", "sales.job.crm-workflow-execution": "required"
     },
     "localization": {
       "sales.localization.en": "required"

@@ -1514,8 +1514,39 @@ export const salesEventDescriptors = Object.freeze([
   { id: "sales.event.notification-changed", version: 1, ownerPluginId: "module.sales", eventClass: "durable-integration", sourceId: "sales.notifications" },
   { id: "sales.event.reminder-changed", version: 1, ownerPluginId: "module.sales", eventClass: "durable-integration", sourceId: "sales.reminders" },
   { id: "sales.event.provider-configuration-changed", version: 1, ownerPluginId: "module.sales", eventClass: "durable-integration", sourceId: "sales.provider-configurations" },
+  { id: "sales.event.workflow.opportunity-proposal-entered", version: 1, ownerPluginId: "module.sales", eventClass: "durable-workflow", sourceId: "sales.opportunities" },
+  { id: "sales.event.workflow.lead-owner-assigned", version: 1, ownerPluginId: "module.sales", eventClass: "durable-workflow", sourceId: "sales.leads" },
+  { id: "sales.event.workflow.activity-scheduled", version: 1, ownerPluginId: "module.sales", eventClass: "durable-workflow", sourceId: "sales.timeline" },
+  // Required source reference only; this internal transition has no source or realtime projection.
+  { id: "sales.event.workflow-execution-changed", version: 1, ownerPluginId: "module.sales", eventClass: "durable-integration", sourceId: "sales.timeline" },
   { id: "sales.event.timeline-changed", version: 1, ownerPluginId: "module.sales", eventClass: "durable-integration", sourceId: "sales.timeline" }
 ]);
+
+/**
+ * The only Sales workflow trigger catalog.  It is source code, rather than
+ * customer configuration, so a persisted record can never add a trigger or
+ * widen its effect.
+ */
+export const salesWorkflowTriggerDescriptors = Object.freeze([
+  {
+    id: "sales.workflow.opportunity-proposal-follow-up", version: 1,
+    eventId: "sales.event.workflow.opportunity-proposal-entered", eventClass: "durable-workflow",
+    actionId: "sales.opportunity.stage.update", effectKind: "create-owner-follow-up-task",
+    targetCollection: "sales-opportunities", recipient: "accepted-owner", fanout: 1, depth: 1
+  },
+  {
+    id: "sales.workflow.lead-owner-assigned-notification", version: 1,
+    eventId: "sales.event.workflow.lead-owner-assigned", eventClass: "durable-workflow",
+    actionId: "sales.ownership.assign", effectKind: "notify-new-owner",
+    targetCollection: "sales-leads", recipient: "accepted-owner", fanout: 1, depth: 1
+  },
+  {
+    id: "sales.workflow.scheduled-activity-reminder", version: 1,
+    eventId: "sales.event.workflow.activity-scheduled", eventClass: "durable-workflow",
+    actionId: "sales.activity.create", effectKind: "schedule-reminder",
+    targetCollection: "sales-activities", recipient: "original-actor", fanout: 1, depth: 1
+  }
+] as const);
 
 export const salesRealtimeTopicDescriptors = Object.freeze([
   { id: "sales.realtime.tasks", version: 2, ownerPluginId: "module.sales", eventId: "sales.event.task-changed", sourceId: "sales.tasks", permission: "sales.tasks.read" },
@@ -1536,6 +1567,7 @@ export const salesReferenceMetadata = Object.freeze({
   service: { id: "sales.service.domain", version: 2, ownerPluginId: "module.sales" },
   job: { id: "sales.job.pipeline-audit", version: 2, ownerPluginId: "module.sales", timeoutMs: 5_000, maxConcurrency: 1, idempotent: true },
   reminderJob: { id: "sales.job.reminder-delivery", version: 1, ownerPluginId: "module.sales", timeoutMs: 5_000, maxConcurrency: 4, idempotent: true },
+  workflowJob: { id: "sales.job.crm-workflow-execution", version: 1, ownerPluginId: "module.sales", timeoutMs: 10_000, maxConcurrency: 16, idempotent: true },
   localization: {
     id: "sales.localization.en", version: 2, ownerPluginId: "module.sales", locale: "en",
     messages: {

@@ -126,7 +126,8 @@ describe("create-knex-app", () => {
       "20260906_000029_attachment_upload_admissions",
       "20260907_000030_pipeline_saved_views",
       "20260907_000031_data_movement",
-      "20260908_000032_communications"
+      "20260908_000032_communications",
+      "20260908_000033_crm_workflows"
     ]);
     const attachmentAdmissions = first.files["src/migrations/20260906_000029_attachment_upload_admissions.ts"]!;
     expect(attachmentAdmissions).toContain('CREATE TABLE "k_nex_sales_attachment_upload_admissions"');
@@ -313,6 +314,10 @@ describe("create-knex-app", () => {
     expect(communications).toContain("sales_reminders");
     expect(communications).toContain("sales_notifications");
     expect(communications).toBe(readFileSync(new URL("../../../fixtures/customer-gate-1/src/migrations/20260908_000032_communications.ts", import.meta.url), "utf8"));
+    const workflows = first.files["src/migrations/20260908_000033_crm_workflows.ts"]!;
+    expect(workflows).toContain("sales_workflow_executions");
+    expect(workflows).toContain("sales_workflow_execution_audit");
+    expect(workflows).toBe(readFileSync(new URL("../../../fixtures/customer-gate-1/src/migrations/20260908_000033_crm_workflows.ts", import.meta.url), "utf8"));
     const importUploadRoute = first.files["src/app/api/k-nex/sales/import-upload/route.ts"]!;
     expect(importUploadRoute).toContain("sales_import_uploads");
     expect(importUploadRoute).toContain("async function boundedUploadBody(request: Request)");
@@ -345,6 +350,7 @@ describe("create-knex-app", () => {
     expect(first.files["src/k-nex-sales-communications.ts"]).toContain("createHmac(\"sha256\"");
     expect(first.files["src/k-nex-sales-communications.ts"]).toContain("timingSafeEqual");
     expect(first.files["src/k-nex-sales-communications.ts"]).toContain("processGeneratedSalesReminders");
+    expect(first.files["src/k-nex-sales-workflows.ts"]).toContain("processGeneratedSalesWorkflows");
     expect(first.files["src/app/api/k-nex/sales/providers/email-reference/webhook/route.ts"]).toContain('from "../../../../../../../k-nex-sales-communications.js"');
     expect(first.files["src/k-nex-sales-workspace.ts"]).toContain("new GeneratedSalesDataMovementStore(request");
     expect(first.files["src/k-nex-sales-workspace.ts"]).toContain("request.dataMovement = dataMovement");
