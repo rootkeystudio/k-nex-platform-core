@@ -1462,7 +1462,13 @@ function pageNumber(value: string | null, maximum: number): number {
   return Number(value);
 }
 
+function serverObserved(response: Response, started: number): Response {
+  response.headers.set("server-timing", "knex;dur=" + Math.max(0, performance.now() - started).toFixed(3));
+  return response;
+}
+
 export async function GET(request: Request, { params }: Readonly<{ params: Promise<{ routeId: string }> }>) {
+  const started = performance.now();
   try {
     const payload = await bootKnexApplication("workspace-web");
     const headers = await getHeaders();
@@ -1475,7 +1481,8 @@ export async function GET(request: Request, { params }: Readonly<{ params: Promi
     const pagination = page !== null ? Object.freeze({ listPage: pageNumber(page, 1_000_000) }) : timelinePage !== null ? Object.freeze({ timelinePage: pageNumber(timelinePage, 4) }) : Object.freeze({});
     const selectionRecord = Object.fromEntries([...query.entries()].filter(([key]) => !["id", "page", "timelinePage"].includes(key)));
     const selection = salesRouteSelectionFromSearchParams(routeId, selectionRecord);
-    return Response.json(await loadRegisteredSalesRoute(payload, kNexRequestContext(headers, "sales-route-projection"), routeId, routeParams, pagination, selection), { headers: { "cache-control": "no-store" } });
+    const response = Response.json(await loadRegisteredSalesRoute(payload, kNexRequestContext(headers, "sales-route-projection"), routeId, routeParams, pagination, selection), { headers: { "cache-control": "no-store" } });
+    return serverObserved(response, started);
   } catch { return Response.json({ code: "NOT_FOUND" }, { status: 404, headers: { "cache-control": "no-store" } }); }
 }
 `;
@@ -1487,14 +1494,21 @@ import { openWorkspaceJson, workspaceMutationError } from "../../../../../../k-n
 
 export const dynamic = "force-dynamic";
 
+function serverObserved(response: Response, started: number): Response {
+  response.headers.set("server-timing", "knex;dur=" + Math.max(0, performance.now() - started).toFixed(3));
+  return response;
+}
+
 export async function POST(request: Request, { params }: Readonly<{ params: Promise<{ actionId: string }> }>) {
+  const started = performance.now();
   try {
     const { payload, context, body } = await openWorkspaceJson(request, "sales-route-action");
     if (body === null || typeof body !== "object" || Array.isArray(body) || Object.keys(body).sort().join("\\0") !== "idempotencyKey\\0input\\0nodeId\\0routeId\\0selection") throw new TypeError("Sales route action body is invalid.");
     const value = body as Record<string, unknown>;
     if (typeof value.routeId !== "string" || typeof value.nodeId !== "string" || typeof value.idempotencyKey !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._:-]{7,159}$/u.test(value.idempotencyKey)) throw new TypeError("Sales route idempotency key is invalid.");
     const result = await executeRegisteredSalesRouteAction(payload, context, value.routeId, value.nodeId, (await params).actionId, value.input, value.selection, value.idempotencyKey, request.signal);
-    return Response.json(result.body, { status: result.status, headers: { "cache-control": "no-store" } });
+    const response = Response.json(result.body, { status: result.status, headers: { "cache-control": "no-store" } });
+    return result.status >= 200 && result.status < 300 ? serverObserved(response, started) : response;
   } catch (error) { return workspaceMutationError(error); }
 }
 `;

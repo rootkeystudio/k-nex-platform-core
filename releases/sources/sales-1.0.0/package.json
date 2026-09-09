@@ -10,6 +10,14 @@
       "types": "./dist/contracts.d.ts",
       "default": "./dist/contracts.js"
     },
+    "./crm-authority": {
+      "types": "./dist/crm-authority.d.ts",
+      "default": "./dist/crm-authority.js"
+    },
+    "./crm-core": {
+      "types": "./dist/crm-core.d.ts",
+      "default": "./dist/crm-core.js"
+    },
     "./server": {
       "types": "./dist/server.d.ts",
       "default": "./dist/server.js"
@@ -47,17 +55,25 @@
     "assets/*.sql",
     "k-nex.plugin.json"
   ],
+  "scripts": {
+    "build": "tsc -b",
+    "check:boundaries": "node scripts/check-boundaries.mjs",
+    "check:pack": "node scripts/check-pack.mjs",
+    "test": "node --test tests/browser.test.mjs tests/server.test.mjs tests/settings.test.mjs tests/ui.test.mjs && vitest run tests/*.test.ts tests/*.test.tsx && node scripts/check-boundaries.mjs && node scripts/check-pack.mjs",
+    "test:mcp": "vitest run tests/mcp-sales-proof.test.ts",
+    "test:sources": "node --test tests/server.test.mjs"
+  },
   "peerDependencies": {
     "@k-nex/contracts": "1.0.0",
     "@k-nex/payload-adapter": "1.0.0",
     "@k-nex/runtime": "1.0.0",
-    "@k-nex/ui-builder-blocks": "1.0.0",
+    "@k-nex/ui-runtime": "1.0.0",
     "@k-nex/ui-components": "1.0.0",
+    "@k-nex/ui-builder-blocks": "1.0.0",
     "@k-nex/ui-data": "1.0.0",
     "@k-nex/ui-design-system-contracts": "1.0.0",
     "@k-nex/ui-forms": "1.0.0",
     "@k-nex/ui-pages": "1.0.0",
-    "@k-nex/ui-runtime": "1.0.0",
     "react": "^18.0.0 || ^19.0.0"
   },
   "peerDependenciesMeta": {
@@ -88,13 +104,13 @@
     "@k-nex/contracts": "1.0.0",
     "@k-nex/payload-adapter": "1.0.0",
     "@k-nex/runtime": "1.0.0",
-    "@k-nex/ui-builder-blocks": "1.0.0",
+    "@k-nex/ui-runtime": "1.0.0",
     "@k-nex/ui-components": "1.0.0",
+    "@k-nex/ui-builder-blocks": "1.0.0",
     "@k-nex/ui-data": "1.0.0",
     "@k-nex/ui-design-system-contracts": "1.0.0",
     "@k-nex/ui-forms": "1.0.0",
     "@k-nex/ui-pages": "1.0.0",
-    "@k-nex/ui-runtime": "1.0.0",
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.4",
     "payload": "3.88.0",
@@ -102,13 +118,5 @@
     "react-dom": "19.2.8",
     "typescript": "6.0.3",
     "vitest": "4.1.6"
-  },
-  "scripts": {
-    "build": "tsc -b",
-    "check:boundaries": "node scripts/check-boundaries.mjs",
-    "check:pack": "node scripts/check-pack.mjs",
-    "test": "node --test tests/browser.test.mjs tests/server.test.mjs tests/settings.test.mjs tests/ui.test.mjs && vitest run tests/*.test.ts tests/*.test.tsx && node scripts/check-boundaries.mjs && node scripts/check-pack.mjs",
-    "test:mcp": "vitest run tests/mcp-sales-proof.test.ts",
-    "test:sources": "node --test tests/server.test.mjs"
   }
 }

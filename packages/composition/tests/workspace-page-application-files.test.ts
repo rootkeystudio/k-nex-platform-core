@@ -302,7 +302,7 @@ describe("generated workspace page builder policy", () => {
     expect(sales).toContain("await persistence?.transaction.rollback();");
     expect(sales).toContain('const select = collection === "sales-pipelines" ? { status: true, revision: true } : collection === "sales-saved-views" ? { ownerId: true, visibility: true, visibilityTeamId: true, status: true, revision: true }');
     expect(sales).toContain(': { ownerId: true, teamId: true, status: true, archiveStatus: true, revision: true, accountId: true, relatedRecordType: true, relatedRecordId: true };');
-    expect(sales).toContain("if (!await allowed(payload, context, action.descriptor.permission, resourceId, record))");
+    expect(sales).toContain("if (!await allowed(payload, context, action.descriptor.permission, resourceId, record, undefined, current))");
     expect(sales).toContain("applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment, recordId");
     expect(sales).toContain("...(resourceId === undefined ? {} : { resourceId })");
     expect(sales).toContain("rawRequest: Object.freeze({})");
@@ -364,13 +364,23 @@ describe("generated workspace page builder policy", () => {
     const scan = sales.slice(sales.indexOf("export async function workspaceSalesPermissions"), sales.indexOf("function savedViewMetadataWhere"));
     const sourcePolicy = sales.slice(sales.indexOf("const workspaceCurrentSalesPolicy"), sales.indexOf("function sourceNodes"));
 
-    expect(scan).toContain("const current = (await actor(payload, context)).authorization;");
+    expect(scan).toContain("const permissions = (await actor(payload, context)).permissions;");
     expect(sales).toContain("const authentication = await currentPayloadAuthentication(payload, context);");
-    expect(scan).toContain("for (const descriptor of kNexSalesRegistry.permissionDescriptors)");
-    expect(scan).toContain("targets.slice(index, index + 4)");
-    expect(scan).toContain("adapter.allows(context, currentTarget, signal)");
+    expect(sales).toContain("const workspaceSalesActorRequests = new WeakMap<KnexRequestContext, ReturnType<typeof buildActor>>();");
+    expect(sales).toContain("function actor(payload: Payload, context: KnexRequestContext, refresh = false, permissionIds?: readonly string[]): ReturnType<typeof buildActor>");
+    expect(sales).toContain("const existing = workspaceSalesActorRequests.get(context);");
+    expect(sales).toContain("async function salesPermissionProjection(payload: Payload, context: KnexRequestContext, current: WorkspaceSalesAuthorization, permissionIds?: readonly string[])");
+    expect(sales).toContain("for (const descriptor of descriptors)");
+    expect(sales).toContain("targets.slice(index, index + 4)");
+    expect(sales).toContain("adapter.allows(context, currentTarget)");
+    expect(sales).toContain("const permissions = await salesPermissionProjection(payload, context, current, permissionIds);");
+    expect(sales).toContain("return { authorization: current, permissions, request");
+    expect(sales).toContain("actor(payload, context, true)");
+    expect(sales).toContain("function salesActionActorPermissionIds(actionId: string): readonly string[] | undefined");
+    expect(sales).toContain("const current = await actor(payload, context, false, salesActionActorPermissionIds(action.id));");
+    expect(sales).toContain("allowed(payload, context, action.descriptor.permission, resourceId, record, undefined, current)");
     expect(scan).not.toContain("allowsMany");
-    expect(scan).toContain("return Object.freeze(kNexSalesRegistry.permissionDescriptors.flatMap");
+    expect(scan).toContain("return signal?.aborted ? Object.freeze([]) : permissions;");
     expect(sourcePolicy).toContain("const workspaceCurrentSalesPolicy = (permissions: readonly string[], current: WorkspaceSalesAuthorization");
     expect(sourcePolicy).toContain('permissions.includes(request.descriptor.permission)');
     expect(sourcePolicy).toContain('request.descriptor.id === "sales.notifications" ? { kind: "sales.notifications", where: recipientOnlyWhere(current) }');

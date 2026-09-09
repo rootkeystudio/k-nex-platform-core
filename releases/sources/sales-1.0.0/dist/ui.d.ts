@@ -16,7 +16,7 @@ export interface SalesTaskTablePresentation {
     readonly problemCode?: string;
 }
 export interface SalesContributionPresentation {
-    readonly kind: "data-table" | "metric" | "form" | "data-list" | "detail" | "status" | "settings-summary" | "kanban";
+    readonly kind: "data-table" | "metric" | "form" | "data-list" | "detail" | "status" | "settings-summary" | "kanban" | "calendar";
     readonly component: string;
     readonly title: string;
     readonly accessibility: Readonly<{

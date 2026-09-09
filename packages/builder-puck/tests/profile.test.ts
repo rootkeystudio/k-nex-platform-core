@@ -381,7 +381,7 @@ describe("profile-specific Puck policy", () => {
         } }
       }] }
     });
-    expect(() => profile.validateDocument(bound(["title", "status"]))).toThrow(/SOURCE_FIELD_UNAVAILABLE/);
-    expect(profile.validateDocument(bound(["title", "status", "potential-revenue"]))).toMatchObject({ id: "workspace.real-source" });
+    expect(() => profile.validateDocument(bound(["title"]))).toThrow(/SOURCE_FIELD_UNAVAILABLE/);
+    expect(profile.validateDocument(bound(["title", "status"]))).toMatchObject({ id: "workspace.real-source" });
   });
 });

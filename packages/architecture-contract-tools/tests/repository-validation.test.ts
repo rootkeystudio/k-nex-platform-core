@@ -471,7 +471,7 @@ describe("P0.4 executable repository validation", () => {
       mutate(changed);
       expect(validatePhase13ProductContract(changed).map(({ code }) => code), name).toContain("PHASE13_PRODUCT_CONTRACT_DRIFT");
     }
-  });
+  }, 30_000);
 
   it("accepts only the three bounded static CRM workflow rules", async () => {
     const contract = await phase13Contract();

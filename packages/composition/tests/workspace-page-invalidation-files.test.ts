@@ -163,11 +163,17 @@ describe("generated workspace invalidation runtime", () => {
     expect(projection).toContain("pageNumber(page, 1_000_000)");
     expect(projection).toContain("pageNumber(timelinePage, 4)");
     expect(projection).toContain("routeId, routeParams, pagination, selection), { headers:");
+    expect(projection).toContain('const started = performance.now();');
+    expect(projection).toContain('response.headers.set("server-timing", "knex;dur=" + Math.max(0, performance.now() - started).toFixed(3));');
+    expect(projection).toContain("return serverObserved(response, started);");
     expect(projection).toContain('status: 404');
     expect(action).toContain("executeRegisteredSalesRouteAction");
     expect(action).toContain('from "../../../../../../k-nex-sales-routes.js"');
     expect(action).toContain('from "../../../../../../k-nex-workspace-page-http.js"');
     expect(action).toContain("request.signal");
+    expect(action).toContain('const started = performance.now();');
+    expect(action).toContain('response.headers.set("server-timing", "knex;dur=" + Math.max(0, performance.now() - started).toFixed(3));');
+    expect(action).toContain("return result.status >= 200 && result.status < 300 ? serverObserved(response, started) : response;");
     expect(readiness).toContain('"src/app/(workspace)/sales/page.tsx"');
     expect(readiness).toContain('"src/app/(workspace)/sales/accounts/[id]/page.tsx"');
     expect(readiness).toContain('"src/app/(workspace)/sales/contacts/[id]/page.tsx"');

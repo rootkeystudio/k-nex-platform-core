@@ -5,16 +5,16 @@
   "environment": "staging",
   "platformRelease": "1.0.0",
   "observedAt": "2026-09-01T12:10:00.000Z",
-  "artifactDigest": "sha256:0a82ba96ccfa3a8b71e4cab23f568a23c1317f2504641970a7ac935bd5bd5976",
+  "artifactDigest": "sha256:43afb5b32e8fdadfde468bcbc8e27624daf5fcfd70427a0d1bc562c55d27bf41",
   "releaseEvidence": {
-    "sourceCommit": "c8fe7f2518c219957297155e307768837186ec5f",
-    "workflowIdentity": "rootkeystudio/k-nex-platform-core/.github/workflows/release-evidence.yml@c8fe7f2518c219957297155e307768837186ec5f",
+    "sourceCommit": "59db6f5db79d5ffcee0a042f8875db652c08281b",
+    "workflowIdentity": "rootkeystudio/k-nex-platform-core/.github/workflows/release-evidence.yml@59db6f5db79d5ffcee0a042f8875db652c08281b",
     "manifestDigest": "sha256:a0a2f7e2c9d046727804c805422dc4e9a135ff9de181bc06cdd68ccdf830ba72",
-    "lockfileDigest": "sha256:04b9a9b40d6f0379ae9850e9bd1119263d1d78c6e83d5db91ebea5086d7bd76c",
+    "lockfileDigest": "sha256:270b43c1b797463456d94e29549829f7b2a7cf1ae31196ea2a90652b0b395d1f",
     "resolvedGraphDigest": "sha256:190375405cf3d6af64d4edf8002bc76b6565f75afff772c0e334e9937df82203",
     "frameworkDigest": "sha256:4e1cd64b546eb33d433cda29c18999d34d811086b4897b02d2401d62348af1f9",
-    "sbomDigest": "sha256:7da92acefe50ae4aefd94f6aa5373b12582f70550a3323be89c2af36bd3ff3c2",
-    "provenanceDigest": "sha256:f00b1ec6de653d351eea543f7c6cc2264c8ce60486ee3f5b7cc6f3ed16bde470"
+    "sbomDigest": "sha256:2cdb6ca9eecc4a80fb80199281a53fefa1d948ddc61ebb4695d75aecb2e73dfc",
+    "provenanceDigest": "sha256:ca12c221fb98dd8ce695422689e9674364776f947d6c5a90457e321b064e4ab9"
   },
   "packages": [
     {
@@ -820,12 +820,12 @@
     {
       "package": "@k-nex/composition",
       "version": "1.0.0",
-      "integrity": "sha512-J1w+Y1+Jo304FX8FhccnG0r8+z4EP2OTa8mxZZJgmoEs8aLppSoWvAEDCUSES+kTQGFOt+eNB+rviYXBpp4KZw=="
+      "integrity": "sha512-l/oR754wFQw4tqbbFwljXN9SiqFzsZuJA+D1HzxOOzQNjW0iCqPzPSDFKbVx8M8qdUY0L28zWuMOQeU4tiCE2A=="
     },
     {
       "package": "@k-nex/contracts",
       "version": "1.0.0",
-      "integrity": "sha512-jWAxTwoprpXwXH1b6RTYo1Bo5BlKNaxUkDbb0JI3MSqa54DAyIr6jZ3F736UA0H+oZ7qmrMkhHM2YVTTsLETRA=="
+      "integrity": "sha512-L8TZfEn89wVC4fjXxYoJ5d8xlxNoxNwpIVYguRHrKwB5/DotbWdJk7J9asc/WV9y/ZhQZd1Q2t2ULXjoY74lpQ=="
     },
     {
       "package": "@k-nex/extension-bundler",
@@ -835,17 +835,17 @@
     {
       "package": "@k-nex/module-sales",
       "version": "1.0.0",
-      "integrity": "sha512-rMzR6WbSifX1Q4OEUN6iHZYqqhmQwmrC5OMcIlR2XNk2Cplq3VvgnVu37VkYSDfBWgkFxKX0LFkubhpIUtGHWQ=="
+      "integrity": "sha512-/8R8wOaE2kjUTsP66+kZn0H/idyCam0zlTv9+VTzMClVhq0rU0gKbKhW9EAgwGKee1hMmHOQE7c+WYYhvF9dOA=="
     },
     {
       "package": "@k-nex/payload-adapter",
       "version": "1.0.0",
-      "integrity": "sha512-cvmLx5LfVWbowYgjXOMi7NIf1hD51eVaBjois6Bt8F6w/PHs3E4Q+IED/uNfV2xG2gIkQfw9G5Kg2uqy9o2h6Q=="
+      "integrity": "sha512-O/Txc67+Fnt7CJqSi5p5zHUKK2fEghLp+I/1tzWV2OhEl2lT8xe2LxJtskg1SfF8smrB9mshTzQQ9z4Bo7jYbw=="
     },
     {
       "package": "@k-nex/runtime",
       "version": "1.0.0",
-      "integrity": "sha512-wIWuywq513iUW5iHiIvLIWJxw2PWoqNI5Goqvl5eAtSb1xaLqnYoFHVtgX3oObIrScmYUboVxDbDkM3L/MrWNA=="
+      "integrity": "sha512-KtVH09fRC8ItEQiQPFvfxQq1UBewN9y9fuNEdugIopOKBABelNiKpymDgkdkS+GgHwcTL1K271nSQOOcnCM87w=="
     },
     {
       "package": "@k-nex/theme-neobrutalism",
@@ -865,7 +865,7 @@
     {
       "package": "@k-nex/ui-data",
       "version": "1.0.0",
-      "integrity": "sha512-jY7GkocrlnO6HUIkAeuCx+3IVN9BAHxhHld7kP/bncQ0DfqVDLj0zHOgpSeFCJKX4Xt1A15ojVAz3s7BYoYX1Q=="
+      "integrity": "sha512-GAhaN3+HcZUS7fz63Cqld2aEQlZCUEf2QTy5jc7eKubymBz5tKMcHiBchLOw+QaDPlVxY2Qh7b8t1Ayhw28idw=="
     },
     {
       "package": "@k-nex/ui-design-system-contracts",
@@ -885,7 +885,7 @@
     {
       "package": "@k-nex/ui-runtime",
       "version": "1.0.0",
-      "integrity": "sha512-81kfZp87MEuM4k0Yc1K407xoXJo6C/OKF0fKlNDR7zQ0fwkq6t9+zXlQoklFmEfpaNBvBjl14pe9cxvkOytMpw=="
+      "integrity": "sha512-rpX/GZDhRl1SexRwwhgrPxUS0foV1njAI1dvb36ceioCLN4srfHxY8SxMeQ+daAQ0KE+A/uDCsinCfx/qdTUbw=="
     },
     {
       "package": "@lexical/a11y",

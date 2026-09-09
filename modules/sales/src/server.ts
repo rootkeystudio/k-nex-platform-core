@@ -1402,9 +1402,9 @@ function whereClause(field: string, operator: string, value: unknown): Record<st
     in: "in",
     contains: "contains",
     gt: "greater_than",
-    gte: "greater_than_or_equal",
+    gte: "greater_than_equal",
     lt: "less_than",
-    lte: "less_than_or_equal"
+    lte: "less_than_equal"
   };
   const mapped = payloadOperator[operator];
   if (mapped === undefined) throw new Error("The Sales source received an unsupported filter operator.");

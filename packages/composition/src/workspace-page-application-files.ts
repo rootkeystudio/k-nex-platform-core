@@ -505,6 +505,27 @@ function authorizationTarget(permissionId: string, recordId: string | undefined,
   });
 }
 
+type SalesPermissionProjection = readonly string[];
+
+async function salesPermissionProjection(payload: Payload, context: KnexRequestContext, current: WorkspaceSalesAuthorization, permissionIds?: readonly string[]): Promise<SalesPermissionProjection> {
+  const descriptors = permissionIds === undefined ? kNexSalesRegistry.permissionDescriptors : kNexSalesRegistry.permissionDescriptors.filter(({ id }) => permissionIds.includes(id));
+  const targets: CurrentAuthorityTarget[] = [];
+  for (const descriptor of descriptors) {
+    const currentTarget = authorizationTarget(descriptor.id, undefined, undefined, current);
+    if (currentTarget === undefined) return Object.freeze([]);
+    targets.push(currentTarget);
+  }
+  const allowed: boolean[] = [];
+  for (let index = 0; index < targets.length; index += 4) {
+    allowed.push(...await Promise.all(targets.slice(index, index + 4).map((currentTarget) => kNexAuthority(payload).adapter.allows(context, currentTarget))));
+  }
+  return Object.freeze(descriptors.flatMap((descriptor, index) => allowed[index] ? [descriptor.id] : []));
+}
+
+function selectPermissionGrants<T extends string>(permissions: SalesPermissionProjection, ids: readonly T[]): readonly T[] {
+  return Object.freeze(ids.filter((permissionId) => permissions.includes(permissionId)));
+}
+
 async function allowed(payload: Payload, context: KnexRequestContext, permissionId: string, recordId?: string, record?: Readonly<{ ownerId?: unknown; teamId?: unknown }>, signal?: AbortSignal, currentAuthorization?: ReturnType<typeof authorization>) {
   if (signal?.aborted) return false;
   const current = currentAuthorization ?? (await actor(payload, context)).authorization;
@@ -575,15 +596,10 @@ async function readSalesReportingAuthority(payload: Payload): Promise<WorkspaceS
   return Object.freeze({ settingsRevision: row.settings_revision as number, reportingTimezone: settings.reportingTimezone as string, reportingCurrency: settings.reportingCurrency });
 }
 
-async function dataMovementFieldGrants(payload: Payload, context: KnexRequestContext, current: WorkspaceSalesAuthorization) {
+function dataMovementFieldGrants(permissions: SalesPermissionProjection) {
   const grants: Array<"sales.object.contact:email" | "sales.object.contact:phone" | "sales.object.lead:email" | "sales.object.lead:phone"> = [];
-  for (const [permissionId, targetObjectType] of [["sales.contacts.channels.read", "sales.object.contact"], ["sales.leads.channels.read", "sales.object.lead"]] as const) {
-    const currentTarget = authorizationTarget(permissionId, undefined, undefined, current);
-    if (currentTarget !== undefined && await kNexAuthority(payload).adapter.allows(context, currentTarget)) {
-      if (targetObjectType === "sales.object.contact") grants.push("sales.object.contact:email", "sales.object.contact:phone");
-      else grants.push("sales.object.lead:email", "sales.object.lead:phone");
-    }
-  }
+  if (permissions.includes("sales.contacts.channels.read")) grants.push("sales.object.contact:email", "sales.object.contact:phone");
+  if (permissions.includes("sales.leads.channels.read")) grants.push("sales.object.lead:email", "sales.object.lead:phone");
   return Object.freeze(grants);
 }
 
@@ -599,52 +615,40 @@ const reportObjectPermissionIds = Object.freeze(["sales.activities.read", "sales
 const reportFieldPermissionIds = Object.freeze(["sales.opportunities.amount.read"] as const);
 
 /** Durable movement work may only retain current, exact permission facts. */
-async function dataMovementPermissionGrants(payload: Payload, context: KnexRequestContext, current: WorkspaceSalesAuthorization) {
-  const grants = await Promise.all(dataMovementPermissionIds.map(async (permissionId) =>
-    await allowed(payload, context, permissionId, undefined, undefined, undefined, current) ? permissionId : undefined
-  ));
-  return Object.freeze(grants.filter((permissionId): permissionId is typeof dataMovementPermissionIds[number] => permissionId !== undefined));
+const workspaceSalesActorRequests = new WeakMap<KnexRequestContext, ReturnType<typeof buildActor>>();
+
+function actor(payload: Payload, context: KnexRequestContext, refresh = false, permissionIds?: readonly string[]): ReturnType<typeof buildActor> {
+  if (!refresh && permissionIds === undefined) {
+    const existing = workspaceSalesActorRequests.get(context);
+    if (existing !== undefined) return existing;
+  }
+  const pending = buildActor(payload, context, permissionIds);
+  if (!refresh && permissionIds === undefined) {
+    workspaceSalesActorRequests.set(context, pending);
+    void pending.catch(() => {
+      if (workspaceSalesActorRequests.get(context) === pending) workspaceSalesActorRequests.delete(context);
+    });
+  }
+  return pending;
 }
 
-async function communicationsPermissionGrants(payload: Payload, context: KnexRequestContext, current: WorkspaceSalesAuthorization) {
-  const grants = await Promise.all(communicationsPermissionIds.map(async (permissionId) =>
-    await allowed(payload, context, permissionId, undefined, undefined, undefined, current) ? permissionId : undefined
-  ));
-  return Object.freeze(grants.filter((permissionId): permissionId is typeof communicationsPermissionIds[number] => permissionId !== undefined));
-}
-async function reportPermissionGrants(payload: Payload, context: KnexRequestContext, current: WorkspaceSalesAuthorization) {
-  const grants = await Promise.all(reportPermissionIds.map(async (permissionId) =>
-    await allowed(payload, context, permissionId, undefined, undefined, undefined, current) ? permissionId : undefined
-  ));
-  return Object.freeze(grants.filter((permissionId): permissionId is typeof reportPermissionIds[number] => permissionId !== undefined));
-}
-async function reportObjectPermissionGrants(payload: Payload, context: KnexRequestContext, current: WorkspaceSalesAuthorization) {
-  const grants = await Promise.all(reportObjectPermissionIds.map(async (permissionId) =>
-    await allowed(payload, context, permissionId, undefined, undefined, undefined, current) ? permissionId : undefined
-  ));
-  return Object.freeze(grants.filter((permissionId): permissionId is typeof reportObjectPermissionIds[number] => permissionId !== undefined));
-}
-async function reportFieldPermissionGrants(payload: Payload, context: KnexRequestContext, current: WorkspaceSalesAuthorization) {
-  const grants = await Promise.all(reportFieldPermissionIds.map(async (permissionId) =>
-    await allowed(payload, context, permissionId, undefined, undefined, undefined, current) ? permissionId : undefined
-  ));
-  return Object.freeze(grants.filter((permissionId): permissionId is typeof reportFieldPermissionIds[number] => permissionId !== undefined));
-}
-
-async function actor(payload: Payload, context: KnexRequestContext) {
+async function buildActor(payload: Payload, context: KnexRequestContext, permissionIds?: readonly string[]) {
   const authentication = await currentPayloadAuthentication(payload, context);
   const user = authentication.user;
   if (typeof user !== "object" || user === null || !("id" in user) || user.id === undefined || user.id === null) throw new TypeError("Sales authentication is unavailable.");
   const [salesScope, authority, reportingAuthority, activeGeneration] = await Promise.all([readSalesScope(payload, String(user.id)), readSalesAuthority(payload), readSalesReportingAuthority(payload), currentSalesGeneration(payload)]);
   const current = authorization(user, salesScope, authority);
-  const [fieldGrants, permissionGrants, communicationsPermissions, reportPermissions, reportObjectPermissions, reportFieldPermissions] = await Promise.all([
-    dataMovementFieldGrants(payload, context, current),
-    dataMovementPermissionGrants(payload, context, current),
-    communicationsPermissionGrants(payload, context, current),
-    reportPermissionGrants(payload, context, current),
-    reportObjectPermissionGrants(payload, context, current),
-    reportFieldPermissionGrants(payload, context, current)
-  ]);
+  const permissions = await salesPermissionProjection(payload, context, current, permissionIds);
+  const [finalSalesScope, finalAuthority] = await Promise.all([readSalesScope(payload, current.effectiveActor.id), readSalesAuthority(payload)]);
+  if (finalSalesScope.revision !== current.salesScope.revision || finalAuthority.authorizationRevision !== current.authorizationRevision || finalAuthority.lifecycleRevision !== current.lifecycleRevision) {
+    throw new TypeError("Sales current authority changed during permission projection.");
+  }
+  const fieldGrants = dataMovementFieldGrants(permissions);
+  const permissionGrants = selectPermissionGrants(permissions, dataMovementPermissionIds);
+  const communicationsPermissions = selectPermissionGrants(permissions, communicationsPermissionIds);
+  const reportPermissions = selectPermissionGrants(permissions, reportPermissionIds);
+  const reportObjectPermissions = selectPermissionGrants(permissions, reportObjectPermissionIds);
+  const reportFieldPermissions = selectPermissionGrants(permissions, reportFieldPermissionIds);
   const generation = activeGeneration.generation;
   const runtimeGenerationId = generation !== undefined && generation.runtimeGenerationIds.length === 1 ? generation.runtimeGenerationIds[0] : undefined;
   if (typeof runtimeGenerationId !== "string" || runtimeGenerationId.length < 1 || runtimeGenerationId.length > 160) throw new TypeError("Sales reporting generation is unavailable.");
@@ -666,7 +670,7 @@ async function actor(payload: Payload, context: KnexRequestContext) {
   request.providerConfigurationReadGateway = providerConfigurationReadGateway;
   request.reportingAuthority = Object.freeze({ authorizationRevision: current.authorizationRevision, lifecycleRevision: current.lifecycleRevision, salesScopeRevision: current.salesScope.revision, ...reportingAuthority, runtimeGenerationId, reportPermissionGrants: reportPermissions, objectPermissionGrants: reportObjectPermissions, fieldPermissionGrants: reportFieldPermissions });
   request.reporting = reporting;
-  return { authorization: current, request, dataMovement, providerGateway, providerConfigurationReadGateway, reporting, reportingAuthority: request.reportingAuthority, reportAdmission };
+  return { authorization: current, permissions, request, dataMovement, providerGateway, providerConfigurationReadGateway, reporting, reportingAuthority: request.reportingAuthority, reportAdmission };
 }
 
 /** Artifact/download paths reuse same current actor/scope/grant admission as interactive reports. */
@@ -702,7 +706,7 @@ export async function resolveMergedSalesDetailRedirect(payload: Payload, context
   if (loser.status !== "merged" || typeof loser.mergedIntoId !== "string" || !/^[1-9][0-9]{0,9}$/u.test(loser.mergedIntoId)) return undefined;
   const winner = await read(loser.mergedIntoId);
   if (winner === undefined || !await allowed(payload, context, detail.permission, loser.mergedIntoId, winner, undefined, current)) throw new TypeError("Merged Sales winner is denied.");
-  const rechecked = (await actor(payload, context)).authorization;
+  const rechecked = (await actor(payload, context, true)).authorization;
   if (rechecked.authorizationRevision !== current.authorizationRevision || rechecked.lifecycleRevision !== current.lifecycleRevision || rechecked.salesScope.revision !== current.salesScope.revision ||
     !await allowed(payload, context, detail.permission, id, loser, undefined, rechecked) || !await allowed(payload, context, detail.permission, loser.mergedIntoId, winner, undefined, rechecked)) throw new TypeError("Merged Sales authority changed.");
   return detail.path + encodeURIComponent(loser.mergedIntoId);
@@ -736,6 +740,14 @@ function salesActionGrant(actionId: string) {
   if (actionId === "sales.attachment.link") return Object.freeze({ collection: "sales-attachment-references", operations: Object.freeze(["create", "update", "find"] as const), permissionId: "sales.attachments.write" });
   if (actionId === "sales.attachment.remove") return Object.freeze({ collection: "sales-attachment-references", operations: Object.freeze(["find", "update"] as const), permissionId: "sales.attachments.write" });
   throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales action persistence is unavailable.");
+}
+
+/** Interactive CRUD actions only need their own current permission; gateway-backed actions retain their full grant projection. */
+function salesActionActorPermissionIds(actionId: string): readonly string[] | undefined {
+  if (actionId.startsWith("sales.import.") || actionId.startsWith("sales.export.") || actionId === "sales.merge.commit") return undefined;
+  if (actionId === "sales.report.run" || actionId === "sales.report.schedule") return Object.freeze([...new Set([...reportPermissionIds, ...reportObjectPermissionIds, ...reportFieldPermissionIds])]);
+  if (actionId === "sales.email.send" || actionId === "sales.calendar.sync" || actionId === "sales.integration.configure") return communicationsPermissionIds;
+  return Object.freeze([salesActionGrant(actionId).permissionId]);
 }
 
 function salesActionCapabilityGrants(actionId: string) {
@@ -1127,18 +1139,9 @@ async function salesOwnershipAdmission(request: PayloadRequest, current: ReturnT
 }
 
 export async function workspaceSalesPermissions(payload: Payload, context: KnexRequestContext, signal?: AbortSignal) {
-  const current = (await actor(payload, context)).authorization;
-  const targets: CurrentAuthorityTarget[] = [];
-  for (const descriptor of kNexSalesRegistry.permissionDescriptors) {
-    const currentTarget = authorizationTarget(descriptor.id, undefined, undefined, current);
-    if (currentTarget === undefined) return [];
-    targets.push(currentTarget);
-  }
-  const allowed: boolean[] = [];
-  for (let index = 0; index < targets.length; index += 4) {
-    allowed.push(...await Promise.all(targets.slice(index, index + 4).map((currentTarget) => kNexAuthority(payload).adapter.allows(context, currentTarget, signal))));
-  }
-  return Object.freeze(kNexSalesRegistry.permissionDescriptors.flatMap((descriptor, index) => allowed[index] ? [descriptor.id] : []));
+  if (signal?.aborted) return Object.freeze([]);
+  const permissions = (await actor(payload, context)).permissions;
+  return signal?.aborted ? Object.freeze([]) : permissions;
 }
 
 function savedViewMetadataWhere(current: WorkspaceSalesAuthorization) {
@@ -1620,7 +1623,7 @@ export async function executeWorkspaceSalesAction(payload: Payload, context: Kne
   let actionReportingTimezone: LockedSalesReportingTimezone | undefined;
   const gateway = new RegisteredActionGateway(kNexSalesRegistry.scopedRegistration, {
     async authenticate(request) {
-      const current = await actor(payload, context);
+      const current = await actor(payload, context, false, salesActionActorPermissionIds(action.id));
       persistence = salesActionCapability(payload, context, current.request, action.id, current.authorization);
       idempotency = { request: current.request, actionId: action.id, idempotencyKey: request.idempotencyKey ?? "", requestDigest: actionDigest({ actionId: action.id, input: request.input }) };
       currentAuthorization = current.authorization;
@@ -1719,7 +1722,7 @@ export async function executeWorkspaceSalesAction(payload: Payload, context: Kne
       resourceId = accountId;
       record = await salesActionRecord(capability, "sales-accounts", resourceId, current);
     }
-    if (!await allowed(payload, context, action.descriptor.permission, resourceId, record)) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Current authority does not permit this action.");
+    if (!await allowed(payload, context, action.descriptor.permission, resourceId, record, undefined, current)) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Current authority does not permit this action.");
     if ((action.descriptor.id === "sales.opportunity.create" && typeof actionInput.primaryContactId === "string") || (action.descriptor.id === "sales.opportunity.update" && actionInput.primaryContactMode === "set" && typeof actionInput.primaryContactId === "string")) {
       const contactId = actionInput.primaryContactId as string;
       if (await capability.guard({ collection: "sales-contacts", id: contactId, operation: "find" }) !== true) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales opportunity contact is unavailable.");

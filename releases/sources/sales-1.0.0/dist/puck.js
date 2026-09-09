@@ -1,5 +1,5 @@
 import { createPuckBlockLibrary } from "@k-nex/ui-builder-blocks";
-import { salesOpportunitiesDescriptor, salesOpportunityStageUpdateDescriptor, salesTaskCreateDescriptor, salesTasksDescriptor, salesTotalPotentialRevenueDescriptor } from "./contracts.js";
+import { salesAccountDetailDescriptor, salesAccountsDescriptor, salesContactDetailDescriptor, salesContactsDescriptor, salesLeadDetailDescriptor, salesLeadsDescriptor, salesOpportunitiesDescriptor, salesOpportunityCreateDescriptor, salesOpportunityDetailDescriptor, salesOpportunityStageUpdateDescriptor, salesPipelineValueByStageDescriptor, salesWeightedForecastDescriptor, salesWonLostConversionDescriptor, salesLeadConversionDescriptor, salesActivityByOwnerTeamDescriptor, salesTaskAgingDescriptor, salesSalesCycleDurationDescriptor, salesReportBlockId, salesSavedViewCalendarDescriptor, salesSavedViewKanbanDescriptor, salesSavedViewTableDescriptor, salesTaskCreateDescriptor, salesTasksDescriptor } from "./contracts.js";
 import { salesUiBlockDefinitions } from "./ui.js";
 export const salesTaskTablePuckAuthoring = Object.freeze({
     label: "Sales task table",
@@ -9,33 +9,57 @@ export const salesTaskTablePuckAuthoring = Object.freeze({
 });
 const labels = Object.freeze({
     "sales.task-table": "Sales task table",
-    "sales.revenue-metric": "Sales revenue metric",
     "sales.task-quick-create": "Sales task quick-create",
     "sales.opportunity-list": "Sales opportunity list",
     "sales.opportunity-detail": "Sales opportunity detail",
     "sales.opportunity-kanban": "Sales opportunity Kanban",
     "sales.settings-summary": "Sales settings summary"
 });
-function defaultBindings(id) {
-    if (id === "sales.revenue-metric")
-        return { source: { source: { id: salesTotalPotentialRevenueDescriptor.id, version: 1 }, input: {}, structuralCompatibilityHash: salesTotalPotentialRevenueDescriptor.structuralCompatibilityHash } };
+function defaultBindings(definition) {
+    const id = definition.id;
+    const report = id === salesReportBlockId(salesPipelineValueByStageDescriptor.id) ? { descriptor: salesPipelineValueByStageDescriptor, fields: ["stage-id", "stage-name", "value"] }
+        : id === salesReportBlockId(salesWeightedForecastDescriptor.id) ? { descriptor: salesWeightedForecastDescriptor, fields: [] }
+            : id === salesReportBlockId(salesWonLostConversionDescriptor.id) ? { descriptor: salesWonLostConversionDescriptor, fields: [], input: { "window-mode": "current-reporting-week" } }
+                : id === salesReportBlockId(salesLeadConversionDescriptor.id) ? { descriptor: salesLeadConversionDescriptor, fields: [], input: { "window-mode": "current-reporting-week" } }
+                    : id === salesReportBlockId(salesActivityByOwnerTeamDescriptor.id) ? { descriptor: salesActivityByOwnerTeamDescriptor, fields: ["actor-id", "team-id", "count"], input: { "window-mode": "current-reporting-week" } }
+                        : id === salesReportBlockId(salesTaskAgingDescriptor.id) ? { descriptor: salesTaskAgingDescriptor, fields: ["bucket", "count"] }
+                            : id === salesReportBlockId(salesSalesCycleDurationDescriptor.id) ? { descriptor: salesSalesCycleDurationDescriptor, fields: [], input: { "window-mode": "current-reporting-week" } } : undefined;
+    if (report !== undefined)
+        return { source: { source: { id: report.descriptor.id, version: report.descriptor.version }, input: report.input ?? {}, structuralCompatibilityHash: report.descriptor.structuralCompatibilityHash, selectedFields: report.fields } };
+    if (id === "sales.calendar")
+        return { source: { source: { id: salesSavedViewCalendarDescriptor.id, version: salesSavedViewCalendarDescriptor.version }, input: {}, structuralCompatibilityHash: salesSavedViewCalendarDescriptor.structuralCompatibilityHash, selectedFields: ["type", "subject", "status", "scheduled-at", "occurred-at", "related-record-type", "related-record-id", "revision"] } };
+    if (id === "sales.saved-view-table")
+        return { source: { source: { id: salesSavedViewTableDescriptor.id, version: salesSavedViewTableDescriptor.version }, input: {}, structuralCompatibilityHash: salesSavedViewTableDescriptor.structuralCompatibilityHash, selectedFields: ["name"] } };
     if (id === "sales.task-table")
-        return { source: { source: { id: salesTasksDescriptor.id, version: 1 }, input: {}, structuralCompatibilityHash: salesTasksDescriptor.structuralCompatibilityHash, selectedFields: ["title", "status", "potential-revenue"] } };
+        return { source: { source: { id: salesTasksDescriptor.id, version: salesTasksDescriptor.version }, input: {}, structuralCompatibilityHash: salesTasksDescriptor.structuralCompatibilityHash, selectedFields: ["title", "status"] } };
     if (id === "sales.task-quick-create")
-        return { action: { id: salesTaskCreateDescriptor.id, version: 1 } };
+        return { action: { id: salesTaskCreateDescriptor.id, version: salesTaskCreateDescriptor.version } };
     if (id.includes("opportunity"))
         return {
-            source: { source: { id: salesOpportunitiesDescriptor.id, version: 1 }, input: {}, structuralCompatibilityHash: salesOpportunitiesDescriptor.structuralCompatibilityHash, selectedFields: ["name", "stage", "revision", "value"] },
-            ...(id === "sales.opportunity-kanban" || id === "sales.opportunity-detail" ? { action: { id: salesOpportunityStageUpdateDescriptor.id, version: 1 } } : {})
+            source: { source: { id: id === "sales.opportunity-kanban" ? salesSavedViewKanbanDescriptor.id : id.includes("detail") ? salesOpportunityDetailDescriptor.id : salesOpportunitiesDescriptor.id, version: id === "sales.opportunity-kanban" ? salesSavedViewKanbanDescriptor.version : id.includes("detail") ? salesOpportunityDetailDescriptor.version : salesOpportunitiesDescriptor.version }, input: id.includes("detail") ? { id: "1" } : {}, structuralCompatibilityHash: id === "sales.opportunity-kanban" ? salesSavedViewKanbanDescriptor.structuralCompatibilityHash : id.includes("detail") ? salesOpportunityDetailDescriptor.structuralCompatibilityHash : salesOpportunitiesDescriptor.structuralCompatibilityHash, selectedFields: id === "sales.opportunity-kanban" ? ["row-kind", "name", "stage-id", "stage-metadata", "revision"] : id.includes("detail") ? ["name", "stage-id", "archive-status", "revision"] : ["name", "stage-id", "revision"] },
+            ...(id === "sales.opportunity-list" ? { action: { id: salesOpportunityCreateDescriptor.id, version: salesOpportunityCreateDescriptor.version } } : id === "sales.opportunity-kanban" || id === "sales.opportunity-detail" ? { action: { id: salesOpportunityStageUpdateDescriptor.id, version: salesOpportunityStageUpdateDescriptor.version } } : {})
         };
+    const crm = id.includes("account") ? { list: salesAccountsDescriptor, detail: salesAccountDetailDescriptor, fields: ["name", "status", "revision"] }
+        : id.includes("contact") ? { list: salesContactsDescriptor, detail: salesContactDetailDescriptor, fields: ["display-name", "status", "revision"] }
+            : id.includes("lead") ? { list: salesLeadsDescriptor, detail: salesLeadDetailDescriptor, fields: ["display-name", "status", "archive-status", "revision"] } : undefined;
+    if (crm !== undefined) {
+        const source = id.includes("detail") ? crm.detail : crm.list;
+        const action = definition.actionPolicy?.actions[0];
+        return {
+            source: { source: { id: source.id, version: source.version }, input: id.includes("detail") ? { id: "1" } : {}, structuralCompatibilityHash: source.structuralCompatibilityHash, selectedFields: crm.fields },
+            ...(action === undefined ? {} : { action })
+        };
+    }
     return undefined;
 }
-export const salesPuckBlockAuthoring = Object.freeze(Object.fromEntries(salesUiBlockDefinitions.map((definition) => [definition.id, Object.freeze({
-        label: labels[definition.id],
-        fields: Object.freeze([{ prop: "title", label: "Title", kind: "text" }]),
+const fixedCrmBlocks = new Set(["sales.account-list", "sales.account-detail", "sales.contact-list", "sales.contact-detail", "sales.lead-list", "sales.lead-detail", "sales.opportunity-list", "sales.opportunity-detail", "sales.notification-center", "sales.reminder-center", "sales.communication-actions", "sales.integration-settings", "sales.pipeline-settings", "sales.saved-views", "sales.imports", "sales.exports"]);
+const salesPuckDefinitions = salesUiBlockDefinitions.filter(({ id }) => !fixedCrmBlocks.has(id));
+export const salesPuckBlockAuthoring = Object.freeze(Object.fromEntries(salesPuckDefinitions.map((definition) => [definition.id, Object.freeze({
+        label: labels[definition.id] ?? definition.id.split(/[.-]/u).slice(1).map((part) => part[0].toUpperCase() + part.slice(1)).join(" "),
+        fields: Object.freeze(definition.id === "sales.calendar" || definition.id === "sales.saved-view-table" || definition.id.startsWith("sales.block.report.") ? [] : [{ prop: "title", label: "Title", kind: "text" }]),
         allowChildren: false,
-        defaultProps: Object.freeze({ title: labels[definition.id] }),
-        ...(defaultBindings(definition.id) === undefined ? {} : { defaultBindings: defaultBindings(definition.id) })
+        defaultProps: Object.freeze(definition.id === "sales.calendar" || definition.id === "sales.saved-view-table" || definition.id.startsWith("sales.block.report.") ? {} : { title: labels[definition.id] ?? definition.id }),
+        ...(defaultBindings(definition) === undefined ? {} : { defaultBindings: defaultBindings(definition) })
     })])));
-export const salesPuckBlockBridges = createPuckBlockLibrary(salesUiBlockDefinitions, salesPuckBlockAuthoring);
+export const salesPuckBlockBridges = createPuckBlockLibrary(salesPuckDefinitions, salesPuckBlockAuthoring);
 //# sourceMappingURL=puck.js.map

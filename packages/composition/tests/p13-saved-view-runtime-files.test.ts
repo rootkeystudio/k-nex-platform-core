@@ -167,6 +167,7 @@ describe("generated P13.4 Saved View runtime closure", () => {
     ) as (request: Request, context: unknown) => Promise<Response>;
     const response = await get(new Request("https://example.test/api/k-nex/sales/routes/sales.route.opportunities?page=1&mode=kanban"), { params: Promise.resolve({ routeId: "sales.route.opportunities" }) });
     expect(response.status).toBe(200);
+    expect(response.headers.get("server-timing")).toMatch(/^knex;dur=(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/u);
     expect(admitted[0]).toEqual({ routeId: "sales.route.opportunities", pagination: { listPage: 1 }, selection: { mode: "kanban" } });
     const pipelineResponse = await get(new Request("https://example.test/api/k-nex/sales/routes/sales.route.pipeline-settings?page=1"), { params: Promise.resolve({ routeId: "sales.route.pipeline-settings" }) });
     expect(pipelineResponse.status).toBe(200);

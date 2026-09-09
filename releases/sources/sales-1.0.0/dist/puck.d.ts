@@ -18,28 +18,36 @@ export declare const salesPuckBlockAuthoring: Readonly<{
                     id: string;
                     version: number;
                 };
-                input: {};
+                input: {
+                    "window-mode": string;
+                } | {
+                    id?: never;
+                };
                 structuralCompatibilityHash: string;
-                selectedFields?: never;
+                selectedFields: string[];
             };
             action?: never;
         } | {
             action: {
                 id: "sales.task.create";
-                version: number;
+                version: 2;
             };
             source?: never;
         } | {
             action?: {
-                id: string;
-                version: number;
+                readonly id: string;
+                readonly version: number;
             };
             source: {
                 source: {
                     id: string;
                     version: number;
                 };
-                input: {};
+                input: {
+                    id: string;
+                } | {
+                    id?: never;
+                };
                 structuralCompatibilityHash: string;
                 selectedFields: string[];
             };
@@ -52,6 +60,8 @@ export declare const salesPuckBlockAuthoring: Readonly<{
         }[];
         allowChildren: false;
         defaultProps: Readonly<{
+            title?: never;
+        } | {
             title: string;
         }>;
     }>;
