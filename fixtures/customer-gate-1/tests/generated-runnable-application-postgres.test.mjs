@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFileSync, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { createServer as createHttpsServer, request as requestHttps } from "node:https";
 import { createServer as createNetServer } from "node:net";
@@ -11,12 +11,16 @@ import test from "node:test";
 
 import { applyCreateKnexApplication, planCreateKnexApplication } from "@k-nex/composition";
 import { PackageReleaseManifestSchema, canonicalJson } from "@k-nex/contracts";
-import { salesOpportunitiesDescriptor, salesOpportunityListBlockDescriptor, salesOpportunityStageUpdateDescriptor, salesTaskUpdateDescriptor, salesTasksDescriptor } from "@k-nex/module-sales-current/contracts";
+import { salesOpportunitiesDescriptor, salesOpportunityStageUpdateDescriptor, salesSavedViewKanbanDescriptor, salesTaskUpdateDescriptor, salesTasksDescriptor } from "@k-nex/module-sales-current/contracts";
 import { salesPuckBlockBridges } from "@k-nex/module-sales-current/puck";
+import { salesPipelineStageId } from "@k-nex/module-sales-current/server";
 import { PostgresAuthorizationStore } from "@k-nex/payload-adapter";
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import pg from "pg";
 import { chromium } from "playwright";
+
+import { runGeneratedApplicationCommand as run } from "./generated-application-command.mjs";
+import { navigateGeneratedRouteToReady, proveGeneratedSalesTaskRouteHydration, waitForGeneratedRouteProjection } from "./generated-browser-navigation.mjs";
 
 const POSTGRES_IMAGE = "postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94";
 const repositoryRoot = resolve(import.meta.dirname, "../../..");
@@ -30,7 +34,7 @@ const expected = (state) => ({
 });
 
 function opportunityNodeIdFromProjection(projection) {
-  const opportunityNode = projection.document.regions.main.find((node) => node.bindings?.source?.source.id === salesOpportunitiesDescriptor.id);
+  const opportunityNode = projection.document.regions.main.find((node) => [salesOpportunitiesDescriptor.id, salesSavedViewKanbanDescriptor.id].includes(node.bindings?.source?.source.id));
   assert.ok(opportunityNode, "The projection must retain its bound Sales opportunity source.");
   return opportunityNode.id;
 }
@@ -175,10 +179,6 @@ async function currentExtensionExecutionRevision(pool, applicationId, environmen
   return { inventoryRevision: result.rows[0].inventory_revision, extensionRevision: result.rows[0].extension_revision };
 }
 
-function run(command, arguments_, options) {
-  return execFileSync(command, arguments_, { ...options, encoding: "utf8", timeout: 120_000 });
-}
-
 function issueOperatorCertificates(directory, uriSan) {
   const caKey = join(directory, "operator-ca.key");
   const caCert = join(directory, "operator-ca.crt");
@@ -234,11 +234,19 @@ function start(command, arguments_, options) {
 }
 
 async function stop(child, label = "child") {
-  if (!child || child.exitCode !== null) return;
-  child.kill("SIGTERM");
+  if (!child || child.exitCode !== null || child.signalCode !== null) return;
   await new Promise((resolveClose, reject) => {
-    const timeout = setTimeout(() => reject(new Error(`${label} process did not stop.`)), 10_000);
-    child.once("close", () => { clearTimeout(timeout); resolveClose(); });
+    let hardTimeout;
+    const gracefulTimeout = setTimeout(() => {
+      child.kill("SIGKILL");
+      hardTimeout = setTimeout(() => reject(new Error(`${label} process did not stop.`)), 5_000);
+    }, 10_000);
+    child.once("close", () => {
+      clearTimeout(gracefulTimeout);
+      clearTimeout(hardTimeout);
+      resolveClose();
+    });
+    child.kill("SIGTERM");
   });
 }
 
@@ -386,6 +394,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
   let pool;
   let notificationClient;
   let browser;
+  let primaryError;
   try {
     const releaseManifest = JSON.parse(readFileSync(resolve(repositoryRoot, "releases/1.0.0/package-release-manifest.json"), "utf8"));
     const acceptedMirror = resolve(repositoryRoot, "fixtures/customer-gate-1/packages");
@@ -400,14 +409,14 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     currentSales.integrity = `sha512-${createHash("sha512").update(currentSalesArchive).digest("base64")}`;
     const lockTemplateApplication = join(root, "lock-template");
     const provisionalSource = verifiedPackageSource(releaseManifest, currentMirror);
-    applyCreateKnexApplication(planCreateKnexApplication({ applicationId, applicationName: "P12 Auth Proof", theme: "minimal", database: "external", packageSource: provisionalSource }), lockTemplateApplication);
+    applyCreateKnexApplication(planCreateKnexApplication({ applicationId, applicationName: "P12 Auth Proof", theme: "minimal", database: "external", primaryCurrency: "USD", packageSource: provisionalSource }), lockTemplateApplication);
     run("pnpm", ["install", "--lockfile-only", "--no-frozen-lockfile", "--ignore-scripts"], { cwd: lockTemplateApplication, stdio: "pipe" });
     const currentLock = readFileSync(join(lockTemplateApplication, "pnpm-lock.yaml"));
     const currentLockDigest = `sha256:${createHash("sha256").update(currentLock).digest("hex")}`;
     writeFileSync(join(currentMirror, `factory-lock-sales-reference-minimal-${currentLockDigest.slice(7)}.yaml`), currentLock);
     releaseManifest.factoryLockTemplates.minimal.digest = currentLockDigest;
     const packageSource = verifiedPackageSource(releaseManifest, currentMirror);
-    const plan = planCreateKnexApplication({ applicationId, applicationName: "P12 Auth Proof", theme: "minimal", database: "external", packageSource });
+    const plan = planCreateKnexApplication({ applicationId, applicationName: "P12 Auth Proof", theme: "minimal", database: "external", primaryCurrency: "USD", packageSource });
     assert.equal(Object.values(plan.files).some((source) => source.includes(ownerEmail) || source.includes(ownerPassword) || source.includes(limitedPassword)), false);
     applyCreateKnexApplication(plan, application);
     for (const command of plan.installCommands) run(command[0], command.slice(1), { cwd: application, stdio: "pipe" });
@@ -443,6 +452,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     console.log("P12_ADMINISTRATION_OPERATOR_READINESS_CONFIGURATION_DENIED=PASS");
     pool = new pg.Pool({ connectionString: container.getConnectionUri() });
     const { kNexSalesRegistry } = await import(pathToFileURL(join(application, "dist/k-nex-registry.js")).href);
+    applicationEnvironment.K_NEX_GENERATION = kNexSalesRegistry.staticRelease.runtimeGenerationId;
     const { AuthorizationLifecycleProjector, createStaticPlatformPluginAuthorizationDescriptorResolver } = await import(pathToFileURL(realpathSync(join(application, "node_modules/@k-nex/payload-adapter/dist/index.js"))).href);
     const lifecycleSourceCommit = "a".repeat(40);
     const lifecycleProjector = new AuthorizationLifecycleProjector(createStaticPlatformPluginAuthorizationDescriptorResolver({
@@ -553,7 +563,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     assert.match(wrongEnvironmentOutput, /Bootstrap token identity is invalid/u);
     assert.equal(existsSync(tokenFile), true, "An environment mismatch cannot consume the token.");
 
-    const foreignPlan = planCreateKnexApplication({ applicationId: "p12-foreign-proof", applicationName: "P12 Foreign Proof", theme: "minimal", database: "external", packageSource });
+    const foreignPlan = planCreateKnexApplication({ applicationId: "p12-foreign-proof", applicationName: "P12 Foreign Proof", theme: "minimal", database: "external", primaryCurrency: "USD", packageSource });
     applyCreateKnexApplication(foreignPlan, foreignApplication);
     symlinkSync(join(application, "node_modules"), join(foreignApplication, "node_modules"), "dir");
     run(join(foreignApplication, "node_modules", ".bin", "tsc"), ["-p", "tsconfig.scripts.json"], { cwd: foreignApplication, env: applicationEnvironment, stdio: "pipe" });
@@ -632,7 +642,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
       assert.equal(extensionAdministrationHtml.includes(secret), false, "Generated System administration HTML must not expose operator configuration or credentials.");
     }
     console.log("P12_SYSTEM_EXTENSION_AND_OPERATIONS_ADMINISTRATION_POSTGRES_HTTP=PASS");
-    await postSystemForm(applicationProcess.origin, owner.cookie.header, "/api/system/settings/system.general", { password: ownerPassword, values: JSON.stringify({ siteName: "Phase 12 Customer" }) });
+    await postSystemForm(applicationProcess.origin, owner.cookie.header, "/api/system/settings/system.general", { password: ownerPassword, values: JSON.stringify({ siteName: "Phase 12 Customer", reportingCurrency: "USD", reportingTimezone: "UTC" }) });
     const settingsDetail = await fetch(`${applicationProcess.origin}/system/settings/system.general`, { headers: { cookie: owner.cookie.header } });
     assert.equal(settingsDetail.status, 200);
     assert.match(await settingsDetail.text(), /Phase 12 Customer/u);
@@ -795,7 +805,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
       await transaction.write({ kind: "grant", grant: { schemaVersion: 1, id: "customer.sales-manager.workspace-edit", applicationId, roleId: "customer.sales-manager", permissionId: "system.workspace-pages.edit", owner: { kind: "platform", namespace: "system" }, revision: 0 } });
       await transaction.write({ kind: "grant", grant: { schemaVersion: 1, id: "customer.sales-manager.workspace-publish", applicationId, roleId: "customer.sales-manager", permissionId: "system.workspace-pages.publish", owner: { kind: "platform", namespace: "system" }, revision: 0 } });
       for (const permissionId of [
-        "sales.tasks.read", "sales.opportunities.read", "sales.opportunities.write", "sales.opportunities.amount.read", "sales.opportunities.stage.update"
+        "sales.tasks.read", "sales.opportunities.read", "sales.opportunities.write", "sales.opportunities.amount.read", "sales.opportunities.stage.update", "sales.saved-views.read"
       ]) await transaction.write({ kind: "grant", grant: { schemaVersion: 1, id: `customer.sales-manager.${permissionId}`, applicationId, roleId: "customer.sales-manager", permissionId, owner: { kind: "extension", deliveryClass: "platform-plugin", extensionId: "module.sales", generation: 1 }, revision: 0 } });
       await transaction.write({ kind: "assignment", assignment: { schemaVersion: 1, id: "customer.sales-manager.assignment", applicationId, roleId: "customer.sales-manager", principal: { kind: "user", id: managerUserId }, state: "active", revision: 0 } });
       await transaction.write({ kind: "role", role: { schemaVersion: 1, id: "customer.sales-representative", applicationId, label: "Sales representative", revision: 0 } });
@@ -839,7 +849,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     const deniedRouteAction = await fetch(`${applicationProcess.origin}/api/k-nex/sales/actions/${encodeURIComponent("sales.task.create")}`, {
       method: "POST",
       headers: { "content-type": "application/json", cookie: manager.cookie.header, origin: applicationProcess.origin },
-      body: JSON.stringify({ input: { title: deniedRouteActionTitle }, idempotencyKey: `denied-sales-route-action-${randomUUID()}` })
+      body: JSON.stringify({ routeId: "sales.route.tasks", nodeId: "sales-task-create", input: { title: deniedRouteActionTitle }, selection: {}, idempotencyKey: `denied-sales-route-action-${randomUUID()}` })
     });
     assert.equal(deniedRouteAction.status, 403, "A current Sales route action must require its exact action permission.");
     assert.equal((await pool.query("select count(*)::int as count from sales_tasks where title=$1", [deniedRouteActionTitle])).rows[0].count, deniedRouteActionBefore, "Denied route action authority must write nothing.");
@@ -1003,8 +1013,6 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     // opportunity creation is introduced in P13.3.  Keep fixture records on
     // that persisted contract rather than teaching the action validator about
     // a test-only audit shape.
-    const opportunityQualificationAudit = JSON.stringify([{ kind: "phase-13-legacy-upgrade", receiptDigest: `sha256:${"0".repeat(64)}`, legacyStage: "lead", ownershipGenesis: { ownerId: ownerUserId, teamId: null } }]);
-    const opportunityDiscoveryAudit = JSON.stringify([{ kind: "phase-13-legacy-upgrade", receiptDigest: `sha256:${"0".repeat(64)}`, legacyStage: "qualified", ownershipGenesis: { ownerId: ownerUserId, teamId: null } }]);
     const taskAudit = JSON.stringify([{ kind: "phase-13-legacy-upgrade", receiptDigest: `sha256:${"0".repeat(64)}`, ownershipGenesis: { ownerId: ownerUserId, teamId: null } }]);
     const account = await pool.query(`insert into sales_accounts
       (application_id, environment, owner_id, created_by, updated_by, audit, name)
@@ -1012,26 +1020,41 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     const pipeline = await pool.query(`insert into sales_pipelines
       (application_id, environment, created_by, updated_by, audit, name, ordered_stage_ids, is_active)
       values ($1,$2,$3,$3,$4::jsonb,'Generated app pipeline',$5::jsonb,true) returning id`,
-    [applicationId, environmentName, ownerUserId, audit, JSON.stringify(["qualification", "discovery", "proposal", "negotiation", "won", "lost"])]);
+    [applicationId, environmentName, ownerUserId, audit, JSON.stringify([])]);
     const stageSeeds = [
       ["qualification", 0, 1000, ["discovery", "lost"]], ["discovery", 1, 3000, ["proposal", "lost"]],
       ["proposal", 2, 6000, ["negotiation", "lost"]], ["negotiation", 3, 8000, ["won", "lost"]],
       ["won", 4, 10000, []], ["lost", 5, 0, []]
     ];
-    for (const [stageId, position, probability, transitions] of stageSeeds) await pool.query(`insert into sales_pipeline_stages
-      (application_id, environment, created_by, updated_by, audit, pipeline_id, stage_id, name, semantic, position, probability_basis_points, allowed_transitions)
-      values ($1,$2,$3,$3,$4::jsonb,$5,$6,$7,$6,$8,$9,$10::jsonb)`,
-    [applicationId, environmentName, ownerUserId, audit, pipeline.rows[0].id, stageId, stageId, position, probability, JSON.stringify(transitions)]);
-    const opportunityValues = [applicationId, environmentName, ownerUserId, opportunityQualificationAudit, account.rows[0].id, pipeline.rows[0].id];
+    const stageIds = Object.fromEntries(stageSeeds.map(([semantic]) => [semantic, salesPipelineStageId(applicationId, environmentName, pipeline.rows[0].id, semantic)]));
+    const opportunityAudit = (resourceId, actorId, teamId, semantics) => semantics.map((semantic, index) => ({
+      actionId: index === 0 ? "sales.opportunity.create" : "sales.opportunity.stage.update", resourceId: String(resourceId), applicationId, environment: environmentName,
+      fromState: index === 0 ? "absent" : stageIds[semantics[index - 1]], toState: stageIds[semantic], occurredAt: "2026-09-04T00:00:00.000Z", actorId,
+      revision: index + 1, idempotencyKey: `generated-opportunity-${resourceId}-${index + 1}`,
+      ...(index === 0 ? { ownershipGenesis: { ownerId: actorId, teamId } } : {})
+    }));
+    await pool.query("update sales_pipelines set ordered_stage_ids=$2::jsonb where id=$1", [pipeline.rows[0].id, JSON.stringify(stageSeeds.map(([semantic]) => stageIds[semantic]))]);
+    for (const [semantic, position, probability, transitions] of stageSeeds) await pool.query(`insert into sales_pipeline_stages
+      (application_id, environment, created_by, updated_by, audit, pipeline_id, stage_id, name, semantic, position, probability_basis_points, allowed_transition_stage_ids, required_field_ids)
+      values ($1,$2,$3,$3,$4::jsonb,$5,$6,$7,$8,$9,$10,$11::jsonb,$12::jsonb)`,
+    [applicationId, environmentName, ownerUserId, audit, pipeline.rows[0].id, stageIds[semantic], semantic, semantic, position, probability, JSON.stringify(transitions.map((target) => stageIds[target])), JSON.stringify(semantic === "lost" ? ["lossReason"] : [])]);
+    const opportunityValues = [applicationId, environmentName, ownerUserId, JSON.stringify([]), account.rows[0].id, pipeline.rows[0].id];
     const alpha = await pool.query(`insert into sales_opportunities
       (application_id, environment, owner_id, team_id, created_by, updated_by, audit, account_id, pipeline_id, name, stage_id, amount, currency, archive_status)
-      values ($1,$2,$3,$7,$3,$3,$4::jsonb,$5,$6,'Alpha renewal','qualification','12000','USD','active') returning id`, [...opportunityValues, `team:${limitedUserId}`]);
+      values ($1,$2,$3,$7,$3,$3,$4::jsonb,$5,$6,'Alpha renewal',$8,'12000','USD','active') returning id`, [...opportunityValues, `team:${limitedUserId}`, stageIds.qualification]);
+    await pool.query("update sales_opportunities set audit=$2::jsonb where id=$1", [alpha.rows[0].id, JSON.stringify(opportunityAudit(alpha.rows[0].id, ownerUserId, `team:${limitedUserId}`, ["qualification"]))]);
     const beta = await pool.query(`insert into sales_opportunities
       (application_id, environment, owner_id, created_by, updated_by, audit, account_id, pipeline_id, name, stage_id, amount, currency, archive_status)
-      values ($1,$2,$3,$3,$3,$4::jsonb,$5,$6,'Beta expansion','discovery','8000','USD','active') returning id`, [applicationId, environmentName, ownerUserId, opportunityDiscoveryAudit, account.rows[0].id, pipeline.rows[0].id]);
+      values ($1,$2,$3,$3,$3,$4::jsonb,$5,$6,'Beta expansion',$7,'8000','USD','active') returning id`, [applicationId, environmentName, ownerUserId, JSON.stringify([]), account.rows[0].id, pipeline.rows[0].id, stageIds.discovery]);
+    await pool.query("update sales_opportunities set revision=2,audit=$2::jsonb where id=$1", [beta.rows[0].id, JSON.stringify(opportunityAudit(beta.rows[0].id, ownerUserId, null, ["qualification", "discovery"]))]);
     const task = await pool.query(`insert into sales_tasks
       (application_id, environment, owner_id, created_by, updated_by, audit, title, status, archive_status)
       values ($1,$2,$3,$3,$3,$4::jsonb,'Prepare Alpha proposal','open','active') returning id`, [applicationId, environmentName, ownerUserId, taskAudit]);
+    const kanbanDefinition = { kind: "kanban", targetObjectId: "sales.object.opportunity", source: { id: "sales.saved-view.kanban", version: 1, sourceSchema: { id: "sales.saved-view.kanban.output", version: 1 }, structuralCompatibilityHash: "sha256:c54433c895722e63dd499720e37e8f2ae9b1390c28bab9f0c5111c4f7ea1233a" }, fields: ["row-kind", "name", "stage-id", "stage-metadata", "revision"], filters: [], sorts: [], grouping: "stage-id", presentation: { density: "comfortable" }, pageSize: 25 };
+    const kanbanSavedView = await pool.query(`insert into sales_saved_views
+      (application_id,environment,owner_id,created_by,updated_by,name,visibility,view_kind,target_object_id,definition)
+      values ($1,$2,$3,$3,$3,'Generated app opportunity Kanban','personal','kanban','sales.object.opportunity',$4::jsonb) returning id,revision`,
+    [applicationId, environmentName, ownerUserId, JSON.stringify(kanbanDefinition)]);
 
     browser = await chromium.launch();
     const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: "reduce" });
@@ -1055,11 +1078,9 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
       const link = salesNavigation.locator(`[data-navigation-node="${navigationId}"]`).getByRole("link", { name: label });
       await link.waitFor();
       assert.equal(await link.getAttribute("href"), href, `${navigationId} must originate from the module.sales static registration.`);
-      await page.goto(`${applicationProcess.origin}${href}`);
-      try { await page.getByRole(templateRole, { name: templateLabel }).waitFor(); }
-      catch (error) { throw new Error(`${error}\nurl=${page.url()}\nbody=${await page.locator("body").innerText()}\nprocess=${applicationProcess.output()}`); }
+      await navigateGeneratedRouteToReady(page, `${applicationProcess.origin}${href}`, () => page.getByRole(templateRole, { name: templateLabel }), applicationProcess.output);
     }
-    await page.goto(`${applicationProcess.origin}/sales/tasks`);
+    await navigateGeneratedRouteToReady(page, `${applicationProcess.origin}/sales/tasks`, () => page.getByRole("form", { name: "Create task" }), applicationProcess.output);
     await page.getByRole("textbox", { name: "Title" }).fill("Registered route action task");
     await page.getByRole("button", { name: "Create task" }).click();
     await page.getByText("Registered route action task", { exact: true }).waitFor();
@@ -1113,6 +1134,8 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     const savedWorkingCopy = await pool.query("select working_copy_json from k_nex_workspace_working_copies where application_id=$1 and environment=$2 and page_id=$3", [applicationId, environmentName, pageId]);
     const savedNodes = savedWorkingCopy.rows[0].working_copy_json.document.regions.main;
     assert.deepEqual(savedNodes.map(({ type }) => type), ["content.heading", "sales.opportunity-kanban", "sales.task-table"]);
+    const opportunityActionNodeId = savedNodes[1].id;
+    assert.equal(typeof opportunityActionNodeId, "string");
     assert.equal(savedNodes.slice(1).every(({ bindings }) => bindings?.source !== undefined || bindings?.action !== undefined), true, "Inserted Sales blocks must retain trusted runtime bindings.");
 
     const publication = page.getByRole("region", { name: "Page publication controls" });
@@ -1142,7 +1165,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     assert.equal(await publishedNavigationLink.getAttribute("href"), `/workspace/pages/${pageId}`);
     await page.goto(`${applicationProcess.origin}/workspace/pages/${encodeURIComponent(pageId)}`);
     await page.getByRole("heading", { name: "Heading" }).waitFor();
-    const alphaMove = page.locator(`[data-opportunity-id="${String(alpha.rows[0].id)}"]`).getByRole("button", { name: "Move to discovery" });
+    const alphaMove = page.locator(`[data-opportunity-id="opportunity:${String(alpha.rows[0].id)}"]`).getByRole("button", { name: "Move to discovery" });
     assert.equal(await alphaMove.count(), 1, `Published Kanban action is missing.\n${await page.locator("body").innerText()}\n${JSON.stringify(savedNodes[0])}\n${applicationProcess.output()}`);
     const alphaActionResponse = page.waitForResponse((response) => response.url().includes(`/api/k-nex/workspace-pages/${encodeURIComponent(pageId)}/actions/${encodeURIComponent(salesOpportunityStageUpdateDescriptor.id)}`));
     await alphaMove.click();
@@ -1151,12 +1174,12 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     const alphaStatus = page.getByRole("region", { name: "Sales opportunity Kanban" }).getByRole("status");
     await alphaStatus.filter({ hasText: /moved/u }).waitFor({ timeout: 10_000 });
     assert.equal(await alphaStatus.textContent(), "Alpha renewal moved to discovery.", applicationProcess.output());
-    const betaMove = page.locator(`[data-opportunity-id="${String(beta.rows[0].id)}"]`).getByRole("button", { name: "Move to proposal" });
+    const betaMove = page.locator(`[data-opportunity-id="opportunity:${String(beta.rows[0].id)}"]`).getByRole("button", { name: "Move to proposal" });
     await betaMove.focus();
     await page.keyboard.press("Enter");
     await page.getByText("Beta expansion moved to proposal.", { exact: true }).waitFor();
     const moved = await pool.query("select name, stage_id from sales_opportunities order by id");
-    assert.deepEqual(moved.rows, [{ name: "Alpha renewal", stage_id: "discovery" }, { name: "Beta expansion", stage_id: "proposal" }]);
+    assert.deepEqual(moved.rows, [{ name: "Alpha renewal", stage_id: stageIds.discovery }, { name: "Beta expansion", stage_id: stageIds.proposal }]);
     assert.equal(await page.locator('[data-k-nex-component="workspace-shell"]').getAttribute("data-k-nex-theme-profile"), inventoryBody.theme.activeRevisionId);
 
     const workspacePageUrl = `${applicationProcess.origin}/workspace/pages/${encodeURIComponent(pageId)}`;
@@ -1228,14 +1251,18 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     const postPageAction = (targetPageId, actionId, actionCookie, input, idempotencyKey = `workspace-direct-action-${randomUUID()}`) => fetch(`${applicationProcess.origin}/api/k-nex/workspace-pages/${encodeURIComponent(targetPageId)}/actions/${encodeURIComponent(actionId)}`, {
       method: "POST",
       headers: { "content-type": "application/json", cookie: actionCookie, origin: applicationProcess.origin },
-      body: JSON.stringify({ input, idempotencyKey })
+      body: JSON.stringify({ input, idempotencyKey, nodeId: opportunityActionNodeId })
     });
-    const opportunityInput = (row, stage) => ({ id: row.id, expectedStage: row.stage, expectedRevision: row.revision, stage });
+    const opportunityInput = (row, semantic) => ({ id: row.id, expectedRevision: row.revision, expectedPipelineId: String(pipeline.rows[0].id), expectedPipelineRevision: 1, expectedSourceStageId: row.stage, expectedSourceStageRevision: 1, destinationStageId: stageIds[semantic], expectedDestinationStageRevision: 1 });
 
-    const scopedOpportunity = async (name, ownerId, teamId = null) => pool.query(`insert into sales_opportunities
-      (application_id, environment, owner_id, team_id, created_by, updated_by, audit, account_id, pipeline_id, name, stage_id, amount, currency, archive_status)
-      values ($1,$2,$3,$4,$3,$3,$5::jsonb,$6,$7,$8,'qualification','1000','USD','active') returning id`,
-    [applicationId, environmentName, ownerId, teamId, opportunityQualificationAudit, account.rows[0].id, pipeline.rows[0].id, name]);
+    const scopedOpportunity = async (name, ownerId, teamId = null) => {
+      const result = await pool.query(`insert into sales_opportunities
+        (application_id, environment, owner_id, team_id, created_by, updated_by, audit, account_id, pipeline_id, name, stage_id, amount, currency, archive_status)
+        values ($1,$2,$3,$4,$3,$3,'[]'::jsonb,$5,$6,$7,$8,'1000','USD','active') returning id`,
+      [applicationId, environmentName, ownerId, teamId, account.rows[0].id, pipeline.rows[0].id, name, stageIds.qualification]);
+      await pool.query("update sales_opportunities set audit=$2::jsonb where id=$1", [result.rows[0].id, JSON.stringify(opportunityAudit(result.rows[0].id, ownerId, teamId, ["qualification"]))]);
+      return result;
+    };
     const representativeOwn = await scopedOpportunity("Representative owned", representativeUserId);
     const representativeTeam = await scopedOpportunity("Representative assigned team", ownerUserId, "team:representative");
     const crossTeam = await scopedOpportunity("Representative cross team denied", ownerUserId, "team:other");
@@ -1249,15 +1276,17 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     const foreignPipeline = await pool.query(`insert into sales_pipelines
       (application_id, environment, created_by, updated_by, audit, name, ordered_stage_ids, is_active)
       values ($1,$2,$3,$3,$4::jsonb,'Foreign pipeline',$5::jsonb,true) returning id`,
-    [foreignSalesApplicationId, environmentName, ownerUserId, audit, JSON.stringify(["qualification", "discovery"])]);
-    for (const [stageId, position, transitions] of [["qualification", 0, ["discovery"]], ["discovery", 1, []]]) await pool.query(`insert into sales_pipeline_stages
-      (application_id, environment, created_by, updated_by, audit, pipeline_id, stage_id, name, semantic, position, probability_basis_points, allowed_transitions)
-      values ($1,$2,$3,$3,$4::jsonb,$5,$6,$6,$6,$7,0,$8::jsonb)`,
-    [foreignSalesApplicationId, environmentName, ownerUserId, audit, foreignPipeline.rows[0].id, stageId, position, JSON.stringify(transitions)]);
+    [foreignSalesApplicationId, environmentName, ownerUserId, audit, JSON.stringify([])]);
+    const foreignStageIds = Object.fromEntries([["qualification", 0, ["discovery"]], ["discovery", 1, []]].map(([semantic]) => [semantic, salesPipelineStageId(foreignSalesApplicationId, environmentName, foreignPipeline.rows[0].id, semantic)]));
+    await pool.query("update sales_pipelines set ordered_stage_ids=$2::jsonb where id=$1", [foreignPipeline.rows[0].id, JSON.stringify([foreignStageIds.qualification, foreignStageIds.discovery])]);
+    for (const [semantic, position, transitions] of [["qualification", 0, ["discovery"]], ["discovery", 1, []]]) await pool.query(`insert into sales_pipeline_stages
+      (application_id, environment, created_by, updated_by, audit, pipeline_id, stage_id, name, semantic, position, probability_basis_points, allowed_transition_stage_ids, required_field_ids)
+      values ($1,$2,$3,$3,$4::jsonb,$5,$6,$7,$7,$8,0,$9::jsonb,'[]'::jsonb)`,
+    [foreignSalesApplicationId, environmentName, ownerUserId, audit, foreignPipeline.rows[0].id, foreignStageIds[semantic], semantic, position, JSON.stringify(transitions.map((target) => foreignStageIds[target]))]);
     const crossApplication = await pool.query(`insert into sales_opportunities
       (application_id, environment, owner_id, team_id, created_by, updated_by, audit, account_id, pipeline_id, name, stage_id, amount, currency, archive_status)
-      values ($1,$2,$3,'team:representative',$3,$3,$4::jsonb,$5,$6,'Representative cross application denied','qualification','1000','USD','active') returning id`,
-    [foreignSalesApplicationId, environmentName, representativeUserId, opportunityQualificationAudit, foreignAccount.rows[0].id, foreignPipeline.rows[0].id]);
+      values ($1,$2,$3,'team:representative',$3,$3,$4::jsonb,$5,$6,'Representative cross application denied',$7,'1000','USD','active') returning id`,
+    [foreignSalesApplicationId, environmentName, representativeUserId, JSON.stringify([]), foreignAccount.rows[0].id, foreignPipeline.rows[0].id, foreignStageIds.qualification]);
 
     const representative = await login(applicationProcess.origin, representativeEmail, representativePassword);
     const representativeSource = await fetch(`${applicationProcess.origin}/sales/opportunities`, { headers: { cookie: representative.cookie.header } });
@@ -1271,7 +1300,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
       const before = await salesRow("opportunity", String(target.rows[0].id));
       const response = await postPageAction(pageId, salesOpportunityStageUpdateDescriptor.id, representative.cookie.header, opportunityInput(before, "discovery"));
       assert.equal(response.status, 200, await response.clone().text());
-      assert.equal((await salesRow("opportunity", before.id)).stage, "discovery");
+      assert.equal((await salesRow("opportunity", before.id)).stage, stageIds.discovery);
     }
     const replayTarget = await salesRow("opportunity", String(representativeOwn.rows[0].id));
     const replayKey = `R${"a".repeat(159)}`;
@@ -1288,7 +1317,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
       return body;
     }));
     assert.deepEqual(replayBodies[1], replayBodies[0], "Exact replay must return the immutable first action result.");
-    assert.equal((await salesRow("opportunity", replayTarget.id)).stage, "proposal");
+    assert.equal((await salesRow("opportunity", replayTarget.id)).stage, stageIds.proposal);
     assert.deepEqual((await pool.query(`select count(*)::integer as rows, min(result_json->>'state') as state from sales_action_idempotency
       where application_id=$1 and environment=$2 and effective_actor_id=$3 and action_id='sales.opportunity.stage.update' and idempotency_key=$4`, [applicationId, environmentName, representativeUserId, replayKey])).rows,
     [{ rows: 1, state: "succeeded" }], "A 160-character key must reserve one durable actor/action result.");
@@ -1296,12 +1325,12 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     assert.equal((await pool.query(`select count(*)::integer as count from k_nex_outbox where payload->>'resourceId'=$1 and payload->>'actionId'='sales.opportunity.stage.update'`, [replayTarget.id])).rows[0].count, replayOutboxBefore.rows[0].count + 1, "Concurrent replay must enqueue one durable event.");
     const replayConflict = await postPageAction(pageId, salesOpportunityStageUpdateDescriptor.id, representative.cookie.header, { ...replayInput, expectedRevision: replayInput.expectedRevision + 1 }, replayKey);
     assert.equal(replayConflict.status, 409, "Changed action bytes must conflict with the durable idempotency key.");
-    assert.equal((await salesRow("opportunity", replayTarget.id)).stage, "proposal", "Changed replay must leave the accepted transition intact.");
+    assert.equal((await salesRow("opportunity", replayTarget.id)).stage, stageIds.proposal, "Changed replay must leave the accepted transition intact.");
     console.log("P13_SALES_ACTION_DURABLE_REPLAY_CONCURRENT_LONG_KEY_POSTGRES_HTTP=PASS");
-    for (const target of [crossTeam, crossApplication]) {
+    for (const [target, denialStatus] of [[crossTeam, 403], [crossApplication, 409]]) {
       const before = await salesRow("opportunity", String(target.rows[0].id));
       const response = await postPageAction(pageId, salesOpportunityStageUpdateDescriptor.id, representative.cookie.header, opportunityInput(before, "discovery"));
-      assert.equal(response.status, 403);
+      assert.equal(response.status, denialStatus);
       assert.deepEqual(await salesRow("opportunity", before.id), before);
     }
     console.log("P13_SALES_REPRESENTATIVE_OWN_TEAM_AND_CROSS_SCOPE_POSTGRES_HTTP=PASS");
@@ -1313,7 +1342,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     assert.equal(managerSourceHtml.includes("Representative cross team denied"), false);
     const managerTarget = await salesRow("opportunity", String(alpha.rows[0].id));
     assert.equal((await postPageAction(pageId, salesOpportunityStageUpdateDescriptor.id, manager.cookie.header, opportunityInput(managerTarget, "proposal"))).status, 200);
-    assert.equal((await salesRow("opportunity", managerTarget.id)).stage, "proposal");
+    assert.equal((await salesRow("opportunity", managerTarget.id)).stage, stageIds.proposal);
     console.log("P13_SALES_MANAGER_MANAGED_TEAM_POSTGRES_HTTP=PASS");
 
     const administratorSource = await fetch(`${applicationProcess.origin}/sales/opportunities`, { headers: { cookie: restartedOwner.cookie.header } });
@@ -1321,7 +1350,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     assert.equal((await administratorSource.text()).includes("Representative cross team denied"), true);
     const administratorTarget = await salesRow("opportunity", String(crossTeam.rows[0].id));
     assert.equal((await postPageAction(pageId, salesOpportunityStageUpdateDescriptor.id, restartedOwner.cookie.header, opportunityInput(administratorTarget, "discovery"))).status, 200);
-    assert.equal((await salesRow("opportunity", administratorTarget.id)).stage, "discovery");
+    assert.equal((await salesRow("opportunity", administratorTarget.id)).stage, stageIds.discovery);
     console.log("P13_SALES_ADMINISTRATOR_APPLICATION_SCOPE_POSTGRES_HTTP=PASS");
 
     const limitedAuthority = await store.readState(applicationId, environmentName);
@@ -1342,21 +1371,24 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     assert.ok(fieldAuthority);
     await store.transaction(expected(fieldAuthority), async (transaction) => {
       await transaction.write({ kind: "role", role: { schemaVersion: 1, id: "customer.sales-field-limited", applicationId, label: "Sales field limited", revision: 0 } });
-      for (const permissionId of ["sales.opportunities.read"]) {
+      for (const permissionId of ["sales.opportunities.read", "sales.saved-views.read"]) {
         await transaction.write({ kind: "grant", grant: { schemaVersion: 1, id: `customer.sales-field-limited.${permissionId}`, applicationId, roleId: "customer.sales-field-limited", permissionId, owner: { kind: "extension", deliveryClass: "platform-plugin", extensionId: "module.sales", generation: 1 }, revision: 0 } });
       }
       await transaction.write({ kind: "assignment", assignment: { schemaVersion: 1, id: "customer.sales-field-limited.assignment", applicationId, roleId: "customer.sales-field-limited", principal: { kind: "user", id: limitedUserId }, state: "active", revision: 0 } });
     });
+    const teamKanbanSavedView = await pool.query(`insert into sales_saved_views
+      (application_id,environment,owner_id,created_by,updated_by,name,visibility,visibility_team_id,view_kind,target_object_id,definition)
+      values ($1,$2,$3,$3,$3,'Field-limited opportunity Kanban','team',$4,'kanban','sales.object.opportunity',$5::jsonb) returning id,revision`,
+    [applicationId, environmentName, ownerUserId, `team:${limitedUserId}`, JSON.stringify(kanbanDefinition)]);
     const fieldDeniedSource = await fetch(`${applicationProcess.origin}/workspace/pages/${encodeURIComponent(pageId)}`, { headers: { cookie: limited.cookie.header } });
     assert.equal(fieldDeniedSource.status, 200);
     const fieldDeniedSourceHtml = await fieldDeniedSource.text();
-    assert.equal(fieldDeniedSourceHtml.includes("Alpha renewal"), true, "Field-limited authority must retain permitted opportunity fields.");
+    assert.equal(fieldDeniedSourceHtml.includes("Alpha renewal"), true, "Explicit viewer team scope must retain existing listed-team records.");
     assert.equal(fieldDeniedSourceHtml.includes("Viewer assigned team allowed"), true, "Explicit viewer team scope must expose listed-team records.");
     assert.equal(fieldDeniedSourceHtml.includes("Viewer owned but denied"), false, "Explicit viewer scope must not imply ownership access.");
     assert.equal(fieldDeniedSourceHtml.includes("Viewer cross team denied"), false, "Explicit viewer scope must deny unlisted teams.");
     assert.equal(fieldDeniedSourceHtml.includes("Representative cross team denied"), false, "Explicit viewer team scope cannot expose another team.");
     assert.equal(fieldDeniedSourceHtml.includes("Representative cross application denied"), false, "Explicit viewer scope cannot cross the application boundary.");
-    assert.equal(fieldDeniedSourceHtml.includes("12000"), false, "Field-limited authority cannot expose opportunity amount.");
     const fieldDeniedSession = await fetch(workspacePageSessionUrl, { headers: { cookie: limited.cookie.header } });
     assert.equal(fieldDeniedSession.status, 200);
     const fieldDeniedProjection = (await fieldDeniedSession.json()).projection;
@@ -1378,7 +1410,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     const pageAclOnly = await postPageAction(pageId, salesOpportunityStageUpdateDescriptor.id, limited.cookie.header, opportunityInput(pageAclOnlyBefore, "negotiation"));
     assert.equal(pageAclOnly.status, 403);
     const { correlationId: pageAclOnlyCorrelationId, ...pageAclOnlyBody } = await pageAclOnly.json();
-    assert.deepEqual(pageAclOnlyBody, { code: "ACTION_FORBIDDEN", status: 403, detail: "Sales action scope is unavailable." });
+    assert.deepEqual(pageAclOnlyBody, { code: "ACTION_FORBIDDEN", status: 403, detail: "Sales action target is unavailable." });
     assert.match(pageAclOnlyCorrelationId, /^workspace-sales-action-[0-9a-f-]+$/u);
     assert.deepEqual(await salesRow("opportunity", String(alpha.rows[0].id)), pageAclOnlyBefore, "Page ACL cannot grant Sales action authority or mutate its target.");
     console.log("P12_ATK_07_PAGE_ACL_ONLY_SALES_ACTION_HTTP_POSTGRES_DENIED=PASS");
@@ -1540,12 +1572,11 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     });
     const revokedSalesPage = await fetch(`${applicationProcess.origin}/workspace/pages/${encodeURIComponent(pageId)}`, { headers: { cookie: manager.cookie.header } });
     const revokedSalesHtml = await revokedSalesPage.text();
-    assert.equal(revokedSalesPage.status, 200, "Revoking Sales authority must not revoke the granted page ACL.");
-    const managerRuntime = managerPage.locator("section[data-k-nex-theme-profile]");
-    try { await managerRuntime.filter({ hasText: "Unavailable: PERMISSION_DENIED" }).waitFor({ timeout: 10_000 }); }
-    catch (error) { throw new Error(`${error}\nserver=${revokedSalesHtml}\nbrowser=${await managerPage.locator("body").innerText()}\nprocess=${applicationProcess.output()}`); }
+    assert.equal(revokedSalesPage.status, 404, "A fresh page request must fail closed when its published Sales source authority is revoked.");
+    assert.equal(revokedSalesHtml.includes("Alpha renewal"), false, "A failed-closed fresh page request cannot serialize revoked Sales data.");
+    await managerPage.getByText("Page access revoked", { exact: true }).waitFor({ timeout: 10_000 });
     assert.equal(await managerPage.getByText("Alpha renewal", { exact: true }).count(), 0, "An already-open page cannot retain revoked Sales source data.");
-    assert.equal(await managerPage.locator(`[data-opportunity-id="${String(alpha.rows[0].id)}"]`).getByRole("button", { name: "Move to discovery" }).count(), 0, "An already-open page cannot retain revoked Sales actions.");
+    assert.equal(await managerPage.locator(`[data-opportunity-id="opportunity:${String(alpha.rows[0].id)}"]`).getByRole("button", { name: "Move to discovery" }).count(), 0, "An already-open page cannot retain revoked Sales actions.");
     await managerEditorPage.getByRole("alert").getByText("Editor authority changed", { exact: true }).waitFor({ timeout: 10_000 });
     assert.equal(await managerEditorPage.getByRole("region", { name: "Canvas block keyboard controls" }).count(), 0, "An already-open editor must fail closed after its Sales authority changes.");
     console.log("P12_ATK_20_OPEN_PAGE_AND_EDITOR_SALES_AUTHORITY_REVOCATION_POSTGRES_HTTP_CHROMIUM_DENIED=PASS");
@@ -1557,20 +1588,29 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
       }
     });
     const managerSalesRoutePage = await managerContext.newPage();
-    await managerSalesRoutePage.goto(`${applicationProcess.origin}/sales/tasks`);
-    await managerSalesRoutePage.getByRole("form", { name: "Create task" }).waitFor();
+    await navigateGeneratedRouteToReady(managerSalesRoutePage, `${applicationProcess.origin}/sales/tasks`, () => managerSalesRoutePage.getByRole("form", { name: "Create task" }), applicationProcess.output);
+    await proveGeneratedSalesTaskRouteHydration(managerSalesRoutePage, applicationProcess.output);
     const revokedRouteAuthority = await store.readState(applicationId, environmentName);
     assert.ok(revokedRouteAuthority);
+    const deniedRouteProjection = waitForGeneratedRouteProjection(managerSalesRoutePage, `${applicationProcess.origin}/sales/tasks`, 404).then(
+      (response) => Object.freeze({ response }),
+      (error) => Object.freeze({ error })
+    );
     await store.transaction(expected(revokedRouteAuthority), async (transaction) => {
       for (const permissionId of ["sales.tasks.read", "sales.tasks.write"]) await transaction.removeGrant(applicationId, `customer.sales-manager.${permissionId}`);
     });
-    await managerSalesRoutePage.getByRole("alert").getByText("Sales route unavailable", { exact: true }).waitFor({ timeout: 10_000 });
+    const [deniedRouteProjectionObservation] = await Promise.all([
+      deniedRouteProjection,
+      managerSalesRoutePage.getByRole("alert").getByText("Sales route unavailable", { exact: true }).waitFor({ timeout: 10_000 })
+    ]);
+    if ("error" in deniedRouteProjectionObservation) throw deniedRouteProjectionObservation.error;
+    assert.equal(deniedRouteProjectionObservation.response.status(), 404);
     assert.equal(await managerSalesRoutePage.getByRole("form", { name: "Create task" }).count(), 0, "An open registered Sales route must clear its action after permission revocation.");
     const revokedRouteActionTitle = "Denied from open registered Sales route";
     const revokedRouteAction = await fetch(`${applicationProcess.origin}/api/k-nex/sales/actions/${encodeURIComponent("sales.task.create")}`, {
       method: "POST",
       headers: { "content-type": "application/json", cookie: manager.cookie.header, origin: applicationProcess.origin },
-      body: JSON.stringify({ input: { title: revokedRouteActionTitle }, idempotencyKey: `revoked-open-sales-route-${randomUUID()}` })
+      body: JSON.stringify({ routeId: "sales.route.tasks", nodeId: "sales-task-create", input: { title: revokedRouteActionTitle }, selection: {}, idempotencyKey: `revoked-open-sales-route-${randomUUID()}` })
     });
     assert.equal(revokedRouteAction.status, 403);
     assert.equal((await pool.query("select count(*)::int as count from sales_tasks where title=$1", [revokedRouteActionTitle])).rows[0].count, 0, "A revoked open Sales route action must write nothing.");
@@ -1696,14 +1736,14 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     assert.equal(durablePointer.rows[0].pointer_json.publishedRevisionId, firstPublishedRevisionId);
     const durableSales = await pool.query("select name, stage_id from sales_opportunities where application_id=$1 and environment=$2 order by id", [applicationId, environmentName]);
     assert.deepEqual(durableSales.rows, [
-      { name: "Alpha renewal", stage_id: "proposal" },
-      { name: "Beta expansion", stage_id: "proposal" },
-      { name: "Representative owned", stage_id: "proposal" },
-      { name: "Representative assigned team", stage_id: "discovery" },
-      { name: "Representative cross team denied", stage_id: "discovery" },
-      { name: "Viewer owned but denied", stage_id: "qualification" },
-      { name: "Viewer assigned team allowed", stage_id: "qualification" },
-      { name: "Viewer cross team denied", stage_id: "qualification" }
+      { name: "Alpha renewal", stage_id: stageIds.proposal },
+      { name: "Beta expansion", stage_id: stageIds.proposal },
+      { name: "Representative owned", stage_id: stageIds.proposal },
+      { name: "Representative assigned team", stage_id: stageIds.discovery },
+      { name: "Representative cross team denied", stage_id: stageIds.discovery },
+      { name: "Viewer owned but denied", stage_id: stageIds.qualification },
+      { name: "Viewer assigned team allowed", stage_id: stageIds.qualification },
+      { name: "Viewer cross team denied", stage_id: stageIds.qualification }
     ]);
     const restartedRepresentative = await login(applicationProcess.origin, representativeEmail, representativePassword);
     const replayAfterRestart = await postPageAction(pageId, salesOpportunityStageUpdateDescriptor.id, restartedRepresentative.cookie.header, replayInput, replayKey);
@@ -1762,15 +1802,21 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     const ratePageSession = await fetch(`${applicationProcess.origin}/api/k-nex/workspace-pages/${encodeURIComponent(ratePageId)}/session?mode=edit`, { headers: { cookie: manager.cookie.header } });
     assert.equal(ratePageSession.status, 200, await ratePageSession.clone().text());
     const ratePageProjection = await ratePageSession.json();
-    const rateBridge = salesPuckBlockBridges.find(({ definition }) => definition.id === salesOpportunityListBlockDescriptor.id);
-    assert.ok(rateBridge, "The current Sales opportunity-list authoring bridge must be available.");
+    const rateBridge = salesPuckBlockBridges.find(({ definition }) => definition.id === "sales.opportunity-kanban");
+    assert.ok(rateBridge, "The current Sales opportunity-Kanban authoring bridge must be available.");
     assert.equal(ratePageProjection.projection.permissions.includes("sales.opportunities.read"), true, JSON.stringify(ratePageProjection.projection.authority));
     assert.equal(ratePageProjection.projection.permissions.includes("sales.opportunities.amount.read"), true, JSON.stringify(ratePageProjection.projection.authority));
     assert.equal(ratePageProjection.projection.authority.blocks.some(({ id, version }) => id === rateBridge.definition.id && version === rateBridge.definition.version), true, JSON.stringify(ratePageProjection.projection.authority));
-    assert.equal(ratePageProjection.projection.authority.sources.some(({ id, version }) => id === salesOpportunitiesDescriptor.id && version === salesOpportunitiesDescriptor.version), true, JSON.stringify(ratePageProjection.projection.authority));
+    assert.equal(ratePageProjection.projection.authority.sources.some(({ id, version }) => id === salesSavedViewKanbanDescriptor.id && version === salesSavedViewKanbanDescriptor.version), true, JSON.stringify(ratePageProjection.projection.authority));
+    const rateKanbanSavedViews = await pool.query(`insert into sales_saved_views
+      (application_id,environment,owner_id,created_by,updated_by,name,visibility,visibility_team_id,view_kind,target_object_id,definition)
+      select $1,$2,$3,$3,$3,'Rate Kanban ' || series,'team',$4,'kanban','sales.object.opportunity',$5::jsonb
+      from generate_series(1,32) as series returning id,revision`,
+    [applicationId, environmentName, ownerUserId, `team:${limitedUserId}`, JSON.stringify(kanbanDefinition)]);
+    assert.equal(rateKanbanSavedViews.rows.length, 32);
     const rateMetricNodes = Array.from({ length: 32 }, (_, index) => ({
       id: `rate-opportunities-${index}`, type: rateBridge.definition.id, version: rateBridge.definition.version,
-      props: structuredClone(rateBridge.defaultProps), bindings: structuredClone(rateBridge.defaultBindings)
+      props: { ...structuredClone(rateBridge.defaultProps), savedViewId: rateKanbanSavedViews.rows[index].id, expectedRevision: rateKanbanSavedViews.rows[index].revision }, bindings: structuredClone(rateBridge.defaultBindings)
     }));
     const rateAutosave = await fetch(`${applicationProcess.origin}/api/k-nex/workspace-pages/${encodeURIComponent(ratePageId)}/autosave`, {
       method: "POST",
@@ -1797,7 +1843,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     });
     assert.equal(publishRatePage.status, 200, await publishRatePage.clone().text());
     const inspectRateSession = (projection, message) => {
-      const nodes = projection.document.regions.main.filter((node) => node.bindings?.source?.source.id === salesOpportunitiesDescriptor.id);
+      const nodes = projection.document.regions.main.filter((node) => node.bindings?.source?.source.id === salesSavedViewKanbanDescriptor.id);
       assert.ok(nodes.length > 0, `${message} The Sales opportunity rate nodes are missing.`);
       return nodes.map((node) => {
         const binding = projection.sourceResults[node.id];
@@ -1858,8 +1904,8 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     await retiredRoutePage.getByLabel("Password").fill(managerPassword);
     await retiredRoutePage.getByRole("button", { name: "Sign in" }).click();
     await retiredRoutePage.waitForURL(`${applicationProcess.origin}/`);
-    await retiredRoutePage.goto(`${applicationProcess.origin}/sales/tasks`);
-    await retiredRoutePage.getByRole("form", { name: "Create task" }).waitFor();
+    await navigateGeneratedRouteToReady(retiredRoutePage, `${applicationProcess.origin}/sales/tasks`, () => retiredRoutePage.getByRole("form", { name: "Create task" }), applicationProcess.output);
+    await proveGeneratedSalesTaskRouteHydration(retiredRoutePage, applicationProcess.output);
     const managerSalesNavigationBeforeRetirement = await fetch(`${applicationProcess.origin}/`, { headers: { cookie: manager.cookie.header } });
     assert.equal(managerSalesNavigationBeforeRetirement.status, 200);
     const managerSalesHtmlBeforeRetirement = await managerSalesNavigationBeforeRetirement.text();
@@ -1871,7 +1917,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     const preRetirementAction = await fetch(`${applicationProcess.origin}/api/k-nex/sales/actions/${encodeURIComponent("sales.task.create")}`, {
       method: "POST",
       headers: { "content-type": "application/json", cookie: manager.cookie.header, origin: applicationProcess.origin },
-      body: JSON.stringify({ input: { title: preRetirementActionTitle }, idempotencyKey: `current-sales-action-${randomUUID()}` })
+      body: JSON.stringify({ routeId: "sales.route.tasks", nodeId: "sales-task-create", input: { title: preRetirementActionTitle }, selection: {}, idempotencyKey: `current-sales-action-${randomUUID()}` })
     });
     assert.equal(preRetirementAction.status, 200, "The same actor must execute the registered Sales action before retirement.");
     assert.equal((await pool.query("select count(*)::int as count from sales_tasks where title=$1", [preRetirementActionTitle])).rows[0].count, 1);
@@ -1953,7 +1999,10 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     const disabledSalesState = await durableStore.readState(applicationId, environmentName);
     assert.ok(disabledSalesState);
     assert.equal((await fetch(`${applicationProcess.origin}/api/readiness`)).status, 200, "A supported disable keeps the exact compiled generation ready while removing Sales availability.");
-    await retiredRoutePage.getByRole("alert").getByText("Sales route unavailable", { exact: true }).waitFor({ timeout: 10_000 });
+    await Promise.all([
+      waitForGeneratedRouteProjection(retiredRoutePage, `${applicationProcess.origin}/sales/tasks`, 404),
+      retiredRoutePage.getByRole("alert").getByText("Sales route unavailable", { exact: true }).waitFor({ timeout: 10_000 })
+    ]);
     assert.equal(await retiredRoutePage.getByRole("form", { name: "Create task" }).count(), 0, "An open registered Sales route must clear its action after a supported disable.");
     const retiredSalesNavigation = await fetch(`${applicationProcess.origin}/`, { headers: { cookie: manager.cookie.header }, redirect: "manual" });
     assert.equal(retiredSalesNavigation.status, 200);
@@ -1966,10 +2015,46 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     const retiredPlatformPage = await fetch(`${applicationProcess.origin}/workspace/pages/${encodeURIComponent(platformPageId)}`, { headers: { cookie: manager.cookie.header }, redirect: "manual" });
     assert.equal(retiredPlatformPage.status, 200, "A platform-only page must remain renderable while Sales is disabled.");
     assert.equal(retiredSalesHtml.includes(`/workspace/pages/${encodeURIComponent(platformPageId)}`), true, "A platform-only page remains navigable when its Sales placement parent has no executable route.");
+    const retiredPlatformEditor = await fetch(`${applicationProcess.origin}/api/k-nex/workspace-pages/${encodeURIComponent(platformPageId)}/session?mode=edit`, { headers: { cookie: manager.cookie.header } });
+    assert.equal(retiredPlatformEditor.status, 200, `A platform-only editor must remain available while Sales is disabled.\n${await retiredPlatformEditor.clone().text()}`);
+    const retiredPlatformProjection = (await retiredPlatformEditor.json()).projection;
+    assert.equal(retiredPlatformProjection.authority.blocks.some(({ id }) => id.startsWith("sales.")), false, "A generic editor cannot retain Sales block authority after disable.");
+    assert.deepEqual(retiredPlatformProjection.authority.sources, [], "A generic editor cannot retain Sales source authority after disable.");
+    assert.deepEqual(retiredPlatformProjection.authority.actions, [], "A generic editor cannot retain Sales action authority after disable.");
+    assert.equal(retiredPlatformProjection.authority.blocks.some(({ id }) => id === "content.text"), true, "The platform generic editor must retain its text block.");
+    const genericOnlyDocument = {
+      ...retiredPlatformProjection.workingCopy.document,
+      version: retiredPlatformProjection.workingCopy.revision + 1,
+      regions: { ...retiredPlatformProjection.workingCopy.document.regions, main: [{ id: "platform-only-text", type: "content.text", version: 1, props: { text: "Generic content survives Sales disable" } }] }
+    };
+    const genericOnlyAutosave = await fetch(`${applicationProcess.origin}/api/k-nex/workspace-pages/${encodeURIComponent(platformPageId)}/autosave`, {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie: manager.cookie.header, origin: applicationProcess.origin },
+      body: JSON.stringify({ expectedRevision: retiredPlatformProjection.workingCopy.revision, editorSessionId: `workspace-platform-only-${randomUUID()}`, idempotencyKey: `workspace-platform-only-${randomUUID()}`, document: genericOnlyDocument })
+    });
+    assert.equal(genericOnlyAutosave.status, 200, `A generic-only autosave must succeed while Sales is disabled.\n${await genericOnlyAutosave.clone().text()}`);
+    const genericOnlySavedEditor = await fetch(`${applicationProcess.origin}/api/k-nex/workspace-pages/${encodeURIComponent(platformPageId)}/session?mode=edit`, { headers: { cookie: manager.cookie.header } });
+    assert.equal(genericOnlySavedEditor.status, 200);
+    const genericOnlySavedProjection = (await genericOnlySavedEditor.json()).projection;
+    const genericRevisionBeforeInjection = genericOnlySavedProjection.workingCopy.revision;
+    const salesInjection = await fetch(`${applicationProcess.origin}/api/k-nex/workspace-pages/${encodeURIComponent(platformPageId)}/autosave`, {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie: manager.cookie.header, origin: applicationProcess.origin },
+      body: JSON.stringify({
+        expectedRevision: genericRevisionBeforeInjection,
+        editorSessionId: `workspace-platform-sales-injection-${randomUUID()}`,
+        idempotencyKey: `workspace-platform-sales-injection-${randomUUID()}`,
+        document: { ...genericOnlySavedProjection.workingCopy.document, version: genericRevisionBeforeInjection + 1, regions: { ...genericOnlySavedProjection.workingCopy.document.regions, main: [...genericOnlySavedProjection.workingCopy.document.regions.main, rateMetricNodes[0]] } }
+      })
+    });
+    assert.equal(salesInjection.status, 400, "A caught missing Sales generation cannot downgrade a Sales-dependent autosave into generic validation.");
+    assert.deepEqual(await salesInjection.json(), { code: "INVALID_INPUT" });
+    assert.equal((await pool.query("select working_copy_revision from k_nex_workspace_pages where application_id=$1 and environment=$2 and page_id=$3", [applicationId, environmentName, platformPageId])).rows[0].working_copy_revision, genericRevisionBeforeInjection, "Denied Sales injection cannot advance the generic working-copy revision.");
+    assert.equal((await fetch(`${applicationProcess.origin}/api/k-nex/workspace-pages/${encodeURIComponent(pageId)}/session?mode=edit`, { headers: { cookie: manager.cookie.header } })).status, 404, "An existing Sales-dependent editor must remain denied after Sales disable.");
     const platformOnlyAction = await fetch(`${applicationProcess.origin}/api/k-nex/workspace-pages/${encodeURIComponent(platformPageId)}/actions/${encodeURIComponent("sales.task.create")}`, {
       method: "POST",
       headers: { "content-type": "application/json", cookie: manager.cookie.header, origin: applicationProcess.origin },
-      body: JSON.stringify({ input: { title: "must not execute" }, idempotencyKey: `workspace-platform-only-action-${randomUUID()}` })
+      body: JSON.stringify({ nodeId: "platform-only-unbound", input: { title: "must not execute" }, idempotencyKey: `workspace-platform-only-action-${randomUUID()}` })
     });
     assert.equal(platformOnlyAction.status, 404, "A platform-only page must not expose a Sales action while Sales is disabled.");
     for (const href of ["/sales", "/sales/tasks", "/sales/opportunities", "/sales/settings"]) {
@@ -1981,7 +2066,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     const retiredAction = await fetch(`${applicationProcess.origin}/api/k-nex/sales/actions/${encodeURIComponent("sales.task.create")}`, {
       method: "POST",
       headers: { "content-type": "application/json", cookie: manager.cookie.header, origin: applicationProcess.origin },
-      body: JSON.stringify({ input: { title: retiredActionTitle }, idempotencyKey: `retired-sales-action-${randomUUID()}` })
+      body: JSON.stringify({ routeId: "sales.route.tasks", nodeId: "sales-task-create", input: { title: retiredActionTitle }, selection: {}, idempotencyKey: `retired-sales-action-${randomUUID()}` })
     });
     assert.equal(retiredAction.status, 400, "A disabled current Sales generation must deny registered route actions.");
     assert.deepEqual(await retiredAction.json(), { code: "INVALID_INPUT" });
@@ -2004,7 +2089,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     const restoredAction = await fetch(`${applicationProcess.origin}/api/k-nex/sales/actions/${encodeURIComponent("sales.task.create")}`, {
       method: "POST",
       headers: { "content-type": "application/json", cookie: manager.cookie.header, origin: applicationProcess.origin },
-      body: JSON.stringify({ input: { title: restoredActionTitle }, idempotencyKey: `restored-sales-action-${randomUUID()}` }),
+      body: JSON.stringify({ routeId: "sales.route.tasks", nodeId: "sales-task-create", input: { title: restoredActionTitle }, selection: {}, idempotencyKey: `restored-sales-action-${randomUUID()}` }),
       redirect: "manual"
     });
     assert.equal(restoredAction.status, 200, "A valid later current Sales generation must restore registered actions.");
@@ -2110,7 +2195,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     const unrelatedLifecycleAction = await fetch(`${applicationProcess.origin}/api/k-nex/sales/actions/${encodeURIComponent("sales.task.create")}`, {
       method: "POST",
       headers: { "content-type": "application/json", cookie: manager.cookie.header, origin: applicationProcess.origin },
-      body: JSON.stringify({ input: { title: unrelatedLifecycleActionTitle }, idempotencyKey: `unrelated-lifecycle-sales-action-${randomUUID()}` }),
+      body: JSON.stringify({ routeId: "sales.route.tasks", nodeId: "sales-task-create", input: { title: unrelatedLifecycleActionTitle }, selection: {}, idempotencyKey: `unrelated-lifecycle-sales-action-${randomUUID()}` }),
       redirect: "manual"
     });
     assert.equal(unrelatedLifecycleAction.status, 200, "An unrelated lifecycle transition must preserve the Sales action.");
@@ -2136,15 +2221,23 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     assert.equal(staleReplacementState.lifecycleRevision, unrelatedLifecycleState.lifecycleRevision + 1);
     console.log("P12_WORKSPACE_PAGE_EXECUTABLE_DEPENDENCY_LIFECYCLE_POSTGRES_HTTP=PASS");
     console.log("P12_9_GENERATED_APP_POSTGRES_HTTP_CHROMIUM_EVIDENCE=PASS");
+  } catch (error) {
+    primaryError = error;
   } finally {
-    await responseLossRelay?.close().catch(() => {});
-    await stop(operatorProcess?.child, "administration operator").catch(() => {});
-    await stop(workerProcess?.child).catch(() => {});
-    await stop(applicationProcess?.child).catch(() => {});
-    notificationClient?.release();
-    await pool?.end().catch(() => {});
-    await browser?.close().catch(() => {});
-    await container.stop();
-    rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    const cleanupErrors = [];
+    const cleanup = async (operation) => { try { await operation(); } catch (error) { cleanupErrors.push(error); } };
+    await cleanup(async () => responseLossRelay?.close());
+    await cleanup(async () => stop(operatorProcess?.child, "administration operator"));
+    await cleanup(async () => stop(workerProcess?.child, "authorization worker"));
+    await cleanup(async () => stop(applicationProcess?.child, "application"));
+    await cleanup(async () => notificationClient?.release());
+    await cleanup(async () => pool?.end());
+    await cleanup(async () => browser?.close());
+    await cleanup(async () => container.stop());
+    await cleanup(async () => rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
+    if (primaryError !== undefined && cleanupErrors.length > 0) throw new AggregateError([primaryError, ...cleanupErrors], "P12.9 test and cleanup failed.");
+    if (primaryError !== undefined) throw primaryError;
+    if (cleanupErrors.length === 1) throw cleanupErrors[0];
+    if (cleanupErrors.length > 1) throw new AggregateError(cleanupErrors, "P12.9 cleanup failed.");
   }
 });

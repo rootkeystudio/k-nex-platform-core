@@ -13,8 +13,9 @@ import {
   type DataTableRequestState,
   type DataTableViewState
 } from "@k-nex/ui-data/data-table-controller";
+import { QueryBoundary } from "@k-nex/ui-data/metric";
 import { DataList, KeyValueList } from "@k-nex/ui-data/presentation";
-import { PaginationControl, QueryBoundary, StaleState } from "@k-nex/ui-data";
+import { PaginationControl, StaleState } from "@k-nex/ui-data/table-controls";
 import { Form, FormActions, Select, TextInput, createFormController, type ChoiceOption, type FormSnapshot } from "@k-nex/ui-forms";
 import { DashboardPage, DetailPage, IndexPage, SettingsPage } from "@k-nex/ui-pages";
 import type { BrowserDataTransport, BrowserMutationContext, BrowserRequestState, UiRuntimeActionDispatcher } from "@k-nex/ui-runtime";

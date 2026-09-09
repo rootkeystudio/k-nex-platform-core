@@ -1,6 +1,7 @@
 export interface ApplicationAuthFilesOptions {
   readonly applicationId: string;
   readonly applicationName: string;
+  readonly primaryCurrency?: string;
   readonly theme: "minimal" | "neobrutalism";
 }
 
@@ -388,7 +389,29 @@ export async function consumeBootstrapToken(client: BootstrapTokenClient, token:
 `;
 }
 
-function bootstrapOwnerSource(): string {
+function bootstrapOwnerSource(primaryCurrency?: string): string {
+  const initialSettingsSource = primaryCurrency === undefined ? "" : `
+async function ensureInitialSystemSettings(payload: Awaited<ReturnType<typeof bootKnexApplication>>) {
+  const pool = payload.db.pool as { connect(): Promise<{ query(text: string, values?: readonly unknown[]): Promise<{ rows: readonly Record<string, unknown>[]; rowCount: number | null }>; release(): void }> };
+  const client = await pool.connect();
+  try {
+    await client.query("begin");
+    await client.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [canonicalJson([kNexIdentity.applicationId, kNexIdentity.environment, "system-settings"])]);
+    const inserted = await client.query("insert into k_nex_system_settings_state(application_id,environment,settings_revision) values ($1,$2,1) on conflict (application_id,environment) do nothing returning settings_revision", [kNexIdentity.applicationId, kNexIdentity.environment]);
+    if (inserted.rowCount === 1) {
+      await client.query("insert into k_nex_system_settings_documents(application_id,environment,descriptor_id,descriptor_schema_version,owner_scope_key,owner_kind,owner_namespace,owner_delivery_class,owner_extension_id,owner_generation,document_revision,settings_revision,values_json) values ($1,$2,'system.general',3,'platform:system','platform','system',null,null,null,1,1,$3::jsonb)", [kNexIdentity.applicationId, kNexIdentity.environment, JSON.stringify({ siteName: "K-Nex", reportingCurrency: ${JSON.stringify(primaryCurrency)}, reportingTimezone: "UTC" })]);
+    } else if (inserted.rowCount === 0) {
+      const proof = (await client.query("select d.descriptor_schema_version,d.owner_scope_key,d.owner_kind,d.owner_namespace,d.owner_delivery_class,d.owner_extension_id,d.owner_generation,d.document_revision,d.settings_revision,d.values_json,s.settings_revision as state_revision from k_nex_system_settings_state s join k_nex_system_settings_documents d using(application_id,environment) where s.application_id=$1 and s.environment=$2 and d.descriptor_id='system.general' for update", [kNexIdentity.applicationId, kNexIdentity.environment])).rows;
+      const row = proof[0];
+      if (proof.length !== 1 || row?.descriptor_schema_version !== 3 || row.owner_scope_key !== "platform:system" || row.owner_kind !== "platform" || row.owner_namespace !== "system" || row.owner_delivery_class !== null || row.owner_extension_id !== null || row.owner_generation !== null || row.document_revision !== 1 || row.settings_revision !== 1 || row.state_revision !== 1 || canonicalJson(row.values_json) !== canonicalJson({ siteName: "K-Nex", reportingCurrency: ${JSON.stringify(primaryCurrency)}, reportingTimezone: "UTC" })) throw new Error("Initial system settings are conflicting.");
+    } else throw new Error("Initial system settings are ambiguous.");
+    await client.query("commit");
+  } catch (error) {
+    await client.query("rollback").catch(() => undefined);
+    throw error;
+  } finally { client.release(); }
+}
+`;
   return `import { createHash } from "node:crypto";
 
 import { AuthorizationDecisionAuditSchema, canonicalJson, type BootstrapReceipt } from "@k-nex/contracts";
@@ -417,6 +440,7 @@ function assertResumableOwnerReceipt(receipt: BootstrapReceipt | undefined, user
 function crashAfterCommit(boundary: "protected-owner" | "sales-authority" | "token-consumption"): void {
   if (process.env.NODE_ENV === "test" && process.env.K_NEX_BOOTSTRAP_CRASH_AFTER_COMMIT === boundary) process.exit(86);
 }
+${initialSettingsSource}
 
 async function ensureInitialSalesOwner(payload: Awaited<ReturnType<typeof bootKnexApplication>>, userId: string) {
   const store = kNexAuthority(payload).store;
@@ -442,6 +466,7 @@ async function ensureInitialSalesOwner(payload: Awaited<ReturnType<typeof bootKn
   let scope: { record_scope?: string; application_wide?: boolean; mutation_allowed?: boolean; authorized_team_ids?: unknown; revision?: number } | undefined;
   try {
     await client.query("begin");
+    await client.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [canonicalJson([kNexIdentity.applicationId, "authorization-state"])]);
     const scopeState = (await client.query("select authorization_revision,lifecycle_revision from k_nex_authorization_state where application_id=$1 for update", [kNexIdentity.applicationId])).rows[0];
     const priorAuthorizationRevision = scopeState?.authorization_revision;
     const lifecycleRevision = scopeState?.lifecycle_revision;
@@ -505,6 +530,7 @@ try {
       })).value
     : (assertResumableOwnerReceipt(priorReceipt, String(user.id)), priorReceipt);
   crashAfterCommit("protected-owner");
+  ${primaryCurrency === undefined ? "" : "await ensureInitialSystemSettings(payload);"}
   await ensureInitialSalesOwner(payload, String(user.id));
   crashAfterCommit("sales-authority");
   await bootstrapApplicationTheme(payload);
@@ -1462,7 +1488,13 @@ function pageNumber(value: string | null, maximum: number): number {
   return Number(value);
 }
 
+function serverObserved(response: Response, started: number): Response {
+  response.headers.set("server-timing", "knex;dur=" + Math.max(0, performance.now() - started).toFixed(3));
+  return response;
+}
+
 export async function GET(request: Request, { params }: Readonly<{ params: Promise<{ routeId: string }> }>) {
+  const started = performance.now();
   try {
     const payload = await bootKnexApplication("workspace-web");
     const headers = await getHeaders();
@@ -1475,7 +1507,8 @@ export async function GET(request: Request, { params }: Readonly<{ params: Promi
     const pagination = page !== null ? Object.freeze({ listPage: pageNumber(page, 1_000_000) }) : timelinePage !== null ? Object.freeze({ timelinePage: pageNumber(timelinePage, 4) }) : Object.freeze({});
     const selectionRecord = Object.fromEntries([...query.entries()].filter(([key]) => !["id", "page", "timelinePage"].includes(key)));
     const selection = salesRouteSelectionFromSearchParams(routeId, selectionRecord);
-    return Response.json(await loadRegisteredSalesRoute(payload, kNexRequestContext(headers, "sales-route-projection"), routeId, routeParams, pagination, selection), { headers: { "cache-control": "no-store" } });
+    const response = Response.json(await loadRegisteredSalesRoute(payload, kNexRequestContext(headers, "sales-route-projection"), routeId, routeParams, pagination, selection), { headers: { "cache-control": "no-store" } });
+    return serverObserved(response, started);
   } catch { return Response.json({ code: "NOT_FOUND" }, { status: 404, headers: { "cache-control": "no-store" } }); }
 }
 `;
@@ -1487,14 +1520,21 @@ import { openWorkspaceJson, workspaceMutationError } from "../../../../../../k-n
 
 export const dynamic = "force-dynamic";
 
+function serverObserved(response: Response, started: number): Response {
+  response.headers.set("server-timing", "knex;dur=" + Math.max(0, performance.now() - started).toFixed(3));
+  return response;
+}
+
 export async function POST(request: Request, { params }: Readonly<{ params: Promise<{ actionId: string }> }>) {
+  const started = performance.now();
   try {
     const { payload, context, body } = await openWorkspaceJson(request, "sales-route-action");
     if (body === null || typeof body !== "object" || Array.isArray(body) || Object.keys(body).sort().join("\\0") !== "idempotencyKey\\0input\\0nodeId\\0routeId\\0selection") throw new TypeError("Sales route action body is invalid.");
     const value = body as Record<string, unknown>;
     if (typeof value.routeId !== "string" || typeof value.nodeId !== "string" || typeof value.idempotencyKey !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._:-]{7,159}$/u.test(value.idempotencyKey)) throw new TypeError("Sales route idempotency key is invalid.");
     const result = await executeRegisteredSalesRouteAction(payload, context, value.routeId, value.nodeId, (await params).actionId, value.input, value.selection, value.idempotencyKey, request.signal);
-    return Response.json(result.body, { status: result.status, headers: { "cache-control": "no-store" } });
+    const response = Response.json(result.body, { status: result.status, headers: { "cache-control": "no-store" } });
+    return result.status >= 200 && result.status < 300 ? serverObserved(response, started) : response;
   } catch (error) { return workspaceMutationError(error); }
 }
 `;
@@ -1710,6 +1750,7 @@ export async function changeSalesAuthorityScope(payload: Payload, context: KnexR
   const actorId = String(user.id);
   const pool = payload.db.pool as unknown as { connect(): Promise<{ query(text: string, values?: readonly unknown[]): Promise<{ rows: Record<string, unknown>[]; rowCount: number | null }>; release(): void }> }; const client = await pool.connect();
   try { await client.query("begin");
+    await client.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [canonicalJson([kNexIdentity.applicationId, "authorization-state"])]);
     const state = (await client.query("select authorization_revision,lifecycle_revision from k_nex_authorization_state where application_id=$1 for update", [kNexIdentity.applicationId])).rows[0];
     if (state === undefined || !Number.isSafeInteger(state.authorization_revision) || !Number.isSafeInteger(state.lifecycle_revision)) fail("Sales scope authority is unavailable.");
     // Evaluate full current policy only after this transaction fences authorization/lifecycle changes.
@@ -1943,7 +1984,8 @@ const expectedMigrationNames = Object.freeze([
   "20260907_000031_data_movement",
   "20260908_000032_communications",
   "20260908_000033_crm_workflows",
-  "20260908_000034_reports"
+  "20260908_000034_reports",
+  "20260909_000035_static_rebind_lock_protocol"
 ]);
 const expectedRouteSources = Object.freeze([
   "src/app/(auth)/forbidden/page.tsx",
@@ -2177,7 +2219,7 @@ function reconcileSource(root: string) {
     !same(salesInventory.find((entry) => entry.id === salesManifest.id)?.contributions, expectedContributions) || !same(realtimeInventory.contributions, {}) ||
     Object.values(kNexSalesRegistry.scopedRegistration.contributions as Readonly<Record<string, readonly { pluginId: string }[]>>).flat().some((entry) => entry.pluginId !== salesManifest.id && entry.pluginId !== realtimeManifest.id) ||
     Object.values(kNexSalesRegistry.scopedRegistration.bindings as Readonly<Record<string, readonly { pluginId: string }[]>>).flat().some((entry) => entry.pluginId !== salesManifest.id && entry.pluginId !== realtimeManifest.id)) fail("Sales static registration identity mismatch.");
-  if (!same(kNexSalesRegistry.collectionSlugs, ["sales-accounts", "sales-contacts", "sales-leads", "sales-pipelines", "sales-pipeline-stages", "sales-activities", "sales-opportunities", "sales-tasks", "sales-notes", "sales-attachment-references", "sales-saved-views", "sales-import-jobs", "sales-import-rows", "sales-import-chunks", "sales-export-jobs", "sales-merge-lineage"]) ||
+  if (!same(kNexSalesRegistry.collectionSlugs, ["sales-accounts", "sales-contacts", "sales-leads", "sales-pipelines", "sales-pipeline-stages", "sales-activities", "sales-opportunities", "sales-tasks", "sales-notes", "sales-attachment-references", "sales-saved-views", "sales-import-jobs", "sales-import-rows", "sales-import-chunks", "sales-export-jobs", "sales-merge-lineage", "sales-notifications", "sales-reminders"]) ||
     !same(kNexSalesRegistry.collections.map(({ slug }) => slug), kNexSalesRegistry.collectionSlugs) ||
     kNexSalesRegistry.readiness.currentRevision !== 3 || !same(kNexSalesRegistry.readiness.predecessorRevisions, [1, 2])) fail("Sales registry readiness mismatch.");
   if (typeof createAuthorizedPuckBuilderProfile !== "function" || typeof resolveSelectedThemeProfile !== "function" ||
@@ -2682,7 +2724,7 @@ export function applicationAuthFiles(options: ApplicationAuthFilesOptions): Read
     "src/app/components/k-nex-workspace-shell.tsx": shellClientSource(),
     "src/app/components/k-nex-sales-route-runtime.tsx": salesRouteRuntimeClientSource(),
     "src/k-nex-authority.ts": authoritySource(),
-    "src/k-nex-bootstrap-owner.ts": bootstrapOwnerSource(),
+    "src/k-nex-bootstrap-owner.ts": bootstrapOwnerSource(options.primaryCurrency),
     "src/k-nex-bootstrap-token.ts": bootstrapTokenSource(),
     "src/k-nex-doctor.ts": doctorSource(),
     "src/k-nex-identity.ts": identitySource(options.applicationId),

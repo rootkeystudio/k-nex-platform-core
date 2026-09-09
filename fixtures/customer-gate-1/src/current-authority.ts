@@ -155,6 +155,9 @@ export interface FixtureDurableSalesAuthority {
   readonly moduleSalesAuthorizationGeneration: number;
   /** Exact ordered runtime generation IDs from that process-bound authorization generation. */
   readonly moduleSalesRuntimeGenerationIds: readonly string[];
+  /** Revisions carried by the exact process-bound generation row, independent of later RBAC revisions. */
+  readonly moduleSalesGenerationAuthorizationRevision: number;
+  readonly moduleSalesGenerationLifecycleRevision: number;
   /** Exact effective grants retained with a data-movement job for its fenced worker. */
   readonly permissionGrants: readonly string[];
   /** Registered CRM fields whose current field permission is granted. */
@@ -522,8 +525,22 @@ export function createFixtureCurrentAuthority(
       return new EffectiveAuthorityResolver({ store, catalogProvider: catalogProvider(registration, database, staticIdentityProvider, hotRuntimeRegistry, owner) }).authorize(session, request, signal);
     }
   };
+  const currentAuthorityDeadlineMs = 5_000;
   // Fixture authority gives real PostgreSQL resolution the platform's maximum bounded deadline.
-  const adapter = new CurrentAuthorityAdapter<FixtureAuthorityContext>({ current: (context) => sessions.get(context) }, resolver, 5_000);
+  const adapter = new CurrentAuthorityAdapter<FixtureAuthorityContext>({ current: (context) => sessions.get(context) }, resolver, currentAuthorityDeadlineMs);
+  const withinCurrentAuthorityDeadline = async <Value>(operation: Promise<Value>): Promise<Value> => {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        operation,
+        new Promise<never>((_resolve, reject) => {
+          timeout = setTimeout(() => reject(new Error("Current authority resolution timed out.")), currentAuthorityDeadlineMs);
+        })
+      ]);
+    } finally {
+      if (timeout !== undefined) clearTimeout(timeout);
+    }
+  };
   const realtimeContexts = new WeakMap<object, FixtureAuthorityContext>();
   const permissions = new CurrentAuthorityPermissionProjection(adapter, (kind, descriptor) =>
     target(permission, descriptor.permission, `${kind}-${descriptor.id}`));
@@ -548,7 +565,7 @@ export function createFixtureCurrentAuthority(
     canonicalIana(settings.reportingTimezone) &&
     typeof settings.reportingTimezone === "string" && settings.reportingTimezone === left.reportingTimezone && typeof settings.reportingCurrency === "string" && settings.reportingCurrency === left.reportingCurrency &&
     processBound.authorizationGeneration === left.moduleSalesAuthorizationGeneration && JSON.stringify(processBound.runtimeGenerationIds) === JSON.stringify(left.moduleSalesRuntimeGenerationIds) &&
-    processBound.authorizationRevision === left.authorizationRevision && processBound.lifecycleRevision === left.lifecycleRevision &&
+    processBound.authorizationRevision === left.moduleSalesGenerationAuthorizationRevision && processBound.lifecycleRevision === left.moduleSalesGenerationLifecycleRevision &&
     JSON.stringify(effectivePermissionGrants(grants)) === JSON.stringify(left.permissionGrants) &&
     JSON.stringify(effectiveMovementFieldGrants(left.permissionGrants)) === JSON.stringify(left.fieldGrants);
   const fixture: FixtureCurrentAuthority = {
@@ -590,33 +607,32 @@ export function createFixtureCurrentAuthority(
     async resolveDurableSalesAuthority(request, correlationId) {
       const current = fixture.context(request, correlationId);
       const database = pool(request);
-      const [scope, state, grants, settings, processBound] = await Promise.all([
+      const [scope, state, grants, settings, processBound] = await withinCurrentAuthorityDeadline(Promise.all([
         database.query<Record<string, unknown>>("select record_scope, application_wide, mutation_allowed, authorized_team_ids, revision from sales_current_authority_scopes where application_id=$1 and environment=$2 and principal_id=$3 and state='active'", [owner.applicationId, owner.environment, current.actorId]),
         database.query<Record<string, unknown>>("select authorization_revision, lifecycle_revision from k_nex_authorization_state where application_id=$1", [owner.applicationId]),
         database.query<Record<string, unknown>>("select distinct g.permission_id from k_nex_role_assignments a join k_nex_role_permission_grants g on g.application_id=a.application_id and g.role_id=a.role_id where a.application_id=$1 and a.subject_kind='user' and a.subject_id=$2 and a.state='active' order by g.permission_id", [owner.applicationId, current.actorId]),
         database.query<Record<string, unknown>>("select d.descriptor_schema_version,d.document_revision,d.settings_revision,d.values_json from k_nex_system_settings_documents d where d.application_id=$1 and d.environment=$2 and d.descriptor_id='system.general' and d.owner_scope_key='platform:system'", [owner.applicationId, owner.environment]),
         processBoundSalesGeneration(database, staticIdentityProvider, owner)
-      ]);
+      ]));
       const row = scope.rows[0]; const revision = state.rows[0]; const settingsRow = settings.rows[0]; const settingsValues = settingsRow?.values_json;
       if (scope.rows.length !== 1 || state.rows.length !== 1 || row === undefined || revision === undefined ||
         !["owned-or-assigned-team", "managed-teams-and-own", "application-sales-scope", "explicit-application-or-team-scope"].includes(String(row.record_scope)) ||
         typeof row.application_wide !== "boolean" || typeof row.mutation_allowed !== "boolean" || !Array.isArray(row.authorized_team_ids) || row.authorized_team_ids.length > 32 || row.authorized_team_ids.some((teamId) => typeof teamId !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,159}$/u.test(teamId)) || JSON.stringify(row.authorized_team_ids) !== JSON.stringify([...new Set(row.authorized_team_ids)].sort()) ||
-        !Number.isSafeInteger(row.revision) || !Number.isSafeInteger(revision.authorization_revision) || !Number.isSafeInteger(revision.lifecycle_revision) || settings.rows.length !== 1 || settingsRow === undefined || settingsRow.descriptor_schema_version !== 3 || !Number.isSafeInteger(settingsRow.document_revision) || !Number.isSafeInteger(settingsRow.settings_revision) || settingsRow.document_revision !== settingsRow.settings_revision || settingsValues === null || typeof settingsValues !== "object" || Array.isArray(settingsValues) || typeof (settingsValues as Record<string, unknown>).reportingTimezone !== "string" || !canonicalIana((settingsValues as Record<string, unknown>).reportingTimezone) || typeof (settingsValues as Record<string, unknown>).reportingCurrency !== "string" || !/^[A-Z]{3}$/u.test((settingsValues as Record<string, unknown>).reportingCurrency as string) ||
-        processBound.authorizationRevision !== revision.authorization_revision || processBound.lifecycleRevision !== revision.lifecycle_revision) throw new TypeError("Durable Sales authority is unavailable.");
+        !Number.isSafeInteger(row.revision) || !Number.isSafeInteger(revision.authorization_revision) || !Number.isSafeInteger(revision.lifecycle_revision) || settings.rows.length !== 1 || settingsRow === undefined || settingsRow.descriptor_schema_version !== 3 || !Number.isSafeInteger(settingsRow.document_revision) || !Number.isSafeInteger(settingsRow.settings_revision) || settingsRow.document_revision !== settingsRow.settings_revision || settingsValues === null || typeof settingsValues !== "object" || Array.isArray(settingsValues) || typeof (settingsValues as Record<string, unknown>).reportingTimezone !== "string" || !canonicalIana((settingsValues as Record<string, unknown>).reportingTimezone) || typeof (settingsValues as Record<string, unknown>).reportingCurrency !== "string" || !/^[A-Z]{3}$/u.test((settingsValues as Record<string, unknown>).reportingCurrency as string)) throw new TypeError("Durable Sales authority is unavailable.");
       const permissionGrants = effectivePermissionGrants(grants.rows);
-      const resolved = Object.freeze({ context: current, recordScope: row.record_scope as FixtureDurableSalesAuthority["recordScope"], applicationWide: row.application_wide, mutationAllowed: row.mutation_allowed, authorizedTeamIds: Object.freeze(row.authorized_team_ids.map(String)), scopeRevision: row.revision as number, authorizationRevision: revision.authorization_revision as number, lifecycleRevision: revision.lifecycle_revision as number, settingsRevision: settingsRow.settings_revision as number, reportingTimezone: (settingsValues as Record<string, unknown>).reportingTimezone as string, reportingCurrency: (settingsValues as Record<string, unknown>).reportingCurrency as string, moduleSalesAuthorizationGeneration: processBound.authorizationGeneration, moduleSalesRuntimeGenerationIds: processBound.runtimeGenerationIds, permissionGrants, fieldGrants: effectiveMovementFieldGrants(permissionGrants) });
+      const resolved = Object.freeze({ context: current, recordScope: row.record_scope as FixtureDurableSalesAuthority["recordScope"], applicationWide: row.application_wide, mutationAllowed: row.mutation_allowed, authorizedTeamIds: Object.freeze(row.authorized_team_ids.map(String)), scopeRevision: row.revision as number, authorizationRevision: revision.authorization_revision as number, lifecycleRevision: revision.lifecycle_revision as number, settingsRevision: settingsRow.settings_revision as number, reportingTimezone: (settingsValues as Record<string, unknown>).reportingTimezone as string, reportingCurrency: (settingsValues as Record<string, unknown>).reportingCurrency as string, moduleSalesAuthorizationGeneration: processBound.authorizationGeneration, moduleSalesRuntimeGenerationIds: processBound.runtimeGenerationIds, moduleSalesGenerationAuthorizationRevision: processBound.authorizationRevision, moduleSalesGenerationLifecycleRevision: processBound.lifecycleRevision, permissionGrants, fieldGrants: effectiveMovementFieldGrants(permissionGrants) });
       durableContexts.set(request, resolved);
       return resolved;
     },
     async revalidateDurableSalesAuthority(request, durable) {
       const database = pool(request);
-      const [scope, state, grants, settings, processBound] = await Promise.all([
+      const [scope, state, grants, settings, processBound] = await withinCurrentAuthorityDeadline(Promise.all([
         database.query<Record<string, unknown>>("select record_scope, application_wide, mutation_allowed, authorized_team_ids, revision from sales_current_authority_scopes where application_id=$1 and environment=$2 and principal_id=$3 and state='active'", [durable.context.applicationId, durable.context.environment, durable.context.actorId]),
         database.query<Record<string, unknown>>("select authorization_revision, lifecycle_revision from k_nex_authorization_state where application_id=$1", [durable.context.applicationId]),
         database.query<Record<string, unknown>>("select distinct g.permission_id from k_nex_role_assignments a join k_nex_role_permission_grants g on g.application_id=a.application_id and g.role_id=a.role_id where a.application_id=$1 and a.subject_kind='user' and a.subject_id=$2 and a.state='active' order by g.permission_id", [durable.context.applicationId, durable.context.actorId]),
         database.query<Record<string, unknown>>("select d.descriptor_schema_version,d.document_revision,d.settings_revision,d.values_json from k_nex_system_settings_documents d where d.application_id=$1 and d.environment=$2 and d.descriptor_id='system.general' and d.owner_scope_key='platform:system'", [durable.context.applicationId, durable.context.environment]),
         processBoundSalesGeneration(database, staticIdentityProvider, owner)
-      ]);
+      ]));
       const settingsRow = settings.rows[0]; const settingsValues = settingsRow?.values_json;
       const normalizedSettings = settingsRow === undefined || settingsValues === null || typeof settingsValues !== "object" || Array.isArray(settingsValues) ? undefined : { ...settingsRow, reportingTimezone: (settingsValues as Record<string, unknown>).reportingTimezone, reportingCurrency: (settingsValues as Record<string, unknown>).reportingCurrency };
       return scope.rows.length === 1 && state.rows.length === 1 && settings.rows.length === 1 && sameDurableAuthority(durable, scope.rows[0], state.rows[0], normalizedSettings, grants.rows, processBound);
@@ -677,8 +693,9 @@ export function createFixtureCurrentAuthority(
       return target(permission, permissionId, `payload-${collection}-${operation}`);
     },
     payloadAction(actionId, collection, operation) {
-      const permissionId = actionId === "sales.opportunity.stage.update"
-        ? collection === "sales-opportunities" ? "sales.opportunities.stage.update" : undefined
+      const permissionId = actionId === "sales.opportunity.stage.update" || actionId === "sales.opportunity.close"
+        ? collection === "sales-opportunities" ? actionId === "sales.opportunity.close" ? "sales.opportunities.close" : "sales.opportunities.stage.update"
+          : (collection === "sales-pipelines" || collection === "sales-pipeline-stages") && operation === "find" ? actionId === "sales.opportunity.close" ? "sales.opportunities.close" : "sales.opportunities.stage.update" : undefined
         : actionId === "sales.email.send"
           ? collection === "sales-activities" ? "sales.communications.email.send" : collection === "sales-contacts" && operation === "find" ? "sales.contacts.read" : collection === "sales-leads" && operation === "find" ? "sales.leads.read" : undefined
         : actionId === "sales.calendar.sync"
@@ -707,6 +724,7 @@ export function createFixtureCurrentAuthority(
                 : actionId.startsWith("sales.opportunity.") && collection === "sales-opportunities"
                   ? actionId.endsWith(".archive") ? "sales.opportunities.archive" : actionId.endsWith(".close") ? "sales.opportunities.close" : "sales.opportunities.write"
                   : (actionId === "sales.opportunity.create" || actionId === "sales.opportunity.update") && collection === "sales-contacts" && operation === "find" ? "sales.contacts.read"
+                    : actionId === "sales.opportunity.update" && collection === "sales-pipeline-stages" && operation === "find" ? "sales.opportunities.write"
                     : actionId === "sales.opportunity.create" && collection === "sales-accounts" && operation === "find" ? "sales.accounts.read"
                     : actionId === "sales.opportunity.create" && (collection === "sales-pipelines" || collection === "sales-pipeline-stages") && operation === "find" ? "sales.pipelines.read"
                       : actionId === "sales.contact.create" && collection === "sales-accounts" && operation === "find" ? "sales.accounts.read"

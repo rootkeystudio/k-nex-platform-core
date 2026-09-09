@@ -175,10 +175,16 @@ describe("remote UI host session authority", () => {
 
   it("passes the admitted immutable session identity to bounded source and action gateways", async () => {
     const { session, host } = opened();
+    let sourceCalled!: () => void;
+    const sourceCall = new Promise<void>((resolve) => { sourceCalled = resolve; });
+    host.source.mockImplementationOnce(async (_identity, _target, input) => {
+      sourceCalled();
+      return { input };
+    });
     const channel = new MessageChannel();
     session.start(channel.port1 as unknown as MessagePort);
     channel.port2.postMessage(realmFrame(generation(), "request", { operation: "source", requestId: "source-identity-1", targetId: "sales.tasks", input: { page: 1 } }));
-    await tick();
+    await sourceCall;
     expect(host.source).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "remote-session-1", generationId: "sales-generation-1", artifactDigest }), "sales.tasks", { page: 1 }, expect.any(AbortSignal));
     expect(Object.isFrozen(host.source.mock.calls[0]![0])).toBe(true);
     channel.port2.close();
@@ -186,17 +192,23 @@ describe("remote UI host session authority", () => {
 
   it("follows host profile changes without exposing presentation to app identity or frames", async () => {
     const { session, host } = opened();
+    let initialRenderCalled!: () => void;
+    const initialRenderCall = new Promise<void>((resolve) => { initialRenderCalled = resolve; });
+    host.render.mockImplementationOnce(async () => { initialRenderCalled(); });
     const channel = new MessageChannel();
     session.start(channel.port1 as unknown as MessagePort);
     channel.port2.postMessage(realmFrame(generation(), "render", { root }));
-    await tick();
+    await initialRenderCall;
     expect(host.render).toHaveBeenLastCalledWith(root, expect.objectContaining({ profileRevisionId: "profile-revision-1", themeId: "theme.default" }), expect.any(AbortSignal));
     expect(session.identity).not.toHaveProperty("presentation");
 
     await session.updatePresentation({ profileRevisionId: "profile-revision-2", themeId: "theme.contrast", themeVersion: "1.0.0", surface: "admin", mode: "dark" });
     expect(host.render).toHaveBeenLastCalledWith(root, expect.objectContaining({ profileRevisionId: "profile-revision-2", themeId: "theme.contrast", mode: "dark" }), expect.any(AbortSignal));
+    let fallbackCalled!: () => void;
+    const fallbackCall = new Promise<void>((resolve) => { fallbackCalled = resolve; });
+    host.fallback.mockImplementationOnce(async () => { fallbackCalled(); });
     channel.port2.postMessage({ ...realmFrame(generation(), "render", { root, presentation: { themeId: "theme.forged" } }), sequence: 2 });
-    await tick();
+    await fallbackCall;
     expect(host.fallback).toHaveBeenCalledWith("PROTOCOL_FAILURE", expect.any(AbortSignal));
     channel.port2.close();
   });

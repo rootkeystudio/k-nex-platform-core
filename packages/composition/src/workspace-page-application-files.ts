@@ -218,9 +218,11 @@ import {
 import { sql } from "@payloadcms/db-postgres";
 import {
   activePayloadPostgresTransaction,
+  admitTrustedSalesTaskCreateId,
   createPayloadPersistenceCapability,
   CurrentAuthorityPayloadPersistenceAuthorizer,
   PayloadRequestAuthenticator,
+  revokeTrustedSalesTaskCreateId,
   type PayloadPersistenceCapabilityContext
 } from "@k-nex/payload-adapter";
 import { commitTransaction, initTransaction, killTransaction, type Payload, type PayloadRequest } from "payload";
@@ -505,6 +507,27 @@ function authorizationTarget(permissionId: string, recordId: string | undefined,
   });
 }
 
+type SalesPermissionProjection = readonly string[];
+
+async function salesPermissionProjection(payload: Payload, context: KnexRequestContext, current: WorkspaceSalesAuthorization, permissionIds?: readonly string[]): Promise<SalesPermissionProjection> {
+  const descriptors = permissionIds === undefined ? kNexSalesRegistry.permissionDescriptors : kNexSalesRegistry.permissionDescriptors.filter(({ id }) => permissionIds.includes(id));
+  const targets: CurrentAuthorityTarget[] = [];
+  for (const descriptor of descriptors) {
+    const currentTarget = authorizationTarget(descriptor.id, undefined, undefined, current);
+    if (currentTarget === undefined) return Object.freeze([]);
+    targets.push(currentTarget);
+  }
+  const allowed: boolean[] = [];
+  for (let index = 0; index < targets.length; index += 4) {
+    allowed.push(...await Promise.all(targets.slice(index, index + 4).map((currentTarget) => kNexAuthority(payload).adapter.allows(context, currentTarget))));
+  }
+  return Object.freeze(descriptors.flatMap((descriptor, index) => allowed[index] ? [descriptor.id] : []));
+}
+
+function selectPermissionGrants<T extends string>(permissions: SalesPermissionProjection, ids: readonly T[]): readonly T[] {
+  return Object.freeze(ids.filter((permissionId) => permissions.includes(permissionId)));
+}
+
 async function allowed(payload: Payload, context: KnexRequestContext, permissionId: string, recordId?: string, record?: Readonly<{ ownerId?: unknown; teamId?: unknown }>, signal?: AbortSignal, currentAuthorization?: ReturnType<typeof authorization>) {
   if (signal?.aborted) return false;
   const current = currentAuthorization ?? (await actor(payload, context)).authorization;
@@ -575,15 +598,10 @@ async function readSalesReportingAuthority(payload: Payload): Promise<WorkspaceS
   return Object.freeze({ settingsRevision: row.settings_revision as number, reportingTimezone: settings.reportingTimezone as string, reportingCurrency: settings.reportingCurrency });
 }
 
-async function dataMovementFieldGrants(payload: Payload, context: KnexRequestContext, current: WorkspaceSalesAuthorization) {
+function dataMovementFieldGrants(permissions: SalesPermissionProjection) {
   const grants: Array<"sales.object.contact:email" | "sales.object.contact:phone" | "sales.object.lead:email" | "sales.object.lead:phone"> = [];
-  for (const [permissionId, targetObjectType] of [["sales.contacts.channels.read", "sales.object.contact"], ["sales.leads.channels.read", "sales.object.lead"]] as const) {
-    const currentTarget = authorizationTarget(permissionId, undefined, undefined, current);
-    if (currentTarget !== undefined && await kNexAuthority(payload).adapter.allows(context, currentTarget)) {
-      if (targetObjectType === "sales.object.contact") grants.push("sales.object.contact:email", "sales.object.contact:phone");
-      else grants.push("sales.object.lead:email", "sales.object.lead:phone");
-    }
-  }
+  if (permissions.includes("sales.contacts.channels.read")) grants.push("sales.object.contact:email", "sales.object.contact:phone");
+  if (permissions.includes("sales.leads.channels.read")) grants.push("sales.object.lead:email", "sales.object.lead:phone");
   return Object.freeze(grants);
 }
 
@@ -599,52 +617,57 @@ const reportObjectPermissionIds = Object.freeze(["sales.activities.read", "sales
 const reportFieldPermissionIds = Object.freeze(["sales.opportunities.amount.read"] as const);
 
 /** Durable movement work may only retain current, exact permission facts. */
-async function dataMovementPermissionGrants(payload: Payload, context: KnexRequestContext, current: WorkspaceSalesAuthorization) {
-  const grants = await Promise.all(dataMovementPermissionIds.map(async (permissionId) =>
-    await allowed(payload, context, permissionId, undefined, undefined, undefined, current) ? permissionId : undefined
-  ));
-  return Object.freeze(grants.filter((permissionId): permissionId is typeof dataMovementPermissionIds[number] => permissionId !== undefined));
+const workspaceSalesActorRequests = new WeakMap<KnexRequestContext, ReturnType<typeof buildActor>>();
+
+function actor(payload: Payload, context: KnexRequestContext, refresh = false, permissionIds?: readonly string[]): ReturnType<typeof buildActor> {
+  if (!refresh && permissionIds === undefined) {
+    const existing = workspaceSalesActorRequests.get(context);
+    if (existing !== undefined) return existing;
+  }
+  const pending = buildActor(payload, context, permissionIds);
+  if (!refresh && permissionIds === undefined) {
+    workspaceSalesActorRequests.set(context, pending);
+    void pending.catch(() => {
+      if (workspaceSalesActorRequests.get(context) === pending) workspaceSalesActorRequests.delete(context);
+    });
+  }
+  return pending;
 }
 
-async function communicationsPermissionGrants(payload: Payload, context: KnexRequestContext, current: WorkspaceSalesAuthorization) {
-  const grants = await Promise.all(communicationsPermissionIds.map(async (permissionId) =>
-    await allowed(payload, context, permissionId, undefined, undefined, undefined, current) ? permissionId : undefined
-  ));
-  return Object.freeze(grants.filter((permissionId): permissionId is typeof communicationsPermissionIds[number] => permissionId !== undefined));
-}
-async function reportPermissionGrants(payload: Payload, context: KnexRequestContext, current: WorkspaceSalesAuthorization) {
-  const grants = await Promise.all(reportPermissionIds.map(async (permissionId) =>
-    await allowed(payload, context, permissionId, undefined, undefined, undefined, current) ? permissionId : undefined
-  ));
-  return Object.freeze(grants.filter((permissionId): permissionId is typeof reportPermissionIds[number] => permissionId !== undefined));
-}
-async function reportObjectPermissionGrants(payload: Payload, context: KnexRequestContext, current: WorkspaceSalesAuthorization) {
-  const grants = await Promise.all(reportObjectPermissionIds.map(async (permissionId) =>
-    await allowed(payload, context, permissionId, undefined, undefined, undefined, current) ? permissionId : undefined
-  ));
-  return Object.freeze(grants.filter((permissionId): permissionId is typeof reportObjectPermissionIds[number] => permissionId !== undefined));
-}
-async function reportFieldPermissionGrants(payload: Payload, context: KnexRequestContext, current: WorkspaceSalesAuthorization) {
-  const grants = await Promise.all(reportFieldPermissionIds.map(async (permissionId) =>
-    await allowed(payload, context, permissionId, undefined, undefined, undefined, current) ? permissionId : undefined
-  ));
-  return Object.freeze(grants.filter((permissionId): permissionId is typeof reportFieldPermissionIds[number] => permissionId !== undefined));
+async function buildActor(payload: Payload, context: KnexRequestContext, permissionIds?: readonly string[]) {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      return await buildActorAttempt(payload, context, permissionIds);
+    } catch (error) {
+      if (!(error instanceof SalesPermissionProjectionRevisionChangedError) || attempt === 1) throw error;
+    }
+  }
+  throw new TypeError("Sales current authority projection retry is unavailable.");
 }
 
-async function actor(payload: Payload, context: KnexRequestContext) {
+class SalesPermissionProjectionRevisionChangedError extends TypeError {
+  constructor() {
+    super("Sales current authority changed during permission projection.");
+  }
+}
+
+async function buildActorAttempt(payload: Payload, context: KnexRequestContext, permissionIds?: readonly string[]) {
   const authentication = await currentPayloadAuthentication(payload, context);
   const user = authentication.user;
   if (typeof user !== "object" || user === null || !("id" in user) || user.id === undefined || user.id === null) throw new TypeError("Sales authentication is unavailable.");
   const [salesScope, authority, reportingAuthority, activeGeneration] = await Promise.all([readSalesScope(payload, String(user.id)), readSalesAuthority(payload), readSalesReportingAuthority(payload), currentSalesGeneration(payload)]);
   const current = authorization(user, salesScope, authority);
-  const [fieldGrants, permissionGrants, communicationsPermissions, reportPermissions, reportObjectPermissions, reportFieldPermissions] = await Promise.all([
-    dataMovementFieldGrants(payload, context, current),
-    dataMovementPermissionGrants(payload, context, current),
-    communicationsPermissionGrants(payload, context, current),
-    reportPermissionGrants(payload, context, current),
-    reportObjectPermissionGrants(payload, context, current),
-    reportFieldPermissionGrants(payload, context, current)
-  ]);
+  const permissions = await salesPermissionProjection(payload, context, current, permissionIds);
+  const [finalSalesScope, finalAuthority] = await Promise.all([readSalesScope(payload, current.effectiveActor.id), readSalesAuthority(payload)]);
+  if (finalSalesScope.revision !== current.salesScope.revision || finalAuthority.authorizationRevision !== current.authorizationRevision || finalAuthority.lifecycleRevision !== current.lifecycleRevision) {
+    throw new SalesPermissionProjectionRevisionChangedError();
+  }
+  const fieldGrants = dataMovementFieldGrants(permissions);
+  const permissionGrants = selectPermissionGrants(permissions, dataMovementPermissionIds);
+  const communicationsPermissions = selectPermissionGrants(permissions, communicationsPermissionIds);
+  const reportPermissions = selectPermissionGrants(permissions, reportPermissionIds);
+  const reportObjectPermissions = selectPermissionGrants(permissions, reportObjectPermissionIds);
+  const reportFieldPermissions = selectPermissionGrants(permissions, reportFieldPermissionIds);
   const generation = activeGeneration.generation;
   const runtimeGenerationId = generation !== undefined && generation.runtimeGenerationIds.length === 1 ? generation.runtimeGenerationIds[0] : undefined;
   if (typeof runtimeGenerationId !== "string" || runtimeGenerationId.length < 1 || runtimeGenerationId.length > 160) throw new TypeError("Sales reporting generation is unavailable.");
@@ -666,7 +689,7 @@ async function actor(payload: Payload, context: KnexRequestContext) {
   request.providerConfigurationReadGateway = providerConfigurationReadGateway;
   request.reportingAuthority = Object.freeze({ authorizationRevision: current.authorizationRevision, lifecycleRevision: current.lifecycleRevision, salesScopeRevision: current.salesScope.revision, ...reportingAuthority, runtimeGenerationId, reportPermissionGrants: reportPermissions, objectPermissionGrants: reportObjectPermissions, fieldPermissionGrants: reportFieldPermissions });
   request.reporting = reporting;
-  return { authorization: current, request, dataMovement, providerGateway, providerConfigurationReadGateway, reporting, reportingAuthority: request.reportingAuthority, reportAdmission };
+  return { authorization: current, permissions, request, dataMovement, providerGateway, providerConfigurationReadGateway, reporting, reportingAuthority: request.reportingAuthority, reportAdmission };
 }
 
 /** Artifact/download paths reuse same current actor/scope/grant admission as interactive reports. */
@@ -702,7 +725,7 @@ export async function resolveMergedSalesDetailRedirect(payload: Payload, context
   if (loser.status !== "merged" || typeof loser.mergedIntoId !== "string" || !/^[1-9][0-9]{0,9}$/u.test(loser.mergedIntoId)) return undefined;
   const winner = await read(loser.mergedIntoId);
   if (winner === undefined || !await allowed(payload, context, detail.permission, loser.mergedIntoId, winner, undefined, current)) throw new TypeError("Merged Sales winner is denied.");
-  const rechecked = (await actor(payload, context)).authorization;
+  const rechecked = (await actor(payload, context, true)).authorization;
   if (rechecked.authorizationRevision !== current.authorizationRevision || rechecked.lifecycleRevision !== current.lifecycleRevision || rechecked.salesScope.revision !== current.salesScope.revision ||
     !await allowed(payload, context, detail.permission, id, loser, undefined, rechecked) || !await allowed(payload, context, detail.permission, loser.mergedIntoId, winner, undefined, rechecked)) throw new TypeError("Merged Sales authority changed.");
   return detail.path + encodeURIComponent(loser.mergedIntoId);
@@ -713,7 +736,7 @@ function salesActionGrant(actionId: string) {
   if (actionId.startsWith("sales.export.")) return Object.freeze({ collection: "sales-export-jobs", operations: Object.freeze(["find"] as const), permissionId: "sales.exports.execute" });
   if (actionId === "sales.merge.commit") return Object.freeze({ collection: "sales-merge-lineage", operations: Object.freeze(["find"] as const), permissionId: "sales.records.merge" });
   if (actionId === "sales.ownership.assign") return Object.freeze({ collection: "sales-accounts", operations: Object.freeze(["find", "update"] as const), permissionId: "sales.ownership.write" });
-  if (actionId === "sales.task.create") return Object.freeze({ collection: "sales-tasks", operations: Object.freeze(["create", "update"] as const), permissionId: "sales.tasks.write" });
+  if (actionId === "sales.task.create") return Object.freeze({ collection: "sales-tasks", operations: Object.freeze(["create"] as const), permissionId: "sales.tasks.write" });
   if (actionId === "sales.task.update") return Object.freeze({ collection: "sales-tasks", operations: Object.freeze(["find", "update"] as const), permissionId: "sales.tasks.write" });
   if (actionId === "sales.opportunity.stage.update") return Object.freeze({ collection: "sales-opportunities", operations: Object.freeze(["find", "update"] as const), permissionId: "sales.opportunities.stage.update" });
   if (actionId.startsWith("sales.pipeline.")) return Object.freeze({ collection: "sales-pipelines", operations: Object.freeze(["find", "update"] as const), permissionId: "sales.pipelines.configure" });
@@ -738,6 +761,14 @@ function salesActionGrant(actionId: string) {
   throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales action persistence is unavailable.");
 }
 
+/** Interactive CRUD actions only need their own current permission; gateway-backed actions retain their full grant projection. */
+function salesActionActorPermissionIds(actionId: string): readonly string[] | undefined {
+  if (actionId.startsWith("sales.import.") || actionId.startsWith("sales.export.") || actionId === "sales.merge.commit") return undefined;
+  if (actionId === "sales.report.run" || actionId === "sales.report.schedule") return Object.freeze([...new Set([...reportPermissionIds, ...reportObjectPermissionIds, ...reportFieldPermissionIds])]);
+  if (actionId === "sales.email.send" || actionId === "sales.calendar.sync" || actionId === "sales.integration.configure") return communicationsPermissionIds;
+  return Object.freeze([salesActionGrant(actionId).permissionId]);
+}
+
 function salesActionCapabilityGrants(actionId: string) {
   const primary = salesActionGrant(actionId);
   if (actionId === "sales.pipeline.update") return [primary, Object.freeze({ collection: "sales-pipeline-stages", operations: Object.freeze(["find", "update"] as const), permissionId: "sales.pipelines.configure" })];
@@ -758,8 +789,10 @@ function salesActionCapabilityGrants(actionId: string) {
     Object.freeze({ collection: "sales-opportunities", operations: Object.freeze(["create", "update"] as const), permissionId: "sales.opportunities.write" }), Object.freeze({ collection: "sales-pipelines", operations: Object.freeze(["find"] as const), permissionId: "sales.pipelines.read" }), Object.freeze({ collection: "sales-pipeline-stages", operations: Object.freeze(["find"] as const), permissionId: "sales.pipelines.read" })];
   if (actionId === "sales.contact.create") return [primary, Object.freeze({ collection: "sales-accounts", operations: Object.freeze(["find"] as const), permissionId: "sales.accounts.read" })];
   if (actionId === "sales.opportunity.create") return [primary, Object.freeze({ collection: "sales-accounts", operations: Object.freeze(["find"] as const), permissionId: "sales.accounts.read" }), Object.freeze({ collection: "sales-contacts", operations: Object.freeze(["find"] as const), permissionId: "sales.contacts.read" }), Object.freeze({ collection: "sales-pipelines", operations: Object.freeze(["find"] as const), permissionId: "sales.pipelines.read" }), Object.freeze({ collection: "sales-pipeline-stages", operations: Object.freeze(["find"] as const), permissionId: "sales.pipelines.read" })];
-  if (actionId === "sales.opportunity.stage.update") return [primary, Object.freeze({ collection: "sales-pipelines", operations: Object.freeze(["find"] as const), permissionId: "sales.pipelines.read" }), Object.freeze({ collection: "sales-pipeline-stages", operations: Object.freeze(["find"] as const), permissionId: "sales.pipelines.read" })];
-  if (actionId === "sales.opportunity.update") return [primary, Object.freeze({ collection: "sales-contacts", operations: Object.freeze(["find"] as const), permissionId: "sales.contacts.read" })];
+  if (actionId === "sales.opportunity.stage.update" || actionId === "sales.opportunity.close") return [primary,
+    Object.freeze({ collection: "sales-pipelines", operations: Object.freeze(["find"] as const), permissionId: primary.permissionId }),
+    Object.freeze({ collection: "sales-pipeline-stages", operations: Object.freeze(["find"] as const), permissionId: primary.permissionId })];
+  if (actionId === "sales.opportunity.update") return [primary, Object.freeze({ collection: "sales-contacts", operations: Object.freeze(["find"] as const), permissionId: "sales.contacts.read" }), Object.freeze({ collection: "sales-pipeline-stages", operations: Object.freeze(["find"] as const), permissionId: primary.permissionId })];
   if (actionId === "sales.note.create") return [primary, Object.freeze({ collection: "sales-notes", operations: Object.freeze(["find"] as const), permissionId: "sales.notes.read" }), ...relatedTargets];
   if (actionId === "sales.email.send") return [primary,
     Object.freeze({ collection: "sales-contacts", operations: Object.freeze(["find"] as const), permissionId: "sales.contacts.read" }),
@@ -871,6 +904,23 @@ async function completeSalesActionIdempotency(input: SalesActionIdempotency, cur
     RETURNING "idempotency_key"
   \`));
   if (completed.length !== 1) throw new Error("Sales action idempotency finalization was lost.");
+}
+
+/** The host, not the caller or Sales module, reserves the numeric identity before the one create. */
+async function reserveSalesTaskId(request: PayloadRequest): Promise<string> {
+  const transaction = await activePayloadPostgresTransaction(request);
+  const rows = postgresRows(await transaction.execute(sql\`
+    SELECT nextval(pg_get_serial_sequence('public.sales_tasks', 'id')) AS "id"
+  \`));
+  if (rows.length !== 1 || rows[0] === null || typeof rows[0] !== "object" || Array.isArray(rows[0])) {
+    throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales task ID allocation is unavailable.");
+  }
+  const rawId = (rows[0] as Record<string, unknown>).id;
+  const id = typeof rawId === "number" ? rawId : typeof rawId === "string" && /^[1-9][0-9]*$/u.test(rawId) ? Number(rawId) : undefined;
+  if (typeof id !== "number" || !Number.isSafeInteger(id) || id < 1 || id > 2_147_483_647) {
+    throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales task ID allocation is invalid.");
+  }
+  return String(id);
 }
 
 async function lockSalesActionTarget(request: PayloadRequest, current: ReturnType<typeof authorization>, input: Readonly<Record<string, unknown>>): Promise<boolean> {
@@ -1127,18 +1177,9 @@ async function salesOwnershipAdmission(request: PayloadRequest, current: ReturnT
 }
 
 export async function workspaceSalesPermissions(payload: Payload, context: KnexRequestContext, signal?: AbortSignal) {
-  const current = (await actor(payload, context)).authorization;
-  const targets: CurrentAuthorityTarget[] = [];
-  for (const descriptor of kNexSalesRegistry.permissionDescriptors) {
-    const currentTarget = authorizationTarget(descriptor.id, undefined, undefined, current);
-    if (currentTarget === undefined) return [];
-    targets.push(currentTarget);
-  }
-  const allowed: boolean[] = [];
-  for (let index = 0; index < targets.length; index += 4) {
-    allowed.push(...await Promise.all(targets.slice(index, index + 4).map((currentTarget) => kNexAuthority(payload).adapter.allows(context, currentTarget, signal))));
-  }
-  return Object.freeze(kNexSalesRegistry.permissionDescriptors.flatMap((descriptor, index) => allowed[index] ? [descriptor.id] : []));
+  if (signal?.aborted) return Object.freeze([]);
+  const permissions = (await actor(payload, context)).permissions;
+  return signal?.aborted ? Object.freeze([]) : permissions;
 }
 
 function savedViewMetadataWhere(current: WorkspaceSalesAuthorization) {
@@ -1205,7 +1246,12 @@ function workspaceSalesGateway(payload: Payload, context: KnexRequestContext, pe
                       : collection === "sales-attachment-references" && operation === "find" ? "sales.attachments.read"
                         : collection === "sales-notifications" && operation === "find" ? "sales.notifications.read"
                           : collection === "sales-reminders" && operation === "find" ? "sales.reminders.read" : undefined;
-          const extendedPermissionId = permissionId ?? (collection === "sales-pipelines" || collection === "sales-pipeline-stages" ? "sales.pipelines.read" : collection === "sales-saved-views" ? "sales.saved-views.read" : undefined);
+          // Opportunity rows expose only authorized stage presentation and opaque
+          // concurrency tokens; loading them must not grant pipeline administration.
+          if (collection === "sales-pipelines" || collection === "sales-pipeline-stages") {
+            return permissions.includes("sales.pipelines.read") || permissions.includes("sales.opportunities.read");
+          }
+          const extendedPermissionId = permissionId ?? (collection === "sales-saved-views" ? "sales.saved-views.read" : undefined);
           return extendedPermissionId !== undefined && permissions.includes(extendedPermissionId);
         } });
         const executionAuthority = plan?.metadataScope !== undefined && plan.targetRecordScope !== undefined && plan.fieldAuthority !== undefined
@@ -1618,9 +1664,10 @@ export async function executeWorkspaceSalesAction(payload: Payload, context: Kne
   let idempotency: SalesActionIdempotency | undefined;
   let currentAuthorization: ReturnType<typeof authorization> | undefined;
   let actionReportingTimezone: LockedSalesReportingTimezone | undefined;
+  let trustedTaskCreateRequest: PayloadRequest | undefined;
   const gateway = new RegisteredActionGateway(kNexSalesRegistry.scopedRegistration, {
     async authenticate(request) {
-      const current = await actor(payload, context);
+      const current = await actor(payload, context, false, salesActionActorPermissionIds(action.id));
       persistence = salesActionCapability(payload, context, current.request, action.id, current.authorization);
       idempotency = { request: current.request, actionId: action.id, idempotencyKey: request.idempotencyKey ?? "", requestDigest: actionDigest({ actionId: action.id, input: request.input }) };
       currentAuthorization = current.authorization;
@@ -1719,7 +1766,7 @@ export async function executeWorkspaceSalesAction(payload: Payload, context: Kne
       resourceId = accountId;
       record = await salesActionRecord(capability, "sales-accounts", resourceId, current);
     }
-    if (!await allowed(payload, context, action.descriptor.permission, resourceId, record)) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Current authority does not permit this action.");
+    if (!await allowed(payload, context, action.descriptor.permission, resourceId, record, undefined, current)) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Current authority does not permit this action.");
     if ((action.descriptor.id === "sales.opportunity.create" && typeof actionInput.primaryContactId === "string") || (action.descriptor.id === "sales.opportunity.update" && actionInput.primaryContactMode === "set" && typeof actionInput.primaryContactId === "string")) {
       const contactId = actionInput.primaryContactId as string;
       if (await capability.guard({ collection: "sales-contacts", id: contactId, operation: "find" }) !== true) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales opportunity contact is unavailable.");
@@ -1773,6 +1820,11 @@ export async function executeWorkspaceSalesAction(payload: Payload, context: Kne
       ? Object.freeze({ ownerId: savedViewCurrent?.ownerId ?? actorId, visibility: destinationKind, visibilityTeamId: destinationKind === "team" ? destinationTeamId as string : null }) : undefined;
     if ((action.descriptor.id === "sales.saved-view.update" || action.descriptor.id === "sales.saved-view.archive") && savedViewCurrent === undefined || (action.descriptor.id === "sales.saved-view.create" || action.descriptor.id === "sales.saved-view.update") && savedViewDestination === undefined) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales Saved View authority is unavailable.");
     const replay = await reserveSalesActionIdempotency(idempotency, currentAuthorization);
+    if (action.descriptor.id === "sales.task.create" && replay === undefined) {
+      resourceId = await reserveSalesTaskId(idempotency.request);
+      await admitTrustedSalesTaskCreateId(idempotency.request, { id: Number(resourceId), resourceId });
+      trustedTaskCreateRequest = idempotency.request;
+    }
     return Object.freeze({ actionId: action.descriptor.id, applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment, actorId,
       authorizationRevision: current.authorizationRevision,
       lifecycleRevision: current.lifecycleRevision,
@@ -1806,6 +1858,8 @@ export async function executeWorkspaceSalesAction(payload: Payload, context: Kne
   } catch (error) {
     await persistence?.transaction.rollback();
     throw error;
+  } finally {
+    if (trustedTaskCreateRequest !== undefined) revokeTrustedSalesTaskCreateId(trustedTaskCreateRequest);
   }
 }
 `;
@@ -2246,14 +2300,18 @@ function contribution(kind: "blocks" | "sources" | "actions", id: string, versio
   return value !== undefined && value.version === version ? value : undefined;
 }
 
-async function workspaceBuilderProfile(payload: Payload, context: KnexRequestContext, signal: AbortSignal) {
+async function workspaceBuilderProfile(payload: Payload, context: KnexRequestContext, signal: AbortSignal, salesRequired = true) {
   if (signal.aborted) throw new TypeError("Workspace document validation was revoked.");
+  if (!salesRequired) return createAuthorizedPuckBuilderProfile({
+    profile: "workspace", publication: "save-layout", blocks: genericPuckBlockBridges, sources: [],
+    authority: { blocks: genericPuckBlockBridges.map(({ definition }) => ({ id: definition.id, version: definition.version })), sources: [], actions: [] }
+  });
   const permissions = new Set(await workspaceSalesPermissions(payload, context, signal));
   if (signal.aborted) throw new TypeError("Workspace document validation was revoked.");
   const sources = [salesOpportunitiesDescriptor, salesTasksDescriptor, salesPipelineSnapshotDescriptor, salesSavedViewListDescriptor, salesSavedViewDetailDescriptor, salesSavedViewTableDescriptor, salesSavedViewKanbanDescriptor, salesSavedViewCalendarDescriptor, salesPipelineValueByStageDescriptor, salesWeightedForecastDescriptor, salesWonLostConversionDescriptor, salesLeadConversionDescriptor, salesActivityByOwnerTeamDescriptor, salesTaskAgingDescriptor, salesSalesCycleDurationDescriptor].flatMap((candidate) => {
     const registered = contribution("sources", candidate.id, candidate.version) as typeof candidate | undefined;
     if (registered === undefined || registered.id !== candidate.id || registered.version !== candidate.version || !permissions.has(registered.permission)) return [];
-    return [{ ...registered, ...(registered.outputFields === undefined ? {} : { outputFields: registered.outputFields.filter(({ permission }) => permissions.has(permission)) }) }];
+    return [registered];
   });
   const actions = [salesTaskCreateDescriptor, salesTaskUpdateDescriptor, salesOpportunityStageUpdateDescriptor, salesPipelineUpdateDescriptor, salesPipelineArchiveDescriptor, salesSavedViewCreateDescriptor, salesSavedViewUpdateDescriptor, salesSavedViewArchiveDescriptor, salesReportRunDescriptor, salesReportScheduleDescriptor].flatMap((candidate) => {
     const registered = contribution("actions", candidate.id, candidate.version) as typeof candidate | undefined;
@@ -2273,12 +2331,12 @@ async function workspaceBuilderProfile(payload: Payload, context: KnexRequestCon
 function workspaceDocumentValidator(payload: Payload): WorkspacePageDocumentValidator<KnexRequestContext> {
   return {
     async validateChange({ context, previous, document, signal }) {
-      const profile = await workspaceBuilderProfile(payload, context, signal);
+      const profile = await workspaceBuilderProfile(payload, context, signal, usesSales(previous) || usesSales(document));
       profile.validateChange(admittedWorkspaceSalesDocument(previous), { ...admittedWorkspaceSalesDocument(document), version: previous.version });
       profile.validateDocument(admittedWorkspaceSalesDocument(document));
       return document;
     },
-    async validateDocument({ context, document, signal }) { (await workspaceBuilderProfile(payload, context, signal)).validateDocument(admittedWorkspaceSalesDocument(document)); return document; }
+    async validateDocument({ context, document, signal }) { (await workspaceBuilderProfile(payload, context, signal, usesSales(document))).validateDocument(admittedWorkspaceSalesDocument(document)); return document; }
   };
 }
 
@@ -2489,8 +2547,12 @@ export async function loadWorkspacePageViewProjection(payload: Payload, context:
   try {
     const detail = session.detail;
     if (detail.page.state !== "published" || detail.impact.state !== "ready" || detail.publication === undefined) throw new TypeError("Workspace page publication is unavailable.");
-    const permissions = await workspaceSalesPermissions(payload, context, session.signal);
-    const projection = await projectWorkspaceSalesDocument(payload, context, detail.publication.revision.document, permissions, session.signal, Object.freeze({}), pageNumber, undefined, "table", pageNodeId);
+    const persistedDocument = detail.publication.revision.document;
+    const salesRequired = usesSales(persistedDocument);
+    const permissions = salesRequired ? await workspaceSalesPermissions(payload, context, session.signal) : Object.freeze([] as string[]);
+    const projection = salesRequired
+      ? await projectWorkspaceSalesDocument(payload, context, persistedDocument, permissions, session.signal, Object.freeze({}), pageNumber, undefined, "table", pageNodeId)
+      : Object.freeze({ document: persistedDocument, sourceResults: Object.freeze({}) });
     const document = projection.document;
     if (session.signal.aborted) throw new TypeError("Workspace page projection was invalidated.");
     const sourceResults = projection.sourceResults;
@@ -2506,13 +2568,14 @@ export async function loadWorkspacePageEditorProjection(payload: Payload, contex
   try {
     const detail = session.detail;
     if (detail.workingCopy === undefined) throw new TypeError("Workspace page working copy is unavailable.");
-    const permissions = await workspaceSalesPermissions(payload, context, session.signal);
+    const salesEnabled = usesSales(detail.workingCopy.document) || await currentSalesGeneration(payload).catch(() => undefined) !== undefined;
+    const permissions = salesEnabled ? await workspaceSalesPermissions(payload, context, session.signal) : Object.freeze([] as string[]);
     const sources = [salesOpportunitiesDescriptor, salesTasksDescriptor, salesPipelineSnapshotDescriptor, salesSavedViewListDescriptor, salesSavedViewDetailDescriptor, salesSavedViewTableDescriptor, salesSavedViewKanbanDescriptor, salesSavedViewCalendarDescriptor, salesPipelineValueByStageDescriptor, salesWeightedForecastDescriptor, salesWonLostConversionDescriptor, salesLeadConversionDescriptor, salesActivityByOwnerTeamDescriptor, salesTaskAgingDescriptor, salesSalesCycleDurationDescriptor];
     const actions = [salesTaskCreateDescriptor, salesTaskUpdateDescriptor, salesOpportunityStageUpdateDescriptor, salesPipelineUpdateDescriptor, salesPipelineArchiveDescriptor, salesSavedViewCreateDescriptor, salesSavedViewUpdateDescriptor, salesSavedViewArchiveDescriptor, salesReportRunDescriptor, salesReportScheduleDescriptor];
     const authority = Object.freeze({
-      blocks: [...genericPuckBlockBridges, ...salesPuckBlockBridges.filter(({ definition }) => definition.permission === undefined || permissions.includes(definition.permission))].map(({ definition }) => ({ id: definition.id, version: definition.version })),
-      sources: sources.filter(({ permission }) => permissions.includes(permission)).map(({ id, version }) => ({ id, version })),
-      actions: actions.filter(({ permission }) => permissions.includes(permission)).map(({ id, version }) => ({ id, version }))
+      blocks: [...genericPuckBlockBridges, ...(salesEnabled ? salesPuckBlockBridges.filter(({ definition }) => definition.permission === undefined || permissions.includes(definition.permission)) : [])].map(({ definition }) => ({ id: definition.id, version: definition.version })),
+      sources: salesEnabled ? sources.filter(({ permission }) => permissions.includes(permission)).map(({ id, version }) => ({ id, version })) : [],
+      actions: salesEnabled ? actions.filter(({ permission }) => permissions.includes(permission)).map(({ id, version }) => ({ id, version })) : []
     });
     const rollbackIds = [detail.publication?.pointer.publishedRevisionId, detail.publication?.pointer.previousPublishedRevisionId].filter((id): id is string => id !== undefined);
     if (session.signal.aborted) throw new TypeError("Workspace editor projection was invalidated.");

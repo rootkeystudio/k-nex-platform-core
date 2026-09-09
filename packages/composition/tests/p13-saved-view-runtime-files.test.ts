@@ -167,6 +167,7 @@ describe("generated P13.4 Saved View runtime closure", () => {
     ) as (request: Request, context: unknown) => Promise<Response>;
     const response = await get(new Request("https://example.test/api/k-nex/sales/routes/sales.route.opportunities?page=1&mode=kanban"), { params: Promise.resolve({ routeId: "sales.route.opportunities" }) });
     expect(response.status).toBe(200);
+    expect(response.headers.get("server-timing")).toMatch(/^knex;dur=(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/u);
     expect(admitted[0]).toEqual({ routeId: "sales.route.opportunities", pagination: { listPage: 1 }, selection: { mode: "kanban" } });
     const pipelineResponse = await get(new Request("https://example.test/api/k-nex/sales/routes/sales.route.pipeline-settings?page=1"), { params: Promise.resolve({ routeId: "sales.route.pipeline-settings" }) });
     expect(pipelineResponse.status).toBe(200);
@@ -348,7 +349,7 @@ describe("generated P13.4 Saved View runtime closure", () => {
     expect(sales).toContain('const expectedKeys = node.type === "sales.opportunity-kanban" ? "title" : "";');
     expect(sales).toContain('throw new TypeError("Saved View block props are invalid.")');
     expect(sales).toContain("savedViewExecutionStates.set(resolved");
-    expect(host).toContain('projectWorkspaceSalesDocument(payload, context, detail.publication.revision.document, permissions, session.signal, Object.freeze({}), pageNumber, undefined, "table", pageNodeId)');
+    expect(host).toContain('projectWorkspaceSalesDocument(payload, context, persistedDocument, permissions, session.signal, Object.freeze({}), pageNumber, undefined, "table", pageNodeId)');
     expect(host).toContain("return Object.freeze({ document, permissions, sourceResults");
     const client = files["src/app/components/k-nex-workspace-page-runtime.tsx"]!;
     expect(client).toContain('window.addEventListener("k-nex:sales-page-change", changePage)');

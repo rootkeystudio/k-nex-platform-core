@@ -8,8 +8,10 @@ import {
 import { sql } from "@payloadcms/db-postgres";
 import {
   activePayloadPostgresTransaction,
+  admitTrustedSalesTaskCreateId,
   createPayloadPersistenceCapability,
   CurrentAuthorityPayloadPersistenceAuthorizer,
+  revokeTrustedSalesTaskCreateId,
   type RuntimeExtensionPool,
   type PayloadPersistenceCapabilityContext
 } from "@k-nex/payload-adapter";
@@ -32,21 +34,24 @@ interface CapabilityRequest {
   guard(input: Readonly<Record<string, unknown>>): Promise<boolean>;
 }
 interface ActionOperation { readonly request: PayloadRequest; readonly actionId: string; readonly key: string; readonly digest: string; readonly durable: FixtureDurableSalesAuthority; replay?: unknown; }
+interface PendingActionOperation { readonly request: PayloadRequest; readonly actionId: string; readonly key: string; readonly digest: string; durable?: FixtureDurableSalesAuthority; replay?: unknown; }
 
-type FixtureActionAuthorizationContext = FixtureAuthorityContext & Readonly<{
-  authorizationRevision: number;
-  lifecycleRevision: number;
-  salesScopeRevision: number;
-}>;
+function authorizedOperation(operation: PendingActionOperation | undefined): ActionOperation {
+  if (operation?.durable === undefined) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales current authority is unavailable.");
+  return operation as ActionOperation;
+}
 
-function actionAuthorizationContext(context: FixtureAuthorityContext, durable: FixtureDurableSalesAuthority): FixtureActionAuthorizationContext {
+function actionAuthorizationContext(context: FixtureAuthorityContext, durable: FixtureDurableSalesAuthority): FixtureAuthorityContext {
   const { authorizationRevision, lifecycleRevision, scopeRevision } = durable;
   if (!Number.isSafeInteger(authorizationRevision) || authorizationRevision < 1 ||
     !Number.isSafeInteger(lifecycleRevision) || lifecycleRevision < 0 ||
     !Number.isSafeInteger(scopeRevision) || scopeRevision < 1) {
     throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales current-authority revisions are unavailable.");
   }
-  return Object.freeze({ ...context, authorizationRevision, lifecycleRevision, salesScopeRevision: scopeRevision });
+  // CurrentAuthority sessions are keyed by the opaque request context. The
+  // durable revisions are fenced separately below; cloning this context would
+  // discard the trusted session binding before the gateway can authorize.
+  return context;
 }
 
 function digest(value: unknown) { return `sha256:${createHash("sha256").update(canonicalJson(value)).digest("hex")}`; }
@@ -65,6 +70,20 @@ async function reserve(operation: ActionOperation): Promise<void> {
 async function complete(operation: ActionOperation, data: unknown): Promise<void> {
   const transaction = await activePayloadPostgresTransaction(operation.request); const result = { state: "succeeded", data };
   if (resultRows(await transaction.execute(sql`UPDATE "sales_action_idempotency" SET "result_json"=${JSON.stringify(result)}::jsonb,"result_digest"=${digest(result)} WHERE "application_id"=${operation.durable.context.applicationId} AND "environment"=${operation.durable.context.environment} AND "effective_actor_id"=${operation.durable.context.actorId} AND "action_id"=${operation.actionId} AND "idempotency_key"=${operation.key} AND "request_digest"=${operation.digest} AND "result_json"='{"state":"pending"}'::jsonb RETURNING "idempotency_key"`)).length !== 1) throw new Error("Sales action idempotency finalization was lost.");
+}
+
+async function reserveSalesTaskId(request: PayloadRequest): Promise<string> {
+  const transaction = await activePayloadPostgresTransaction(request);
+  const rows = resultRows(await transaction.execute(sql`SELECT nextval(pg_get_serial_sequence('public.sales_tasks', 'id')) AS "id"`));
+  if (rows.length !== 1 || rows[0] === null || typeof rows[0] !== "object" || Array.isArray(rows[0])) {
+    throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales task ID allocation is unavailable.");
+  }
+  const rawId = (rows[0] as Record<string, unknown>).id;
+  const id = typeof rawId === "number" ? rawId : typeof rawId === "string" && /^[1-9][0-9]*$/u.test(rawId) ? Number(rawId) : undefined;
+  if (!Number.isSafeInteger(id) || (id as number) < 1 || (id as number) > 2_147_483_647) {
+    throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales task ID allocation is invalid.");
+  }
+  return String(id);
 }
 
 function actor(request: PayloadRequest) {
@@ -96,9 +115,9 @@ function actionGrants(actionId: string) {
     { collection: "sales-accounts", operations: ["find", "update"] }, { collection: "sales-contacts", operations: ["find", "update"] },
     { collection: "sales-leads", operations: ["find", "update"] }, { collection: "sales-opportunities", operations: ["find", "update"] }
   ] as const;
-  if (actionId === "sales.task.create") return [{ collection: "sales-tasks", operations: ["create", "update"] }] as const;
+  if (actionId === "sales.task.create") return [{ collection: "sales-tasks", operations: ["create"] }] as const;
   if (actionId === "sales.task.update") return [{ collection: "sales-tasks", operations: ["find", "update"] }] as const;
-  if (actionId === "sales.opportunity.stage.update") return [
+  if (actionId === "sales.opportunity.stage.update" || actionId === "sales.opportunity.close") return [
     { collection: "sales-opportunities", operations: ["find", "update"] },
     { collection: "sales-pipelines", operations: ["find"] },
     { collection: "sales-pipeline-stages", operations: ["find"] }
@@ -122,7 +141,7 @@ function actionGrants(actionId: string) {
     : actionId === "sales.opportunity.create"
       ? [{ collection: "sales-accounts", operations: ["find"] as const }, { collection: "sales-contacts", operations: ["find"] as const }, { collection: "sales-pipelines", operations: ["find"] as const }, { collection: "sales-pipeline-stages", operations: ["find"] as const }]
       : actionId === "sales.opportunity.update"
-        ? [{ collection: "sales-contacts", operations: ["find"] as const }]
+        ? [{ collection: "sales-contacts", operations: ["find"] as const }, { collection: "sales-pipeline-stages", operations: ["find"] as const }]
       : [] as const;
   return [{ collection, operations }, ...related, ...references] as const;
 }
@@ -517,8 +536,9 @@ async function authorize(authority: FixtureCurrentAuthority, actionId: string, i
 
 export function createActionEndpoint(registration: ScopedRegistrationResult, authority: FixtureCurrentAuthority): Endpoint {
   const scopedRequests = new WeakMap<PayloadRequest, PayloadPersistenceCapabilityContext>();
-  const operations = new WeakMap<PayloadRequest, ActionOperation>();
+  const operations = new WeakMap<PayloadRequest, PendingActionOperation>();
   const capabilityOperations = new WeakMap<PayloadPersistenceCapabilityContext, ActionOperation>();
+  const trustedTaskCreateRequests = new WeakSet<PayloadRequest>();
   const policy = new CurrentAuthorityActionGatewayPolicy(
     authority.adapter,
     ({ authenticated }) => authenticated.authorizationContext as FixtureAuthorityContext,
@@ -529,26 +549,36 @@ export function createActionEndpoint(registration: ScopedRegistrationResult, aut
       await (authenticated.request as CapabilityRequest).transaction.begin();
       await reserve(operation);
       const facts = await authorize(authority, action.descriptor.id, input, authenticated, operation.durable, operation.request) as Record<string, unknown>;
+      let resourceId: string | undefined;
+      if (action.descriptor.id === "sales.task.create" && operation.replay === undefined) {
+        resourceId = await reserveSalesTaskId(operation.request);
+        await admitTrustedSalesTaskCreateId(operation.request, { id: Number(resourceId), resourceId });
+        trustedTaskCreateRequests.add(operation.request);
+      }
       const communicationAuthority = Object.freeze({ context: Object.freeze({ applicationId: operation.durable.context.applicationId, environment: operation.durable.context.environment, actorId: operation.durable.context.actorId }), authorizationRevision: operation.durable.authorizationRevision, lifecycleRevision: operation.durable.lifecycleRevision, scopeRevision: operation.durable.scopeRevision, permissionGrants: operation.durable.permissionGrants });
       const providerGateway = ["sales.email.send", "sales.calendar.sync", "sales.integration.configure"].includes(action.descriptor.id)
         ? createGeneratedSalesProviderGateway(operation.request, communicationAuthority) : undefined;
       const reportingAuthority = Object.freeze({ context: Object.freeze({ applicationId: operation.durable.context.applicationId, environment: operation.durable.context.environment, actorId: operation.durable.context.actorId }), authorizationRevision: operation.durable.authorizationRevision, lifecycleRevision: operation.durable.lifecycleRevision, scopeRevision: operation.durable.scopeRevision, recordScope: operation.durable.recordScope, applicationWide: operation.durable.applicationWide, authorizedTeamIds: operation.durable.authorizedTeamIds, permissionGrants: operation.durable.permissionGrants });
       const reportingGateway = ["sales.report.run", "sales.report.schedule"].includes(action.descriptor.id)
         ? createGeneratedSalesReportingGateway(operation.request, reportingAuthority) : undefined;
-      return Object.freeze({ ...facts, authorizationRevision: operation.durable.authorizationRevision, lifecycleRevision: operation.durable.lifecycleRevision, salesScopeRevision: operation.durable.scopeRevision, settingsRevision: operation.durable.settingsRevision, reportingTimezone: operation.durable.reportingTimezone, reportingCurrency: operation.durable.reportingCurrency, reportingAuthority: Object.freeze({ authorizationRevision: operation.durable.authorizationRevision, lifecycleRevision: operation.durable.lifecycleRevision, salesScopeRevision: operation.durable.scopeRevision, settingsRevision: operation.durable.settingsRevision, reportingTimezone: operation.durable.reportingTimezone, reportingCurrency: operation.durable.reportingCurrency }), ...(providerGateway === undefined ? {} : { providerGateway }), ...(reportingGateway === undefined ? {} : { reporting: reportingGateway }), eventId: eventId(operation), ...(operation.replay === undefined ? {} : { idempotencyReplay: operation.replay }) });
+      return Object.freeze({ ...facts, authorizationRevision: operation.durable.authorizationRevision, lifecycleRevision: operation.durable.lifecycleRevision, salesScopeRevision: operation.durable.scopeRevision, settingsRevision: operation.durable.settingsRevision, reportingTimezone: operation.durable.reportingTimezone, reportingCurrency: operation.durable.reportingCurrency, reportingAuthority: Object.freeze({ authorizationRevision: operation.durable.authorizationRevision, lifecycleRevision: operation.durable.lifecycleRevision, salesScopeRevision: operation.durable.scopeRevision, settingsRevision: operation.durable.settingsRevision, reportingTimezone: operation.durable.reportingTimezone, reportingCurrency: operation.durable.reportingCurrency }), ...(providerGateway === undefined ? {} : { providerGateway }), ...(reportingGateway === undefined ? {} : { reporting: reportingGateway }), ...(resourceId === undefined ? {} : { resourceId }), eventId: eventId(operation), ...(operation.replay === undefined ? {} : { idempotencyReplay: operation.replay }) });
     } }
   );
   const gateway = new RegisteredActionGateway(registration, {
     async authenticate(request) {
       const raw = request.rawRequest as PayloadRequest;
-      const context = authority.context(raw, request.correlationId);
-      const durable = authority.durableSalesAuthority(raw);
+      const pending = operations.get(raw);
+      if (pending === undefined) throw new ActionGatewayError("IDEMPOTENCY_KEY_REQUIRED", 400, "Sales action idempotency key is required.");
+      let durable: FixtureDurableSalesAuthority;
+      try { durable = await authority.resolveDurableSalesAuthority(raw, request.correlationId); }
+      catch { throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales current authority is unavailable."); }
       if (!durable.mutationAllowed) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales action scope is unavailable.");
+      const context = authority.context(raw, request.correlationId);
+      pending.durable = durable;
+      const operation = authorizedOperation(pending);
       const authorizationContext = actionAuthorizationContext(context, durable);
       const persistence = capability(raw, request.actionId, context, durable, authority);
       scopedRequests.set(raw, persistence);
-      const operation = operations.get(raw);
-      if (operation === undefined) throw new ActionGatewayError("IDEMPOTENCY_KEY_REQUIRED", 400, "Sales action idempotency key is required.");
       capabilityOperations.set(persistence, operation);
       return {
         actor: actor(raw),
@@ -569,12 +599,9 @@ export function createActionEndpoint(registration: ScopedRegistrationResult, aut
         return Response.json({ code: "INVALID_ACTION_REQUEST", status: 400, detail: "Action request is invalid.", correlationId: "fixture-action" }, { status: 400 });
       }
       const idempotencyKey = request.headers.get("idempotency-key") ?? undefined;
-      let durable: FixtureDurableSalesAuthority;
-      try { durable = await authority.resolveDurableSalesAuthority(request, request.headers.get("x-correlation-id") ?? "fixture-action"); }
-      catch { return Response.json({ code: "ACTION_FORBIDDEN", status: 403, detail: "Sales current authority is unavailable.", correlationId: "fixture-action" }, { status: 403 }); }
       try {
         if (idempotencyKey === undefined) return Response.json({ code: "IDEMPOTENCY_KEY_REQUIRED", status: 400 }, { status: 400 });
-        operations.set(request, { request, actionId: body.actionId, key: idempotencyKey, digest: digest({ actionId: body.actionId, input: body.input }), durable });
+        operations.set(request, { request, actionId: body.actionId, key: idempotencyKey, digest: digest({ actionId: body.actionId, input: body.input }) });
         const response = await gateway.execute({
           correlationId: request.headers.get("x-correlation-id") ?? "fixture-action",
           rawRequest: request,
@@ -584,7 +611,9 @@ export function createActionEndpoint(registration: ScopedRegistrationResult, aut
           signal: request.signal ?? new AbortController().signal
         });
         const persistence = scopedRequests.get(request);
-        const operation = operations.get(request);
+        const pending = operations.get(request);
+        if (response.ok && pending?.durable === undefined) throw new Error("Sales action authority operation was lost.");
+        const operation = pending?.durable === undefined ? undefined : authorizedOperation(pending);
         if (response.ok && operation !== undefined && operation.replay === undefined) await complete(operation, response.body.data);
         if (response.ok) await persistence?.transaction.commit();
         else await persistence?.transaction.rollback();
@@ -596,6 +625,8 @@ export function createActionEndpoint(registration: ScopedRegistrationResult, aut
         }
         throw error;
       } finally {
+        if (trustedTaskCreateRequests.has(request)) revokeTrustedSalesTaskCreateId(request);
+        trustedTaskCreateRequests.delete(request);
         scopedRequests.delete(request);
         operations.delete(request);
       }

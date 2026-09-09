@@ -30,6 +30,7 @@ import * as migration_20260907_000031_data_movement from "./20260907_000031_data
 import * as migration_20260908_000032_communications from "./20260908_000032_communications.js";
 import * as migration_20260908_000033_crm_workflows from "./20260908_000033_crm_workflows.js";
 import * as migration_20260908_000034_reports from "./20260908_000034_reports.js";
+import * as migration_20260909_000035_static_rebind_lock_protocol from "./20260909_000035_static_rebind_lock_protocol.js";
 
 import type { CustomerPayloadMigration } from "@k-nex/payload-adapter";
 
@@ -193,5 +194,10 @@ export const migrations: CustomerPayloadMigration[] = [
     up: migration_20260908_000034_reports.up,
     down: migration_20260908_000034_reports.down,
     name: "20260908_000034_reports"
+  },
+  {
+    up: migration_20260909_000035_static_rebind_lock_protocol.up,
+    down: migration_20260909_000035_static_rebind_lock_protocol.down,
+    name: "20260909_000035_static_rebind_lock_protocol"
   }
 ];

@@ -254,8 +254,6 @@ export const salesCoreCollections: readonly CollectionConfig[] = Object.freeze([
   salesActivitiesCollection,
   salesOpportunitiesCollection,
   salesTasksCollection,
-  salesNotificationsCollection,
-  salesRemindersCollection,
   salesNotesCollection,
   salesAttachmentReferencesCollection,
   salesSavedViewsCollection,
@@ -263,5 +261,7 @@ export const salesCoreCollections: readonly CollectionConfig[] = Object.freeze([
   salesImportRowsCollection,
   salesImportChunksCollection,
   salesExportJobsCollection,
-  salesMergeLineageCollection
+  salesMergeLineageCollection,
+  salesNotificationsCollection,
+  salesRemindersCollection
 ]);

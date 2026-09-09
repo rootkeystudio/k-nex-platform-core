@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   kNexRuntimeExtensionSchemaMigrations,
+  kNexStaticRebindLockProtocolSchemaMigration,
   kNexStaticLifecycleAdmissionSchemaMigration
 } from "../src/runtime-extension-schema-migrations.js";
 
@@ -56,12 +57,33 @@ describe("production runtime-extension schema migrations", () => {
       expect(up).toContain(`CREATE FUNCTION public.${name}`);
       expect(down).toContain(`DROP FUNCTION public.${name}`);
     }
+    expect(up).toContain("pg_catalog.to_json(p_application_id)::text");
+    expect(up).toContain("authorization-state");
+    expect(up).not.toContain("jsonb_build_array(p_application_id, 'authorization-state')::text");
   });
 
   it("uses Payload migration tracking instead of fixture-only revision bookkeeping", () => {
-    const source = [...kNexRuntimeExtensionSchemaMigrations, kNexStaticLifecycleAdmissionSchemaMigration]
+    const source = [...kNexRuntimeExtensionSchemaMigrations, kNexStaticLifecycleAdmissionSchemaMigration, kNexStaticRebindLockProtocolSchemaMigration]
       .flatMap(({ up, down }) => [String(up), String(down)])
       .join("\n");
     expect(source).not.toContain("k_nex_migration_revision");
+  });
+
+  it("replaces the deployed shared-generation writer with the global exclusive lock order", () => {
+    expect(kNexStaticRebindLockProtocolSchemaMigration.name).toBe("20260909_000035_static_rebind_lock_protocol");
+    const up = String(kNexStaticRebindLockProtocolSchemaMigration.up);
+    expect(up).toContain("CREATE OR REPLACE FUNCTION public.k_nex_static_shared_generation_rebind");
+    const deployment = up.indexOf('"static-deployment"');
+    const identities = up.indexOf('"platform-plugin"');
+    const deploymentRows = up.indexOf("FROM public.runtime_static_deployments AS d");
+    const authorization = up.indexOf('"authorization-state"');
+    const authorizationRows = up.indexOf("FROM public.k_nex_authorization_state");
+    expect(deployment).toBeGreaterThan(-1);
+    expect(deployment).toBeLessThan(identities);
+    expect(identities).toBeLessThan(deploymentRows);
+    expect(deploymentRows).toBeLessThan(authorization);
+    expect(authorization).toBeLessThan(authorizationRows);
+    expect(up).toContain('ORDER BY locked.extension_id COLLATE "C"');
+    expect(up).not.toContain("already_locked");
   });
 });

@@ -192,6 +192,27 @@ type AuthorityScopePlan = { applicationId: string; environment: string; principa
 type AuthorizationTransitionPlan = { applicationId: string; environment: string; authorizationRevision: number; lifecycleRevision: number };
 type ReferencePlan = { applications: Set<string>; environments: Set<string>; referenceCount: number; settings: SettingsPlan[]; pages: PagePlan[]; grants: GrantPlan[]; adoptions: AdoptionPlan[]; scopes: AuthorityScopePlan[]; authorizationTransitions: AuthorizationTransitionPlan[]; hasAuthorizationTables: boolean };
 
+const authorizationStateLockKeyEncoder = new TextEncoder();
+
+/** PostgreSQL COLLATE "C" orders the UTF-8 bytes of the canonical lock key. */
+export function compareCanonicalAuthorizationStateLockKeys(left: string, right: string): number {
+  const leftBytes = authorizationStateLockKeyEncoder.encode(left);
+  const rightBytes = authorizationStateLockKeyEncoder.encode(right);
+  const sharedLength = Math.min(leftBytes.length, rightBytes.length);
+  for (let index = 0; index < sharedLength; index += 1) {
+    if (leftBytes[index] !== rightBytes[index]) return leftBytes[index]! - rightBytes[index]!;
+  }
+  return leftBytes.length - rightBytes.length;
+}
+
+function authorizationStateLockKey(applicationId: string): string {
+  return canonicalJson([applicationId, "authorization-state"]);
+}
+
+function orderedAuthorizationTransitions(transitions: readonly AuthorizationTransitionPlan[]): AuthorizationTransitionPlan[] {
+  return [...transitions].sort((left, right) => compareCanonicalAuthorizationStateLockKeys(authorizationStateLockKey(left.applicationId), authorizationStateLockKey(right.applicationId)));
+}
+
 function mapPredecessorPermissions(permissionIds: readonly string[]): readonly string[] {
   const source = new Set(permissionIds);
   for (const permissionId of source) {
@@ -436,8 +457,25 @@ async function planPersistedReferences(db: MigrateUpArgs["db"], receiptScope?: {
   return { applications, environments, referenceCount, settings, pages, grants: grantPlans, adoptions: adoptionPlans, scopes, authorizationTransitions, hasAuthorizationTables: Boolean(flags.grants && flags.adoptions) };
 }
 
+async function lockAndRevalidateAuthorizationTransitions(db: MigrateUpArgs["db"], transitions: readonly AuthorizationTransitionPlan[]): Promise<readonly AuthorizationTransitionPlan[]> {
+  const ordered = orderedAuthorizationTransitions(transitions);
+  for (const transition of ordered) {
+    await db.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${authorizationStateLockKey(transition.applicationId)},0))`);
+  }
+  for (const transition of ordered) {
+    const state = resultRows<{ authorization_revision: number; lifecycle_revision: number }>(await db.execute(sql`SELECT authorization_revision,lifecycle_revision FROM k_nex_authorization_state WHERE application_id=${transition.applicationId} FOR UPDATE`))[0];
+    if (state === undefined || Number(state.authorization_revision) !== transition.authorizationRevision || Number(state.lifecycle_revision) !== transition.lifecycleRevision) {
+      fail(`Sales authorization state changed before rewrite for ${transition.applicationId}`);
+    }
+    const occupied = resultRows<{ occupied: boolean }>(await db.execute(sql`SELECT EXISTS(SELECT 1 FROM k_nex_authorization_outbox WHERE application_id=${transition.applicationId} AND environment=${transition.environment} AND authorization_revision=${transition.authorizationRevision + 1} AND lifecycle_revision=${transition.lifecycleRevision}) AS occupied`))[0];
+    if (occupied?.occupied) fail(`Sales authorization revision event is already occupied for ${transition.applicationId}`);
+  }
+  return ordered;
+}
+
 async function applyPersistedReferences(db: MigrateUpArgs["db"], plan: ReferencePlan): Promise<void> {
   if (plan.referenceCount === 0) return;
+  const authorizationTransitions = await lockAndRevalidateAuthorizationTransitions(db, plan.authorizationTransitions);
   if (plan.hasAuthorizationTables) {
     for (const grant of plan.grants) {
       if (grant.permissionIds.length === 0) {
@@ -462,7 +500,7 @@ async function applyPersistedReferences(db: MigrateUpArgs["db"], plan: Reference
         WHERE application_id=${adoption.applicationId} AND adoption_id=${adoption.adoptionId} AND state='adopted' AND revision=${adoption.revision} RETURNING adoption_id`);
       if (resultRows(updated).length !== 1) fail(`Sales role-template adoption changed before rewrite for ${adoption.adoptionId}`);
     }
-    for (const transition of plan.authorizationTransitions) {
+    for (const transition of authorizationTransitions) {
       const nextAuthorizationRevision = transition.authorizationRevision + 1;
       const state = await db.execute(sql`UPDATE k_nex_authorization_state SET authorization_revision=${nextAuthorizationRevision}, updated_at=now()
         WHERE application_id=${transition.applicationId} AND authorization_revision=${transition.authorizationRevision} AND lifecycle_revision=${transition.lifecycleRevision} RETURNING application_id`);

@@ -463,6 +463,7 @@ describe("PostgresRuntimeExtensionStore Hot Application dispositions", () => {
     await value.store.withExecutionRequestDigest({ operationId: "operation-disable-1", applicationId: owner.applicationId, environment: owner.environment, requestDigest: executionDigest },
       () => value.store.disableGeneration("operation-disable-1", "lease-1"));
 
+    expect(value.queries.some(([text, parameters]) => text.includes("pg_advisory_xact_lock_shared") || parameters?.[0] === canonicalJson([owner.applicationId, owner.environment, "static-deployment"]))).toBe(false);
     expect(value.queries).toContainEqual([
       expect.stringContaining("result_json=$3::jsonb, execution_request_digest=$4"),
       expect.arrayContaining(["operation-disable-1", "lease-1", expect.any(String), executionDigest])
@@ -526,6 +527,14 @@ describe("PostgresRuntimeExtensionStore static retained uninstall", () => {
       session: expect.anything(), previousGenerationId: value.receipt.previousGenerationId,
       receipt: value.receipt, excludeExtensionId: "module.sales", operationId: "operation-static-uninstall-1"
     }));
+    expect(value.rebinder.rebind.mock.invocationCallOrder[0]).toBeLessThan(value.projector.project.mock.invocationCallOrder[0]!);
+    const locks = value.queries.filter(([text]) => text.startsWith("select pg_advisory_xact_lock"));
+    expect(locks.slice(0, 2).map(([, parameters]) => parameters?.[0])).toEqual([
+      canonicalJson([owner.applicationId, owner.environment, "static-deployment"]),
+      canonicalJson([owner.applicationId, owner.environment, "platform-plugin", "module.sales"])
+    ]);
+    expect(value.queries.findIndex(([text]) => text.includes("from runtime_extension_operations") && text.includes("for update")))
+      .toBeGreaterThan(value.queries.findIndex(([text]) => text.includes("union") && text.includes("order by locked.extension_id")));
   });
 
   it("rejects a static uninstall whose plan does not bind retained generation", async () => {
@@ -534,6 +543,19 @@ describe("PostgresRuntimeExtensionStore static retained uninstall", () => {
     await expect(value.store.completeStaticRelease("operation-static-uninstall-1", "lease-1", value.receipt)).rejects.toMatchObject({ code: "GENERATION_MISMATCH" });
     expect(value.queries.some(([text]) => text.startsWith("update runtime_extensions set revision="))).toBe(false);
     expect(value.projector.project).not.toHaveBeenCalled();
+  });
+
+  it("rejects a forged cross-application static receipt before selecting any advisory lock", async () => {
+    const value = staticUninstallHarness();
+
+    await expect(value.store.completeStaticRelease("operation-static-uninstall-1", "lease-1", {
+      ...value.receipt,
+      applicationId: "customer-forged"
+    })).rejects.toMatchObject({ code: "GENERATION_MISMATCH" });
+
+    expect(value.queries.some(([text]) => text.includes("pg_advisory_xact_lock"))).toBe(false);
+    expect(value.projector.project).not.toHaveBeenCalled();
+    expect(value.rebinder.rebind).not.toHaveBeenCalled();
   });
 
   it("closes static rollback despite an open supervisor receipt after quarantined recovery", async () => {
@@ -577,6 +599,11 @@ describe("PostgresRuntimeExtensionStore retained Platform Plugin enable", () => 
   it("persists a re-enable plan using the disabled static generation evidence", async () => {
     const value = staticEnableHarness({ beforePlan: true });
     await expect(value.store.savePlan("operation-static-enable-1", "lease-1", value.enablePlan)).resolves.toMatchObject({ plan: value.enablePlan });
+    const sharedStaticLock = value.queries.findIndex(([text]) => text.includes("pg_advisory_xact_lock_shared"));
+    const identityLock = value.queries.findIndex(([text]) => text.includes("pg_advisory_xact_lock(") && !text.includes("_shared"));
+    const lockedOperation = value.queries.findIndex(([text]) => text.includes("from runtime_extension_operations") && text.includes("for update"));
+    expect(sharedStaticLock).toBeLessThan(identityLock);
+    expect(identityLock).toBeLessThan(lockedOperation);
     const transition = value.queries.find(([text]) => text.startsWith("insert into runtime_extension_transition_receipts"));
     expect(JSON.parse(String(transition?.[1]?.[3]))).toMatchObject({ evidence: { generationId: value.retained.generationId, sourceCommit: value.retained.sourceCommit } });
   });
@@ -584,6 +611,12 @@ describe("PostgresRuntimeExtensionStore retained Platform Plugin enable", () => 
   it("restores the exact retained host generation, projects authorization, and records terminal evidence", async () => {
     const value = staticEnableHarness();
     await expect(value.store.enableGeneration("operation-static-enable-1", "lease-1")).resolves.toEqual(value.result);
+    const sharedStaticLock = value.queries.findIndex(([text, parameters]) => text.includes("pg_advisory_xact_lock_shared") && parameters?.[0] === canonicalJson([owner.applicationId, owner.environment, "static-deployment"]));
+    const identityLock = value.queries.findIndex(([text, parameters]) => text.includes("pg_advisory_xact_lock(") && parameters?.[0] === canonicalJson([owner.applicationId, owner.environment, "platform-plugin", "module.sales"]));
+    const lockedOperation = value.queries.findIndex(([text]) => text.includes("from runtime_extension_operations") && text.includes("for update"));
+    expect(sharedStaticLock).toBeGreaterThan(-1);
+    expect(sharedStaticLock).toBeLessThan(identityLock);
+    expect(identityLock).toBeLessThan(lockedOperation);
     const update = value.queries.find(([text]) => text.startsWith("update runtime_extensions set revision="));
     expect(update?.[1]?.[5]).toBe(value.retained.generationId);
     expect(JSON.parse(String(update?.[1]?.[6]))).toEqual(value.retained);

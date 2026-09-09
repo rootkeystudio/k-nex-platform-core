@@ -112,6 +112,12 @@ await store.transaction({
     revision: 0
   } });
 });
+const currentAuthorization = await store.readState("customer-gate-1", "production");
+assert.ok(currentAuthorization);
+await pool.query(
+  "update k_nex_extension_authorization_generations set authorization_revision=$1,lifecycle_revision=$2 where application_id=$3 and delivery_class='platform-plugin' and extension_id='module.sales' and authorization_generation=1",
+  [currentAuthorization.authorizationRevision, currentAuthorization.lifecycleRevision, "customer-gate-1"]
+);
 if (existingRuntime.rowCount === 0) await pool.query(
   "insert into runtime_extensions (application_id, environment, delivery_class, extension_id, revision, disposition, active_generation_id, active_generation) values ($1,$2,$3,$4,1,'active',$5,$6::jsonb)",
   ["customer-gate-1", "production", "platform-plugin", "module.sales", "static-module-sales-1", JSON.stringify(staticAuthorizationBuild)]

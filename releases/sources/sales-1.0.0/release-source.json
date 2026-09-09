@@ -3,6 +3,6 @@
   "package": "@k-nex/module-sales",
   "version": "1.0.0",
   "platformRelease": "1.0.0",
-  "migrationRevision": 2,
+  "migrationRevision": 3,
   "sourceKind": "immutable-package-source"
 }

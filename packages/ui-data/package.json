@@ -25,6 +25,10 @@
     "./presentation": {
       "types": "./dist/presentation.d.ts",
       "default": "./dist/presentation.js"
+    },
+    "./table-controls": {
+      "types": "./dist/table-controls.d.ts",
+      "default": "./dist/table-controls.js"
     }
   },
   "scripts": {

@@ -3,11 +3,12 @@ import { createHash } from "node:crypto";
 import test from "node:test";
 
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
-import { AuthorizationDecisionAuditSchema } from "@k-nex/contracts";
+import { AuthorizationDecisionAuditSchema, canonicalJson } from "@k-nex/contracts";
+import { PostgresAuthorizationStore } from "@k-nex/payload-adapter";
 import { compareTemplateBaseline } from "@k-nex/runtime";
 import pg from "pg";
 
-import { down, up } from "../dist/src/migrations/20260905_000027_crm_core.js";
+import { compareCanonicalAuthorizationStateLockKeys, down, up } from "../dist/src/migrations/20260905_000027_crm_core.js";
 import { up as authorizationUp } from "../dist/src/migrations/20260901_000019_authorization_storage.js";
 import { up as templateTombstonesUp } from "../dist/src/migrations/20260901_000020_template_tombstones.js";
 import { up as authorizationOutboxUp } from "../dist/src/migrations/20260901_000021_authorization_outbox.js";
@@ -215,6 +216,55 @@ async function targetTableCount(client) {
   );
   return result.rows[0].count;
 }
+
+async function waitForAdvisoryLockWait(client) {
+  const deadline = Date.now() + 15_000;
+  while (Date.now() < deadline) {
+    const result = await client.query(`select exists(
+      select 1 from pg_stat_activity
+      where datname=current_database() and state='active' and wait_event_type='Lock' and query ilike '%pg_advisory_xact_lock%'
+    ) as waiting`);
+    if (result.rows[0]?.waiting) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error("Timed out waiting for the CRM migration to reach its authorization-state advisory lock.");
+}
+
+async function waitForAuthorizationAdvisoryWait(client, applicationId) {
+  const deadline = Date.now() + 15_000;
+  while (Date.now() < deadline) {
+    const result = await client.query(`select count(*)::int as count
+      from pg_locks
+      where locktype='advisory' and not granted
+        and classid::bigint=((hashtextextended($1,0) >> 32) & 4294967295)
+        and objid::bigint=(hashtextextended($1,0) & 4294967295)`, [canonicalJson([applicationId, "authorization-state"])]);
+    if (result.rows[0]?.count > 0) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`Timed out waiting for the CRM migration to request the ${applicationId} authorization-state lock.`);
+}
+
+test("P13.2 authorization lock ordering is locale-independent UTF-8 byte order", () => {
+  const lockKey = (applicationId) => canonicalJson([applicationId, "authorization-state"]);
+  const vectors = [
+    { ids: ["é-legacy", "z-legacy"], expected: ["z-legacy", "é-legacy"] },
+    { ids: ["é-legacy", "Å-legacy", "a-legacy", "z-legacy"], expected: ["a-legacy", "z-legacy", "Å-legacy", "é-legacy"] },
+    { ids: ["\u{1F600}-legacy", "\uE000-legacy"], expected: ["\uE000-legacy", "\u{1F600}-legacy"] }
+  ];
+  const originalLocaleCompare = String.prototype.localeCompare;
+  try {
+    String.prototype.localeCompare = () => { throw new Error("localeCompare must not participate in authorization lock ordering"); };
+    for (const vector of vectors) {
+      const sorted = [...vector.ids].sort((left, right) => compareCanonicalAuthorizationStateLockKeys(lockKey(left), lockKey(right)));
+      assert.deepEqual(sorted, vector.expected);
+    }
+  } finally {
+    String.prototype.localeCompare = originalLocaleCompare;
+  }
+  const englishLocaleOrder = [...vectors[0].ids].sort((left, right) => new Intl.Collator("en-US").compare(lockKey(left), lockKey(right)));
+  assert.deepEqual(englishLocaleOrder, ["é-legacy", "z-legacy"]);
+  assert.notDeepEqual(englishLocaleOrder, vectors[0].expected);
+});
 
 async function assertMcpShapeRefusal(client, db, mutate, label) {
   await resetPredecessor(client);
@@ -684,6 +734,181 @@ test("P13.2 CRM core migration proves clean install, exact upgrade, fail-closed 
     assert.deepEqual((await client.query("select predecessor_revision,revision from k_nex_migration_revision")).rows, [{ predecessor_revision: 23, revision: 24 }]);
   } finally {
     client.release();
+    await pool.end();
+    await container.stop();
+  }
+});
+
+test("P13.2 waits behind the AuthorizationStore lock before touching persisted authority", { timeout: 180_000 }, async () => {
+  const container = await new PostgreSqlContainer(POSTGRES_IMAGE).withDatabase("p13_crm_core_authorization_race").withStartupTimeout(120_000).start();
+  const pool = new pg.Pool({ connectionString: container.getConnectionUri(), max: 5 });
+  const setup = await pool.connect();
+  let migrator;
+  let releaseHolder;
+  let holderPromise;
+  let migrationPromise;
+  try {
+    await resetPredecessor(setup);
+    const setupDb = migrationDb(setup);
+    await installPhase12ReferenceStorage(setupDb, setup);
+    await setup.query("insert into sales_tasks (id,title,status) values (41,'Concurrent migration','open')");
+
+    migrator = await pool.connect();
+    await bind(migrator);
+    const expected = { applicationId: "customer-alpha", environment: "production", authorizationRevision: 7, lifecycleRevision: 3 };
+    const entered = Promise.withResolvers();
+    releaseHolder = Promise.withResolvers();
+    holderPromise = new PostgresAuthorizationStore(pool).transaction(expected, async () => {
+      entered.resolve();
+      await releaseHolder.promise;
+      return "authorization-lock-held";
+    });
+    await entered.promise;
+
+    await migrator.query("begin");
+    migrationPromise = up({ db: migrationDb(migrator) });
+    await waitForAdvisoryLockWait(setup);
+
+    assert.deepEqual((await setup.query("select authorization_revision,lifecycle_revision from k_nex_authorization_state where application_id='customer-alpha'")).rows,
+      [{ authorization_revision: 7, lifecycle_revision: 3 }], "Migration cannot advance auth state while AuthorizationStore owns the canonical lock.");
+    assert.deepEqual((await setup.query("select permission_id,revision from k_nex_role_permission_grants where application_id='customer-alpha' and grant_id='viewer-grant-0'")).rows,
+      [{ permission_id: "sales.navigation.read", revision: 0 }], "Migration cannot partially rewrite a grant before acquiring the canonical lock.");
+    assert.deepEqual((await setup.query("select to_regclass('public.sales_current_authority_scopes')::text as table_name")).rows,
+      [{ table_name: null }], "Migration cannot publish its new scope table before the transaction commits.");
+
+    releaseHolder.resolve();
+    await holderPromise;
+    await migrationPromise;
+    await migrator.query("commit");
+
+    assert.deepEqual((await setup.query("select authorization_revision,lifecycle_revision from k_nex_authorization_state where application_id='customer-alpha'")).rows,
+      [{ authorization_revision: 8, lifecycle_revision: 3 }]);
+    assert.equal((await setup.query("select count(*)::int as count from sales_current_authority_scopes where application_id='customer-alpha'")).rows[0].count, 3,
+      "All planned active principals publish a scope after the lock is released.");
+    assert.equal((await setup.query("select count(*)::int as count from k_nex_authorization_outbox where application_id='customer-alpha' and authorization_revision=8 and lifecycle_revision=3")).rows[0].count, 1);
+  } finally {
+    releaseHolder?.resolve();
+    if (holderPromise) await Promise.allSettled([holderPromise]);
+    if (migrationPromise) await Promise.allSettled([migrationPromise]);
+    if (migrator) migrator.release();
+    setup.release();
+    await pool.end();
+    await container.stop();
+  }
+});
+
+test("P13.2 acquires multiple application authorization locks in canonical order under inverse pressure", { timeout: 180_000 }, async () => {
+  const container = await new PostgreSqlContainer(POSTGRES_IMAGE).withDatabase("p13_crm_core_multi_app_race").withStartupTimeout(120_000).start();
+  const pool = new pg.Pool({ connectionString: container.getConnectionUri(), max: 6 });
+  const setup = await pool.connect();
+  let alphaBlocker;
+  let betaBlocker;
+  let migrator;
+  try {
+    await resetPredecessor(setup);
+    const setupDb = migrationDb(setup);
+    await installPhase12ReferenceStorage(setupDb, setup);
+    await insertBetaSettingsScope(setup);
+    await setup.query(`
+      insert into k_nex_authorization_state (application_id,authorization_revision,lifecycle_revision) values ('customer-beta',11,5);
+      insert into k_nex_roles (application_id,role_id,label) values ('customer-beta','sales.beta-role','Beta role');
+      insert into k_nex_role_permission_grants
+        (application_id,grant_id,role_id,permission_id,owner_kind,owner_delivery_class,owner_extension_id,owner_generation)
+        values ('customer-beta','beta-title-grant','sales.beta-role','sales.tasks.title.read','extension','platform-plugin','module.sales',1);
+    `);
+
+    alphaBlocker = await pool.connect();
+    betaBlocker = await pool.connect();
+    await alphaBlocker.query("begin");
+    await alphaBlocker.query("select pg_advisory_xact_lock(hashtextextended($1,0))", [canonicalJson(["customer-alpha", "authorization-state"])]);
+    await betaBlocker.query("begin");
+    await betaBlocker.query("select pg_advisory_xact_lock(hashtextextended($1,0))", [canonicalJson(["customer-beta", "authorization-state"])]);
+
+    migrator = await pool.connect();
+    await migrator.query("begin");
+    const migrationPromise = up({ db: migrationDb(migrator) });
+    await waitForAuthorizationAdvisoryWait(setup, "customer-alpha");
+    assert.deepEqual((await setup.query("select permission_id from k_nex_role_permission_grants where grant_id='beta-title-grant'")).rows,
+      [{ permission_id: "sales.tasks.title.read" }], "No later application is mutated while the first canonical lock is unavailable.");
+
+    await alphaBlocker.query("rollback");
+    await waitForAuthorizationAdvisoryWait(setup, "customer-beta");
+    assert.deepEqual((await setup.query("select authorization_revision,lifecycle_revision from k_nex_authorization_state where application_id in ('customer-alpha','customer-beta') order by application_id")).rows,
+      [{ authorization_revision: 7, lifecycle_revision: 3 }, { authorization_revision: 11, lifecycle_revision: 5 }],
+      "The migration keeps both application revisions uncommitted until every lock is held.");
+
+    await betaBlocker.query("rollback");
+    await migrationPromise;
+    await migrator.query("commit");
+
+    assert.deepEqual((await setup.query("select application_id,authorization_revision,lifecycle_revision from k_nex_authorization_state where application_id in ('customer-alpha','customer-beta') order by application_id")).rows,
+      [{ application_id: "customer-alpha", authorization_revision: 8, lifecycle_revision: 3 }, { application_id: "customer-beta", authorization_revision: 12, lifecycle_revision: 5 }]);
+    assert.equal((await setup.query("select count(*)::int as count from k_nex_role_permission_grants where grant_id='beta-title-grant'")).rows[0].count, 0,
+      "The second application is migrated after its lock is acquired.");
+    assert.deepEqual((await setup.query("select application_id,authorization_revision,lifecycle_revision from k_nex_authorization_outbox where authorization_revision in (8,12) order by application_id")).rows,
+      [{ application_id: "customer-alpha", authorization_revision: 8, lifecycle_revision: 3 }, { application_id: "customer-beta", authorization_revision: 12, lifecycle_revision: 5 }]);
+  } finally {
+    await alphaBlocker?.query("rollback").catch(() => undefined);
+    await betaBlocker?.query("rollback").catch(() => undefined);
+    if (migrator) {
+      await migrator.query("rollback").catch(() => undefined);
+      migrator.release();
+    }
+    alphaBlocker?.release();
+    betaBlocker?.release();
+    setup.release();
+    await pool.end();
+    await container.stop();
+  }
+});
+
+test("P13.2 revalidates planned revisions after the AuthorizationStore lock is released", { timeout: 180_000 }, async () => {
+  const container = await new PostgreSqlContainer(POSTGRES_IMAGE).withDatabase("p13_crm_core_authorization_revalidation").withStartupTimeout(120_000).start();
+  const pool = new pg.Pool({ connectionString: container.getConnectionUri(), max: 5 });
+  const setup = await pool.connect();
+  let migrator;
+  let releaseHolder;
+  let holderPromise;
+  let migrationPromise;
+  try {
+    await resetPredecessor(setup);
+    const setupDb = migrationDb(setup);
+    await installPhase12ReferenceStorage(setupDb, setup);
+    await setup.query("insert into sales_tasks (id,title,status) values (41,'Concurrent revision','open')");
+
+    migrator = await pool.connect();
+    await bind(migrator);
+    const expected = { applicationId: "customer-alpha", environment: "production", authorizationRevision: 7, lifecycleRevision: 3 };
+    const entered = Promise.withResolvers();
+    releaseHolder = Promise.withResolvers();
+    holderPromise = new PostgresAuthorizationStore(pool).transaction(expected, async (transaction) => {
+      await transaction.write({ kind: "role", role: { schemaVersion: 1, id: "sales.concurrent-role", applicationId: "customer-alpha", label: "Concurrent role", revision: 1 } });
+      entered.resolve();
+      await releaseHolder.promise;
+      return "authorization-revision-advanced";
+    });
+    await entered.promise;
+
+    await migrator.query("begin");
+    migrationPromise = up({ db: migrationDb(migrator) });
+    await waitForAdvisoryLockWait(setup);
+    releaseHolder.resolve();
+    await holderPromise;
+    await assert.rejects(migrationPromise, /Sales authorization state changed before rewrite for customer-alpha/u);
+    await migrator.query("rollback");
+
+    assert.equal(await targetTableCount(setup), 2, "A stale planned revision rolls back the whole CRM schema cutover.");
+    assert.deepEqual((await setup.query("select authorization_revision,lifecycle_revision from k_nex_authorization_state where application_id='customer-alpha'")).rows,
+      [{ authorization_revision: 8, lifecycle_revision: 3 }], "The concurrent AuthorizationStore revision remains committed.");
+    assert.equal((await setup.query("select count(*)::int as count from k_nex_roles where role_id='sales.concurrent-role'")).rows[0].count, 1);
+    assert.deepEqual((await setup.query("select permission_id,revision from k_nex_role_permission_grants where grant_id='viewer-grant-0'")).rows,
+      [{ permission_id: "sales.navigation.read", revision: 0 }], "CRM grant rows remain untouched after the revalidation refusal.");
+  } finally {
+    releaseHolder?.resolve();
+    if (holderPromise) await Promise.allSettled([holderPromise]);
+    if (migrationPromise) await Promise.allSettled([migrationPromise]);
+    if (migrator) migrator.release();
+    setup.release();
     await pool.end();
     await container.stop();
   }

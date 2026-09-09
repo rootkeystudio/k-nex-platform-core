@@ -16,6 +16,7 @@ import { down as movementDown, up as movementUp } from "../dist/src/migrations/2
 import { down as communicationsDown, up as communicationsUp } from "../dist/src/migrations/20260908_000032_communications.js";
 import { down as workflowsDown, up as workflowsUp } from "../dist/src/migrations/20260908_000033_crm_workflows.js";
 import { down as reportsDown, up as reportsUp } from "../dist/src/migrations/20260908_000034_reports.js";
+import { down as staticRebindLockProtocolDown, up as staticRebindLockProtocolUp } from "../dist/src/migrations/20260909_000035_static_rebind_lock_protocol.js";
 import { migrations } from "../dist/src/migrations/index.js";
 
 const POSTGRES_IMAGE = "postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94";
@@ -50,7 +51,8 @@ const phase13MigrationNames = [
   "20260907_000031_data_movement",
   "20260908_000032_communications",
   "20260908_000033_crm_workflows",
-  "20260908_000034_reports"
+  "20260908_000034_reports",
+  "20260909_000035_static_rebind_lock_protocol"
 ];
 
 const drizzleQueryConfig = {
@@ -213,7 +215,7 @@ async function bindMigration(client) {
 async function applyPhase13(db) {
   assert.deepEqual(migrations.slice(-phase13MigrationNames.length).map(({ name }) => name), phase13MigrationNames,
     "The generated fixture must expose the exact Phase 13 migration sequence.");
-  for (const migrate of [crmUp, pipelineUp, movementUp, communicationsUp, workflowsUp, reportsUp]) await migrate({ db });
+  for (const migrate of [crmUp, pipelineUp, movementUp, communicationsUp, workflowsUp, reportsUp, staticRebindLockProtocolUp]) await migrate({ db });
 }
 
 async function migratedLegacyProjection(client) {
@@ -429,7 +431,7 @@ test("P13.9 upgrades the exact Phase-12 Sales predecessor and restores its curre
       await assertMigratedTruth(sourceClient, predecessor);
       await seedPostUpgradeEvidence(sourceClient);
       const beforeRollback = await sourceClient.query("select count(*)::int as tasks,(select count(*)::int from sales_opportunities) as opportunities,(select count(*)::int from sales_notes) as notes from sales_tasks");
-      for (const rollback of [reportsDown, workflowsDown, communicationsDown, movementDown, pipelineDown, crmDown]) {
+      for (const rollback of [staticRebindLockProtocolDown, reportsDown, workflowsDown, communicationsDown, movementDown, pipelineDown, crmDown]) {
         await assert.rejects(rollback({ db }), /maintenance-required/u);
       }
       assert.deepEqual(await sourceClient.query("select count(*)::int as tasks,(select count(*)::int from sales_opportunities) as opportunities,(select count(*)::int from sales_notes) as notes from sales_tasks"), beforeRollback);

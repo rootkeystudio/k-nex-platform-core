@@ -2086,7 +2086,7 @@
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "275c3e635f89a37d38157f0585c7271b4afcfb3e043f63936bc9b16592609a812cf1a2e9a52a16bc01030944844be91340614eb7e78d07eaef8985c1a69e0a67"
+          "content": "fd1b57b3db9390f2ea18b643ca6221b5432dfaca6f32a0867b685daf54599f1222f7d262e7d1bf1e5bdb45200928e3b2a0d4ec34b8b2131ed8b8c55d6aa009c7"
         }
       ],
       "name": "@k-nex/composition",
@@ -2099,7 +2099,7 @@
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "8d60314f0a29ae95f05c7d5be914d8a35068e4194a35ac549036dbd09237312a9ae780c0c88afa8d9dc5ef7e940341fea19eea9ab3248473366154d3b0b11344"
+          "content": "2fc4d97c49fcf70542e1f8d7c58a09e5df31971368c4dc29215620b911eb2b0079fc3a2d6d674993b27d6ac73f595f72fd985065dd50dadd942d78e863be25a5"
         }
       ],
       "name": "@k-nex/contracts",
@@ -2125,7 +2125,7 @@
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "acccd1e966d289f5f543838450dea21d962aaa1990c26ac2e4e31c2254765cd9360a996add5be09d5bb7ed59184837c15a0905c4a5f42c592e6e1a4852d18759"
+          "content": "7af1a4e81e641e283fc820abbe331414357c3c4af39d0315faaae0216fbbda75ff75c89a0c478d9e3565d14dcedc11f085df0d9735ff52024733874036a80a8e"
         }
       ],
       "name": "@k-nex/module-sales",
@@ -2138,7 +2138,7 @@
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "72f98bc792df5566e8c188235ce322ecd21fd610f9d5e55a063a22b3a06df05eb0fcf1ecdc4e10f88103fee35f576c46da022441fc3d1b92a0daeab2f68da1e9"
+          "content": "227a7c44d3b1e4fdf292880fe9a572009603c8f340d135056cc18f56cc01ac05e925461a157888b5fbc0e9e31ac69a66031f10674b11560631e42dc0ab7ae205"
         }
       ],
       "name": "@k-nex/payload-adapter",
@@ -2151,7 +2151,7 @@
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "c085aecb0ab9d778945b9887888bcb216271c363d6a2a348e46a2abe5e5e02d49bd7168baa762814756d817de839b22b49c99851ba15c436c390cdcbfccad634"
+          "content": "2ad547d3d7d10bc22d1108903c5bdfc50ab55017b037dcbd7ee34476e808a2938a04005e94d88aa729838247644be1a01f07132f52b6ef59d240e39c9c233cef"
         }
       ],
       "name": "@k-nex/runtime",
@@ -2203,7 +2203,7 @@
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "8d8ec692872b9673ba1d422401eb82c7edc854df41007c611e577b90ffdb9dc4340dfa950cb8f4cc73a0a52785089297e17b75035e688d5033decec1628617d5"
+          "content": "18085a377f87719512edfcfadc2aa57766844256425047f6413cb98dcede2ae6f2981cf9b4a31c1e205c84b3b0f906833e5571636421edbf2dd40ca1c36f2277"
         }
       ],
       "name": "@k-nex/ui-data",
@@ -2255,7 +2255,7 @@
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "f3591f669f3b304b8ce24d187352b8d3bc685c9a3a0bf38a1747ca94d0d1ef34347f092aeadf7ecd7950a249459847e968d06f063975e297bd731be43b2b4ca7"
+          "content": "ae95ff1990e1465d527b1470c2182b3f1512d1fa15d678c023576f6f7e9c7a2a022cde2cadf1f163c4b131e43e75a010d0a13e03fb830ac8a709fc7fa9d4d46f"
         }
       ],
       "name": "@k-nex/ui-runtime",
@@ -11603,7 +11603,7 @@
       "type": "application"
     }
   },
-  "serialNumber": "urn:uuid:00000000-0000-4000-8000-d775d74f83d7",
+  "serialNumber": "urn:uuid:00000000-0000-4000-8000-dfc6a941793b",
   "specVersion": "1.6",
   "version": 1
 }

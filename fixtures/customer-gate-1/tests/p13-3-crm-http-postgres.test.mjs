@@ -8,6 +8,7 @@ import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import { PostgresAuthorizationStore } from "@k-nex/payload-adapter";
 import { bootstrapFirstOwner } from "@k-nex/runtime";
 import { canonicalJson } from "@k-nex/contracts";
+import { salesPipelineStageId, salesPipelineStageSemantics } from "@k-nex/module-sales-current/server";
 import { createHash } from "node:crypto";
 import { createPayloadRequest } from "payload";
 import pg from "pg";
@@ -81,6 +82,8 @@ async function seed(pool, userId) {
     for (const permissionId of permissions) await transaction.write({ kind: "grant", grant: { schemaVersion: 1, applicationId, id: `p13-3.${permissionId}`, roleId: "p13-3.operator", permissionId, owner, revision: 0 } });
   });
   await pool.query("insert into runtime_extensions (application_id,environment,delivery_class,extension_id,revision,disposition,active_generation_id,active_generation) values ($1,'production','platform-plugin','module.sales',1,'active',$2,$3::jsonb)", [applicationId, "static-module-sales-1", JSON.stringify(staticAuthorizationBuild)]);
+  await pool.query("insert into k_nex_system_settings_state (application_id,environment,settings_revision) values ($1,'production',1)", [applicationId]);
+  await pool.query("insert into k_nex_system_settings_documents (application_id,environment,descriptor_id,descriptor_schema_version,owner_scope_key,owner_kind,owner_namespace,owner_delivery_class,owner_extension_id,owner_generation,document_revision,settings_revision,values_json) values ($1,'production','system.general',3,'platform:system','platform','system',null,null,null,1,1,$2::jsonb)", [applicationId, JSON.stringify({ siteName: "K-Nex", reportingTimezone: "UTC", reportingCurrency: "USD" })]);
   await pool.query("insert into sales_current_authority_scopes (application_id,environment,principal_id,record_scope,application_wide,mutation_allowed,authorized_team_ids,state,revision) values ($1,'production',$2,'owned-or-assigned-team',false,true,$3::jsonb,'active',1)", [applicationId, String(userId), JSON.stringify([`team:${userId}`])]);
   return state;
 }
@@ -171,7 +174,13 @@ test("P13.3 CRM HTTP/PG actions preserve replay, target scope, and protected-inp
 
     const createBody = { actionId: "sales.account.create", input: { name: "HTTP account" } };
     const created = await post("/k-nex/action", createBody, "p13-3-account-create");
-    assert.equal(created.status, 200);
+    const authorityDiagnostic = (await pool.query(`select
+      (select authorization_revision from k_nex_authorization_state where application_id=$1) authorization_revision,
+      (select authorization_revision from k_nex_extension_authorization_generations where application_id=$1 and extension_id='module.sales' and state='current') generation_authorization_revision,
+      (select lifecycle_revision from k_nex_authorization_state where application_id=$1) lifecycle_revision,
+      (select lifecycle_revision from k_nex_extension_authorization_generations where application_id=$1 and extension_id='module.sales' and state='current') generation_lifecycle_revision`, [applicationId])).rows[0];
+    assert.notEqual(authorityDiagnostic.authorization_revision, authorityDiagnostic.generation_authorization_revision, "Later RBAC writes must advance global authorization without rewriting the static Sales generation revision.");
+    assert.equal(created.status, 200, `${await created.clone().text()}\n${JSON.stringify(authorityDiagnostic)}`);
     const createdData = (await created.json()).data;
     const overlappingProtectedGrants = await pool.query(`select count(*)::int as count from k_nex_role_assignments a
       join k_nex_role_permission_grants g on g.application_id=a.application_id and g.role_id=a.role_id
@@ -280,10 +289,15 @@ test("P13.3 CRM HTTP/PG actions preserve replay, target scope, and protected-inp
       assert.notEqual(response.status, 200, await response.clone().text());
     }
 
-    const pipeline = await payload.create({ collection: "sales-pipelines", overrideAccess: true, data: { applicationId, environment: "production", createdBy: String(user.id), updatedBy: String(user.id), revision: 1, audit: [], status: "active", name: "HTTP pipeline", orderedStageIds: ["qualification"], isActive: true } });
-    await payload.create({ collection: "sales-pipeline-stages", overrideAccess: true, data: { applicationId, environment: "production", createdBy: String(user.id), updatedBy: String(user.id), revision: 1, audit: [], status: "active", pipelineId: Number(pipeline.id), stageId: "qualification", name: "Qualification", semantic: "qualification", position: 0, probabilityBasisPoints: 0, allowedTransitions: ["won", "lost"] } });
-    await payload.create({ collection: "sales-pipeline-stages", overrideAccess: true, data: { applicationId, environment: "production", createdBy: String(user.id), updatedBy: String(user.id), revision: 1, audit: [], status: "active", pipelineId: Number(pipeline.id), stageId: "won", name: "Won", semantic: "won", position: 1, probabilityBasisPoints: 10_000, allowedTransitions: [] } });
-    await payload.create({ collection: "sales-pipeline-stages", overrideAccess: true, data: { applicationId, environment: "production", createdBy: String(user.id), updatedBy: String(user.id), revision: 1, audit: [], status: "active", pipelineId: Number(pipeline.id), stageId: "lost", name: "Lost", semantic: "lost", position: 2, probabilityBasisPoints: 0, allowedTransitions: [] } });
+    const pipeline = await payload.create({ collection: "sales-pipelines", overrideAccess: true, data: { applicationId, environment: "production", createdBy: String(user.id), updatedBy: String(user.id), revision: 1, audit: [], status: "active", name: "HTTP pipeline", orderedStageIds: [...salesPipelineStageSemantics], isActive: true } });
+    const stageIds = Object.fromEntries(salesPipelineStageSemantics.map((semantic) => [semantic, salesPipelineStageId(applicationId, "production", Number(pipeline.id), semantic)]));
+    const stageTransitions = { qualification: ["discovery", "lost"], discovery: ["proposal", "lost"], proposal: ["negotiation", "lost"], negotiation: ["won", "lost"], won: [], lost: [] };
+    for (const [position, semantic] of salesPipelineStageSemantics.entries()) {
+      await payload.create({ collection: "sales-pipeline-stages", overrideAccess: true, data: { applicationId, environment: "production", createdBy: String(user.id), updatedBy: String(user.id), revision: 1, audit: [], status: "active", pipelineId: Number(pipeline.id), stageId: stageIds[semantic], name: semantic[0].toUpperCase() + semantic.slice(1), semantic, position, probabilityBasisPoints: semantic === "won" ? 10_000 : 0, allowedTransitionStageIds: stageTransitions[semantic].map((target) => stageIds[target]), requiredFieldIds: semantic === "lost" ? ["lossReason"] : [] } });
+    }
+    await pool.query("update sales_pipelines set ordered_stage_ids=$2::jsonb where id=$1", [pipeline.id, JSON.stringify(salesPipelineStageSemantics.map((semantic) => stageIds[semantic]))]);
+    const opportunityCreateInput = (input) => ({ ...input, pipelineId: String(pipeline.id), expectedPipelineRevision: 1, stageId: stageIds.qualification, expectedStageRevision: 1 });
+    const opportunityCloseInput = (id, lossReason) => ({ id, expectedRevision: 1, expectedPipelineId: String(pipeline.id), expectedPipelineRevision: 1, expectedSourceStageId: stageIds.qualification, expectedSourceStageRevision: 1, destinationStageId: stageIds.lost, expectedDestinationStageRevision: 1, ...(lossReason === undefined ? {} : { lossReason }) });
     const linkerAccount = await payload.create({ collection: "sales-accounts", overrideAccess: true, data: { applicationId, environment: "production", ownerId: String(user.id), teamId: `team:${linker.id}`, createdBy: String(user.id), updatedBy: String(user.id), revision: 1, audit: [], status: "active", name: "Read-only linked account" } });
     const linkerContact = await payload.create({ collection: "sales-contacts", overrideAccess: true, data: { applicationId, environment: "production", ownerId: String(user.id), teamId: `team:${linker.id}`, createdBy: String(user.id), updatedBy: String(user.id), revision: 1, audit: [], status: "active", accountId: Number(linkerAccount.id), displayName: "Read-only linked contact" } });
     const linkerLead = await postAs(linkerLogin.token, "/k-nex/action", { actionId: "sales.lead.create", input: { displayName: "Read-only linker lead", source: "referral" } }, "p13-3-linker-lead");
@@ -436,14 +450,14 @@ test("P13.3 CRM HTTP/PG actions preserve replay, target scope, and protected-inp
     assert.equal((await post("/k-nex/action", { actionId: "sales.lead.qualify", input: { id: wrongLineageLeadData.id, expectedRevision: 1, accountMode: "create", accountName: "Invalid", contactMode: "link", contactId: contactData.id, opportunityName: "Must not exist", pipelineId: String(pipeline.id) } }, "p13-3-invalid-create-link")).status, 400);
 
     const invalidDateBefore = (await pool.query("select (select count(*)::int from sales_opportunities) opportunities,(select count(*)::int from k_nex_outbox) outbox_count,(select count(*)::int from sales_action_idempotency) idempotency_count")).rows[0];
-    const invalidDate = await post("/k-nex/action", { actionId: "sales.opportunity.create", input: { name: "Invalid date opportunity", accountId: createdData.id, pipelineId: String(pipeline.id), stageId: "qualification", expectedCloseDate: "0000-01-01" } }, "p13-3-opportunity-date-year-zero");
+    const invalidDate = await post("/k-nex/action", { actionId: "sales.opportunity.create", input: opportunityCreateInput({ name: "Invalid date opportunity", accountId: createdData.id, expectedCloseDate: "0000-01-01" }) }, "p13-3-opportunity-date-year-zero");
     assert.equal(invalidDate.status, 400, await invalidDate.clone().text());
     assert.deepEqual((await pool.query("select (select count(*)::int from sales_opportunities) opportunities,(select count(*)::int from k_nex_outbox) outbox_count,(select count(*)::int from sales_action_idempotency) idempotency_count")).rows[0], invalidDateBefore);
-    const opportunity = await post("/k-nex/action", { actionId: "sales.opportunity.create", input: { name: "HTTP opportunity", accountId: createdData.id, pipelineId: String(pipeline.id), stageId: "qualification" } }, "p13-3-opportunity-create");
+    const opportunity = await post("/k-nex/action", { actionId: "sales.opportunity.create", input: opportunityCreateInput({ name: "HTTP opportunity", accountId: createdData.id }) }, "p13-3-opportunity-create");
     assert.equal(opportunity.status, 200, await opportunity.clone().text());
     const opportunityData = (await opportunity.json()).data;
     assert.deepEqual((await pool.query("select owner_id,team_id from sales_opportunities where id=$1", [opportunityData.id])).rows, [{ owner_id: String(user.id), team_id: `team:${user.id}` }]);
-    const richOpportunityBody = { actionId: "sales.opportunity.create", input: { name: "Priced opportunity", accountId: createdData.id, primaryContactId: contactData.id, pipelineId: String(pipeline.id), stageId: "qualification", amount: { kind: "money", value: "12", currency: "USD", scale: 2 }, expectedCloseDate: "2026-09-30" } };
+    const richOpportunityBody = { actionId: "sales.opportunity.create", input: opportunityCreateInput({ name: "Priced opportunity", accountId: createdData.id, primaryContactId: contactData.id, amount: { kind: "money", value: "12", currency: "USD", scale: 2 }, expectedCloseDate: "2026-09-30" }) };
     const richOpportunity = await post("/k-nex/action", richOpportunityBody, "p13-3-opportunity-rich-create");
     assert.equal(richOpportunity.status, 200, await richOpportunity.clone().text());
     const richOpportunityData = (await richOpportunity.json()).data;
@@ -455,11 +469,13 @@ test("P13.3 CRM HTTP/PG actions preserve replay, target scope, and protected-inp
     assert.deepEqual((await pool.query("select primary_contact_id,amount,currency,expected_close_date from sales_opportunities where id=$1", [richOpportunityData.id])).rows, [{ primary_contact_id: null, amount: null, currency: null, expected_close_date: null }]);
     const staleOpportunity = await post("/k-nex/action", { actionId: "sales.opportunity.update", input: { id: opportunityData.id, expectedRevision: 2, name: "stale", primaryContactMode: "retain", amountMode: "retain", expectedCloseDateMode: "retain" } }, "p13-3-opportunity-stale");
     assert.equal(staleOpportunity.status, 409);
-    const missingLossReason = await post("/k-nex/action", { actionId: "sales.opportunity.close", input: { id: opportunityData.id, expectedRevision: 1, expectedStage: "qualification", stage: "lost" } }, "p13-3-opportunity-missing-loss");
+    const missingLossReason = await post("/k-nex/action", { actionId: "sales.opportunity.close", input: opportunityCloseInput(opportunityData.id) }, "p13-3-opportunity-missing-loss");
     assert.equal(missingLossReason.status, 403);
-    assert.deepEqual((await pool.query("select revision, stage_id from sales_opportunities where id=$1", [opportunityData.id])).rows, [{ revision: 1, stage_id: "qualification" }]);
-    const lostOpportunity = await post("/k-nex/action", { actionId: "sales.opportunity.close", input: { id: opportunityData.id, expectedRevision: 1, expectedStage: "qualification", stage: "lost", lossReason: "budget" } }, "p13-3-opportunity-lost");
+    assert.deepEqual((await pool.query("select revision, stage_id from sales_opportunities where id=$1", [opportunityData.id])).rows, [{ revision: 1, stage_id: stageIds.qualification }]);
+    const lostOpportunity = await post("/k-nex/action", { actionId: "sales.opportunity.close", input: opportunityCloseInput(opportunityData.id, "budget") }, "p13-3-opportunity-lost");
     assert.equal(lostOpportunity.status, 200, await lostOpportunity.clone().text());
+    const closedOpportunityUpdate = await post("/k-nex/action", { actionId: "sales.opportunity.update", input: { id: opportunityData.id, expectedRevision: 2, name: "Must remain closed", primaryContactMode: "retain", amountMode: "retain", expectedCloseDateMode: "retain" } }, "p13-3-closed-opportunity-update");
+    assert.equal(closedOpportunityUpdate.status, 409, await closedOpportunityUpdate.clone().text());
 
     const terminalParent = await post("/k-nex/action", { actionId: "sales.account.create", input: { name: "Terminal parent" } }, "p13-3-terminal-parent");
     const terminalParentData = (await terminalParent.json()).data;
@@ -471,7 +487,7 @@ test("P13.3 CRM HTTP/PG actions preserve replay, target scope, and protected-inp
     for (const [parentId, suffix] of [[terminalParentData.id, "archived"], [mergedParentData.id, "merged"]]) {
       const contactDenied = await post("/k-nex/action", { actionId: "sales.contact.create", input: { accountId: parentId, displayName: `Denied ${suffix} contact` } }, `p13-3-${suffix}-parent-contact`);
       assert.equal(contactDenied.status, 409, await contactDenied.clone().text());
-      const opportunityDenied = await post("/k-nex/action", { actionId: "sales.opportunity.create", input: { name: `Denied ${suffix} opportunity`, accountId: parentId, pipelineId: String(pipeline.id), stageId: "qualification" } }, `p13-3-${suffix}-parent-opportunity`);
+      const opportunityDenied = await post("/k-nex/action", { actionId: "sales.opportunity.create", input: opportunityCreateInput({ name: `Denied ${suffix} opportunity`, accountId: parentId }) }, `p13-3-${suffix}-parent-opportunity`);
       assert.equal(opportunityDenied.status, 409, await opportunityDenied.clone().text());
     }
     assert.deepEqual((await pool.query("select (select count(*)::int from sales_contacts) contacts,(select count(*)::int from sales_opportunities) opportunities,(select count(*)::int from k_nex_outbox) outbox_count,(select count(*)::int from sales_action_idempotency) idempotency_count")).rows[0], terminalCounts);
@@ -485,12 +501,12 @@ test("P13.3 CRM HTTP/PG actions preserve replay, target scope, and protected-inp
     assert.equal(archivedQualification.status, 409, await archivedQualification.clone().text());
     assert.deepEqual((await pool.query("select status,archive_status,revision,audit from sales_leads where id=$1", [archiveLeadData.id])).rows[0], archivedLeadBefore);
     assert.deepEqual((await pool.query("select (select count(*)::int from sales_accounts) accounts,(select count(*)::int from sales_contacts) contacts,(select count(*)::int from sales_opportunities) opportunities,(select count(*)::int from k_nex_outbox) outbox_count,(select count(*)::int from sales_action_idempotency) idempotency_count")).rows[0], archivedLeadCounts);
-    const archiveOpportunity = await post("/k-nex/action", { actionId: "sales.opportunity.create", input: { name: "Archive integrity opportunity", accountId: createdData.id, pipelineId: String(pipeline.id), stageId: "qualification" } }, "p13-3-archive-opportunity-create");
+    const archiveOpportunity = await post("/k-nex/action", { actionId: "sales.opportunity.create", input: opportunityCreateInput({ name: "Archive integrity opportunity", accountId: createdData.id }) }, "p13-3-archive-opportunity-create");
     const archiveOpportunityData = (await archiveOpportunity.json()).data;
     assert.equal((await post("/k-nex/action", { actionId: "sales.opportunity.archive", input: { id: archiveOpportunityData.id, expectedRevision: 1 } }, "p13-3-archive-opportunity")).status, 200);
     const archivedOpportunityBeforeStage = (await pool.query("select revision,stage_id,archive_status,audit from sales_opportunities where id=$1", [archiveOpportunityData.id])).rows[0];
     const archivedOpportunityStageCounts = (await pool.query("select (select count(*)::int from k_nex_outbox) outbox_count,(select count(*)::int from sales_action_idempotency) idempotency_count")).rows[0];
-    const archivedOpportunityStage = await post("/k-nex/action", { actionId: "sales.opportunity.stage.update", input: { id: archiveOpportunityData.id, expectedStage: "qualification", expectedRevision: 2, stage: "discovery" } }, "p13-3-archived-opportunity-stage");
+    const archivedOpportunityStage = await post("/k-nex/action", { actionId: "sales.opportunity.stage.update", input: { id: archiveOpportunityData.id, expectedRevision: 2, expectedPipelineId: String(pipeline.id), expectedPipelineRevision: 1, expectedSourceStageId: stageIds.qualification, expectedSourceStageRevision: 1, destinationStageId: stageIds.discovery, expectedDestinationStageRevision: 1 } }, "p13-3-archived-opportunity-stage");
     assert.equal(archivedOpportunityStage.status, 409, await archivedOpportunityStage.clone().text());
     assert.deepEqual((await pool.query("select revision,stage_id,archive_status,audit from sales_opportunities where id=$1", [archiveOpportunityData.id])).rows[0], archivedOpportunityBeforeStage);
     assert.deepEqual((await pool.query("select (select count(*)::int from k_nex_outbox) outbox_count,(select count(*)::int from sales_action_idempotency) idempotency_count")).rows[0], archivedOpportunityStageCounts);
@@ -686,7 +702,7 @@ test("P13.3 CRM HTTP/PG actions preserve replay, target scope, and protected-inp
     const foreign = await payload.create({ collection: "sales-accounts", overrideAccess: true, data: { applicationId, environment: "production", ownerId: "foreign-owner", createdBy: "foreign-owner", updatedBy: "foreign-owner", revision: 1, audit: [], status: "active", name: "Foreign account" } });
     const foreignContact = await post("/k-nex/action", { actionId: "sales.contact.create", input: { accountId: String(foreign.id), displayName: "forged contact" } }, "p13-3-foreign-contact");
     assert.equal(foreignContact.status, 403, await foreignContact.clone().text());
-    const foreignOpportunity = await post("/k-nex/action", { actionId: "sales.opportunity.create", input: { name: "forged opportunity", accountId: String(foreign.id), pipelineId: String(pipeline.id), stageId: "qualification" } }, "p13-3-foreign-opportunity");
+    const foreignOpportunity = await post("/k-nex/action", { actionId: "sales.opportunity.create", input: opportunityCreateInput({ name: "forged opportunity", accountId: String(foreign.id) }) }, "p13-3-foreign-opportunity");
     assert.equal(foreignOpportunity.status, 403, await foreignOpportunity.clone().text());
     const foreignActivity = await post("/k-nex/action", { actionId: "sales.activity.create", input: { relatedRecordType: "sales.account", relatedRecordId: String(foreign.id), type: "call", subject: "forged target", scheduledAt: "2026-09-07T10:00:00.000Z" } }, "p13-3-foreign-target");
     assert.equal(foreignActivity.status, 403, await foreignActivity.clone().text());
@@ -710,10 +726,10 @@ test("P13.3 CRM HTTP/PG actions preserve replay, target scope, and protected-inp
     const managerLead = await sourceAs(managerLogin.token, { sourceId: "sales.lead.detail", surface: "workspace", input: { id: leadData.id }, query: { page: { number: 1, size: 1 }, filters: [], sort: [] }, selectedFields: ["display-name", "source", "owner-id", "team-id", "archive-status", "email", "status", "revision"] });
     assert.equal(managerLead.status, 200, await managerLead.clone().text());
     await pool.query("update sales_opportunities set amount='10.00', currency='USD' where id=$1", [opportunityData.id]);
-    const managerOpportunity = await sourceAs(managerLogin.token, { sourceId: "sales.opportunity.detail", surface: "workspace", input: { id: opportunityData.id }, query: { page: { number: 1, size: 1 }, filters: [], sort: [] }, selectedFields: ["name", "owner-id", "account-id", "pipeline-id", "amount", "stage-id", "archive-status", "revision"] });
+    const managerOpportunity = await sourceAs(managerLogin.token, { sourceId: "sales.opportunity.detail", surface: "workspace", input: { id: opportunityData.id }, query: { page: { number: 1, size: 1 }, filters: [], sort: [] }, selectedFields: ["name", "owner-id", "account-id", "pipeline-id", "pipeline-revision", "amount", "stage-id", "stage-name", "stage-semantic", "stage-revision", "archive-status", "revision"] });
     assert.equal(managerOpportunity.status, 200, await managerOpportunity.clone().text());
     assert.equal((await managerOpportunity.json()).data.fields.includes("amount"), true);
-    const viewerAmount = await sourceAs(viewerLogin.token, { sourceId: "sales.opportunity.detail", surface: "workspace", input: { id: opportunityData.id }, query: { page: { number: 1, size: 1 }, filters: [], sort: [] }, selectedFields: ["name", "owner-id", "account-id", "pipeline-id", "amount", "stage-id", "archive-status", "revision"] });
+    const viewerAmount = await sourceAs(viewerLogin.token, { sourceId: "sales.opportunity.detail", surface: "workspace", input: { id: opportunityData.id }, query: { page: { number: 1, size: 1 }, filters: [], sort: [] }, selectedFields: ["name", "owner-id", "account-id", "pipeline-id", "pipeline-revision", "amount", "stage-id", "stage-name", "stage-semantic", "stage-revision", "archive-status", "revision"] });
     assert.equal(viewerAmount.status, 200, await viewerAmount.clone().text());
     const viewerAmountBody = await viewerAmount.json();
     assert.equal(JSON.stringify(viewerAmountBody).includes("10.00"), false);

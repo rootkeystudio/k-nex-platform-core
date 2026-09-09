@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { gunzipSync } from "node:zlib";
 
-import { planCreateKnexApplication } from "../packages/composition/dist/index.js";
+import { generatedPnpmWorkspace, payloadPostgresPatchFilename, payloadPostgresPatchSource, planCreateKnexApplication } from "../packages/composition/dist/index.js";
 
 const root = resolve(import.meta.dirname, "..");
 const mirror = resolve(root, "fixtures/customer-gate-1/packages");
@@ -26,12 +26,13 @@ function packageIdentity(path) {
 const archives = readdirSync(mirror).filter((name) => /^k-nex-.*\.tgz$/u.test(name)).sort();
 const packages = archives.map((filename) => ({ filename, ...packageIdentity(resolve(mirror, filename)) }));
 const packageFiles = new Map(packages.map((entry) => [entry.name, `file:.k-nex/packages/${entry.filename}`]));
-const allowBuilds = {
-  "cpu-features@0.0.10": false, "esbuild@0.18.20": true, "esbuild@0.25.12": true, "esbuild@0.28.2": true,
-  "protobufjs@7.6.5": false, "sharp@0.35.3": true, "ssh2@1.17.0": false
-};
-const overrides = Object.fromEntries(packages.map(({ name, filename }) => [name, `file:.k-nex/packages/${filename}`]).sort(([left], [right]) => left.localeCompare(right)));
-const workspace = `packages:\n  - "."\n\nallowBuilds:\n${Object.entries(allowBuilds).map(([name, allowed]) => `  "${name}": ${allowed}`).join("\n")}\n\noverrides:\n${Object.entries(overrides).map(([name, specifier]) => `  "${name}": "${specifier}"`).join("\n")}\n`;
+const overrides = Object.fromEntries([
+  ...packages.map(({ name, filename }) => [name, `file:.k-nex/packages/${filename}`]),
+  // @puckeditor/core declares this transitive dependency as ^3.13.9. Keep the
+  // factory lock tied to the reviewed release closure instead of registry time.
+  ["@puckeditor/core>@tanstack/react-virtual", "3.14.11"]
+].sort(([left], [right]) => left.localeCompare(right)));
+const workspace = generatedPnpmWorkspace(overrides);
 const generated = [];
 
 for (const theme of ["minimal", "neobrutalism"]) {
@@ -49,6 +50,8 @@ for (const theme of ["minimal", "neobrutalism"]) {
     if (Object.values(manifest.dependencies).includes(undefined)) throw new Error(`Packed mirror is incomplete for the ${theme} factory lock.`);
     mkdirSync(resolve(directory, ".k-nex/packages"), { recursive: true });
     for (const filename of archives) copyFileSync(resolve(mirror, filename), resolve(directory, ".k-nex/packages", filename));
+    mkdirSync(resolve(directory, "patches"), { recursive: true });
+    writeFileSync(resolve(directory, payloadPostgresPatchFilename), payloadPostgresPatchSource());
     writeFileSync(resolve(directory, "package.json"), `${JSON.stringify(manifest, null, 2)}\n`);
     writeFileSync(resolve(directory, ".npmrc"), "link-workspace-packages=false\nshared-workspace-lockfile=false\n");
     writeFileSync(resolve(directory, "pnpm-workspace.yaml"), workspace);

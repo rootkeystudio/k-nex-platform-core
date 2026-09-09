@@ -1045,8 +1045,12 @@ export const salesEventAfterChange: CollectionAfterChangeHook = async ({ collect
   const audit = document?.audit;
   const lastAudit = Array.isArray(audit) ? audit.at(-1) : undefined;
   const expected = salesEventContract(transition.actionId, collection.slug);
+  const taskCreate = transition.actionId === salesTaskCreateDescriptor.id;
+  const expectedOperation = taskCreate ? "create" : "update";
+  const createGenesisMatches = !taskCreate || isRecord(transition) && validActionAudit(transition) &&
+    transition.revision === 1 && transition.fromState === "absent" && transition.toState === "open";
   const auditMatches = Array.isArray(audit) && audit.length === transition.revision && isRecord(lastAudit) && canonicalJson(lastAudit) === canonicalJson(transition);
-  if (operation !== "update" || document === undefined || String(document.id) !== transition.resourceId || document[statusField] !== transition.toState || !auditMatches ||
+  if (operation !== expectedOperation || !createGenesisMatches || document === undefined || String(document.id) !== transition.resourceId || document[statusField] !== transition.toState || !auditMatches ||
     document.revision !== transition.revision || document.applicationId !== transition.applicationId || document.environment !== transition.environment ||
     event.eventId !== transition.idempotencyKey || applicationId(req) !== transition.applicationId || expected === undefined || expected.type !== event.type || expected.stateField !== statusField) {
     throw new Error("Sales durable event transition does not match the committed record.");
@@ -1402,9 +1406,9 @@ function whereClause(field: string, operator: string, value: unknown): Record<st
     in: "in",
     contains: "contains",
     gt: "greater_than",
-    gte: "greater_than_or_equal",
+    gte: "greater_than_equal",
     lt: "less_than",
-    lte: "less_than_or_equal"
+    lte: "less_than_equal"
   };
   const mapped = payloadOperator[operator];
   if (mapped === undefined) throw new Error("The Sales source received an unsupported filter operator.");
@@ -1575,10 +1579,8 @@ async function opportunitiesTable(context: DataSourceHandlerRequest): Promise<un
   const documents = result.docs as readonly SalesOpportunityDocument[];
   const pipelineIds = [...new Set(documents.map(({ pipelineId }) => pipelineId).filter((id): id is string | number => typeof id === "string" || typeof id === "number"))];
   const identity = sourceIdentity(context.request); const request = salesRequest(context.request);
-  const [pipelines, stages] = await Promise.all([
-    request.payload.find({ ...requestOptions(context, { page: 1, limit: Math.max(1, pipelineIds.length), where: { and: [{ applicationId: { equals: identity.applicationId } }, { environment: { equals: identity.environment } }, { id: { in: pipelineIds } }, { status: { equals: "active" } }] } }), collection: "sales-pipelines" }),
-    request.payload.find({ ...requestOptions(context, { page: 1, limit: Math.max(1, pipelineIds.length * 6), where: { and: [{ applicationId: { equals: identity.applicationId } }, { environment: { equals: identity.environment } }, { pipelineId: { in: pipelineIds } }, { status: { equals: "active" } }] } }), collection: "sales-pipeline-stages" })
-  ]);
+  const pipelines = await request.payload.find({ ...requestOptions(context, { page: 1, limit: Math.max(1, pipelineIds.length), where: { and: [{ applicationId: { equals: identity.applicationId } }, { environment: { equals: identity.environment } }, { id: { in: pipelineIds } }, { status: { equals: "active" } }] } }), collection: "sales-pipelines" });
+  const stages = await request.payload.find({ ...requestOptions(context, { page: 1, limit: Math.max(1, pipelineIds.length * 6), where: { and: [{ applicationId: { equals: identity.applicationId } }, { environment: { equals: identity.environment } }, { pipelineId: { in: pipelineIds } }, { status: { equals: "active" } }] } }), collection: "sales-pipeline-stages" });
   const pipelineById = new Map(pipelines.docs.map((row) => [String(row.id), row as SalesWorkflowDocument])); const stageById = new Map(stages.docs.map((row) => [`${String((row as SalesWorkflowDocument).pipelineId)}:${String((row as SalesWorkflowDocument).stageId)}`, row as SalesWorkflowDocument]));
   return {
     fields: selected,
@@ -1600,7 +1602,7 @@ const crmSourceSpecs = Object.freeze({
   "sales.contact.detail": { collection: "sales-contacts", fields: salesContactFields, storage: { "display-name": "displayName", "owner-id": "ownerId", "team-id": "teamId", "account-id": "accountId", status: "status", revision: "revision", email: "email", phone: "phone" } },
   "sales.leads": { collection: "sales-leads", fields: salesLeadFields, storage: { "display-name": "displayName", "owner-id": "ownerId", "team-id": "teamId", "archive-status": "archiveStatus", status: "status", revision: "revision", email: "email", phone: "phone" } },
   "sales.lead.detail": { collection: "sales-leads", fields: salesLeadDetailFields, storage: { "display-name": "displayName", source: "source", "owner-id": "ownerId", "team-id": "teamId", "archive-status": "archiveStatus", status: "status", revision: "revision", email: "email", phone: "phone", "decided-at": "decidedAt", "qualified-at": "qualifiedAt", "disqualified-at": "disqualifiedAt", "qualified-account-id": "qualifiedAccountId", "qualified-contact-id": "qualifiedContactId", "qualified-opportunity-id": "qualifiedOpportunityId" } },
-  "sales.opportunity.detail": { collection: "sales-opportunities", fields: salesOpportunityDetailFields, storage: { name: "name", "owner-id": "ownerId", "team-id": "teamId", "archive-status": "archiveStatus", "account-id": "accountId", "primary-contact-id": "primaryContactId", "pipeline-id": "pipelineId", "stage-id": "stageId", "expected-close-date": "expectedCloseDate", revision: "revision", amount: "amount" } }
+  "sales.opportunity.detail": { collection: "sales-opportunities", fields: salesOpportunityDetailFields, storage: { name: "name", "owner-id": "ownerId", "team-id": "teamId", "archive-status": "archiveStatus", "account-id": "accountId", "primary-contact-id": "primaryContactId", "pipeline-id": "pipelineId", "pipeline-revision": "pipelineRevision", "stage-id": "stageId", "stage-name": "stageName", "stage-semantic": "stageSemantic", "stage-revision": "stageRevision", "expected-close-date": "expectedCloseDate", revision: "revision", amount: "amount" } }
   , "sales.notifications": { collection: "sales-notifications", fields: salesNotificationFields, storage: { subject: "subject", state: "state", "created-at": "createdAt", revision: "revision" } }
   , "sales.reminders": { collection: "sales-reminders", fields: salesReminderFields, storage: { subject: "subject", state: "state", "scheduled-at": "scheduledAt", "reference-kind": "referenceKind", "reference-id": "referenceId", revision: "revision" } }
 } as const);
@@ -1630,9 +1632,19 @@ async function crmTable(context: DataSourceHandlerRequest, sourceId: CrmSourceId
   const identity = sourceIdentity(context.request); const scope = scopeWhere(context.recordScope, identity, sourceId);
   const where = id === undefined ? scope : { and: [scope, { id: { equals: id } }] };
   const request = salesRequest(context.request); const user = payloadUser(context.actor);
-  const result = await request.payload.find({ collection: spec.collection, depth: 0, overrideAccess: true, pagination: true, page: context.query.page.number, limit: detail ? 1 : context.query.page.size, select: { id: true, ...Object.fromEntries(selected.map((field) => [spec.storage[field as keyof typeof spec.storage], true])), ...(selected.includes("amount") ? { currency: true } : {}) }, sort: ["id"], where, ...(user === undefined ? {} : { user }), req: request });
+  const projectedOpportunityFields = new Set(["pipeline-revision", "stage-name", "stage-semantic", "stage-revision"]);
+  const result = await request.payload.find({ collection: spec.collection, depth: 0, overrideAccess: true, pagination: true, page: context.query.page.number, limit: detail ? 1 : context.query.page.size, select: { id: true, ...Object.fromEntries(selected.filter((field) => sourceId !== "sales.opportunity.detail" || !projectedOpportunityFields.has(field)).map((field) => [spec.storage[field as keyof typeof spec.storage], true])), ...(sourceId === "sales.opportunity.detail" ? { pipelineId: true, stageId: true } : {}), ...(selected.includes("amount") ? { currency: true } : {}) }, sort: ["id"], where, ...(user === undefined ? {} : { user }), req: request });
   if (detail && result.docs.length > 1) throw new Error("Sales CRM detail source is ambiguous.");
-  return { fields: selected, rows: result.docs.map((document) => {
+  let documents = result.docs as readonly Readonly<Record<string, unknown>>[];
+  if (sourceId === "sales.opportunity.detail" && documents.length === 1) {
+    const document = documents[0]!; const pipelineId = Number(persistedWorkflowId(document.pipelineId, "opportunity pipeline ID")); const stageId = workflowState(document as SalesWorkflowDocument, "stageId");
+    const pipelines = await request.payload.find({ collection: "sales-pipelines", depth: 0, overrideAccess: true, pagination: true, page: 1, limit: 1, select: { id: true, revision: true }, where: { and: [{ applicationId: { equals: identity.applicationId } }, { environment: { equals: identity.environment } }, { id: { equals: pipelineId } }, { status: { equals: "active" } }, { isActive: { equals: true } }] }, ...(user === undefined ? {} : { user }), req: request });
+    const stages = await request.payload.find({ collection: "sales-pipeline-stages", depth: 0, overrideAccess: true, pagination: true, page: 1, limit: 1, select: { id: true, stageId: true, semantic: true, revision: true, name: true, requiredFieldIds: true }, where: { and: [{ applicationId: { equals: identity.applicationId } }, { environment: { equals: identity.environment } }, { pipelineId: { equals: pipelineId } }, { stageId: { equals: stageId } }, { status: { equals: "active" } }] }, ...(user === undefined ? {} : { user }), req: request });
+    const pipeline = pipelines.docs[0] as SalesWorkflowDocument | undefined; const stage = stages.docs[0] as SalesWorkflowDocument | undefined; const semantic = trustedPipelineStage(stage, identity.applicationId, identity.environment, pipelineId);
+    if (pipelines.docs.length !== 1 || stages.docs.length !== 1 || !Number.isSafeInteger(pipeline?.revision) || semantic === undefined || typeof stage?.name !== "string" || stage.name.length === 0 || !Number.isSafeInteger(stage.revision)) throw new DataSourceGatewayError("INVALID_SOURCE_OUTPUT", 500, "Sales opportunity pipeline projection is incomplete.");
+    documents = [{ ...document, pipelineRevision: pipeline!.revision, stageName: stage.name, stageSemantic: semantic, stageRevision: stage.revision }];
+  }
+  return { fields: selected, rows: documents.map((document) => {
     if (document.id === undefined || document.id === null) throw new Error("Sales CRM source row has no ID.");
     return { key: String(document.id), values: Object.fromEntries(selected.map((field) => [field, crmSourceCell(spec.fields.find((candidate) => candidate.id === field)!, (document as unknown as Record<string, unknown>)[spec.storage[field as keyof typeof spec.storage]], (document as unknown as Record<string, unknown>).currency)])) };
   }), page: { number: context.query.page.number, pageSize: detail ? 1 : context.query.page.size, hasNext: detail ? false : result.hasNextPage ?? false } };
@@ -1987,14 +1999,13 @@ export const salesTimelineHandler: DataSourceHandler = async (context) => {
   const relatedWhere = { and: [{ applicationId: { equals: identity.applicationId } }, { environment: { equals: identity.environment } }, ...relationship] };
   const options = { depth: 0 as const, overrideAccess: true as const, pagination: true as const, page: 1, limit: requested, where: relatedWhere, ...(user === undefined ? {} : { user }), req: request };
   const childWhere = (predicate: Readonly<Record<string, unknown>>) => ({ and: [...relatedWhere.and, predicate] });
-  const [completedActivities, plannedActivities, notes, attachments, dueTasks, undatedTasks] = await Promise.all([
-    activityTargetAuthorized ? timelineFind(() => request.payload.find({ ...options, collection: "sales-activities", sort: ["-occurredAt", "-id"], where: childWhere({ status: { equals: "completed" } }), select: { id: true, type: true, subject: true, status: true, occurredAt: true, scheduledAt: true, revision: true } })) : undefined,
-    activityTargetAuthorized ? timelineFind(() => request.payload.find({ ...options, collection: "sales-activities", sort: ["-scheduledAt", "-id"], where: childWhere({ status: { in: ["scheduled", "cancelled"] } }), select: { id: true, type: true, subject: true, status: true, scheduledAt: true, revision: true } })) : undefined,
-    directTargetAuthorized ? timelineFind(() => request.payload.find({ ...options, collection: "sales-notes", sort: ["-occurredAt", "-id"], select: { id: true, status: true, occurredAt: true, revision: true, ...(selected.includes("body") ? { body: true as const } : {}) } })) : undefined,
-    directTargetAuthorized ? timelineFind(() => request.payload.find({ ...options, collection: "sales-attachment-references", sort: ["-createdAt", "-id"], select: { id: true, filename: true, status: true, createdAt: true, revision: true } })) : undefined,
-    directTargetAuthorized ? timelineFind(() => request.payload.find({ ...options, collection: "sales-tasks", sort: ["-dueDate", "-id"], where: childWhere({ dueDate: { exists: true } }), select: { id: true, title: true, status: true, dueDate: true, revision: true } })) : undefined,
-    directTargetAuthorized ? timelineFind(() => request.payload.find({ ...options, collection: "sales-tasks", sort: ["-createdAt", "-id"], where: childWhere({ dueDate: { exists: false } }), select: { id: true, title: true, status: true, createdAt: true, revision: true } })) : undefined
-  ]);
+  // Payload operations share one active transaction client; serialize child reads.
+  const completedActivities = activityTargetAuthorized ? await timelineFind(() => request.payload.find({ ...options, collection: "sales-activities", sort: ["-occurredAt", "-id"], where: childWhere({ status: { equals: "completed" } }), select: { id: true, type: true, subject: true, status: true, occurredAt: true, scheduledAt: true, revision: true } })) : undefined;
+  const plannedActivities = activityTargetAuthorized ? await timelineFind(() => request.payload.find({ ...options, collection: "sales-activities", sort: ["-scheduledAt", "-id"], where: childWhere({ status: { in: ["scheduled", "cancelled"] } }), select: { id: true, type: true, subject: true, status: true, scheduledAt: true, revision: true } })) : undefined;
+  const notes = directTargetAuthorized ? await timelineFind(() => request.payload.find({ ...options, collection: "sales-notes", sort: ["-occurredAt", "-id"], select: { id: true, status: true, occurredAt: true, revision: true, ...(selected.includes("body") ? { body: true as const } : {}) } })) : undefined;
+  const attachments = directTargetAuthorized ? await timelineFind(() => request.payload.find({ ...options, collection: "sales-attachment-references", sort: ["-createdAt", "-id"], select: { id: true, filename: true, status: true, createdAt: true, revision: true } })) : undefined;
+  const dueTasks = directTargetAuthorized ? await timelineFind(() => request.payload.find({ ...options, collection: "sales-tasks", sort: ["-dueDate", "-id"], where: childWhere({ dueDate: { exists: true } }), select: { id: true, title: true, status: true, dueDate: true, revision: true } })) : undefined;
+  const undatedTasks = directTargetAuthorized ? await timelineFind(() => request.payload.find({ ...options, collection: "sales-tasks", sort: ["-createdAt", "-id"], where: childWhere({ dueDate: { exists: false } }), select: { id: true, title: true, status: true, createdAt: true, revision: true } })) : undefined;
   const dated = (key: string, recordId: unknown, classRank: number, instant: string, values: Readonly<Record<string, unknown>>) => {
     const id = typeof recordId === "number" ? recordId : typeof recordId === "string" && isSalesRecordId(recordId) ? Number(recordId) : NaN;
     if (!Number.isSafeInteger(id) || id < 1 || id > 2_147_483_647) throw new Error("Sales timeline record ID is invalid.");
@@ -2583,46 +2594,41 @@ export const salesTaskCreateHandler: ActionHandler<CreateTaskInput, CreateTaskOu
   const authorization = writeAuthorization(authorizationContext, salesTaskCreateDescriptor.id);
   const replay = idempotencyReplay(authorization, salesCreateTaskOutputRuntimeSchema);
   if (replay !== undefined) return replay;
+  const resourceId = authorization.resourceId;
+  if (!isSalesRecordId(resourceId)) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales task identity is invalid.");
   const eventId = durableActionEventId(authorization, idempotencyKey);
   const occurredAt = new Date().toISOString();
+  const transition = auditEntry(authorization, salesTaskCreateDescriptor.id, resourceId, 1, "absent", "open", eventId, occurredAt);
+  const createData = Object.freeze({
+    id: Number(resourceId),
+    title: parsed.data.title,
+    status: "open" as const,
+    applicationId: authorization.applicationId,
+    environment: authorization.environment,
+    ownerId: authorization.actorId,
+    ...(authorization.teamId === undefined ? {} : { teamId: authorization.teamId }),
+    createdBy: authorization.actorId,
+    updatedBy: authorization.actorId,
+    revision: 1,
+    audit: [transition],
+    archiveStatus: "active" as const
+  });
   const created = await payloadRequest.payload.create({
     collection: "sales-tasks",
-    data: {
-      title: parsed.data.title,
-      status: "open",
-      applicationId: authorization.applicationId,
-      environment: authorization.environment,
-      ownerId: authorization.actorId,
-      ...(authorization.teamId === undefined ? {} : { teamId: authorization.teamId }),
-      createdBy: authorization.actorId,
-      updatedBy: authorization.actorId,
-      revision: 1,
-      audit: [],
-      archiveStatus: "active"
-    },
+    data: createData,
     depth: 0,
     overrideAccess: true,
     ...(user === undefined ? {} : { user }),
     req: payloadRequest,
-    context: Object.freeze({})
+    context: eventContext("sales.event.task-changed", transition)
   });
   if (signal.aborted) throw signal.reason;
-  if (created.id === undefined || created.id === null || typeof created.title !== "string" ||
-    created.title.length < 1 || created.title.length > 256 ||
-    !["open", "completed", "cancelled"].includes(created.status as string) || created.revision !== 1) {
+  const createdRecord = created as unknown as Readonly<Record<string, unknown>>;
+  const returnedData = Object.fromEntries(Object.keys(createData).map((key) => [key, createdRecord[key]]));
+  if (canonicalJson(returnedData) !== canonicalJson(createData)) {
     throw new Error("Sales task creation returned an invalid task.");
   }
-  const resourceId = String(created.id);
-  const transition = auditEntry(authorization, salesTaskCreateDescriptor.id, resourceId, 1, "absent", "open", eventId, occurredAt);
-  const finalized = await payloadRequest.payload.update({
-    collection: "sales-tasks", id: resourceId,
-    data: { audit: [transition] }, depth: 0, overrideAccess: true,
-    ...(user === undefined ? {} : { user }), req: payloadRequest, context: eventContext("sales.event.task-changed", transition)
-  });
-  if (String(finalized.id) !== resourceId || finalized.status !== "open" || finalized.revision !== 1) {
-    throw new ActionGatewayError("STALE_RECORD", 409, "Sales task changed before audit finalization.");
-  }
-  return { id: resourceId, title: created.title, status: created.status as CreateTaskOutput["status"], revision: created.revision as number };
+  return { id: resourceId, title: parsed.data.title, status: "open", revision: 1 };
 };
 
 export const salesTaskUpdateHandler: ActionHandler<UpdateTaskInput, UpdateTaskOutput> = async ({ actor, request, authorizationContext, input, idempotencyKey, signal }) => {
@@ -2667,11 +2673,9 @@ export const salesOpportunityStageUpdateHandler: ActionHandler<UpdateOpportunity
   const revision = parsed.data.expectedRevision + 1;
   const current = await workflowCurrent(payloadRequest, authorization, "sales-opportunities", parsed.data.id, parsed.data.expectedRevision, "stageId", user);
   const identityWhere = { and: [{ applicationId: { equals: authorization.applicationId } }, { environment: { equals: authorization.environment } }] };
-  const [pipeline, sourceStage, destinationStage] = await Promise.all([
-    payloadRequest.payload.find({ collection: "sales-pipelines", where: { and: [...identityWhere.and, { id: { equals: parsed.data.expectedPipelineId } }, { revision: { equals: parsed.data.expectedPipelineRevision } }, { status: { equals: "active" } }, { isActive: { equals: true } }] }, limit: 2, pagination: true, depth: 0, overrideAccess: true }),
-    payloadRequest.payload.find({ collection: "sales-pipeline-stages", where: { and: [...identityWhere.and, { pipelineId: { equals: parsed.data.expectedPipelineId } }, { stageId: { equals: parsed.data.expectedSourceStageId } }, { revision: { equals: parsed.data.expectedSourceStageRevision } }, { status: { equals: "active" } }] }, limit: 2, pagination: true, depth: 0, overrideAccess: true }),
-    payloadRequest.payload.find({ collection: "sales-pipeline-stages", where: { and: [...identityWhere.and, { pipelineId: { equals: parsed.data.expectedPipelineId } }, { stageId: { equals: parsed.data.destinationStageId } }, { revision: { equals: parsed.data.expectedDestinationStageRevision } }, { status: { equals: "active" } }] }, limit: 2, pagination: true, depth: 0, overrideAccess: true })
-  ]);
+  const pipeline = await payloadRequest.payload.find({ collection: "sales-pipelines", where: { and: [...identityWhere.and, { id: { equals: parsed.data.expectedPipelineId } }, { revision: { equals: parsed.data.expectedPipelineRevision } }, { status: { equals: "active" } }, { isActive: { equals: true } }] }, limit: 2, pagination: true, depth: 0, overrideAccess: true });
+  const sourceStage = await payloadRequest.payload.find({ collection: "sales-pipeline-stages", where: { and: [...identityWhere.and, { pipelineId: { equals: parsed.data.expectedPipelineId } }, { stageId: { equals: parsed.data.expectedSourceStageId } }, { revision: { equals: parsed.data.expectedSourceStageRevision } }, { status: { equals: "active" } }] }, limit: 2, pagination: true, depth: 0, overrideAccess: true });
+  const destinationStage = await payloadRequest.payload.find({ collection: "sales-pipeline-stages", where: { and: [...identityWhere.and, { pipelineId: { equals: parsed.data.expectedPipelineId } }, { stageId: { equals: parsed.data.destinationStageId } }, { revision: { equals: parsed.data.expectedDestinationStageRevision } }, { status: { equals: "active" } }] }, limit: 2, pagination: true, depth: 0, overrideAccess: true });
   const source = sourceStage.docs[0] as SalesWorkflowDocument | undefined; const destination = destinationStage.docs[0] as SalesWorkflowDocument | undefined;
   if (current.document.archiveStatus !== "active" || String(current.document.pipelineId) !== parsed.data.expectedPipelineId || current.state !== parsed.data.expectedSourceStageId || pipeline.docs.length !== 1 || sourceStage.docs.length !== 1 || destinationStage.docs.length !== 1 ||
     !trustedPipelineTransition(source, destination, authorization.applicationId, authorization.environment, Number(parsed.data.expectedPipelineId), parsed.data.destinationStageId) || ["won", "lost"].includes(String(destination?.semantic))) throw new ActionGatewayError("STALE_RECORD", 409, "Sales opportunity or pipeline changed before the stage update.");
@@ -2687,11 +2691,9 @@ export const salesOpportunityStageUpdateHandler: ActionHandler<UpdateOpportunity
     }) : undefined)
   });
   if (update.errors.length > 0 || update.docs.length !== 1) throw new ActionGatewayError("STALE_RECORD", 409, "Sales opportunity changed before the stage update.");
-  const [pipelineFence, sourceFence, destinationFence] = await Promise.all([
-    payloadRequest.payload.find({ collection: "sales-pipelines", where: { and: [...identityWhere.and, { id: { equals: parsed.data.expectedPipelineId } }, { revision: { equals: parsed.data.expectedPipelineRevision } }, { status: { equals: "active" } }, { isActive: { equals: true } }] }, limit: 2, pagination: true, depth: 0, overrideAccess: true }),
-    payloadRequest.payload.find({ collection: "sales-pipeline-stages", where: { and: [...identityWhere.and, { pipelineId: { equals: parsed.data.expectedPipelineId } }, { stageId: { equals: parsed.data.expectedSourceStageId } }, { revision: { equals: parsed.data.expectedSourceStageRevision } }, { status: { equals: "active" } }] }, limit: 2, pagination: true, depth: 0, overrideAccess: true }),
-    payloadRequest.payload.find({ collection: "sales-pipeline-stages", where: { and: [...identityWhere.and, { pipelineId: { equals: parsed.data.expectedPipelineId } }, { stageId: { equals: parsed.data.destinationStageId } }, { revision: { equals: parsed.data.expectedDestinationStageRevision } }, { status: { equals: "active" } }] }, limit: 2, pagination: true, depth: 0, overrideAccess: true })
-  ]);
+  const pipelineFence = await payloadRequest.payload.find({ collection: "sales-pipelines", where: { and: [...identityWhere.and, { id: { equals: parsed.data.expectedPipelineId } }, { revision: { equals: parsed.data.expectedPipelineRevision } }, { status: { equals: "active" } }, { isActive: { equals: true } }] }, limit: 2, pagination: true, depth: 0, overrideAccess: true });
+  const sourceFence = await payloadRequest.payload.find({ collection: "sales-pipeline-stages", where: { and: [...identityWhere.and, { pipelineId: { equals: parsed.data.expectedPipelineId } }, { stageId: { equals: parsed.data.expectedSourceStageId } }, { revision: { equals: parsed.data.expectedSourceStageRevision } }, { status: { equals: "active" } }] }, limit: 2, pagination: true, depth: 0, overrideAccess: true });
+  const destinationFence = await payloadRequest.payload.find({ collection: "sales-pipeline-stages", where: { and: [...identityWhere.and, { pipelineId: { equals: parsed.data.expectedPipelineId } }, { stageId: { equals: parsed.data.destinationStageId } }, { revision: { equals: parsed.data.expectedDestinationStageRevision } }, { status: { equals: "active" } }] }, limit: 2, pagination: true, depth: 0, overrideAccess: true });
   if (pipelineFence.docs.length !== 1 || sourceFence.docs.length !== 1 || destinationFence.docs.length !== 1) throw new ActionGatewayError("STALE_RECORD", 409, "Sales pipeline changed during the stage update.");
   const updated = update.docs[0]!;
   const result = { id: String(updated.id), pipelineId: parsed.data.expectedPipelineId, stageId: updated.stageId, revision: updated.revision };
@@ -2983,14 +2985,21 @@ async function assertActivityRelatedRecord(payloadRequest: SalesPayloadRequest, 
 async function assertPipelineReference(payloadRequest: SalesPayloadRequest, authorization: SalesWriteAuthorization, value: unknown, user: ReturnType<typeof payloadUser>, fence?: Readonly<{ pipelineRevision: number; stageId: string; stageRevision: number }>) {
   const id = workflowId(value, "pipeline ID");
   const scope = [{ applicationId: { equals: authorization.applicationId } }, { environment: { equals: authorization.environment } }, { pipelineId: { equals: id } }];
-  const [pipeline, qualification] = await Promise.all([
-    payloadRequest.payload.find({ collection: "sales-pipelines", depth: 0, overrideAccess: true, pagination: true, page: 1, limit: 1, select: { id: true, revision: true, isActive: true, status: true }, sort: ["id"], where: { and: [{ applicationId: { equals: authorization.applicationId } }, { environment: { equals: authorization.environment } }, { id: { equals: id } }, { status: { equals: "active" } }, { isActive: { equals: true } }, ...(fence === undefined ? [] : [{ revision: { equals: fence.pipelineRevision } }])] }, ...(user === undefined ? {} : { user }), req: payloadRequest }),
-    payloadRequest.payload.find({ collection: "sales-pipeline-stages", depth: 0, overrideAccess: true, pagination: true, page: 1, limit: 1, select: { id: true, stageId: true, semantic: true, revision: true }, sort: ["id"], where: { and: [...scope, ...(fence === undefined ? [] : [{ stageId: { equals: fence.stageId } }, { revision: { equals: fence.stageRevision } }]), { semantic: { equals: "qualification" } }, { status: { equals: "active" } }] }, ...(user === undefined ? {} : { user }), req: payloadRequest })
-  ]);
+  const pipeline = await payloadRequest.payload.find({ collection: "sales-pipelines", depth: 0, overrideAccess: true, pagination: true, page: 1, limit: 1, select: { id: true, revision: true, isActive: true, status: true }, sort: ["id"], where: { and: [{ applicationId: { equals: authorization.applicationId } }, { environment: { equals: authorization.environment } }, { id: { equals: id } }, { status: { equals: "active" } }, { isActive: { equals: true } }, ...(fence === undefined ? [] : [{ revision: { equals: fence.pipelineRevision } }])] }, ...(user === undefined ? {} : { user }), req: payloadRequest });
+  const qualification = await payloadRequest.payload.find({ collection: "sales-pipeline-stages", depth: 0, overrideAccess: true, pagination: true, page: 1, limit: 1, select: { id: true, stageId: true, semantic: true, revision: true, requiredFieldIds: true }, sort: ["id"], where: { and: [...scope, ...(fence === undefined ? [] : [{ stageId: { equals: fence.stageId } }, { revision: { equals: fence.stageRevision } }]), { semantic: { equals: "qualification" } }, { status: { equals: "active" } }] }, ...(user === undefined ? {} : { user }), req: payloadRequest });
   if (pipeline.docs.length !== 1 || qualification.docs.length !== 1) throw new ActionGatewayError("STALE_RECORD", 409, "Sales pipeline is unavailable.");
   const stageId = (qualification.docs[0] as SalesWorkflowDocument).stageId;
   if (typeof stageId !== "string" || stageId !== salesPipelineStageId(authorization.applicationId, authorization.environment, Number(id), "qualification") || trustedPipelineStage(qualification.docs[0] as SalesWorkflowDocument, authorization.applicationId, authorization.environment, Number(id)) !== "qualification") throw new ActionGatewayError("STALE_RECORD", 409, "Sales qualification stage identity is invalid.");
   return Object.freeze({ pipelineId: id, stageId });
+}
+
+async function currentOpportunityStageSemantic(payloadRequest: SalesPayloadRequest, authorization: SalesWriteAuthorization, document: SalesWorkflowDocument, user: ReturnType<typeof payloadUser>): Promise<typeof salesPipelineStageSemantics[number]> {
+  const pipelineId = Number(persistedWorkflowId(document.pipelineId, "opportunity pipeline ID"));
+  const stageId = workflowState(document, "stageId");
+  const found = await payloadRequest.payload.find({ collection: "sales-pipeline-stages", depth: 0, overrideAccess: true, pagination: true, page: 1, limit: 1, select: { id: true, stageId: true, semantic: true, requiredFieldIds: true }, sort: ["id"], where: { and: [{ applicationId: { equals: authorization.applicationId } }, { environment: { equals: authorization.environment } }, { pipelineId: { equals: pipelineId } }, { stageId: { equals: stageId } }, { status: { equals: "active" } }] }, ...(user === undefined ? {} : { user }), req: payloadRequest });
+  const semantic = found.docs.length === 1 ? trustedPipelineStage(found.docs[0] as SalesWorkflowDocument, authorization.applicationId, authorization.environment, pipelineId) : undefined;
+  if (semantic === undefined) throw new ActionGatewayError("STALE_RECORD", 409, "Sales opportunity stage is unavailable.");
+  return semantic;
 }
 
 async function assertActivitySupersession(payloadRequest: SalesPayloadRequest, authorization: SalesWriteAuthorization, relatedRecordType: TimelineTargetType, relatedRecordId: string, value: unknown, user: ReturnType<typeof payloadUser>) {
@@ -3336,7 +3345,8 @@ export const salesWorkflowActionHandler: ActionHandler<WorkflowActionInput, Work
   if (current.document.archiveStatus === "archived") throw new ActionGatewayError("STALE_RECORD", 409, "Sales record is archived.");
   if ((actionId === "sales.account.update" || actionId === "sales.contact.update") && current.state !== "active") throw new ActionGatewayError("STALE_RECORD", 409, "Sales record is not active.");
   if (actionId === "sales.lead.update" && !["new", "working"].includes(current.state)) throw new ActionGatewayError("STALE_RECORD", 409, "Sales lead cannot be updated from its current state.");
-  if (actionId === "sales.opportunity.update" && ["won", "lost"].includes(current.state)) throw new ActionGatewayError("STALE_RECORD", 409, "Sales opportunity is closed.");
+  const opportunitySemantic = actionId === "sales.opportunity.update" ? await currentOpportunityStageSemantic(payloadRequest, authorization, current.document, user) : undefined;
+  if (actionId === "sales.opportunity.update" && (opportunitySemantic === "won" || opportunitySemantic === "lost")) throw new ActionGatewayError("STALE_RECORD", 409, "Sales opportunity is closed.");
   if (actionId === "sales.opportunity.update" && parsed.primaryContactMode === "set") {
     const accountId = persistedWorkflowId(current.document.accountId, "Account ID");
     const contact = await assertRelatedRecord(payloadRequest, authorization, "sales.contact", workflowId(parsed.primaryContactId, "primary contact ID"), user, true, false);
@@ -3347,21 +3357,17 @@ export const salesWorkflowActionHandler: ActionHandler<WorkflowActionInput, Work
   let opportunityReferenceFence: (() => Promise<void>) | undefined;
   if (actionId === "sales.opportunity.close") {
     const identity = [{ applicationId: { equals: authorization.applicationId } }, { environment: { equals: authorization.environment } }];
-    const [pipeline, sourceStage, destinationStage] = await Promise.all([
-      payloadRequest.payload.find({ collection: "sales-pipelines", depth: 0, overrideAccess: true, pagination: true, page: 1, limit: 2, where: { and: [...identity, { id: { equals: parsed.expectedPipelineId } }, { revision: { equals: parsed.expectedPipelineRevision } }, { status: { equals: "active" } }, { isActive: { equals: true } }] }, ...(user === undefined ? {} : { user }), req: payloadRequest }),
-      payloadRequest.payload.find({ collection: "sales-pipeline-stages", depth: 0, overrideAccess: true, pagination: true, page: 1, limit: 2, where: { and: [...identity, { pipelineId: { equals: parsed.expectedPipelineId } }, { stageId: { equals: parsed.expectedSourceStageId } }, { revision: { equals: parsed.expectedSourceStageRevision } }, { status: { equals: "active" } }] }, ...(user === undefined ? {} : { user }), req: payloadRequest }),
-      payloadRequest.payload.find({ collection: "sales-pipeline-stages", depth: 0, overrideAccess: true, pagination: true, page: 1, limit: 2, where: { and: [...identity, { pipelineId: { equals: parsed.expectedPipelineId } }, { stageId: { equals: parsed.destinationStageId } }, { revision: { equals: parsed.expectedDestinationStageRevision } }, { status: { equals: "active" } }] }, ...(user === undefined ? {} : { user }), req: payloadRequest })
-    ]);
+    const pipeline = await payloadRequest.payload.find({ collection: "sales-pipelines", depth: 0, overrideAccess: true, pagination: true, page: 1, limit: 2, where: { and: [...identity, { id: { equals: parsed.expectedPipelineId } }, { revision: { equals: parsed.expectedPipelineRevision } }, { status: { equals: "active" } }, { isActive: { equals: true } }] }, ...(user === undefined ? {} : { user }), req: payloadRequest });
+    const sourceStage = await payloadRequest.payload.find({ collection: "sales-pipeline-stages", depth: 0, overrideAccess: true, pagination: true, page: 1, limit: 2, where: { and: [...identity, { pipelineId: { equals: parsed.expectedPipelineId } }, { stageId: { equals: parsed.expectedSourceStageId } }, { revision: { equals: parsed.expectedSourceStageRevision } }, { status: { equals: "active" } }] }, ...(user === undefined ? {} : { user }), req: payloadRequest });
+    const destinationStage = await payloadRequest.payload.find({ collection: "sales-pipeline-stages", depth: 0, overrideAccess: true, pagination: true, page: 1, limit: 2, where: { and: [...identity, { pipelineId: { equals: parsed.expectedPipelineId } }, { stageId: { equals: parsed.destinationStageId } }, { revision: { equals: parsed.expectedDestinationStageRevision } }, { status: { equals: "active" } }] }, ...(user === undefined ? {} : { user }), req: payloadRequest });
     const source = sourceStage.docs[0] as SalesWorkflowDocument | undefined; const destination = destinationStage.docs[0] as SalesWorkflowDocument | undefined;
     if (pipeline.docs.length !== 1 || sourceStage.docs.length !== 1 || destinationStage.docs.length !== 1 || String(current.document.pipelineId) !== parsed.expectedPipelineId || current.state !== parsed.expectedSourceStageId || !trustedPipelineTransition(source, destination, authorization.applicationId, authorization.environment, Number(parsed.expectedPipelineId), String(parsed.destinationStageId)) || !["won", "lost"].includes(String(destination?.semantic))) throw new ActionGatewayError("STALE_RECORD", 409, "Sales opportunity or pipeline changed before close.");
     destinationSemantic = destination!.semantic as "won" | "lost";
     if (destinationSemantic === "lost" ? parsed.lossReason === undefined : parsed.lossReason !== undefined) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales close fields do not match the destination stage.");
     opportunityReferenceFence = async () => {
-      const [pipelineFence, sourceFence, destinationFence] = await Promise.all([
-        payloadRequest.payload.find({ collection: "sales-pipelines", depth: 0, overrideAccess: true, pagination: true, page: 1, limit: 2, where: { and: [...identity, { id: { equals: parsed.expectedPipelineId } }, { revision: { equals: parsed.expectedPipelineRevision } }, { status: { equals: "active" } }, { isActive: { equals: true } }] }, ...(user === undefined ? {} : { user }), req: payloadRequest }),
-        payloadRequest.payload.find({ collection: "sales-pipeline-stages", depth: 0, overrideAccess: true, pagination: true, page: 1, limit: 2, where: { and: [...identity, { pipelineId: { equals: parsed.expectedPipelineId } }, { stageId: { equals: parsed.expectedSourceStageId } }, { revision: { equals: parsed.expectedSourceStageRevision } }, { status: { equals: "active" } }] }, ...(user === undefined ? {} : { user }), req: payloadRequest }),
-        payloadRequest.payload.find({ collection: "sales-pipeline-stages", depth: 0, overrideAccess: true, pagination: true, page: 1, limit: 2, where: { and: [...identity, { pipelineId: { equals: parsed.expectedPipelineId } }, { stageId: { equals: parsed.destinationStageId } }, { revision: { equals: parsed.expectedDestinationStageRevision } }, { status: { equals: "active" } }] }, ...(user === undefined ? {} : { user }), req: payloadRequest })
-      ]);
+      const pipelineFence = await payloadRequest.payload.find({ collection: "sales-pipelines", depth: 0, overrideAccess: true, pagination: true, page: 1, limit: 2, where: { and: [...identity, { id: { equals: parsed.expectedPipelineId } }, { revision: { equals: parsed.expectedPipelineRevision } }, { status: { equals: "active" } }, { isActive: { equals: true } }] }, ...(user === undefined ? {} : { user }), req: payloadRequest });
+      const sourceFence = await payloadRequest.payload.find({ collection: "sales-pipeline-stages", depth: 0, overrideAccess: true, pagination: true, page: 1, limit: 2, where: { and: [...identity, { pipelineId: { equals: parsed.expectedPipelineId } }, { stageId: { equals: parsed.expectedSourceStageId } }, { revision: { equals: parsed.expectedSourceStageRevision } }, { status: { equals: "active" } }] }, ...(user === undefined ? {} : { user }), req: payloadRequest });
+      const destinationFence = await payloadRequest.payload.find({ collection: "sales-pipeline-stages", depth: 0, overrideAccess: true, pagination: true, page: 1, limit: 2, where: { and: [...identity, { pipelineId: { equals: parsed.expectedPipelineId } }, { stageId: { equals: parsed.destinationStageId } }, { revision: { equals: parsed.expectedDestinationStageRevision } }, { status: { equals: "active" } }] }, ...(user === undefined ? {} : { user }), req: payloadRequest });
       if (pipelineFence.docs.length !== 1 || sourceFence.docs.length !== 1 || destinationFence.docs.length !== 1) throw new ActionGatewayError("STALE_RECORD", 409, "Sales pipeline changed during close.");
     };
   }
@@ -3376,7 +3382,7 @@ export const salesWorkflowActionHandler: ActionHandler<WorkflowActionInput, Work
   if (opportunityReferenceFence !== undefined) await opportunityReferenceFence();
   return actionId === "sales.opportunity.close"
     ? workflowOutput(actionId, { id, revision, pipelineId: workflowId(parsed.expectedPipelineId, "pipeline ID"), stageId: nextState })
-    : workflowOutput(actionId, { id, revision, status: nextState });
+    : workflowOutput(actionId, { id, revision, status: opportunitySemantic ?? nextState });
 };
 
 const salesConfigurationDescriptors = Object.freeze([salesPipelineUpdateDescriptor, salesPipelineArchiveDescriptor, salesSavedViewCreateDescriptor, salesSavedViewUpdateDescriptor, salesSavedViewArchiveDescriptor]);
@@ -3512,10 +3518,8 @@ export const salesConfigurationActionHandler: ActionHandler = async ({ actor, re
       if (canonicalJson((updated.docs[0] as SalesWorkflowDocument | undefined)?.audit) !== canonicalJson(stageAudit)) throw new ActionGatewayError("STALE_RECORD", 409, "Sales pipeline stage audit changed during update.");
       outputStages.push({ stageId: stage.stageId, revision, semantic: stage.semantic, name: stage.name, position: stage.position, probabilityBasisPoints: stage.probabilityBasisPoints, allowedTransitionStageIds: stage.allowedTransitionStageIds, requiredFieldIds: stage.requiredFieldIds, status: "active" });
     }
-    const [finalPipelineResult, finalStageResult] = await Promise.all([
-      payloadRequest.payload.find({ collection: "sales-pipelines", ...common, pagination: true, page: 1, limit: 2, where: { and: [{ applicationId: { equals: authorization.applicationId } }, { environment: { equals: authorization.environment } }, { id: { equals: pipelineId } }, { revision: { equals: pipelineRevision } }, { status: { equals: "active" } }, { isActive: { equals: true } }] } }),
-      payloadRequest.payload.find({ collection: "sales-pipeline-stages", ...common, pagination: true, page: 1, limit: 7, where: { and: [{ applicationId: { equals: authorization.applicationId } }, { environment: { equals: authorization.environment } }, { pipelineId: { equals: pipelineId } }, { status: { equals: "active" } }] } })
-    ]);
+    const finalPipelineResult = await payloadRequest.payload.find({ collection: "sales-pipelines", ...common, pagination: true, page: 1, limit: 2, where: { and: [{ applicationId: { equals: authorization.applicationId } }, { environment: { equals: authorization.environment } }, { id: { equals: pipelineId } }, { revision: { equals: pipelineRevision } }, { status: { equals: "active" } }, { isActive: { equals: true } }] } });
+    const finalStageResult = await payloadRequest.payload.find({ collection: "sales-pipeline-stages", ...common, pagination: true, page: 1, limit: 7, where: { and: [{ applicationId: { equals: authorization.applicationId } }, { environment: { equals: authorization.environment } }, { pipelineId: { equals: pipelineId } }, { status: { equals: "active" } }] } });
     const finalPipeline = finalPipelineResult.docs[0] as SalesWorkflowDocument | undefined;
     if (finalPipelineResult.docs.length !== 1 || canonicalJson((finalPipeline as Record<string, unknown> | undefined)?.orderedStageIds) !== canonicalJson(snapshot.orderedStageIds) || finalPipeline?.revision !== pipelineRevision || finalStageResult.docs.length !== 6 || stages.some((stage) => !finalStageResult.docs.some((candidate) => {
       const row = candidate as SalesWorkflowDocument & Readonly<Record<string, unknown>>;
@@ -3623,8 +3627,6 @@ export const salesCoreCollections: readonly CollectionConfig[] = Object.freeze([
   salesActivitiesCollectionWithEvents,
   salesOpportunitiesCollection,
   salesTasksCollection,
-  salesNotificationsCollectionWithEvents,
-  salesRemindersCollectionWithEvents,
   salesNotesCollectionWithEvents,
   salesAttachmentReferencesCollectionWithEvents,
   salesSavedViewsCollectionWithEvents,
@@ -3632,7 +3634,9 @@ export const salesCoreCollections: readonly CollectionConfig[] = Object.freeze([
   salesImportRowsCollection,
   salesImportChunksCollection,
   salesExportJobsCollection,
-  salesMergeLineageCollection
+  salesMergeLineageCollection,
+  salesNotificationsCollectionWithEvents,
+  salesRemindersCollectionWithEvents
 ]);
 
 export const salesDefaultSettings = projectSystemSettingsValues(salesWorkspaceSettingsDescriptor);

@@ -18,7 +18,7 @@ import {
   type RegisteredDataSource
 } from "@k-nex/runtime";
 import { sql } from "@payloadcms/db-postgres";
-import { activePayloadPostgresTransaction, createPayloadPersistenceCapability, CurrentAuthorityPayloadPersistenceAuthorizer, PayloadRequestAuthenticator } from "@k-nex/payload-adapter";
+import { activePayloadPostgresTransaction, createPayloadPersistenceCapability, PayloadRequestAuthenticator } from "@k-nex/payload-adapter";
 import type { Endpoint, PayloadRequest } from "payload";
 import type { FixtureAuthorityContext, FixtureCurrentAuthority, FixtureDurableSalesAuthority, FixtureSalesProfile } from "./current-authority.js";
 import { FixtureSalesDataMovementStore } from "./data-movement-host.js";
@@ -46,10 +46,6 @@ function catalog(registration: RegistrationResult) {
 
 function taskStatus(profile: FixtureSalesProfile): "open" | "completed" {
   return profile === "done" ? "completed" : "open";
-}
-
-function opportunityStage(profile: FixtureSalesProfile): "qualification" | "won" {
-  return profile === "done" ? "won" : "qualification";
 }
 
 function ownedScope(context: FixtureAuthorityContext, stateField: "status" | "stageId", state: string) {
@@ -152,14 +148,14 @@ function salesPolicy(authority: FixtureCurrentAuthority, resolve: (value: unknow
     };
     if (descriptor.id === "sales.opportunities") return {
       sourceAllowed: true,
-      recordScope: { kind: "sales.opportunities", where: durableScope(durable, "stageId", opportunityStage(profile)) },
-      allowedFields: ["name", "stage-id", "revision", "amount"]
+      recordScope: { kind: "sales.opportunities", where: durableCrmScope(durable) },
+      allowedFields: ["name", "pipeline-id", "pipeline-revision", "stage-id", "stage-name", "stage-semantic", "stage-revision", "revision", "amount"]
     };
     const crm = descriptor.id === "sales.accounts" || descriptor.id === "sales.account.detail" ? { kind: descriptor.id, fields: ["name", "owner-id", "team-id", "status", "revision"] }
       : descriptor.id === "sales.contacts" || descriptor.id === "sales.contact.detail" ? { kind: descriptor.id, fields: ["display-name", "owner-id", "team-id", "account-id", "status", "revision", "email", "phone"] }
         : descriptor.id === "sales.leads" ? { kind: descriptor.id, fields: ["display-name", "owner-id", "team-id", "status", "archive-status", "revision", "email", "phone"] }
           : descriptor.id === "sales.lead.detail" ? { kind: descriptor.id, fields: ["display-name", "source", "owner-id", "team-id", "status", "archive-status", "revision", "email", "phone", "decided-at", "qualified-at", "disqualified-at", "qualified-account-id", "qualified-contact-id", "qualified-opportunity-id"] }
-            : descriptor.id === "sales.opportunity.detail" ? { kind: descriptor.id, fields: ["name", "owner-id", "team-id", "account-id", "primary-contact-id", "pipeline-id", "stage-id", "archive-status", "expected-close-date", "revision", "amount"] }
+            : descriptor.id === "sales.opportunity.detail" ? { kind: descriptor.id, fields: ["name", "owner-id", "team-id", "account-id", "primary-contact-id", "pipeline-id", "pipeline-revision", "stage-id", "stage-name", "stage-semantic", "stage-revision", "archive-status", "expected-close-date", "revision", "amount"] }
             : descriptor.id === "sales.timeline" ? { kind: "sales.timeline", fields: ["kind", "subject", "status", "occurred-at", "revision", "body"] } : undefined;
     if (crm !== undefined) return { sourceAllowed: true, recordScope: { kind: crm.kind, where: durableCrmScope(durable) }, allowedFields: crm.fields };
     const movement = descriptor.id === "sales.import-job.list" ? ["id", "target-object-type", "state", "accepted-rows", "rejected-rows", "revision"]
@@ -206,7 +202,7 @@ function queryGateway(registration: RegistrationResult, authority: FixtureCurren
     const current = authorityContexts.get(request) ?? context(request, request.headers.get("x-correlation-id") ?? "fixture-query", authority);
     authorityContexts.set(request, current);
     const durable = authority.durableSalesAuthority(request);
-    const cacheContext = Object.freeze({ permissionFingerprint: `${current.permissionFingerprint}:a${durable.authorizationRevision}:l${durable.lifecycleRevision}:s${durable.scopeRevision}:${durable.recordScope}:${durable.applicationWide}:${durable.authorizedTeamIds.join(",")}`, dataMovement: new FixtureSalesDataMovementStore(request, durable) });
+    const cacheContext = Object.freeze({ permissionFingerprint: `${current.permissionFingerprint}:a${durable.authorizationRevision}:l${durable.lifecycleRevision}:s${durable.scopeRevision}:${durable.recordScope}:${durable.applicationWide}:${durable.authorizedTeamIds.join(",")}` });
     durableContexts.set(cacheContext, durable);
     return cacheContext;
   };
@@ -238,10 +234,14 @@ function queryGateway(registration: RegistrationResult, authority: FixtureCurren
           { collection: "sales-accounts", operations: ["find"] },
           { collection: "sales-contacts", operations: ["find"] },
           { collection: "sales-leads", operations: ["find"] },
+          { collection: "sales-pipelines", operations: ["find"] },
+          { collection: "sales-pipeline-stages", operations: ["find"] },
           { collection: "sales-activities", operations: ["find"] },
           { collection: "sales-notes", operations: ["find"] },
           { collection: "sales-attachment-references", operations: ["find"] }
-        ], new CurrentAuthorityPayloadPersistenceAuthorizer(authority.adapter, current, ({ collection, operation }) => authority.payload(collection, operation)), {
+        ], { authorize: async ({ collection, operation }) => collection === "sales-pipelines" || collection === "sales-pipeline-stages"
+          ? durable.permissionGrants.includes("sales.pipelines.read") || durable.permissionGrants.includes("sales.opportunities.read")
+          : authority.adapter.allows(current, authority.payload(collection, operation)) }, {
           guard: async () => durableFence(request, durable)
         });
         const reporting = durableReportingAuthority(durable);

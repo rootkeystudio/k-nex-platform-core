@@ -92,13 +92,21 @@ export const payloadPostgresPatchProvenance = Object.freeze({
   digest: payloadPostgresPatchDigest
 });
 
+const deterministicReleaseOverrides = Object.freeze({
+  // @puckeditor/core declares this transitive dependency as ^3.13.9. Keep
+  // generated customer installs tied to the reviewed release closure instead
+  // of allowing registry time to change the frozen lock configuration.
+  "@puckeditor/core>@tanstack/react-virtual": "3.14.11"
+});
+
 export function payloadPostgresPatchSource(): string {
   const source = embeddedPayloadPostgresPatchSource;
   if (`sha256:${createHash("sha256").update(source).digest("hex")}` !== payloadPostgresPatchDigest) throw new Error("Payload Postgres patch provenance is invalid.");
   return source;
 }
 
-export function generatedPnpmWorkspace(overrides: Readonly<Record<string, string>> = {}): string {
+export function generatedPnpmWorkspace(providedOverrides: Readonly<Record<string, string>> = {}): string {
+  const overrides = { ...providedOverrides, ...deterministicReleaseOverrides };
   return `packages:\n  - "."\n\nallowBuilds:\n  "cpu-features@0.0.10": false\n  "esbuild@0.18.20": true\n  "esbuild@0.25.12": true\n  "esbuild@0.28.2": true\n  "protobufjs@7.6.5": false\n  "sharp@0.35.3": true\n  "ssh2@1.17.0": false\n\npatchedDependencies:\n  "${payloadPostgresPatchPackage}": "${payloadPostgresPatchFilename}"\n\noverrides:\n${Object.entries(overrides).map(([name, specifier]) => `  "${name}": "${specifier}"`).join("\n")}\n`;
 }
 
@@ -198,6 +206,7 @@ export const kNexThemePresentation = ${themeExport}(kNexInitialThemeProfile);
 function payloadConfigSource(applicationId: string): string {
   return `import { postgresAdapter } from "@payloadcms/db-postgres";
 import { buildConfig } from "payload";
+import { withTrustedSalesTaskCreateIdAdmission } from "@k-nex/payload-adapter";
 
 import { kNexSalesRegistry } from "./k-nex-registry.js";
 import { payloadSecret } from "./k-nex-identity.js";
@@ -209,8 +218,8 @@ const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("DATABASE_URL is required.");
 
 export default buildConfig({
-  db: postgresAdapter({ pool: { connectionString: databaseUrl }, prodMigrations: migrations, push: false }),
-  collections: [usersCollection, ...kNexSalesRegistry.collections],
+  db: postgresAdapter({ pool: { connectionString: databaseUrl }, prodMigrations: migrations, push: false, allowIDOnCreate: true }),
+  collections: [usersCollection, ...kNexSalesRegistry.collections].map(withTrustedSalesTaskCreateIdAdmission),
   endpoints: [...generatedSalesProviderWebhookEndpoints("${applicationId}", process.env.K_NEX_ENVIRONMENT ?? "", createGeneratedEnvironmentProviderSecretResolver())],
   custom: { kNexApplicationId: "${applicationId}", kNexEnvironment: process.env.K_NEX_ENVIRONMENT },
   secret: payloadSecret
@@ -588,7 +597,7 @@ export function planCreateKnexApplication(options: CreateKnexApplicationOptions)
   const manifest = applicationManifest(options, releasedPackages);
   const files: Record<string, string> = {
     ...runnableApplicationFiles({ applicationId: options.applicationId, applicationName: options.applicationName, database: options.database, theme: options.theme }),
-    ...applicationAuthFiles({ applicationId: options.applicationId, applicationName: options.applicationName, theme: options.theme }),
+    ...applicationAuthFiles({ applicationId: options.applicationId, applicationName: options.applicationName, ...(options.primaryCurrency === undefined ? {} : { primaryCurrency: options.primaryCurrency }), theme: options.theme }),
     ...systemAccessApplicationFiles({ applicationId: options.applicationId }),
     ...systemExtensionApplicationFiles({ applicationId: options.applicationId }),
     ...systemThemeSettingsApplicationFiles({ applicationId: options.applicationId }),
@@ -655,7 +664,8 @@ export function planCreateKnexApplication(options: CreateKnexApplicationOptions)
     "src/migrations/20260908_000032_communications.ts": communicationsMigrationSource(),
     "src/migrations/20260908_000033_crm_workflows.ts": crmWorkflowsMigrationSource(),
     "src/migrations/20260908_000034_reports.ts": reportsMigrationSource(options.primaryCurrency === undefined ? {} : { primaryCurrency: options.primaryCurrency }),
-    "src/migrations/index.ts": `import * as baseline from "./20260827_000001_sales_baseline.js";\nimport * as bootstrap from "./20260827_000002_knex_bootstrap.js";\nimport * as runtimeExtensions from "./20260829_000007_runtime_extensions.js";\nimport * as authorization from "./20260901_000019_authorization.js";\nimport * as staticLifecycleAdmission from "./20260901_000022_static_lifecycle_admission.js";\nimport * as systemAdministration from "./20260902_000023_system_administration.js";\nimport * as workspacePages from "./20260903_000026_workspace_pages.js";\nimport * as eventOutbox from "./20260903_000027_event_outbox.js";\nimport * as workspaceSidebarPreferences from "./20260904_000028_workspace_sidebar_preferences.js";\nimport * as crmCore from "./20260905_000027_crm_core.js";\nimport * as attachmentUploadAdmissions from "./20260906_000029_attachment_upload_admissions.js";\nimport * as pipelineSavedViews from "./20260907_000030_pipeline_saved_views.js";\nimport * as dataMovement from "./20260907_000031_data_movement.js";\nimport * as communications from "./20260908_000032_communications.js";\nimport * as crmWorkflows from "./20260908_000033_crm_workflows.js";\nimport * as reports from "./20260908_000034_reports.js";\n\nexport const migrations = [\n  { name: "20260827_000001_sales_baseline", up: baseline.up, down: baseline.down },\n  { name: "20260827_000002_knex_bootstrap", up: bootstrap.up, down: bootstrap.down },\n  { name: "20260829_000007_runtime_extensions", up: runtimeExtensions.up, down: runtimeExtensions.down },\n  { name: "20260901_000019_authorization", up: authorization.up, down: authorization.down },\n  { name: "20260901_000022_static_lifecycle_admission", up: staticLifecycleAdmission.up, down: staticLifecycleAdmission.down },\n  { name: "20260902_000023_system_administration", up: systemAdministration.up, down: systemAdministration.down },\n  { name: "20260903_000026_workspace_pages", up: workspacePages.up, down: workspacePages.down },\n  { name: "20260903_000027_event_outbox", up: eventOutbox.up, down: eventOutbox.down },\n  { name: "20260904_000028_workspace_sidebar_preferences", up: workspaceSidebarPreferences.up, down: workspaceSidebarPreferences.down },\n  { name: "20260905_000027_crm_core", up: crmCore.up, down: crmCore.down },\n  { name: "20260906_000029_attachment_upload_admissions", up: attachmentUploadAdmissions.up, down: attachmentUploadAdmissions.down },\n  { name: "20260907_000030_pipeline_saved_views", up: pipelineSavedViews.up, down: pipelineSavedViews.down },\n  { name: "20260907_000031_data_movement", up: dataMovement.up, down: dataMovement.down },\n  { name: "20260908_000032_communications", up: communications.up, down: communications.down },\n  { name: "20260908_000033_crm_workflows", up: crmWorkflows.up, down: crmWorkflows.down },\n  { name: "20260908_000034_reports", up: reports.up, down: reports.down }\n];\n`,
+    "src/migrations/20260909_000035_static_rebind_lock_protocol.ts": `import { kNexStaticRebindLockProtocolSchemaMigration } from "@k-nex/payload-adapter";\n\nexport const up = kNexStaticRebindLockProtocolSchemaMigration.up;\nexport const down = kNexStaticRebindLockProtocolSchemaMigration.down;\n`,
+    "src/migrations/index.ts": `import * as baseline from "./20260827_000001_sales_baseline.js";\nimport * as bootstrap from "./20260827_000002_knex_bootstrap.js";\nimport * as runtimeExtensions from "./20260829_000007_runtime_extensions.js";\nimport * as authorization from "./20260901_000019_authorization.js";\nimport * as staticLifecycleAdmission from "./20260901_000022_static_lifecycle_admission.js";\nimport * as systemAdministration from "./20260902_000023_system_administration.js";\nimport * as workspacePages from "./20260903_000026_workspace_pages.js";\nimport * as eventOutbox from "./20260903_000027_event_outbox.js";\nimport * as workspaceSidebarPreferences from "./20260904_000028_workspace_sidebar_preferences.js";\nimport * as crmCore from "./20260905_000027_crm_core.js";\nimport * as attachmentUploadAdmissions from "./20260906_000029_attachment_upload_admissions.js";\nimport * as pipelineSavedViews from "./20260907_000030_pipeline_saved_views.js";\nimport * as dataMovement from "./20260907_000031_data_movement.js";\nimport * as communications from "./20260908_000032_communications.js";\nimport * as crmWorkflows from "./20260908_000033_crm_workflows.js";\nimport * as reports from "./20260908_000034_reports.js";\nimport * as staticRebindLockProtocol from "./20260909_000035_static_rebind_lock_protocol.js";\n\nexport const migrations = [\n  { name: "20260827_000001_sales_baseline", up: baseline.up, down: baseline.down },\n  { name: "20260827_000002_knex_bootstrap", up: bootstrap.up, down: bootstrap.down },\n  { name: "20260829_000007_runtime_extensions", up: runtimeExtensions.up, down: runtimeExtensions.down },\n  { name: "20260901_000019_authorization", up: authorization.up, down: authorization.down },\n  { name: "20260901_000022_static_lifecycle_admission", up: staticLifecycleAdmission.up, down: staticLifecycleAdmission.down },\n  { name: "20260902_000023_system_administration", up: systemAdministration.up, down: systemAdministration.down },\n  { name: "20260903_000026_workspace_pages", up: workspacePages.up, down: workspacePages.down },\n  { name: "20260903_000027_event_outbox", up: eventOutbox.up, down: eventOutbox.down },\n  { name: "20260904_000028_workspace_sidebar_preferences", up: workspaceSidebarPreferences.up, down: workspaceSidebarPreferences.down },\n  { name: "20260905_000027_crm_core", up: crmCore.up, down: crmCore.down },\n  { name: "20260906_000029_attachment_upload_admissions", up: attachmentUploadAdmissions.up, down: attachmentUploadAdmissions.down },\n  { name: "20260907_000030_pipeline_saved_views", up: pipelineSavedViews.up, down: pipelineSavedViews.down },\n  { name: "20260907_000031_data_movement", up: dataMovement.up, down: dataMovement.down },\n  { name: "20260908_000032_communications", up: communications.up, down: communications.down },\n  { name: "20260908_000033_crm_workflows", up: crmWorkflows.up, down: crmWorkflows.down },\n  { name: "20260908_000034_reports", up: reports.up, down: reports.down },\n  { name: "20260909_000035_static_rebind_lock_protocol", up: staticRebindLockProtocol.up, down: staticRebindLockProtocol.down }\n];\n`,
     "src/payload.config.ts": payloadConfigSource(options.applicationId),
   };
   if (releaseManifest !== undefined) files[".k-nex/package-release-manifest.json"] = releaseManifest;

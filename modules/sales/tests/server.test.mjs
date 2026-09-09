@@ -576,19 +576,16 @@ test("Sales declares event-to-realtime invalidation mappings", () => {
   });
 });
 
-test("the Sales create action finalizes resource-bound audit evidence in its transaction", async () => {
+test("the Sales create action inserts its server-owned identity, genesis audit, and event exactly once", async () => {
   const calls = [];
   const request = {
     payload: {
       find: async () => ({ docs: [], hasNextPage: false }),
       create: async (options) => {
         calls.push(options);
-        return { id: "7", title: options.data.title, status: options.data.status, revision: options.data.revision };
+        return { ...options.data };
       },
-      update: async (options) => {
-        calls.push(options);
-        return { id: "7", title: "Call customer", status: "open", revision: 1 };
-      }
+      update: async () => assert.fail("Task creation must not issue a Payload update.")
     },
     locale: "en-US",
     transactionID: "tx-7"
@@ -596,31 +593,76 @@ test("the Sales create action finalizes resource-bound audit evidence in its tra
   const result = await salesTaskCreateHandler({
     actor: { principal: { kind: "user", id: "user-1" }, effectiveActor: { kind: "user", id: "user-1" } },
     request,
-    authorizationContext: { actionId: "sales.task.create", applicationId: "customer-gate-1", environment: "production", actorId: "user-1", ownerId: "user-2", teamId: "team-1" },
+    authorizationContext: { actionId: "sales.task.create", applicationId: "customer-gate-1", environment: "production", actorId: "user-1", ownerId: "user-2", teamId: "team-1", resourceId: "7" },
     input: { title: "Call customer" },
     idempotencyKey: "create-1",
     signal: new AbortController().signal
   });
   assert.deepEqual(result, { id: "7", title: "Call customer", status: "open", revision: 1 });
-  assert.equal(calls.length, 2);
+  assert.equal(calls.length, 1);
   assert.equal(calls[0].collection, "sales-tasks");
   assert.equal(calls[0].overrideAccess, true);
   assert.equal(calls[0].depth, 0);
   assert.deepEqual(calls[0].user, { id: "user-1", collection: "users" });
   assert.equal(calls[0].req, request);
   assert.deepEqual(calls[0].data, {
-    title: "Call customer", status: "open", applicationId: "customer-gate-1", environment: "production",
+    id: 7, title: "Call customer", status: "open", applicationId: "customer-gate-1", environment: "production",
     ownerId: "user-1", teamId: "team-1", createdBy: "user-1", updatedBy: "user-1", revision: 1,
-    audit: [], archiveStatus: "active"
+    audit: calls[0].data.audit, archiveStatus: "active"
   });
-  assert.deepEqual(calls[0].context, {});
-  assert.equal(calls[1].collection, "sales-tasks");
-  assertActionAudit(calls[1].data.audit[0], {
+  assert.equal(calls[0].data.audit.length, 1);
+  assertActionAudit(calls[0].data.audit[0], {
     actionId: "sales.task.create", resourceId: "7", applicationId: "customer-gate-1", environment: "production",
     fromState: "absent", toState: "open", actorId: "user-1", revision: 1, idempotencyKey: "create-1"
   });
-  assert.deepEqual({ eventId: calls[1].context.kNexSalesEvent.eventId, type: calls[1].context.kNexSalesEvent.type }, { eventId: "create-1", type: "sales.event.task-changed" });
-  assert.deepEqual(calls[1].context.kNexSalesEvent.transition, calls[1].data.audit[0]);
+  assert.deepEqual({ eventId: calls[0].context.kNexSalesEvent.eventId, type: calls[0].context.kNexSalesEvent.type }, { eventId: "create-1", type: "sales.event.task-changed" });
+  assert.deepEqual(calls[0].context.kNexSalesEvent.transition, calls[0].data.audit[0]);
+  assert.equal(canonicalJson(calls[0].data.audit), canonicalJson([calls[0].context.kNexSalesEvent.transition]));
+});
+
+test("the Sales create action rejects missing, malformed, or mismatched server-owned identities", async () => {
+  let creates = 0;
+  const base = {
+    actor: { principal: { kind: "user", id: "user-1" }, effectiveActor: { kind: "user", id: "user-1" } },
+    request: { payload: { find: async () => ({ docs: [] }), create: async () => { creates += 1; return {}; } } },
+    authorizationContext: { actionId: "sales.task.create", applicationId: "customer-gate-1", environment: "production", actorId: "user-1", ownerId: "user-1" },
+    input: { title: "Blocked" }, idempotencyKey: "create-blocked", signal: new AbortController().signal
+  };
+  for (const resourceId of [undefined, "0", "2147483648", "task-7"]) {
+    await assert.rejects(salesTaskCreateHandler({ ...base, authorizationContext: { ...base.authorizationContext, ...(resourceId === undefined ? {} : { resourceId }) } }), (error) => error?.code === "ACTION_FORBIDDEN");
+  }
+  await assert.rejects(salesTaskCreateHandler({ ...base, authorizationContext: { ...base.authorizationContext, actionId: "sales.task.update", resourceId: "7" } }), (error) => error?.code === "ACTION_FORBIDDEN");
+  assert.equal(creates, 0);
+});
+
+test("the Sales create action rejects every mismatched field in the returned persisted row", async () => {
+  const authorizationContext = { actionId: "sales.task.create", applicationId: "customer-gate-1", environment: "production", actorId: "user-1", ownerId: "user-1", resourceId: "7" };
+  for (const [field, corrupt] of [
+    ["id", (created) => ({ ...created, id: 8 })],
+    ["title", (created) => ({ ...created, title: "Different title" })],
+    ["status", (created) => ({ ...created, status: "completed" })],
+    ["applicationId", (created) => ({ ...created, applicationId: "customer-other" })],
+    ["environment", (created) => ({ ...created, environment: "staging" })],
+    ["ownerId", (created) => ({ ...created, ownerId: "user-other" })],
+    ["teamId", (created) => ({ ...created, teamId: "team-other" })],
+    ["createdBy", (created) => ({ ...created, createdBy: "user-other" })],
+    ["updatedBy", (created) => ({ ...created, updatedBy: "user-other" })],
+    ["revision", (created) => ({ ...created, revision: 2 })],
+    ["audit", (created) => ({ ...created, audit: [] })],
+    ["archiveStatus", (created) => ({ ...created, archiveStatus: "archived" })]
+  ]) {
+    let updates = 0;
+    const request = { payload: {
+      find: async () => ({ docs: [] }),
+      create: async (options) => corrupt({ ...options.data }),
+      update: async () => { updates += 1; return {}; }
+    } };
+    await assert.rejects(salesTaskCreateHandler({
+      actor: { principal: { kind: "user", id: "user-1" }, effectiveActor: { kind: "user", id: "user-1" } },
+      request, authorizationContext: { ...authorizationContext, teamId: "team-1" }, input: { title: "Call customer" }, idempotencyKey: `create-mismatch-${field.toLowerCase()}`, signal: new AbortController().signal
+    }), /invalid task/, field);
+    assert.equal(updates, 0);
+  }
 });
 
 test("Sales durable events project task and opportunity invalidations through the realtime gateway", async () => {
@@ -667,6 +709,27 @@ test("Sales durable event hook binds the exact final audit transition and closed
     return writes;
   };
   assert.equal((await run()).length, 1);
+  const createTransition = { ...transition, actionId: "sales.task.create", revision: 1, fromState: "absent", toState: "open" };
+  const createEvent = { eventId: "event-1", type: "sales.event.task-changed", stateField: "status", transition: createTransition };
+  const createDoc = { id: 1, applicationId: "customer-gate-1", environment: "production", status: "open", revision: 1, audit: [createTransition] };
+  const createWrites = await run({ event: createEvent, doc: createDoc, operation: "create" });
+  assert.equal(createWrites.length, 1);
+  const createOutboxPayload = createWrites[0].queryChunks.find((chunk) => typeof chunk === "string" && chunk.includes('"actionId":"sales.task.create"'));
+  assert.deepEqual(JSON.parse(createOutboxPayload), { resourceId: "1", actionId: "sales.task.create", environment: "production", fromState: "absent", toState: "open", revision: 1, idempotencyKey: "event-1", operation: "create" });
+  for (const malformedTransition of [
+    { ...createTransition, fromState: "open" },
+    { ...createTransition, toState: "cancelled" },
+    { ...createTransition, revision: 2 }
+  ]) {
+    const malformedEvent = { ...createEvent, transition: malformedTransition };
+    const malformedDoc = {
+      ...createDoc,
+      status: malformedTransition.toState,
+      revision: malformedTransition.revision,
+      audit: malformedTransition.revision === 1 ? [malformedTransition] : [transition, malformedTransition]
+    };
+    await assert.rejects(run({ event: malformedEvent, doc: malformedDoc, operation: "create" }), /does not match/);
+  }
   for (const candidate of [
     { event: { ...baseEvent, eventId: "event-other" } },
     { event: { ...baseEvent, type: "sales.event.opportunity-changed" } },
@@ -675,6 +738,7 @@ test("Sales durable event hook binds the exact final audit transition and closed
     { event: { ...baseEvent, transition: { ...transition, actorId: "user-other" } } },
     { doc: { ...baseDoc, audit: [...baseDoc.audit.slice(0, -1), { ...transition, fromState: "cancelled" }] } },
     { operation: "create" },
+    { event: createEvent, doc: createDoc, operation: "update" },
     { applicationId: "customer-other" }
   ]) await assert.rejects(run(candidate), /does not match/);
 });

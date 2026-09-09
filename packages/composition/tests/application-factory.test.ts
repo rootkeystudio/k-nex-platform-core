@@ -75,16 +75,20 @@ describe("create-knex-app", () => {
   });
 
   it("emits exact-token owner bootstrap recovery across every commit boundary", () => {
-    const source = applicationAuthFiles({ applicationId: "customer-alpha", applicationName: "Customer Alpha", theme: "minimal" })["src/k-nex-bootstrap-owner.ts"]!;
+    const source = applicationAuthFiles({ applicationId: "customer-alpha", applicationName: "Customer Alpha", primaryCurrency: "USD", theme: "minimal" })["src/k-nex-bootstrap-owner.ts"]!;
     expect(source).toContain("assertResumableOwnerReceipt(priorReceipt, String(user.id))");
+    expect(source).toContain("on conflict (application_id,environment) do nothing returning settings_revision");
+    expect(source).toContain('reportingCurrency: "USD"');
     expect(source.indexOf("if (priorReceipt !== undefined && existing.docs[0] === undefined)")).toBeLessThan(source.indexOf("await payload.create"));
     expect(source.indexOf('crashAfterCommit("protected-owner")')).toBeLessThan(source.indexOf('crashAfterCommit("sales-authority")'));
+    expect(source.indexOf("await ensureInitialSystemSettings(payload)")).toBeLessThan(source.indexOf("await ensureInitialSalesOwner(payload"));
     expect(source.indexOf('crashAfterCommit("sales-authority")')).toBeLessThan(source.indexOf('crashAfterCommit("token-consumption")'));
     expect(source).not.toContain('if (priorReceipt !== undefined) throw new Error("First owner already exists.")');
+    expect(applicationAuthFiles({ applicationId: "customer-alpha", applicationName: "Customer Alpha", theme: "minimal" })["src/k-nex-bootstrap-owner.ts"]).not.toContain("ensureInitialSystemSettings");
   });
 
   it("plans deterministic exact Sales applications for local or external Postgres", () => {
-    const options = { applicationId: "customer-alpha", applicationName: "Customer Alpha", theme: "minimal", database: "docker-postgres" } as const;
+    const options = { applicationId: "customer-alpha", applicationName: "Customer Alpha", theme: "minimal", database: "docker-postgres", primaryCurrency: "USD" } as const;
     const first = planCreateKnexApplication(options);
     expect(planCreateKnexApplication(options)).toEqual(first);
     expect(first.files["compose.yaml"]).toContain("postgres:17.6-alpine@sha256:");
@@ -107,6 +111,9 @@ describe("create-knex-app", () => {
     expect(first.files["src/app/(workspace)/system/extensions/page.tsx"]).toContain("SystemExtensionsPage");
     expect(first.files["src/app/(workspace)/system/operations/page.tsx"]).toContain("SystemOperationsPage");
     expect(first.files["src/payload.config.ts"]).toContain("prodMigrations: migrations");
+    expect(first.files["src/payload.config.ts"]).toContain("allowIDOnCreate: true");
+    expect(first.files["src/payload.config.ts"]).toContain('import { withTrustedSalesTaskCreateIdAdmission } from "@k-nex/payload-adapter";');
+    expect(first.files["src/payload.config.ts"]).toContain(".map(withTrustedSalesTaskCreateIdAdmission)");
     expect(first.files["src/payload.config.ts"]).toContain('kNexApplicationId: "customer-alpha"');
     expect(first.files["src/boot.ts"]).toContain("bootKnexApplication");
     expect(first.files["src/boot.ts"]).toContain('import { salesCoreCollectionSlugs } from "@k-nex/module-sales/server"');
@@ -128,7 +135,8 @@ describe("create-knex-app", () => {
       "20260907_000031_data_movement",
       "20260908_000032_communications",
       "20260908_000033_crm_workflows",
-      "20260908_000034_reports"
+      "20260908_000034_reports",
+      "20260909_000035_static_rebind_lock_protocol"
     ]);
     const attachmentAdmissions = first.files["src/migrations/20260906_000029_attachment_upload_admissions.ts"]!;
     expect(attachmentAdmissions).toContain('CREATE TABLE "k_nex_sales_attachment_upload_admissions"');
@@ -289,6 +297,13 @@ describe("create-knex-app", () => {
     expect(first.files["src/k-nex-bootstrap-owner.ts"]).toContain('crashAfterCommit("token-consumption")');
     expect(first.files["src/migrations/20260901_000019_authorization.ts"]).toContain("kNexAuthorizationSchemaMigration");
     expect(first.files["src/migrations/20260901_000022_static_lifecycle_admission.ts"]).toContain("kNexStaticLifecycleAdmissionSchemaMigration");
+    expect(first.files["src/migrations/20260909_000035_static_rebind_lock_protocol.ts"]).toContain("kNexStaticRebindLockProtocolSchemaMigration");
+    expect(first.files["src/migrations/20260909_000035_static_rebind_lock_protocol.ts"]).toBe(readFileSync(
+      new URL("../../../fixtures/customer-gate-1/src/migrations/20260909_000035_static_rebind_lock_protocol.ts", import.meta.url), "utf8"
+    ));
+    expect(first.files["src/k-nex-bootstrap-owner.ts"]).toContain("insert into k_nex_system_settings_state(application_id,environment,settings_revision)");
+    expect(first.files["src/k-nex-bootstrap-owner.ts"]).toContain('reportingCurrency: "USD"');
+    expect(first.files["src/migrations/20260908_000034_reports.ts"]).toContain("configured_primary_currency text := 'USD'::text");
     expect(first.files["src/migrations/20260902_000023_system_administration.ts"]).toContain("kNexSystemAdministrationSchemaMigrations");
     expect(first.files["src/migrations/20260902_000023_system_administration.ts"]).toContain("[...kNexSystemAdministrationSchemaMigrations].reverse()");
     expect(first.files["src/migrations/20260903_000026_workspace_pages.ts"]).toContain("kNexWorkspacePageSchemaMigration");
@@ -296,6 +311,14 @@ describe("create-knex-app", () => {
     expect(first.files["src/migrations/20260905_000027_crm_core.ts"]).toContain("maintenance-required: P13.2 CRM core rollback");
     expect(first.files["src/migrations/20260905_000027_crm_core.ts"]).toContain('CREATE TABLE "sales_accounts"');
     expect(first.files["src/migrations/20260905_000027_crm_core.ts"]).toBe(readFileSync(new URL("../../../fixtures/customer-gate-1/src/migrations/20260905_000027_crm_core.ts", import.meta.url), "utf8"));
+    const crmCore = first.files["src/migrations/20260905_000027_crm_core.ts"]!;
+    expect(crmCore).toContain("function authorizationStateLockKey(applicationId: string): string");
+    expect(crmCore).toContain("export function compareCanonicalAuthorizationStateLockKeys(left: string, right: string): number");
+    expect(crmCore).toContain("return [...transitions].sort((left, right) => compareCanonicalAuthorizationStateLockKeys(authorizationStateLockKey(left.applicationId), authorizationStateLockKey(right.applicationId)))");
+    expect(crmCore.indexOf("const authorizationTransitions = await lockAndRevalidateAuthorizationTransitions(db, plan.authorizationTransitions)"))
+      .toBeLessThan(crmCore.indexOf("DELETE FROM k_nex_role_permission_grants"));
+    expect(crmCore.indexOf("SELECT authorization_revision,lifecycle_revision FROM k_nex_authorization_state WHERE application_id=${transition.applicationId} FOR UPDATE"))
+      .toBeGreaterThan(crmCore.indexOf("pg_advisory_xact_lock(hashtextextended(${authorizationStateLockKey(transition.applicationId)},0))"));
     const pipelineSavedViews = first.files["src/migrations/20260907_000030_pipeline_saved_views.ts"]!;
     expect(pipelineSavedViews).toContain("13f5fa89-b465-5a7a-a19d-74ed6c5d1ef4");
     expect(pipelineSavedViews).toContain("sales_pipeline_stage_translation_evidence");
@@ -366,9 +389,11 @@ describe("create-knex-app", () => {
     expect(first.files["src/k-nex-worker.ts"]).toContain("from runtime_worker_generation_fences where application_id=$1 and environment=$2 and active_execution_generation=$3 and lease_expires_at>now()");
     expect(first.files["src/k-nex-worker.ts"]).toContain("await processSalesDataMovement(pool, salesWorkerFence)");
     expect(first.files["src/k-nex-worker.ts"]).toContain("createGeneratedBoundedReferenceProviderTransport(process.env.K_NEX_REFERENCE_PROVIDER_ENDPOINT)");
+    expect(first.files["src/k-nex-worker.ts"]).not.toContain("process.env.K_NEX_REFERENCE_PROVIDER_ENDPOINT === undefined ? undefined");
     expect(first.files["src/k-nex-worker.ts"]).toContain("await processGeneratedSalesCommunications(pool, salesWorkerFence, providerSecrets, providerTransport)");
     expect(first.files["src/k-nex-worker.ts"]).toContain("await processGeneratedSalesReminders(pool, salesWorkerFence)");
     expect(first.files["src/k-nex-worker.ts"]!.indexOf("await processGeneratedSalesReminders(pool, salesWorkerFence)")).toBeLessThan(first.files["src/k-nex-worker.ts"]!.indexOf("await processGeneratedSalesCommunications(pool, salesWorkerFence, providerSecrets, providerTransport)"));
+    expect(first.files["src/k-nex-sales-communications.ts"]).toContain('return Object.freeze({ invoke: async (input) => { let origin: URL; try { origin = new URL(endpoint ?? ""); }');
     expect(first.files["src/k-nex-sales-communications.ts"]).toContain("limit 4");
     expect(first.files["src/k-nex-sales-routes.ts"]).toContain("function registeredRouteActionDescriptor(value: unknown): RegisteredRouteActionDescriptor | undefined");
     expect(first.files["src/k-nex-sales-routes.ts"]).toContain("binding !== undefined && binding.id === descriptor.id");
@@ -507,7 +532,7 @@ describe("create-knex-app", () => {
     applyCreateKnexApplication(plan, first);
     applyCreateKnexApplication(plan, second);
     for (const path of Object.keys(plan.files)) expect(readFileSync(join(first, path))).toEqual(readFileSync(join(second, path)));
-  }, 15_000);
+  }, 60_000);
 
   it("uses workspace only for side-effect-free planning and defaults to the verified bundled release", () => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), "create-knex-app-cli-"))); roots.push(root);

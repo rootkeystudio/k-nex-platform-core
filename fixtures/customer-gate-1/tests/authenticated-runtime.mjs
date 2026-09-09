@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 
 import { createPayloadRequest } from "payload";
 import { canonicalJson } from "@k-nex/contracts";
+import { salesPipelineStageId } from "@k-nex/module-sales/server";
 import { PostgresAuthorizationStore } from "@k-nex/payload-adapter";
 import { bootstrapFirstOwner } from "@k-nex/runtime";
 
@@ -46,6 +47,7 @@ const salesPermissions = [
   "sales.opportunities.read",
   "sales.opportunities.stage.update",
   "sales.opportunities.write",
+  "sales.pipelines.read",
   "sales.tasks.read",
   "sales.tasks.write"
 ];
@@ -102,6 +104,13 @@ await pool.query(
   "insert into runtime_extensions (application_id, environment, delivery_class, extension_id, revision, disposition, active_generation_id, active_generation) values ($1,$2,$3,$4,1,'active',$5,$6::jsonb)",
   ["customer-gate-1", "production", "platform-plugin", "module.sales", "static-module-sales-1", JSON.stringify(staticAuthorizationBuild)]
 );
+await pool.query(
+  "insert into k_nex_system_settings_state (application_id,environment,settings_revision) values ('customer-gate-1','production',1)"
+);
+await pool.query(
+  "insert into k_nex_system_settings_documents (application_id,environment,descriptor_id,descriptor_schema_version,owner_scope_key,owner_kind,owner_namespace,document_revision,settings_revision,values_json) values ('customer-gate-1','production','system.general',3,'platform:system','platform','system',1,1,$1::jsonb)",
+  [JSON.stringify({ siteName: "K-Nex", reportingTimezone: "UTC", reportingCurrency: "USD" })]
+);
 await pool.query(`insert into sales_current_authority_scopes
   (application_id,environment,principal_id,record_scope,application_wide,mutation_allowed,authorized_team_ids,state,revision)
   values ('customer-gate-1','production',$1,'owned-or-assigned-team',false,true,'[]'::jsonb,'active',1),
@@ -132,22 +141,39 @@ const account = await payload.create({
 });
 const pipeline = await payload.create({
   collection: "sales-pipelines",
-  data: { ...salesScope(users.get("gate1@example.test")), name: "Fixture pipeline", status: "active" }
+  data: { ...salesScope(users.get("gate1@example.test")), name: "Fixture pipeline", status: "active", isActive: true }
 });
-for (const [stageId, label, position] of [["qualification", "Qualification", 0], ["discovery", "Discovery", 1], ["won", "Won", 2]]) {
+const stageDefinitions = [
+  ["qualification", "Qualification", 0, 0, ["discovery", "lost"]],
+  ["discovery", "Discovery", 1, 2_500, ["proposal", "lost"]],
+  ["proposal", "Proposal", 2, 5_000, ["negotiation", "lost"]],
+  ["negotiation", "Negotiation", 3, 7_500, ["won", "lost"]],
+  ["won", "Won", 4, 10_000, []],
+  ["lost", "Lost", 5, 0, []]
+];
+const stageIds = Object.fromEntries(stageDefinitions.map(([semantic]) => [semantic, salesPipelineStageId("customer-gate-1", "production", Number(pipeline.id), semantic)]));
+for (const [semantic, label, position, probabilityBasisPoints, transitions] of stageDefinitions) {
   await payload.create({
     collection: "sales-pipeline-stages",
-    data: { ...salesScope(users.get("gate1@example.test")), pipelineId: pipeline.id, stageId, name: label, semantic: stageId, position, probabilityBasisPoints: 0, status: "active" }
+    data: {
+      ...salesScope(users.get("gate1@example.test")), pipelineId: pipeline.id, stageId: stageIds[semantic], name: label, semantic, position, probabilityBasisPoints,
+      allowedTransitionStageIds: transitions.map((destination) => stageIds[destination]), requiredFieldIds: semantic === "lost" ? ["lossReason"] : [], status: "active"
+    }
   });
 }
+const configuredPipeline = await payload.update({
+  collection: "sales-pipelines",
+  id: pipeline.id,
+  data: { orderedStageIds: stageDefinitions.map(([semantic]) => stageIds[semantic]) }
+});
 const leadOpportunity = await payload.create({
   collection: "sales-opportunities",
-  data: { ...salesScope(users.get("gate1@example.test")), name: "Lead opportunity", accountId: account.id, pipelineId: pipeline.id, stageId: "qualification" }
+  data: { ...salesScope(users.get("gate1@example.test")), name: "Lead opportunity", accountId: account.id, pipelineId: pipeline.id, stageId: stageIds.qualification }
 });
 await pool.query("update sales_opportunities set audit=jsonb_build_array(jsonb_build_object('kind','phase-13-legacy-upgrade','receiptDigest',$2::text,'legacyStage','lead','ownershipGenesis',jsonb_build_object('ownerId',owner_id,'teamId',team_id))) where id=$1", [leadOpportunity.id, `sha256:${"0".repeat(64)}`]);
 const wonOpportunity = await payload.create({
   collection: "sales-opportunities",
-  data: { ...salesScope(users.get("done@example.test")), name: "Won opportunity", accountId: account.id, pipelineId: pipeline.id, stageId: "won", closedAt: new Date().toISOString() }
+  data: { ...salesScope(users.get("done@example.test")), name: "Won opportunity", accountId: account.id, pipelineId: pipeline.id, stageId: stageIds.won, closedAt: new Date().toISOString() }
 });
 
 const loginAs = (email) => payload.login({ collection: "users", data: { email, password }, overrideAccess: false });
@@ -257,7 +283,7 @@ assert.notDeepEqual(doneResult.data.rows, openResult.data.rows);
 const opportunitiesBody = {
   ...sourceBody,
   sourceId: "sales.opportunities",
-  selectedFields: ["name", "stage-id", "revision"]
+  selectedFields: ["name", "pipeline-id", "pipeline-revision", "stage-id", "stage-name", "stage-semantic", "stage-revision", "revision"]
 };
 const opportunitiesResponse = await callSource(login.token, opportunitiesBody);
 assert.equal(opportunitiesResponse.status, 200);
@@ -269,15 +295,29 @@ assert.deepEqual((await wonScopeResponse.json()).data.rows.map((row) => row.valu
 
 const actionEndpoint = payload.config.endpoints.find(({ path }) => path === "/k-nex/action");
 assert.ok(actionEndpoint);
-const callAction = async (token, actionId, input, idempotencyKey) => actionEndpoint.handler(await createPayloadRequest({
+const actionRequest = async (token, actionId, input, idempotencyKey, signal) => createPayloadRequest({
   config: payload.config,
   payloadInstanceCacheKey: key,
   request: new Request("http://localhost/api/k-nex/action", {
     method: "POST",
     headers: { authorization: `JWT ${token}`, "content-type": "application/json", "idempotency-key": idempotencyKey },
-    body: JSON.stringify({ actionId, input })
+    body: JSON.stringify({ actionId, input }),
+    ...(signal === undefined ? {} : { signal })
   })
-}));
+});
+const callAction = async (token, actionId, input, idempotencyKey, signal) => actionEndpoint.handler(await actionRequest(token, actionId, input, idempotencyKey, signal));
+const createActionEventId = (input, idempotencyKey) => {
+  const requestDigest = `sha256:${createHash("sha256").update(canonicalJson({ actionId: "sales.task.create", input })).digest("hex")}`;
+  return `sales-action-${createHash("sha256").update(canonicalJson({ applicationId: "customer-gate-1", environment: "production", actorId: String(users.get("gate1@example.test").id), actionId: "sales.task.create", key: idempotencyKey, digest: requestDigest })).digest("hex")}`;
+};
+const assertNoCreateEffects = async (title, idempotencyKey) => {
+  const eventId = createActionEventId({ title }, idempotencyKey);
+  assert.deepEqual((await pool.query(`select
+    (select count(*)::int from sales_tasks where title=$1) task_count,
+    (select count(*)::int from sales_action_idempotency where action_id='sales.task.create' and idempotency_key=$2) idempotency_count,
+    (select count(*)::int from k_nex_outbox where event_id=$3) outbox_count`, [title, idempotencyKey, eventId])).rows[0],
+  { task_count: 0, idempotency_count: 0, outbox_count: 0 });
+};
 await pool.query(`update sales_tasks set audit=jsonb_build_array(jsonb_build_object(
   'actionId','sales.task.create','resourceId',id::text,'applicationId','customer-gate-1','environment','production',
   'fromState','absent','toState','open','occurredAt','2026-09-06T00:00:00.000Z','actorId',$2::text,'revision',1,'idempotencyKey','shared-create'))
@@ -288,6 +328,34 @@ assert.equal(managerCrossOwner.status, 200);
 const managerOutOfScope = await callAction(peerLogin.token, "sales.task.update", { id: String(privateTask.id), expectedRevision: 1, expectedStatus: "open", status: "completed" }, "managed-private-update");
 assert.equal(managerOutOfScope.status, 403);
 assert.equal((await managerOutOfScope.json()).code, "ACTION_TARGET_FORBIDDEN");
+const unavailableAction = await callAction(login.token, "sales.task.unavailable", { title: "Unavailable registration" }, "unavailable-registration");
+assert.equal(unavailableAction.status, 404);
+assert.equal((await unavailableAction.json()).code, "ACTION_NOT_FOUND");
+assert.equal((await pool.query("select count(*)::int count from sales_action_idempotency where idempotency_key='unavailable-registration'")).rows[0].count, 0);
+const postPolicyAbortTitle = "Abort after policy";
+const postPolicyAbortKey = "abort-after-policy";
+const postPolicyAbort = new AbortController();
+postPolicyAbort.abort();
+const postPolicyAbortResponse = await callAction(login.token, "sales.task.create", { title: postPolicyAbortTitle }, postPolicyAbortKey, postPolicyAbort.signal);
+assert.equal(postPolicyAbortResponse.status, 499);
+assert.equal((await postPolicyAbortResponse.json()).code, "ACTION_CANCELLED");
+await assertNoCreateEffects(postPolicyAbortTitle, postPolicyAbortKey);
+const postCreateAbortTitle = "Abort after create";
+const postCreateAbortKey = "abort-after-create";
+const postCreateAbort = new AbortController();
+const postCreateRequest = await actionRequest(login.token, "sales.task.create", { title: postCreateAbortTitle }, postCreateAbortKey, postCreateAbort.signal);
+const originalPayloadCreate = postCreateRequest.payload.create;
+postCreateRequest.payload.create = async (options) => {
+  const result = await originalPayloadCreate.call(postCreateRequest.payload, options);
+  if (options.collection === "sales-tasks" && options.data?.title === postCreateAbortTitle) postCreateAbort.abort();
+  return result;
+};
+let postCreateAbortResponse;
+try { postCreateAbortResponse = await actionEndpoint.handler(postCreateRequest); }
+finally { postCreateRequest.payload.create = originalPayloadCreate; }
+assert.equal(postCreateAbortResponse.status, 500);
+assert.equal((await postCreateAbortResponse.json()).code, "ACTION_FAILED");
+await assertNoCreateEffects(postCreateAbortTitle, postCreateAbortKey);
 const createResponse = await callAction(login.token, "sales.task.create", { title: "Gateway-created task" }, "action-create-1");
 assert.equal(createResponse.status, 200);
 const createdTask = (await createResponse.json()).data;
@@ -317,14 +385,14 @@ assert.deepEqual((await pool.query(`select
 const auditFailureTitle = "Gateway audit finalization failure";
 const auditFailureKey = "action-create-audit-finalization-failure";
 await pool.query(`
-  create function p13_action_audit_finalization_failure() returns trigger language plpgsql as $$
+  create function p13_action_create_failure() returns trigger language plpgsql as $$
   begin
     if new.title = '${auditFailureTitle}' then raise exception 'intentional audit finalization failure'; end if;
     return new;
   end;
   $$;
-  create trigger p13_action_audit_finalization_failure before update on sales_tasks
-  for each row execute function p13_action_audit_finalization_failure();
+  create trigger p13_action_create_failure before insert on sales_tasks
+  for each row execute function p13_action_create_failure();
 `);
 const auditFailureResponse = await callAction(login.token, "sales.task.create", { title: auditFailureTitle }, auditFailureKey);
 assert.equal(auditFailureResponse.status, 500);
@@ -335,29 +403,40 @@ assert.deepEqual((await pool.query(`
     (select count(*)::int from k_nex_outbox where event_id = $2) as event_count,
     (select count(*)::int from sales_tasks, jsonb_array_elements(audit) as entry where entry->>'idempotencyKey' = $2) as audit_count
 `, [auditFailureTitle, auditFailureKey])).rows[0], { task_count: 0, event_count: 0, audit_count: 0 });
-await pool.query("drop trigger p13_action_audit_finalization_failure on sales_tasks; drop function p13_action_audit_finalization_failure();");
+await pool.query("drop trigger p13_action_create_failure on sales_tasks; drop function p13_action_create_failure();");
 const updateResponse = await callAction(login.token, "sales.task.update", { id: createdTask.id, expectedRevision: createdTask.revision, expectedStatus: "open", status: "completed" }, "action-update-1");
 assert.equal(updateResponse.status, 200);
 assert.equal((await updateResponse.json()).data.status, "completed");
-const stageResponse = await callAction(login.token, "sales.opportunity.stage.update", { id: String(leadOpportunity.id), expectedStage: "qualification", expectedRevision: leadOpportunity.revision, stage: "discovery" }, "action-stage-1");
+const stageResponse = await callAction(login.token, "sales.opportunity.stage.update", {
+  id: String(leadOpportunity.id), expectedRevision: leadOpportunity.revision, expectedPipelineId: String(pipeline.id), expectedPipelineRevision: configuredPipeline.revision,
+  expectedSourceStageId: stageIds.qualification, expectedSourceStageRevision: 1, destinationStageId: stageIds.discovery, expectedDestinationStageRevision: 1
+}, "action-stage-1");
 assert.equal(stageResponse.status, 200);
-assert.equal((await stageResponse.json()).data.stage, "discovery");
+assert.equal((await stageResponse.json()).data.stageId, stageIds.discovery);
 const forbiddenTask = await callAction(login.token, "sales.task.update", { id: String(doneTask.id), expectedRevision: doneTask.revision, expectedStatus: "open", status: "completed" }, "action-forbidden-task");
 assert.equal(forbiddenTask.status, 403);
 assert.equal((await forbiddenTask.json()).code, "ACTION_TARGET_FORBIDDEN");
-const forbiddenOpportunity = await callAction(login.token, "sales.opportunity.stage.update", { id: String(wonOpportunity.id), expectedStage: "qualification", expectedRevision: wonOpportunity.revision, stage: "discovery" }, "action-forbidden-opportunity");
+const forbiddenOpportunity = await callAction(login.token, "sales.opportunity.stage.update", {
+  id: String(wonOpportunity.id), expectedRevision: wonOpportunity.revision, expectedPipelineId: String(pipeline.id), expectedPipelineRevision: configuredPipeline.revision,
+  expectedSourceStageId: stageIds.won, expectedSourceStageRevision: 1, destinationStageId: stageIds.lost, expectedDestinationStageRevision: 1
+}, "action-forbidden-opportunity");
 assert.equal(forbiddenOpportunity.status, 403);
 assert.equal((await forbiddenOpportunity.json()).code, "ACTION_TARGET_FORBIDDEN");
 const doneTaskUpdate = await callAction(doneLogin.token, "sales.task.update", { id: String(doneTask.id), expectedRevision: doneTask.revision, expectedStatus: "open", status: "completed" }, "action-done-task");
 assert.equal(doneTaskUpdate.status, 409);
-const doneOpportunityUpdate = await callAction(doneLogin.token, "sales.opportunity.stage.update", { id: String(wonOpportunity.id), expectedStage: "won", expectedRevision: wonOpportunity.revision, stage: "lost" }, "action-done-opportunity");
-assert.equal(doneOpportunityUpdate.status, 400);
+const doneOpportunityUpdate = await callAction(doneLogin.token, "sales.opportunity.stage.update", {
+  id: String(wonOpportunity.id), expectedRevision: wonOpportunity.revision, expectedPipelineId: String(pipeline.id), expectedPipelineRevision: configuredPipeline.revision,
+  expectedSourceStageId: stageIds.won, expectedSourceStageRevision: 1, destinationStageId: stageIds.lost, expectedDestinationStageRevision: 1
+}, "action-done-opportunity");
+assert.equal(doneOpportunityUpdate.status, 409);
 
 await pool.query("update sales_current_authority_scopes set state='revoked', revision=revision+1 where application_id='customer-gate-1' and environment='production' and principal_id=$1", [String(users.get("gate1@example.test").id)]);
 const revokedSource = await callSource(login.token);
 assert.equal(revokedSource.status, 403);
 const revokedAction = await callAction(login.token, "sales.task.create", { title: "Revoked action" }, "revoked-action");
 assert.equal(revokedAction.status, 403);
+assert.equal((await revokedAction.json()).code, "ACTION_FORBIDDEN");
+await assertNoCreateEffects("Revoked action", "revoked-action");
 await pool.query("update sales_current_authority_scopes set state='active', record_scope='explicit-application-or-team-scope', application_wide=true, mutation_allowed=false, revision=revision+1 where application_id='customer-gate-1' and environment='production' and principal_id=$1", [String(users.get("gate1@example.test").id)]);
 const demotedSource = await callSource(login.token);
 assert.equal(demotedSource.status, 200);
@@ -389,152 +468,21 @@ assert.equal(inventoryResponse.status, 200);
 assert.equal(inventoryResponse.headers.get("cache-control"), "private, no-store");
 const inventory = await inventoryResponse.json();
 assert.equal(inventory.applicationId, "customer-gate-1");
+const resolvedGraph = JSON.parse(readFileSync(new URL("../.k-nex/generated/k-nex.resolved.json", import.meta.url), "utf8"));
 const resolvedGraphDigest = `sha256:${createHash("sha256")
-  .update(canonicalJson(JSON.parse(readFileSync(new URL("../.k-nex/generated/k-nex.resolved.json", import.meta.url), "utf8"))))
+  .update(canonicalJson(resolvedGraph))
   .digest("hex")}`;
 assert.equal(inventory.resolvedGraphDigest, resolvedGraphDigest);
 assert.match(inventory.sourceArtifact.digest, /^sha256:[0-9a-f]{64}$/);
 assert.match(inventory.applicationManifestDigest, /^sha256:[0-9a-f]{64}$/);
-assert.deepEqual(inventory.plugins, [{
-  id: "module.sales",
-  package: "@k-nex/module-sales",
-  version: "1.0.0",
-  integrity: inventory.plugins[0].integrity,
-  expectedContributions: {
-    actions: {
-      "sales.opportunity.stage.update": "required",
-      "sales.task.create": "required",
-      "sales.task.update": "required"
-    },
-    blocks: {
-      "sales.opportunity-detail": "required",
-      "sales.opportunity-kanban": "required",
-      "sales.opportunity-list": "required",
-      "sales.revenue-metric": "required",
-      "sales.settings-summary": "required",
-      "sales.task-quick-create": "required",
-      "sales.task-table": "required"
-    },
-    components: {
-      "sales.detail.opportunity": "required",
-      "sales.form.task-quick-create": "required",
-      "sales.list.opportunities": "required",
-      "sales.metric.total-potential-revenue": "required",
-      "sales.status.pipeline-stage": "required",
-      "sales.table.tasks": "required"
-    },
-    events: {
-      "sales.event.opportunity-changed": "required",
-      "sales.event.task-changed": "required"
-    },
-    healthAudit: { "sales.health.runtime": "required" },
-    jobs: { "sales.job.pipeline-audit": "required" },
-    lifecycle: { "sales.lifecycle.reference": "required" },
-    localization: { "sales.localization.en": "required" },
-    migrations: { "sales.migration.initial": "required" },
-    navigation: {
-      "sales.navigation.opportunities": "required",
-      "sales.navigation.overview": "required",
-      "sales.navigation.settings": "required",
-      "sales.navigation.tasks": "required"
-    },
-    pageTemplates: {
-      "sales.page.opportunities": "required",
-      "sales.page.overview": "required",
-      "sales.page.settings": "required",
-      "sales.page.tasks": "required"
-    },
-    permissions: {
-      "sales.navigation.read": "required",
-      "sales.opportunities.name.read": "required",
-      "sales.opportunities.read": "required",
-      "sales.opportunities.stage.read": "required",
-      "sales.opportunities.value.read": "required",
-      "sales.opportunities.write": "required",
-      "sales.settings.read": "required",
-      "sales.settings.write": "required",
-      "sales.tasks.private-note.read": "required",
-      "sales.tasks.read": "required",
-      "sales.tasks.revenue.read": "required",
-      "sales.tasks.status.read": "required",
-      "sales.tasks.title.read": "required",
-      "sales.tasks.write": "required"
-    },
-    policyBindings: {
-      "sales.policy.opportunities.name.read": "required",
-      "sales.policy.opportunities.read": "required",
-      "sales.policy.opportunities.stage.read": "required",
-      "sales.policy.opportunities.value.read": "required",
-      "sales.policy.opportunities.write": "required",
-      "sales.policy.tasks.private-note.read": "required",
-      "sales.policy.tasks.read": "required",
-      "sales.policy.tasks.revenue.read": "required",
-      "sales.policy.tasks.status.read": "required",
-      "sales.policy.tasks.title.read": "required",
-      "sales.policy.tasks.write": "required"
-    },
-    realtimeTopics: {
-      "sales.realtime.opportunities": "required",
-      "sales.realtime.tasks": "required"
-    },
-    roleTemplates: {
-      "sales.template.administrator": "required",
-      "sales.template.manager": "required",
-      "sales.template.representative": "required",
-      "sales.template.viewer": "required"
-    },
-    routes: {
-      "sales.route.opportunities": "required",
-      "sales.route.overview": "required",
-      "sales.route.settings": "required",
-      "sales.route.tasks": "required"
-    },
-    schema: {
-      "sales.opportunities.collection": "required",
-      "sales.tasks.collection": "required"
-    },
-    services: { "sales.service.domain": "required" },
-    settings: { "sales.settings.workspace": "required" },
-    sources: {
-      "sales.opportunities": "required",
-      "sales.tasks": "required",
-      "sales.total-potential-revenue": "required"
-    },
-    testingMetadata: { "sales.testing.conformance": "required" },
-    tools: { "sales.tools.create-task": "required", "sales.tools.search-tasks": "required" }
-  },
-  actualContributions: {
-    actions: ["sales.opportunity.stage.update", "sales.task.create", "sales.task.update"],
-    blocks: ["sales.opportunity-detail", "sales.opportunity-kanban", "sales.opportunity-list", "sales.settings-summary", "sales.task-quick-create", "sales.task-table"],
-    components: ["sales.detail.opportunity", "sales.form.task-quick-create", "sales.list.opportunities", "sales.status.pipeline-stage", "sales.table.tasks"],
-    events: ["sales.event.opportunity-changed", "sales.event.task-changed"],
-    healthAudit: ["sales.health.runtime"],
-    jobs: ["sales.job.pipeline-audit"],
-    lifecycle: ["sales.lifecycle.reference"],
-    localization: ["sales.localization.en"],
-    migrations: ["sales.migration.initial"],
-    navigation: ["sales.navigation.opportunities", "sales.navigation.overview", "sales.navigation.settings", "sales.navigation.tasks"],
-    pageTemplates: ["sales.page.opportunities", "sales.page.overview", "sales.page.settings", "sales.page.tasks"],
-    permissions: ["sales.accounts.archive", "sales.accounts.read", "sales.accounts.write", "sales.activities.read", "sales.activities.write", "sales.attachments.read", "sales.attachments.write", "sales.communications.calendar.sync", "sales.communications.email.send", "sales.communications.metadata.read", "sales.contacts.archive", "sales.contacts.channels.read", "sales.contacts.read", "sales.contacts.write", "sales.exports.execute", "sales.exports.read", "sales.imports.execute", "sales.imports.read", "sales.leads.archive", "sales.leads.channels.read", "sales.leads.disqualify", "sales.leads.qualify", "sales.leads.read", "sales.leads.write", "sales.notes.body.read", "sales.notes.read", "sales.notes.write", "sales.notifications.read", "sales.notifications.write", "sales.opportunities.amount.read", "sales.opportunities.archive", "sales.opportunities.close", "sales.opportunities.read", "sales.opportunities.stage.update", "sales.opportunities.write", "sales.ownership.write", "sales.pipelines.configure", "sales.pipelines.read", "sales.records.merge", "sales.reminders.read", "sales.reminders.write", "sales.reports.read", "sales.reports.schedule", "sales.saved-views.read", "sales.saved-views.write", "sales.settings.read", "sales.settings.write", "sales.tasks.archive", "sales.tasks.read", "sales.tasks.write"],
-    policyBindings: ["sales.accounts.archive.policy", "sales.accounts.read.policy", "sales.accounts.write.policy", "sales.activities.read.policy", "sales.activities.write.policy", "sales.attachments.read.policy", "sales.attachments.write.policy", "sales.communications.calendar.sync.policy", "sales.communications.email.send.policy", "sales.communications.metadata.read.policy", "sales.contacts.archive.policy", "sales.contacts.channels.read.policy", "sales.contacts.read.policy", "sales.contacts.write.policy", "sales.exports.execute.policy", "sales.exports.read.policy", "sales.imports.execute.policy", "sales.imports.read.policy", "sales.leads.archive.policy", "sales.leads.channels.read.policy", "sales.leads.disqualify.policy", "sales.leads.qualify.policy", "sales.leads.read.policy", "sales.leads.write.policy", "sales.notes.body.read.policy", "sales.notes.read.policy", "sales.notes.write.policy", "sales.notifications.read.policy", "sales.notifications.write.policy", "sales.opportunities.amount.read.policy", "sales.opportunities.archive.policy", "sales.opportunities.close.policy", "sales.opportunities.read.policy", "sales.opportunities.stage.update.policy", "sales.opportunities.write.policy", "sales.ownership.write.policy", "sales.pipelines.configure.policy", "sales.pipelines.read.policy", "sales.records.merge.policy", "sales.reminders.read.policy", "sales.reminders.write.policy", "sales.reports.read.policy", "sales.saved-views.read.policy", "sales.saved-views.write.policy", "sales.tasks.archive.policy", "sales.tasks.read.policy", "sales.tasks.write.policy"],
-    realtimeTopics: ["sales.realtime.opportunities", "sales.realtime.tasks"],
-    roleTemplates: ["sales.template.administrator", "sales.template.manager", "sales.template.representative", "sales.template.viewer"],
-    routes: ["sales.route.opportunities", "sales.route.overview", "sales.route.settings", "sales.route.tasks"],
-    schema: ["sales.accounts.collection", "sales.activities.collection", "sales.attachment-references.collection", "sales.contacts.collection", "sales.leads.collection", "sales.notes.collection", "sales.opportunities.collection", "sales.pipeline-stages.collection", "sales.pipelines.collection", "sales.tasks.collection"],
-    services: ["sales.service.domain"],
-    settings: ["sales.settings.workspace"],
-    sources: ["sales.opportunities", "sales.tasks"],
-    testingMetadata: ["sales.testing.conformance"],
-    tools: ["sales.tools.create-task", "sales.tools.search-tasks"]
-  }
-}, {
-  id: "provider.realtime.socketio",
-  package: "@k-nex/provider-realtime-socketio",
-  version: "1.0.0",
-  integrity: inventory.plugins[1].integrity,
-  expectedContributions: {},
-  actualContributions: {}
-}]);
+assert.deepEqual(inventory.plugins, resolvedGraph.plugins.map(({ id, package: packageName, version, integrity, contributions }) => ({
+  id,
+  package: packageName,
+  version,
+  integrity,
+  expectedContributions: contributions,
+  actualContributions: Object.fromEntries(Object.entries(contributions).map(([kind, entries]) => [kind, Object.keys(entries)]))
+})));
 assert.deepEqual(inventory.migrationRevision, {
   migrationName: "20260905_000027_crm_core",
   predecessor: 24,

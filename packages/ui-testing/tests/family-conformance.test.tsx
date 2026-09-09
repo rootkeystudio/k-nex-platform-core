@@ -11,6 +11,7 @@ import * as pages from "@k-nex/ui-pages";
 import { resolveMinimalThemeProfile } from "@k-nex/theme-minimal";
 import { resolveNeobrutalismThemeProfile } from "@k-nex/theme-neobrutalism";
 import { createDataTableState, type DataTableDefinition } from "@k-nex/ui-data";
+import { salesUpdateTaskMutation } from "@k-nex/module-sales/browser";
 import { salesTasksTableDefinition } from "@k-nex/module-sales/pages";
 import { componentEvidenceMap, componentStateEvidence, validateComponentEvidenceMap } from "../src/index.js";
 
@@ -21,6 +22,13 @@ const profile = (themeId: "theme.minimal" | "theme.neobrutalism", palette: strin
 const themes = [resolveMinimalThemeProfile(profile("theme.minimal", "light", "family-minimal")), resolveNeobrutalismThemeProfile(profile("theme.neobrutalism", "primary", "family-neo"))];
 const packages: Readonly<Record<string, Record<string, unknown>>> = { "@k-nex/ui-components": components, "@k-nex/ui-data": data, "@k-nex/ui-forms": forms, "@k-nex/ui-pages": pages };
 const noop = (): void => undefined;
+const taskCompletionAction = {
+  id: salesUpdateTaskMutation.action.id,
+  action: salesUpdateTaskMutation.action,
+  mutation: salesUpdateTaskMutation,
+  input: (rowKey: string) => ({ id: rowKey, expectedRevision: 1, expectedStatus: "open" as const, status: "completed" as const }),
+  label: "Complete"
+};
 
 function props(name: string): Record<string, unknown> {
   const item = { id: "one", label: "One", href: "#one", title: "One", content: "One", value: "One", key: "One", children: [{ id: "child", label: "Child" }] };
@@ -31,7 +39,7 @@ function props(name: string): Record<string, unknown> {
   if (name === "FacetFilter") base.options = ["one"];
   if (name === "SortControl") base.fields = [{ id: "title", label: "Title" }];
   if (name === "ColumnChooser") base.visibility = { title: true };
-  if (name === "BulkActionBar" || name === "RowActions") Object.assign(base, { actions: definition.bulkActions ?? definition.rowActions ?? [], selectionCount: 1 });
+  if (name === "BulkActionBar" || name === "RowActions") Object.assign(base, { actions: [taskCompletionAction], selectionCount: 1 });
   if (name === "Pagination") Object.assign(base, { currentPage: 1, pageCount: 2, onPageChange: noop });
   if (name === "LoadMore" || name === "InfiniteList") Object.assign(base, { hasNext: true, onLoadMore: noop });
   if (name === "DetailPanel") base.onClose = noop;

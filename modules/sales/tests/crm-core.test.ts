@@ -4,6 +4,7 @@ import { ActionDescriptorSchema, AuthorizationPermissionDescriptorSchema, Permis
 import {
   salesAccountsCollection,
   salesActivitiesCollection,
+  salesCoreCollections,
   salesCoreCollectionSlugs,
   salesCrmActionDescriptors,
   salesCrmObjectFieldActionMatrix,
@@ -38,6 +39,7 @@ const selectValues = (collection: { readonly fields: readonly { readonly name?: 
 describe("P13.2 CRM core", () => {
   it("registers deterministic internal-only collections", async () => {
     expect(salesCoreCollectionSlugs).toEqual(["sales-accounts", "sales-contacts", "sales-leads", "sales-pipelines", "sales-pipeline-stages", "sales-activities", "sales-opportunities", "sales-tasks", "sales-notes", "sales-attachment-references", "sales-saved-views", "sales-import-jobs", "sales-import-rows", "sales-import-chunks", "sales-export-jobs", "sales-merge-lineage", "sales-notifications", "sales-reminders"]);
+    expect(salesCoreCollections.map(({ slug }) => slug)).toEqual(salesCoreCollectionSlugs);
     for (const collection of [salesAccountsCollection, salesLeadsCollection, salesOpportunitiesCollection, salesTasksCollection]) {
       expect(await collection.access?.create?.({} as never)).toBe(false);
       expect(await collection.access?.read?.({} as never)).toBe(false);

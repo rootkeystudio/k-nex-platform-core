@@ -113,7 +113,10 @@ try {
   const applied = applyCreateKnexApplication(plan, factoryRoot);
   assert.ok(applied.written.includes("k-nex.app.json") && applied.written.includes("compose.yaml"));
   const manifest = ApplicationManifestSchema.parse(readJson(join(factoryRoot, "k-nex.app.json")));
-  assert.deepEqual(manifest.plugins.map(({ id, version }) => ({ id, version })), [{ id: "module.sales", version: "1.0.0" }]);
+  assert.deepEqual(manifest.plugins.map(({ id, version }) => ({ id, version })), [
+    { id: "module.sales", version: "1.0.0" },
+    { id: "provider.realtime.socketio", version: "1.0.0" }
+  ]);
   assert.equal(
     applyCreateKnexApplication(plan, factoryRoot).unchanged.length,
     Object.keys(plan.files).length + Object.keys(plan.artifactDigests).length

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { BoundedQueryBudgetEvaluator, DataSourceGatewayError } from "@k-nex/runtime";
 
 import { canonicalSalesCalendarRange, canonicalSalesSavedViewJson, compileSalesSavedViewDefinition, salesPipelineSnapshotDescriptor, salesSavedViewCalendarDescriptor, salesSavedViewKanbanDescriptor, salesSavedViewTableDescriptor, salesWorkflowActionInputRuntimeSchemas, salesWorkflowActionOutputRuntimeSchemas, validateSalesPipelineSnapshotInput } from "../src/contracts.js";
-import { recheckSalesSavedViewExecution, resolveSalesSavedViewExecution, salesConfigurationActionDefinitions, salesConfigurationActionHandler, salesPipelineSnapshotHandler, salesPipelineSnapshotOutputRuntimeSchema, salesPipelineStageId, salesSavedViewDetailHandler, salesSavedViewKanbanHandler, salesSavedViewListHandler, salesSavedViewTableHandler, salesSavedViewTableOutputRuntimeSchema, type SalesPersistedSavedView } from "../src/server.js";
+import { recheckSalesSavedViewExecution, resolveSalesSavedViewExecution, salesConfigurationActionDefinitions, salesConfigurationActionHandler, salesPipelineSnapshotHandler, salesPipelineSnapshotOutputRuntimeSchema, salesPipelineStageId, salesSavedViewCalendarHandler, salesSavedViewDetailHandler, salesSavedViewKanbanHandler, salesSavedViewListHandler, salesSavedViewTableHandler, salesSavedViewTableOutputRuntimeSchema, type SalesPersistedSavedView } from "../src/server.js";
 
 const stageId = "48a05b92-77d1-5cfc-83af-095f66e0f6f1";
 const view: SalesPersistedSavedView = {
@@ -41,6 +41,24 @@ describe("P13.4 pipeline and saved-view backend", () => {
     expect(() => compileSalesSavedViewDefinition(definition, "sales.saved-view.calendar", definition.fields, 1)).toThrow(/calendar-view discriminator/u);
     expect(() => compileSalesSavedViewDefinition({ ...definition, calendarRange: { ...calendarRange, timezone: "US/Eastern" } }, "sales.saved-view.calendar", definition.fields, 1, { reportingTimezone })).toThrow(/calendar-view discriminator/u);
     expect(() => compileSalesSavedViewDefinition({ ...definition, calendarRange: { ...calendarRange, end: "2026-04-02T04:00:00.000Z" } }, "sales.saved-view.calendar", definition.fields, 1, { reportingTimezone })).toThrow(/calendar-view range/u);
+  });
+
+  it("translates compiled inclusive calendar bounds to Payload query operators", async () => {
+    const reportingTimezone = { timezone: "UTC", revision: 9 } as const;
+    const calendarRange = { start: "2026-09-01T00:00:00.000Z", end: "2026-10-01T00:00:00.000Z", timezone: "UTC" } as const;
+    const definition = {
+      kind: "calendar", targetObjectId: "sales.object.activity", source: { id: salesSavedViewCalendarDescriptor.id, version: 1, sourceSchema: salesSavedViewCalendarDescriptor.sourceSchema, structuralCompatibilityHash: salesSavedViewCalendarDescriptor.structuralCompatibilityHash },
+      fields: ["type", "subject", "status", "scheduled-at", "occurred-at", "related-record-type", "related-record-id", "revision"], filters: [], sorts: [], calendarRange, dateField: "scheduled-at", presentation: { mode: "month" }, pageSize: 25
+    } as const;
+    const query = compileSalesSavedViewDefinition(definition, "sales.saved-view.calendar", definition.fields, 1, { reportingTimezone }).query;
+    const recordScope = { kind: "sales.activities", where: { and: [{ applicationId: { equals: "customer-gate-1" } }, { environment: { equals: "production" } }, { ownerId: { equals: "seller-1" } }] } };
+    const find = vi.fn(async ({ collection }: { collection: string }) => collection === "sales-saved-views"
+      ? { docs: [{ id: 7, revision: 3, ownerId: "seller-1", visibility: "personal", visibilityTeamId: null, status: "active", definition }], hasNextPage: false }
+      : { docs: [], hasNextPage: false });
+    const fieldAuthority = definition.fields.map((fieldId) => ({ fieldId, select: true, filter: fieldId === "scheduled-at", sort: false }));
+    await salesSavedViewCalendarHandler({ actor: { effectiveActor: { kind: "user", id: "seller-1" } }, input: { "saved-view-id": 7, "expected-revision": 3 }, selectedFields: definition.fields, query, signal: new AbortController().signal, recordScope, request: { applicationIdentity: { applicationId: "customer-gate-1", environment: "production" }, salesSavedViewExecutionAuthority: { metadataScope: { applicationId: "customer-gate-1", environment: "production", savedViewId: 7, savedViewRevision: 3, ownerId: "seller-1", visibility: { kind: "personal" } }, targetRecordScope: recordScope, fieldAuthority, reportingTimezone }, payload: { find } } } as never);
+    const targetQuery = find.mock.calls.find(([options]) => options.collection === "sales-activities")?.[0];
+    expect(targetQuery.where).toEqual({ and: [recordScope.where, { scheduledAt: { greater_than_equal: calendarRange.start } }, { scheduledAt: { less_than: calendarRange.end } }] });
   });
 
   it("rejects heterogeneous saved-view filter arrays", () => {

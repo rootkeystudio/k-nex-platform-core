@@ -274,6 +274,31 @@ test("P13.6 provider outage retries are bounded, dead-lettered, and generation f
   });
 });
 
+test("P13.6 absent or malformed provider host config dead-letters communications without blocking reminders", { timeout: 180_000 }, async () => {
+  await database("p13_6_provider_host_config", async (pool) => {
+    const { GeneratedSalesCommunicationStore, createGeneratedBoundedReferenceProviderTransport, createGeneratedEnvironmentProviderSecretResolver, processGeneratedSalesCommunications, processGeneratedSalesReminders } = await import("../dist/src/k-nex-sales-communications.js");
+    await createWorkerPrerequisites(pool);
+    await pool.query("insert into sales_provider_configurations(application_id,environment,provider_id,secret_reference,configured_by) values ($1,$2,$3,'secret-ref:v1:email-reference:api','administrator')", [applicationId, environment, emailProvider]);
+    const current = { applicationId, environment, activeExecutionGeneration: "sales-generation-2", fencingToken: 2, leaseOwner: "worker-2", promotionRevision: 2 };
+    const resolver = createGeneratedEnvironmentProviderSecretResolver({ K_NEX_PROVIDER_SECRET_EMAIL_REFERENCE: "email-token-not-persisted" });
+    const invalidEndpoints = [["absent", undefined], ["empty", ""], ["malformed", "not a provider URL"], ["non-loopback", "https://attacker.example/k-nex/reference-provider"]];
+    for (const [label, endpoint] of invalidEndpoints) {
+      const activity = await workerActivity(pool, `Host config ${label}`);
+      const operation = await transactionRequest(pool, `tx-p136-provider-host-${label}`, async (request) => await new GeneratedSalesCommunicationStore(request, authority("actor-a", ["sales.communications.email.send"])).dispatch({ actionId: "sales.email.send", idempotencyKey: `p136-provider-host-${label}`, relatedRecord: { type: "sales.contact", id: 17 }, payload: { subject: `Host config ${label}`, body: "Must fail closed", activityId: activity.id, expectedRevision: 1 } }));
+      const reminderKey = `p136-reminder-host-${label}`;
+      const reminder = (await pool.query("insert into sales_reminders(application_id,environment,recipient_id,reference_kind,reference_id,subject,scheduled_at,state,revision,attempt,idempotency_digest,audit) values($1,$2,'recipient-a','task',$3,$4,'2000-01-01T00:00:00.000Z','scheduled',1,0,$5,jsonb_build_array(jsonb_build_object('actionId','sales.reminder.schedule','resourceId','seed','applicationId',$1::text,'environment',$2::text,'fromState','absent','toState','scheduled','occurredAt','2000-01-01T00:00:00.000Z','actorId','recipient-a','revision',1,'idempotencyKey',$6::text))) returning id", [applicationId, environment, label, `Reminder ${label}`, `sha256:${createHash("sha256").update(reminderKey).digest("hex")}`, reminderKey])).rows[0];
+      let transport;
+      assert.doesNotThrow(() => { transport = createGeneratedBoundedReferenceProviderTransport(endpoint); }, `${label} config must not crash worker construction`);
+      assert.equal(await processGeneratedSalesReminders(pool, current), 1, `${label} config must not block the reminder lane`);
+      assert.equal(await processGeneratedSalesCommunications(pool, current, resolver, transport), 1, `${label} config must durably process queued communications`);
+      assert.deepEqual((await pool.query("select state,revision from sales_reminders where id=$1", [reminder.id])).rows, [{ state: "delivered", revision: 2 }]);
+      assert.deepEqual((await pool.query("select state,attempt,failure_code,worker_generation_id from sales_provider_operations where operation_id=$1", [operation.operationId])).rows, [{ state: "dead-letter", attempt: 1, failure_code: "HOST_INVARIANT", worker_generation_id: null }]);
+      assert.deepEqual((await pool.query("select status,revision from sales_activities where id=$1", [activity.id])).rows, [{ status: "scheduled", revision: 1 }], "invalid host config must cause no external provider success state");
+    }
+    assert.equal(Number((await pool.query("select count(*) count from sales_notifications where subject like 'Reminder %'")).rows[0].count), invalidEndpoints.length, "every reminder must create its recipient notification");
+  });
+});
+
 test("P13.6 reminder delivery stays atomic and generation-fenced", { timeout: 180_000 }, async () => {
   await database("p13_6_reminder_delivery", async (pool) => {
     const { processGeneratedSalesReminders } = await import("../dist/src/k-nex-sales-communications.js");

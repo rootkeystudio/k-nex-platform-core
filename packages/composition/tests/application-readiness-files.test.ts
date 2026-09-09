@@ -59,6 +59,7 @@ describe("generated application readiness", () => {
     expect(readiness).toContain("sales_import_chunks");
     expect(readiness).toContain("sales_export_jobs");
     expect(readiness).toContain("sales_merge_lineage");
+    expect(readiness).toContain('"sales-notifications", "sales-reminders"');
     expect(readiness).toContain('"allowed_transition_stage_ids", "required_field_ids"');
     expect(readiness).toContain('legacyStages?.has("allowed_transitions")');
     expect(readiness).toContain("currentRevision !== 3");
@@ -84,6 +85,7 @@ describe("generated application readiness", () => {
     expect(readiness).not.toContain("same(salesGenerations, [kNexSalesRegistry.authorizationGeneration])");
     expect(readiness).not.toContain('assignment.id === "customer.initial-sales-administrator.owner"');
     expect(readiness).toContain("expectedMigrationNames");
+    expect(readiness).toContain('"20260909_000035_static_rebind_lock_protocol"');
     expect(readiness).toContain("expectedRouteSources");
     expect(readiness).toContain('"src/app/(workspace)/system/extensions/[extensionId]/page.tsx"');
     expect(readiness).toContain('"src/app/api/system/themes/profiles/[profileId]/publish/route.ts"');

@@ -104,6 +104,15 @@ describe("P2A.8 Sales tool proof", () => {
     };
     const tasks: Array<{ id: string; title: string; status: "open" | "completed" | "cancelled"; revision: number }> = [{ id: "1", title: "Seed follow-up", status: "open", revision: 1 }];
     let creates = 0;
+    let updates = 0;
+    const createCalls: Array<{
+      data: {
+        id: number; title: string; status: "open" | "completed" | "cancelled"; applicationId: string; environment: string;
+        ownerId: string; teamId: string; createdBy: string; updatedBy: string; revision: number;
+        audit: Array<Record<string, unknown>>; archiveStatus: "active" | "archived";
+      };
+      context: { kNexSalesEvent: { eventId: string; type: string; transition: Record<string, unknown> } };
+    }> = [];
     const payloadRequest = {
       user: { id: "user-1", collection: "users" },
       payload: {
@@ -114,16 +123,23 @@ describe("P2A.8 Sales tool proof", () => {
           const totalPages = Math.max(1, Math.ceil(tasks.length / limit));
           return { docs: tasks.slice((page - 1) * limit, page * limit), page, totalPages, hasNextPage: page < totalPages };
         },
-        create: async (options: { data: { title: string; status: "open" | "completed" | "cancelled"; revision: number } }) => {
+        create: async (options: {
+          data: {
+            id: number; title: string; status: "open" | "completed" | "cancelled"; applicationId: string; environment: string;
+            ownerId: string; teamId: string; createdBy: string; updatedBy: string; revision: number;
+            audit: Array<Record<string, unknown>>; archiveStatus: "active" | "archived";
+          };
+          context: { kNexSalesEvent: { eventId: string; type: string; transition: Record<string, unknown> } };
+        }) => {
           creates += 1;
-          const task = { id: String(tasks.length + 1), title: options.data.title, status: options.data.status, revision: options.data.revision };
+          createCalls.push(options);
+          const task = { id: String(options.data.id), title: options.data.title, status: options.data.status, revision: options.data.revision };
           tasks.push(task);
-          return task;
+          return { ...options.data };
         },
-        update: async (options: { id: string }) => {
-          const task = tasks.find((candidate) => candidate.id === options.id);
-          if (task === undefined) throw new Error("Sales proof task is unavailable.");
-          return task;
+        update: async () => {
+          updates += 1;
+          throw new Error("Sales task creation must not issue an update.");
         }
       },
       locale: "en-US",
@@ -235,7 +251,7 @@ describe("P2A.8 Sales tool proof", () => {
         actor: salesActor,
         authorizationContext: () => ({ permissionFingerprint: "sales:open:full" }),
         requestContext: (request) => createPayloadPersistenceCapability(request, [
-          { collection: "sales-tasks", operations: ["find", "create", "update"] }
+          { collection: "sales-tasks", operations: ["find"] }
         ], { authorize: () => true })
       }),
       catalog: sourceCatalog,
@@ -264,7 +280,8 @@ describe("P2A.8 Sales tool proof", () => {
           environment: "production",
           actorId: "user-1",
           ownerId: "user-1",
-          teamId: delegation.resourceScope.id
+          teamId: delegation.resourceScope.id,
+          resourceId: "2"
         });
       }
     });
@@ -289,7 +306,7 @@ describe("P2A.8 Sales tool proof", () => {
             actor: salesActor,
             authorizationContext: () => catalogContext.authorizationContext,
             requestContext: (payloadRequest) => createPayloadPersistenceCapability(payloadRequest, [
-              { collection: "sales-tasks", operations: ["find", "create", "update"] }
+              { collection: "sales-tasks", operations: ["create"] }
             ], { authorize: () => true })
           }).authenticate({
             correlationId: request.correlationId,
@@ -388,6 +405,16 @@ describe("P2A.8 Sales tool proof", () => {
     expect(proof.replay).toEqual(proof.write);
     expect(proof.changedReplay).toMatchObject({ ok: false, status: 409, body: { code: "IDEMPOTENCY_KEY_REUSED" } });
     expect(creates).toBe(1);
+    expect(updates).toBe(0);
+    expect(createCalls).toHaveLength(1);
+    expect(createCalls[0]?.data).toMatchObject({ id: 2, title: "Approved follow-up", status: "open", revision: 1 });
+    expect(createCalls[0]?.data.audit).toHaveLength(1);
+    expect(createCalls[0]?.data.audit[0]).toMatchObject({
+      actionId: "sales.task.create", resourceId: "2", applicationId: "app-1", environment: "production",
+      fromState: "absent", toState: "open", actorId: "user-1", revision: 1, idempotencyKey: "create-task-proof-1"
+    });
+    expect(createCalls[0]?.context.kNexSalesEvent).toMatchObject({ eventId: "create-task-proof-1", type: "sales.event.task-changed" });
+    expect(createCalls[0]?.context.kNexSalesEvent.transition).toEqual(createCalls[0]?.data.audit[0]);
     expect(tasks).toHaveLength(2);
     const cursorRequest = (query: unknown) => dataSourceGateway.query({
       correlationId: "sales-cursor-proof",

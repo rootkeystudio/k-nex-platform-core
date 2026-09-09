@@ -3,6 +3,7 @@ import { performance } from "node:perf_hooks";
 
 import { MetricScalarSchema, TableRecordsSchema } from "../packages/contracts/dist/index.js";
 import {
+  salesPipelineStageId,
   salesOpportunitiesHandler,
   salesTasksHandler
 } from "../modules/sales/dist/server.js";
@@ -44,10 +45,22 @@ const tableContext = {
   signal
 };
 
+const benchmarkPipelineId = 17;
+const benchmarkStages = [
+  { semantic: "qualification", name: "Qualification" },
+  { semantic: "won", name: "Won" }
+].map((stage) => ({
+  ...stage,
+  pipelineId: benchmarkPipelineId,
+  stageId: salesPipelineStageId("benchmark", "benchmark", benchmarkPipelineId, stage.semantic),
+  revision: 2,
+  status: "active"
+}));
 const opportunityDocuments = Array.from({ length: 100 }, (_, index) => ({
   id: `opportunity-${index + 1}`,
   name: `Representative opportunity ${index + 1}`,
-  stageId: index % 5 === 0 ? "won" : "qualification",
+  pipelineId: benchmarkPipelineId,
+  stageId: benchmarkStages[index % 5 === 0 ? 1 : 0].stageId,
   revision: index + 1,
   amount: `${100 + index}.25`,
   currency: "USD"
@@ -57,7 +70,12 @@ const opportunityContext = {
   request: {
     applicationIdentity: { applicationId: "benchmark", environment: "benchmark" },
     payload: {
-      find: async () => ({ docs: opportunityDocuments, page: 1, totalPages: 1, hasNextPage: false })
+      find: async ({ collection }) => {
+        if (collection === "sales-opportunities") return { docs: opportunityDocuments, page: 1, totalPages: 1, hasNextPage: false };
+        if (collection === "sales-pipelines") return { docs: [{ id: benchmarkPipelineId, revision: 2, status: "active" }] };
+        assert.equal(collection, "sales-pipeline-stages");
+        return { docs: benchmarkStages };
+      }
     }
   },
   query: { page: { number: 1, size: 100 }, filters: [], sort: [] },
@@ -98,7 +116,7 @@ const benchmark = [
   await measure("Sales task v2 query + validation", "100 records x 2 selected fields", 100, 40, async () => {
     TableRecordsSchema.parse(await salesTasksHandler(tableContext));
   }),
-  await measure("Sales opportunity v2 query + validation", "100 records x 4 selected fields", 50, 60, async () => {
+  await measure("Sales opportunity v3 query + validation", "100 records x 4 selected fields", 50, 60, async () => {
     TableRecordsSchema.parse(await salesOpportunitiesHandler(opportunityContext));
   })
 ];

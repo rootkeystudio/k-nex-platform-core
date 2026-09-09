@@ -37,6 +37,8 @@
     "gate:11:focused": "node scripts/gate-11.mjs",
     "gate:12": "pnpm gate:11 && node scripts/gate-12.mjs",
     "gate:12:focused": "node scripts/gate-12.mjs",
+    "gate:13": "pnpm gate:12 && node scripts/gate-13.mjs",
+    "gate:13:focused": "node scripts/gate-13.mjs",
     "phase:13:contract": "pnpm --filter @k-nex/architecture-contract-tools test -- repository-validation.test.ts && pnpm docs:validate",
     "phase:9:attacks": "node scripts/phase-9-attack-corpus.mjs",
     "phase:0": "pnpm contracts:generate && pnpm contracts:generated-clean && pnpm contracts:validate && pnpm contracts:test && pnpm contracts:reproducibility && pnpm docs:validate"
