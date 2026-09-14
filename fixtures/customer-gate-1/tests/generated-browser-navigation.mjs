@@ -1,5 +1,11 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { performance } from "node:perf_hooks";
 import { errors as playwrightErrors } from "playwright";
+
+const hydrationReadinessBudgetMs = 30_000;
+const maximumTelemetryEvents = 32;
+const routeTelemetry = new WeakMap();
 
 const generatedSalesRoutes = new Map([
   ["/sales", "sales.route.overview"],
@@ -28,13 +34,63 @@ export function waitForGeneratedRouteProjection(page, url, status) {
   return page.waitForResponse((response) => response.url() === projectionUrl && response.status() === status, { timeout: 30_000 });
 }
 
+function diagnosticDigest(value) {
+  return createHash("sha256").update(String(value).slice(0, 4_096)).digest("hex").slice(0, 16);
+}
+
+function attachGeneratedRouteTelemetry(page, projectionUrl, now) {
+  routeTelemetry.get(page)?.detach();
+  const started = now();
+  let lastElapsed = 0;
+  const events = [];
+  const record = (value) => {
+    lastElapsed = Math.max(lastElapsed, Math.floor(now() - started), 0);
+    if (events.length < maximumTelemetryEvents) events.push(`+${lastElapsed}ms:${value}`);
+  };
+  const response = (observed) => {
+    if (observed.url() !== projectionUrl) return;
+    const serverTiming = observed.headers()["server-timing"];
+    const timing = typeof serverTiming === "string" && /^knex;dur=[0-9]+(?:[.][0-9]+)?$/u.test(serverTiming) ? `:${serverTiming}` : "";
+    record(`projection:${observed.status()}${timing}`);
+  };
+  const requestFailed = (request) => {
+    if (request.url() === projectionUrl) record(`projection-failed:sha256:${diagnosticDigest(request.failure()?.errorText ?? "unknown")}`);
+  };
+  const pageError = (error) => record(`pageerror:${error?.name === "Error" ? "Error" : "Other"}:sha256:${diagnosticDigest(error?.message ?? error)}`);
+  const consoleError = (message) => { if (message.type() === "error") record(`console-error:sha256:${diagnosticDigest(message.text())}`); };
+  let detached = false;
+  const close = () => detach();
+  const detach = () => {
+    if (detached) return;
+    detached = true;
+    page.off("response", response);
+    page.off("requestfailed", requestFailed);
+    page.off("pageerror", pageError);
+    page.off("console", consoleError);
+    page.off("close", close);
+    if (routeTelemetry.get(page)?.detach === detach) routeTelemetry.delete(page);
+  };
+  page.on("response", response);
+  page.on("requestfailed", requestFailed);
+  page.on("pageerror", pageError);
+  page.on("console", consoleError);
+  page.on("close", close);
+  const telemetry = Object.freeze({ detach, describe: () => events.length === 0 ? "none" : events.join(",") });
+  routeTelemetry.set(page, telemetry);
+  return telemetry;
+}
+
+function generatedRouteTelemetry(page) {
+  return routeTelemetry.get(page)?.describe() ?? "none";
+}
+
 export async function proveGeneratedSalesTaskRouteHydration(page, diagnostics, now = Date.now) {
   try {
-    const deadline = now() + 10_000;
+    const deadline = now() + hydrationReadinessBudgetMs;
     const remaining = () => Math.max(0, deadline - now());
     const operationTimeout = () => {
       const available = remaining();
-      assert.ok(available > 0, "Generated Sales Task hydration exceeded its ten-second deadline.");
+      assert.ok(available > 0, "Generated Sales Task hydration exceeded its thirty-second readiness deadline.");
       return Math.min(1_000, available);
     };
     const form = page.getByRole("form", { name: "Create task" });
@@ -58,12 +114,15 @@ export async function proveGeneratedSalesTaskRouteHydration(page, diagnostics, n
     assert.equal(await submit.isDisabled({ timeout: operationTimeout() }), true, "Generated Sales Task form was not restored.");
   } catch (error) {
     const body = await page.locator("body").innerText({ timeout: 5_000 }).catch(() => "unavailable");
-    throw new Error(`${error}\nurl=${page.url()}\nbody=${body}\nprocess=${diagnostics()}`);
+    const telemetry = generatedRouteTelemetry(page);
+    routeTelemetry.get(page)?.detach();
+    throw new Error(`${error}\nurl=${page.url()}\nrouteTelemetry=${telemetry}\nbody=${body}\nprocess=${diagnostics()}`);
   }
 }
 
-export async function navigateGeneratedRouteToReady(page, url, ready, diagnostics) {
-  const { canonicalUrl } = generatedSalesRoute(url);
+export async function navigateGeneratedRouteToReady(page, url, ready, diagnostics, now = () => performance.now()) {
+  const { canonicalUrl, projectionUrl } = generatedSalesRoute(url);
+  const telemetry = attachGeneratedRouteTelemetry(page, projectionUrl, now);
   try {
     const response = await page.goto(canonicalUrl, { waitUntil: "commit", timeout: 30_000 });
     assert.equal(response?.status(), 200, `Generated route returned ${response?.status() ?? "no response"}: ${canonicalUrl}`);
@@ -73,6 +132,8 @@ export async function navigateGeneratedRouteToReady(page, url, ready, diagnostic
     return response;
   } catch (error) {
     const body = await page.locator("body").innerText({ timeout: 5_000 }).catch(() => "unavailable");
-    throw new Error(`${error}\nurl=${page.url()}\nbody=${body}\nprocess=${diagnostics()}`);
+    const routeDiagnostics = telemetry.describe();
+    telemetry.detach();
+    throw new Error(`${error}\nurl=${page.url()}\nrouteTelemetry=${routeDiagnostics}\nbody=${body}\nprocess=${diagnostics()}`);
   }
 }

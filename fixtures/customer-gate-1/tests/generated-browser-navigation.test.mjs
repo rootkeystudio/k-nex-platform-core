@@ -6,8 +6,13 @@ import { navigateGeneratedRouteToReady, proveGeneratedSalesTaskRouteHydration, w
 
 function pageFixture({ status = 200, responseUrl = "http://fixture.test/sales/tasks", pageUrl = responseUrl, projectionUrl = "http://fixture.test/api/k-nex/sales/routes/sales.route.tasks?page=1", projectionStatus = 200, readyError } = {}) {
   const calls = [];
+  const listeners = new Map();
   return {
     calls,
+    listeners,
+    on(event, listener) { calls.push(["on", event]); const existing = listeners.get(event) ?? []; existing.push(listener); listeners.set(event, existing); },
+    off(event, listener) { calls.push(["off", event]); listeners.set(event, (listeners.get(event) ?? []).filter((candidate) => candidate !== listener)); },
+    emit(event, value) { for (const listener of listeners.get(event) ?? []) listener(value); },
     async goto(url, options) {
       calls.push(["goto", url, options]);
       return { status: () => status, url: () => responseUrl };
@@ -32,6 +37,11 @@ test("generated route navigation waits for response commit and semantic readines
     const response = await navigateGeneratedRouteToReady(page, requestedUrl, page.ready, () => "fixture process");
     assert.equal(response.status(), 200);
     assert.deepEqual(page.calls, [
+      ["on", "response"],
+      ["on", "requestfailed"],
+      ["on", "pageerror"],
+      ["on", "console"],
+      ["on", "close"],
       ["goto", requestedUrl, { waitUntil: "commit", timeout: 30_000 }],
       ["ready", { timeout: 30_000 }]
     ]);
@@ -104,7 +114,7 @@ test("generated Sales Task hydration does not retry non-timeout failures", async
   assert.equal(waits, 0);
 });
 
-test("generated Sales Task hydration reserves restoration inside one ten-second deadline", async () => {
+test("generated Sales Task hydration reserves restoration inside one thirty-second readiness deadline", async () => {
   let elapsed = 0;
   let attempt = 0;
   let enabled = false;
@@ -132,11 +142,11 @@ test("generated Sales Task hydration reserves restoration inside one ten-second 
       } };
     },
     locator: () => ({ innerText: async () => "fixture body" }),
-    waitForTimeout: async (duration) => { advance(duration); },
+    waitForTimeout: async (duration) => { advance(elapsed === 2_000 ? 20_100 : duration); },
     url: () => "http://fixture.test/sales/tasks"
   };
   await proveGeneratedSalesTaskRouteHydration(page, () => "fixture process", () => elapsed);
-  assert.equal(elapsed, 9_900);
+  assert.equal(elapsed, 29_900);
   assert.equal(timeouts.every((timeout) => timeout > 0 && timeout <= 1_000), true);
 });
 
@@ -155,7 +165,7 @@ test("generated Sales Task hydration never passes a zero timeout after deadline 
         } };
         return {
           isDisabled: async (options) => { timeouts.push(options.timeout); disabledCalls += 1; return true; },
-          isEnabled: async (options) => { timeouts.push(options.timeout); elapsed = 9_500; return true; }
+          isEnabled: async (options) => { timeouts.push(options.timeout); elapsed = 29_500; return true; }
         };
       } };
     },
@@ -165,7 +175,7 @@ test("generated Sales Task hydration never passes a zero timeout after deadline 
   };
   await assert.rejects(
     proveGeneratedSalesTaskRouteHydration(page, () => "fixture process", () => elapsed),
-    /exceeded its ten-second deadline/u
+    /exceeded its thirty-second readiness deadline/u
   );
   assert.equal(disabledCalls, 1);
   assert.equal(timeouts.at(-1), 500);
@@ -177,6 +187,52 @@ test("generated route projection wait observes an exact bounded denied response"
   const response = await waitForGeneratedRouteProjection(page, "http://fixture.test/sales/tasks", 404);
   assert.equal(response.status(), 404);
   assert.deepEqual(page.calls, [["projection", { timeout: 30_000 }]]);
+});
+
+test("generated route telemetry is route-scoped, bounded, redacted, and detached on helper failure", async () => {
+  let elapsed = 0;
+  const page = pageFixture();
+  await navigateGeneratedRouteToReady(page, "http://fixture.test/sales/tasks", page.ready, () => "fixture process", () => elapsed);
+  const response = { url: () => "http://fixture.test/api/k-nex/sales/routes/sales.route.tasks?page=1", status: () => 404, headers: () => ({ "server-timing": "knex;dur=12.500" }) };
+  elapsed = 12;
+  page.emit("response", response);
+  elapsed = 8;
+  page.emit("response", response);
+  elapsed = 12;
+  page.emit("response", { ...response, url: () => "http://fixture.test/api/foreign?secret=raw" });
+  page.emit("requestfailed", { url: response.url, failure: () => ({ errorText: "secret transport detail" }) });
+  page.emit("pageerror", new Error("secret page detail"));
+  page.emit("console", { type: () => "error", text: () => "secret console detail" });
+  for (let index = 0; index < 40; index += 1) page.emit("response", response);
+  page.getByRole = () => ({ getByRole: () => { throw new TypeError("controlled hydration failure"); } });
+  await assert.rejects(
+    proveGeneratedSalesTaskRouteHydration(page, () => "fixture process"),
+    (error) => {
+      assert.match(error.message, /routeTelemetry=\+12ms:projection:404:knex;dur=12[.]500/u);
+      assert.match(error.message, /\+12ms:projection:404:knex;dur=12[.]500,\+12ms:projection:404:knex;dur=12[.]500/u);
+      assert.match(error.message, /projection-failed:sha256:[0-9a-f]{16}/u);
+      assert.match(error.message, /pageerror:Error:sha256:[0-9a-f]{16}/u);
+      assert.match(error.message, /console-error:sha256:[0-9a-f]{16}/u);
+      assert.equal(error.message.includes("secret"), false);
+      assert.equal(error.message.split("projection:404").length - 1 <= 32, true);
+      return true;
+    }
+  );
+  page.emit("close");
+  for (const event of ["response", "requestfailed", "pageerror", "console", "close"]) assert.equal((page.listeners.get(event) ?? []).length, 0);
+});
+
+test("generated route telemetry replaces prior listeners and detaches on page close or navigation failure", async () => {
+  const page = pageFixture();
+  await navigateGeneratedRouteToReady(page, "http://fixture.test/sales/tasks", page.ready, () => "fixture process");
+  await navigateGeneratedRouteToReady(page, "http://fixture.test/sales/tasks", page.ready, () => "fixture process");
+  for (const event of ["response", "requestfailed", "pageerror", "console", "close"]) assert.equal((page.listeners.get(event) ?? []).length, 1);
+  page.emit("close");
+  for (const event of ["response", "requestfailed", "pageerror", "console", "close"]) assert.equal((page.listeners.get(event) ?? []).length, 0);
+
+  const failed = pageFixture({ status: 503 });
+  await assert.rejects(navigateGeneratedRouteToReady(failed, "http://fixture.test/sales/tasks", failed.ready, () => "fixture process"));
+  for (const event of ["response", "requestfailed", "pageerror", "console", "close"]) assert.equal((failed.listeners.get(event) ?? []).length, 0);
 });
 
 test("generated route navigation rejects non-registered and decorated URLs before navigation", async () => {
