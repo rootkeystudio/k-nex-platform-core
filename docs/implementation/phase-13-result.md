@@ -3,9 +3,9 @@
 - **Date:** 2026-09-15
 - **Gate:** Gate 13 — controlled-fixture closeout implemented; clean exact-head cumulative run pending
 - **Accepted base:** Phase 12 / `694bd2f`
-- **Hosted evidence source head:** `bd4c768` (`test(phase-13): close CRM fixture readiness`)
+- **Hosted evidence source head:** `7275866` (`fix(phase-13): stabilize generated Sales authority hydration`)
 - **Decision:** **REWORK — automated fixture readiness only; not a limited-beta approval**
-- **Review state:** P13.1–P13.10 implementation, the latest bounded authority-projection/hydration repair, and cumulative-run remediations through it passed persistent review. The refreshed package/factory/manifest/lock closure awaits post-generation review; hosted evidence refresh and an exact-head cumulative rerun remain pending.
+- **Review state:** P13.1–P13.10 implementation, the latest bounded authority-projection/hydration repair, its generated package closure, and cumulative-run remediations through it passed persistent review. Hosted run `34897020052` passed on exact source `7275866`; its exact 33-file overlay awaits persistent review and commit before an exact-head cumulative rerun.
 
 ## Scope delivered
 
@@ -113,10 +113,12 @@ Cumulative run `34884393849` on exact head `7b4674e` passed Gates 1–11, then P
 
 The official current-v1 generation sequence then refreshed the changed Composition archive, both content-addressed factory locks, the package release manifest, and the alpha/beta lock integrities. The current-v1 Sales release source and Gate 1 resolved graph were already byte-current, and the repository root lock did not consume the changed archive, so those generators produced no diff. A second complete official generation produced the identical repository-diff fingerprint `48eb308458ac1c338ced5c27d911cab87d7f651fe501d3e1da0c3e64b80f6d59`. Current-v1 source check, canonical-pack tests 2/2, packed ABI and 17-package closure, factory-lock check 2/2, release-manifest tests 4/4, Gate 1 check and reproducibility, exact packed Composition source parity, root/alpha/beta frozen installs, and `git diff --check` pass. Exactly eight generated paths changed: one Composition archive, two old and two replacement factory-lock paths, two customer locks, and one release manifest; all hosted evidence paths remain untouched. Because the package integrity, factory-lock digests, manifest, and source head changed, the source/closure must be reviewed, committed, and pushed before the hosted run; its exact 33-file result must then be overlaid, reviewed, committed, and pushed before Gate 8 or cumulative acceptance.
 
+Hosted release-evidence run `34897020052` then passed in 5m04s on exact source `727586660dfb65c1d65e51c69deda8f74dcd7141`: frozen install, build, packed/factory input verification, both current customer bundles, five hosted attestations, hosted verification, runtime/fleet generation, and artifact upload all succeeded. The downloaded artifact contains exactly the 33 already-declared tracked evidence paths and no symlinks or special files; every overlaid byte matches the artifact. Hosted attestation/source/manifest binding, both customer bundle/receipt/inventory chains, fleet scope, neutral-history security, generated-evidence stability, and `git diff --check` pass. The overlay awaits persistent review and commit; cumulative execution has not started.
+
 ```text
 OBSERVED: P13.10 focused PostgreSQL and generated-host proofs
 PENDING: pnpm gate:13
-PASS: hosted current-v1 attestation refresh, run 34847447704, source bd4c768
+PASS: hosted current-v1 attestation refresh, run 34897020052, source 7275866
 PASS: remediated exact static deployment PostgreSQL proof, 1/1, 358.92s
 PENDING: exact-head Gate 0–13 result
 OBSERVED: representative dataset/import ledger, seven-metric reconciliation,

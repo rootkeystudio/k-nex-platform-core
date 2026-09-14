@@ -2,12 +2,12 @@
   "$schema": "../../schemas/package-release-manifest.v1.schema.json",
   "factoryLockTemplates": {
     "minimal": {
-      "digest": "sha256:f25afc47c75948e3f17653aff827c547422bdd9c0edf69f51272b36d4ad2059a",
+      "digest": "sha256:19b251d5d0e91f007cf86aff2e0c76b83da25ef855565e704212ff63d21fd040",
       "preset": "sales-reference",
       "theme": "minimal"
     },
     "neobrutalism": {
-      "digest": "sha256:1578713dc1955940a13fa8af9275d4b8472a05ec9327903f64de42953d8a3f67",
+      "digest": "sha256:ed1ea86e8133a8f0fba8c740094d3f3edd40822bf6d0ce41f9ec8ff4bc707478",
       "preset": "sales-reference",
       "theme": "neobrutalism"
     }
@@ -34,7 +34,7 @@
       "version": "1.0.0"
     },
     {
-      "integrity": "sha512-/RtXs9uTkPLqGLZDymIhtUMt+spvMqCGe2hdr1RZnxIi99Ji59G/HlvbRSAJKOOyoNTsNLiyEx7YuMVdaqAJxw==",
+      "integrity": "sha512-MeyCVzeGFckXGcrjQkNu0Bva+5Z0/sJ68MT8aUe1YaRUVLHGEZbD+W28OZjONh03EuXPD7YlvMTvaekzI6fOiQ==",
       "package": "@k-nex/composition",
       "peerCompatibility": {
         "core": "1.0.0",
