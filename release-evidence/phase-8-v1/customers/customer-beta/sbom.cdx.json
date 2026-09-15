@@ -2086,7 +2086,7 @@
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "31ec8257378615c91719cae342436ed01bdafb9674fec27af0c4fc6947b561a45454b1c61196c3f96dbc3998ce361d3712e5cf0fb625bcc4ef69e93323a7ce89"
+          "content": "979c2928be1f6dfe0333633184d1b65c5b912774ba7c3e58aa2ff117fe6a22ee56590fb15fe8af4bf39a980b13de4cb3740a07e5cc862a08f7c7f45ac560f07c"
         }
       ],
       "name": "@k-nex/composition",
@@ -2125,7 +2125,7 @@
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "7af1a4e81e641e283fc820abbe331414357c3c4af39d0315faaae0216fbbda75ff75c89a0c478d9e3565d14dcedc11f085df0d9735ff52024733874036a80a8e"
+          "content": "18f33d23ca1f503db5f90b69ef77c8d7c99adbe83cdbe5dc3dfddcee1d48cf8017df7e0bd4c4f04ac5439771bf90fe1d2dd726d077d3544ce7e5fbf903b36a84"
         }
       ],
       "name": "@k-nex/module-sales",
@@ -11603,7 +11603,7 @@
       "type": "application"
     }
   },
-  "serialNumber": "urn:uuid:00000000-0000-4000-8000-9748fd36557f",
+  "serialNumber": "urn:uuid:00000000-0000-4000-8000-54e320f4e277",
   "specVersion": "1.6",
   "version": 1
 }

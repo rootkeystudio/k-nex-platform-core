@@ -5,16 +5,16 @@
   "environment": "production",
   "platformRelease": "1.0.0",
   "observedAt": "2026-09-01T12:00:00.000Z",
-  "artifactDigest": "sha256:be14bc44a59613f20ae25f897f262499829521fadf29429bfffaabeb0c57fff4",
+  "artifactDigest": "sha256:f86a4b8d0f359c30367775fe003e7dd34b4243dbd8e903fb01685202878353d3",
   "releaseEvidence": {
-    "sourceCommit": "727586660dfb65c1d65e51c69deda8f74dcd7141",
-    "workflowIdentity": "rootkeystudio/k-nex-platform-core/.github/workflows/release-evidence.yml@727586660dfb65c1d65e51c69deda8f74dcd7141",
+    "sourceCommit": "d6c488e4371f43003245c2857d43e935f404e0cd",
+    "workflowIdentity": "rootkeystudio/k-nex-platform-core/.github/workflows/release-evidence.yml@d6c488e4371f43003245c2857d43e935f404e0cd",
     "manifestDigest": "sha256:d8eb979956a4d54cf655f3aa0d1886d0a5f0fdee006a8b6f14a4bf3acb6fb23d",
-    "lockfileDigest": "sha256:46aba37ac7a9453cc37af30dab0bf335447d9e30ae671ff499988e02eafd6e9d",
+    "lockfileDigest": "sha256:b6eb25cf5d415093969190c3919d843379ec4b98159b09d394403565e9381ab7",
     "resolvedGraphDigest": "sha256:99bad9d5c498e83c02cc35b47fed0a5602f9e648a8f5948133c19aace8c0fba4",
     "frameworkDigest": "sha256:4e1cd64b546eb33d433cda29c18999d34d811086b4897b02d2401d62348af1f9",
-    "sbomDigest": "sha256:2b04d821e14ccae99f6a490c812abae214a09ee74c091700f8b1b7403f3c1433",
-    "provenanceDigest": "sha256:987737faf6717485136a52830596fd4f5e3dd17821fc6c86d520ea082ae60d08"
+    "sbomDigest": "sha256:783aff6b1c859676a2a64f72b879876a6ef358a188c4e8beda4098e4657ee4c1",
+    "provenanceDigest": "sha256:7c419921aeddf56c4ea19fe5e4af69b11cc00fd11e2dae22b4f8ae87aff2ad02"
   },
   "packages": [
     {
@@ -820,7 +820,7 @@
     {
       "package": "@k-nex/composition",
       "version": "1.0.0",
-      "integrity": "sha512-MeyCVzeGFckXGcrjQkNu0Bva+5Z0/sJ68MT8aUe1YaRUVLHGEZbD+W28OZjONh03EuXPD7YlvMTvaekzI6fOiQ=="
+      "integrity": "sha512-l5wpKL4fbf4DM2MxhNG2XFuRJ3S6fD5Yqi/xF/5qIu5WWQ+xX+ivS/OamAsT3kyzdAoH5cyGKgj3x/RaxWDwfA=="
     },
     {
       "package": "@k-nex/contracts",
@@ -835,7 +835,7 @@
     {
       "package": "@k-nex/module-sales",
       "version": "1.0.0",
-      "integrity": "sha512-evGk6B5kHig/yCCrvjMUFDV8PErznQMV+qrgIW+72nX/dciaDEeNnjVl0U3O3BHwhd8NlzX/UgJHM4dANqgKjg=="
+      "integrity": "sha512-GPM9I8ofUD21+Qtp73fI18ma2+g82+XcPf3c7h1Iz4AX334L1MTwSsVDl3G/kP4dLdcm0HfTVEzn5fv5A7NqhA=="
     },
     {
       "package": "@k-nex/payload-adapter",

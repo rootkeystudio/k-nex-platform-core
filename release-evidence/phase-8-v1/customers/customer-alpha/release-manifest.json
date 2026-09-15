@@ -2,12 +2,12 @@
   "$schema": "../../schemas/package-release-manifest.v1.schema.json",
   "factoryLockTemplates": {
     "minimal": {
-      "digest": "sha256:19b251d5d0e91f007cf86aff2e0c76b83da25ef855565e704212ff63d21fd040",
+      "digest": "sha256:6550eb5761ec806ea2339a33116a5907ca61cf467720583024e8ebd2af1cc247",
       "preset": "sales-reference",
       "theme": "minimal"
     },
     "neobrutalism": {
-      "digest": "sha256:ed1ea86e8133a8f0fba8c740094d3f3edd40822bf6d0ce41f9ec8ff4bc707478",
+      "digest": "sha256:01c2df1f076cf2e5fd63d2dc29358fd533704cacb7504724a42217bd3ce639a2",
       "preset": "sales-reference",
       "theme": "neobrutalism"
     }
@@ -34,7 +34,7 @@
       "version": "1.0.0"
     },
     {
-      "integrity": "sha512-MeyCVzeGFckXGcrjQkNu0Bva+5Z0/sJ68MT8aUe1YaRUVLHGEZbD+W28OZjONh03EuXPD7YlvMTvaekzI6fOiQ==",
+      "integrity": "sha512-l5wpKL4fbf4DM2MxhNG2XFuRJ3S6fD5Yqi/xF/5qIu5WWQ+xX+ivS/OamAsT3kyzdAoH5cyGKgj3x/RaxWDwfA==",
       "package": "@k-nex/composition",
       "peerCompatibility": {
         "core": "1.0.0",
@@ -73,7 +73,7 @@
       "version": "1.0.0"
     },
     {
-      "integrity": "sha512-evGk6B5kHig/yCCrvjMUFDV8PErznQMV+qrgIW+72nX/dciaDEeNnjVl0U3O3BHwhd8NlzX/UgJHM4dANqgKjg==",
+      "integrity": "sha512-GPM9I8ofUD21+Qtp73fI18ma2+g82+XcPf3c7h1Iz4AX334L1MTwSsVDl3G/kP4dLdcm0HfTVEzn5fv5A7NqhA==",
       "package": "@k-nex/module-sales",
       "peerCompatibility": {
         "core": "1.0.0",
