@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
-import { pathToFileURL } from "node:url";
 import test from "node:test";
 
+import { salesWeightedForecastDescriptor } from "@k-nex/module-sales-current/contracts";
 import { chromium } from "playwright";
 import { withGeneratedCrmBrowserFixture } from "./p13-3-generated-crm-fixture.mjs";
 
@@ -139,12 +139,11 @@ test("P13.8 generated HTTP/Chromium reports route queues one artifact and keeps 
     assert.equal(customEditor.status, 200);
     const customEditorBody = await customEditor.json(); const customWorkingCopy = customEditorBody.projection?.workingCopy;
     assert.ok(customWorkingCopy && Number.isSafeInteger(customWorkingCopy.revision) && customWorkingCopy.document && typeof customWorkingCopy.document === "object");
-    const salesContracts = await import(pathToFileURL(resolve(process.cwd(), "modules/sales/dist/contracts.js")).href);
     const reportNodeId = "p138-custom-weighted-forecast";
     const reportNode = {
       id: reportNodeId, type: "sales.block.report.weighted-forecast", version: 1, props: {},
       bindings: {
-        source: { source: { id: salesContracts.salesWeightedForecastDescriptor.id, version: salesContracts.salesWeightedForecastDescriptor.version }, input: {}, structuralCompatibilityHash: salesContracts.salesWeightedForecastDescriptor.structuralCompatibilityHash, selectedFields: [] }
+        source: { source: { id: salesWeightedForecastDescriptor.id, version: salesWeightedForecastDescriptor.version }, input: {}, structuralCompatibilityHash: salesWeightedForecastDescriptor.structuralCompatibilityHash, selectedFields: [] }
       }
     };
     const customDocument = { ...customWorkingCopy.document, version: customWorkingCopy.revision + 1, regions: { ...customWorkingCopy.document.regions, main: [reportNode] } };
