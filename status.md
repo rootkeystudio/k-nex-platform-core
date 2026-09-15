@@ -11,7 +11,7 @@ PR #35 review requested immutable `1.0.0` restoration, a new `1.1.0` train, a re
 
 ## Validation
 
-Node 24.19/pnpm 11.9: evidence policy/publication/workflow focused tests PASS (11 total plus 6 final publication/workflow cases); exact seven-step policy and historical source-trust generation PASS; YAML parse, Node syntax, and `git diff --check` PASS. Missing/malformed/wrong transition source commits fail in bundled and online verification paths. Hosted workflow has not run yet; no full gate run.
+Node 24.19/pnpm 11.9: first hosted run `35026508277` correctly rejected a stale local-tarball checksum before attestation. The one `module-sales` 1.1 lock integrity now equals the regenerated archive and release manifest; all other 17-package 1.0/1.1 closure entries are unchanged. Frozen offline install, release-train 2/2, packed checks 17/17 for both releases, and `git diff --check` PASS. Hosted exact-head rerun remains pending; no full gate run.
 
 ## Next
 
