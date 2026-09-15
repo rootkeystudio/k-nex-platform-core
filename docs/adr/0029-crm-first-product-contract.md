@@ -1,4 +1,4 @@
-# ADR-0028: CRM-First Product Contract and Limited-Beta Measures
+# ADR-0029: CRM-First Product Contract and Limited-Beta Measures
 
 - Status: accepted
 - Date: 2026-09-05
@@ -278,4 +278,4 @@ The Phase 13 attack list is mandatory. Delivery ownership is closed so no class 
 
 ## Validation
 
-ADR-0028 remains `design-only` until Gate 13 proves its full normative scope through the Phase 13 result, exact-head gate, executed route/action inventory, real database/browser journeys, attack evidence, predecessor upgrade, restore drill, and declared pilot or dogfood record.
+ADR-0029 remains `design-only` until Gate 13 proves its full normative scope through the Phase 13 result, exact-head gate, executed route/action inventory, real database/browser journeys, attack evidence, predecessor upgrade, restore drill, and declared pilot or dogfood record.

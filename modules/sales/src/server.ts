@@ -1196,7 +1196,7 @@ export const salesPipelineStageSemantics = Object.freeze(["qualification", "disc
 const pipelineStageUuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const trustedStageTransitions: Readonly<Record<typeof salesPipelineStageSemantics[number], readonly typeof salesPipelineStageSemantics[number][]>> = Object.freeze({ qualification: ["discovery", "lost"], discovery: ["proposal", "lost"], proposal: ["negotiation", "lost"], negotiation: ["won", "lost"], won: [], lost: [] });
 
-/** Exact ADR-0028 UUIDv5 derivation; stage names never participate in identity. */
+/** Exact ADR-0029 UUIDv5 derivation; stage names never participate in identity. */
 export function salesPipelineStageId(applicationId: string, environment: string, pipelineStableId: number, semantic: typeof salesPipelineStageSemantics[number]): string {
   const bounded = (value: string, max: number) => value.length > 0 && !value.includes("\0") && Buffer.byteLength(value.normalize("NFC")) <= max;
   if (!bounded(applicationId, 128) || !bounded(environment, 64) || !Number.isSafeInteger(pipelineStableId) || pipelineStableId < 1 || pipelineStableId > 2_147_483_647 || !salesPipelineStageSemantics.includes(semantic)) throw new TypeError("Sales pipeline stage identity input is invalid.");

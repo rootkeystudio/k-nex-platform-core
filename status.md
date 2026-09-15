@@ -7,15 +7,15 @@
 
 ## Last completed
 
-PR #35 review requested immutable `1.0.0` restoration, a new `1.1.0` train, a real generated-repository upgrade/protection proof, ADR renumbering, focused-gate hermeticity, bounded upload cancellation/deadlines, and an explicit bounded Sales-reference compiler exception. The first independent repair makes the customer fixture build its TypeScript project-reference graph before esbuild, so a fresh focused gate no longer depends on ignored `@k-nex/ui-runtime` output.
+PR #35 review requested immutable `1.0.0` restoration, a new `1.1.0` train, a real generated-repository upgrade/protection proof, ADR renumbering, focused-gate hermeticity, bounded upload cancellation/deadlines, and an explicit bounded Sales-reference compiler exception. Focused fixture builds are now hermetic. The CRM product-contract decision is now ADR-0029, leaving ADR-0028 available for the coordinated-release decision owned by PR #34.
 
 ## Validation
 
-Node 24.19/pnpm 11.9: with ignored `packages/ui-runtime/dist` temporarily absent, `pnpm --filter @k-nex/customer-gate-1 build` rebuilt the referenced graph and bundled the browser entry (254.3 kB) PASS; ignored output restored; `git diff --check` PASS. PR head CI run `35004386431` independently reproduces the old esbuild-first failure before this repair.
+Node 24.19/pnpm 11.9: fresh fixture build PASS (254.3 kB). ADR evidence-registry JSON parse PASS; `python3 scripts/validate_repository_contracts.py` PASS; scoped stale-reference search and `git diff --check` PASS. No full gate run.
 
 ## Next
 
-Review/commit the hermetic focused-build repair, then close upload-stream availability and ADR identity batches. Implement the reviewed immutable `1.0.0` to `1.1.0` release/upgrade/protection design before focused Gate 13 and PR rereview; do not merge or promote.
+Finish/review/commit upload-stream availability. Then implement the reviewed immutable `1.0.0` to `1.1.0` release/upgrade/protection design before focused Gate 13 and PR rereview; do not merge or promote.
 
 ## Blockers
 

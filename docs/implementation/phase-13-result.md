@@ -15,7 +15,7 @@ Phase 13 turns the former Sales reference into one bounded CRM slice: daily acco
 
 | Task | Delivered result | Focused evidence |
 |---|---|---|
-| P13.1 | Frozen CRM vocabulary, lifecycle, authority, metric, journey, attack, and kill-criterion contract. | `docs/adr/0028-crm-first-product-contract.md`; `contracts/phase-13-crm-product-contract.v1.json` |
+| P13.1 | Frozen CRM vocabulary, lifecycle, authority, metric, journey, attack, and kill-criterion contract. | `docs/adr/0029-crm-first-product-contract.md`; `contracts/phase-13-crm-product-contract.v1.json` |
 | P13.2 | Canonical Account, Contact, Lead, Opportunity, Activity, Task, Note, Attachment, pipeline, permission, and exact Phase 12 cutover schema. | `fixtures/customer-gate-1/tests/p13-2-crm-core-migration-postgres.test.mjs` |
 | P13.3 | Generated host routes/actions for CRM daily work, four persona authority/scopes, durable audit/outbox, and real browser journeys. | `p13-3-crm-http-postgres.test.mjs`; `p13-3-generated-crm-browser-postgres.test.mjs` |
 | P13.4 | Configurable one-active-pipeline model, opaque UUIDv5 stages, Kanban, saved views, bounded custom-page embedding, and immutable stage-translation receipts. | `p13-4-pipeline-saved-views-postgres.test.mjs`; generated HTTP/Chromium pipeline suites |
@@ -77,7 +77,7 @@ The generated-host restore proof authenticates the owner after restore, verifies
 
 No human dogfood/external pilot record, two active human users, five consecutive business days, incident record, support owner, RTO/RPO observation, or product/Sales-engineering/security/operations sign-off is present. Automated fixture identities are test personas, not human pilot participants.
 
-Therefore this result is intentionally **REWORK — fixture readiness only**. It must not be relabeled `GO LIMITED CRM BETA` until all ADR-0028 limited-beta acceptance conditions and every P13 kill criterion are evidenced at the exact release head.
+Therefore this result is intentionally **REWORK — fixture readiness only**. It must not be relabeled `GO LIMITED CRM BETA` until all ADR-0029 limited-beta acceptance conditions and every P13 kill criterion are evidenced at the exact release head.
 
 ## Pending Gate 13 evidence
 

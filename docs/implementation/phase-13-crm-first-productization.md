@@ -224,7 +224,7 @@ Outbound intents are at most 32 KiB and reject secret-, credential-, address-, r
 
 Inbound endpoints are fixed per adapter. They accept at most 64 KiB of exact UTF-8 JSON, a millisecond timestamp within five minutes, and an HMAC-SHA256 signature over the raw timestamp/body bytes. The closed event binds an already accepted operation in the same application, environment, and provider. Its recipient must match the persisted operation actor, and notification delivery derives that persisted actor. Exact replay is inert; the same event ID with different bytes is rejected. Persisted webhook metadata is provider-specific and allowlisted.
 
-The notification center registers `sales.notifications` and `sales.reminders` sources, `sales.page.notifications`, `sales.notification-center` and `sales.reminder-center` blocks, and the existing fixed `sales.route.notifications`. Both sources require exact recipient predicates. Reminder delivery uses `sales.job.reminder-delivery`, creates one recipient notification, and follows the lifecycle and terminal-state rules frozen in ADR-0028.
+The notification center registers `sales.notifications` and `sales.reminders` sources, `sales.page.notifications`, `sales.notification-center` and `sales.reminder-center` blocks, and the existing fixed `sales.route.notifications`. Both sources require exact recipient predicates. Reminder delivery uses `sales.job.reminder-delivery`, creates one recipient notification, and follows the lifecycle and terminal-state rules frozen in ADR-0029.
 
 ## 8. Workflow and notification boundary
 
