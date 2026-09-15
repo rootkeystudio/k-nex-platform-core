@@ -210,6 +210,8 @@ function payload(control: Control) {
   } } }, __transaction: transaction };
 }
 
+function context(id: string) { return { id, correlationId: `generated-sales-${id}` }; }
+
 const contexts = new Set<object>();
 afterEach(() => { contexts.clear(); });
 
@@ -269,27 +271,27 @@ describe("generated Sales current-authority executable behavior", () => {
       const { module, control } = loaded;
       const action = (id: string) => ({ id, version: 1 });
       const signal = new AbortController().signal;
-      const accountDeniedContext = { id: "related-denied" }; contexts.add(accountDeniedContext);
+      const accountDeniedContext = context("related-denied"); contexts.add(accountDeniedContext);
       control.adapterCalls.length = 0;
       control.permissions = new Set(["sales.contacts.write"]);
-      await expect(module.executeWorkspaceSalesAction(payload(control), accountDeniedContext, action("sales.contact.create"), { accountId: "42", name: "new-contact" }, "create-denied", signal)).rejects.toMatchObject({ code: "ACTION_FORBIDDEN" });
+      await expect(module.executeWorkspaceSalesAction(payload(control), accountDeniedContext, action("sales.contact.create"), { accountId: "42", name: "new-contact" }, "create-denied", signal)).resolves.toMatchObject({ ok: false, status: 403, body: { code: "ACTION_FORBIDDEN", status: 403, correlationId: "generated-sales-related-denied" } });
       expect(control.adapterCalls.slice(0, 2)).toEqual(["sales.contacts.write", "sales.accounts.read"]);
 
-      const relatedAllowedContext = { id: "related-allowed" }; contexts.add(relatedAllowedContext);
+      const relatedAllowedContext = context("related-allowed"); contexts.add(relatedAllowedContext);
       control.adapterCalls.length = 0;
       control.permissions.add("sales.accounts.read");
       await expect(module.executeWorkspaceSalesAction(payload(control), relatedAllowedContext, action("sales.contact.create"), { accountId: "42", name: "new-contact" }, "create-allowed", signal)).resolves.toMatchObject({ ok: true });
       expect(control.adapterCalls[0]).toBe("sales.contacts.write");
       expect(control.adapterCalls).toContain("sales.accounts.read");
 
-      const protectedDeniedContext = { id: "protected-denied" }; contexts.add(protectedDeniedContext);
+      const protectedDeniedContext = context("protected-denied"); contexts.add(protectedDeniedContext);
       control.adapterCalls.length = 0;
       control.permissions = new Set(["sales.contacts.write"]);
-      await expect(module.executeWorkspaceSalesAction(payload(control), protectedDeniedContext, action("sales.contact.update"), { id: "7", emailMode: "set", email: "new@example.test" }, "update-denied", signal)).rejects.toMatchObject({ code: "ACTION_FORBIDDEN" });
+      await expect(module.executeWorkspaceSalesAction(payload(control), protectedDeniedContext, action("sales.contact.update"), { id: "7", emailMode: "set", email: "new@example.test" }, "update-denied", signal)).resolves.toMatchObject({ ok: false, status: 403, body: { code: "ACTION_FORBIDDEN", status: 403, correlationId: "generated-sales-protected-denied" } });
       expect(control.adapterCalls.slice(0, 3)).toEqual(["sales.contacts.write", "sales.contacts.write", "sales.contacts.write"]);
       expect(control.adapterCalls).toContain("sales.contacts.channels.read");
 
-      const protectedAllowedContext = { id: "protected-allowed" }; contexts.add(protectedAllowedContext);
+      const protectedAllowedContext = context("protected-allowed"); contexts.add(protectedAllowedContext);
       control.adapterCalls.length = 0;
       control.permissions.add("sales.contacts.channels.read");
       await expect(module.executeWorkspaceSalesAction(payload(control), protectedAllowedContext, action("sales.contact.update"), { id: "7", emailMode: "set", email: "new@example.test" }, "update-allowed", signal)).resolves.toMatchObject({ ok: true });
@@ -306,7 +308,7 @@ describe("generated Sales current-authority executable behavior", () => {
     try {
       const { module, control } = loaded;
       control.permissions = new Set(["sales.tasks.write"]);
-      const response = await module.executeWorkspaceSalesAction(payload(control), { id: "task-create" }, { id: "sales.task.create", version: 1 }, { title: "Call customer" }, "task-create-new", new AbortController().signal);
+      const response = await module.executeWorkspaceSalesAction(payload(control), context("task-create"), { id: "sales.task.create", version: 1 }, { title: "Call customer" }, "task-create-new", new AbortController().signal);
 
       expect(response).toMatchObject({ ok: true, body: { data: { resourceId: "42" } } });
       expect(control.trace.indexOf("fence")).toBeLessThan(control.trace.indexOf("reservation"));
@@ -341,9 +343,10 @@ describe("generated Sales current-authority executable behavior", () => {
         control.permissions = new Set(["sales.tasks.write"]);
         control.idempotency = idempotency;
         control.allocations = allocations;
-        const result = module.executeWorkspaceSalesAction(payload(control), { id: `task-${idempotency}-${String(message)}` }, action, { title: "Call customer" }, `task-${idempotency}-${String(message)}`, new AbortController().signal);
+        const result = module.executeWorkspaceSalesAction(payload(control), context(`task-${idempotency}-${String(message)}`), action, { title: "Call customer" }, `task-${idempotency}-${String(message)}`, new AbortController().signal);
         if (message === undefined) await expect(result).resolves.toMatchObject({ ok: true, body: { data: { idempotencyReplay: { resourceId: "replayed-task" } } } });
-        else await expect(result).rejects.toThrow(message);
+        else if (idempotency === "conflict") await expect(result).resolves.toMatchObject({ ok: false, status: 409, body: { code: "IDEMPOTENCY_CONFLICT", status: 409, detail: "Sales action idempotency key was reused for different input.", correlationId: `generated-sales-task-${idempotency}-${String(message)}` } });
+        else await expect(result).resolves.toMatchObject({ ok: false, status: 403, body: { code: "ACTION_FORBIDDEN", status: 403, detail: `Sales task ID ${message}.`, correlationId: `generated-sales-task-${idempotency}-${String(message)}` } });
         expect(control.trace.filter((entry) => entry === "allocation")).toHaveLength(idempotency === "new" ? 1 : 0);
         expect(control.admissions).toHaveLength(0);
       }

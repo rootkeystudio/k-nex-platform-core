@@ -21,7 +21,7 @@ it("fails the complete generated detail projection when ownership changes during
       .replace(/import \{ currentSalesGeneration[^;]+from "\.\/k-nex-authority\.js";/u, 'import { currentSalesGeneration as currentSalesAuthorityGeneration } from "./stubs.mjs";')
       .replace('import { kNexIdentity } from "./k-nex-identity.js";', 'import { kNexIdentity } from "./stubs.mjs";')
       .replace('import { kNexSalesRegistry } from "./k-nex-registry.js";', 'import { kNexSalesRegistry } from "./stubs.mjs";')
-      .replace(/import \{ executeWorkspaceSalesAction,[^;]+from "\.\/k-nex-sales-workspace\.js";/u, 'import { executeWorkspaceSalesAction, loadWorkspaceSalesSources, projectWorkspaceSalesDocument, workspaceSalesPermissions } from "./stubs.mjs";');
+      .replace(/import \{ executeWorkspaceSalesRouteAction,[^;]+from "\.\/k-nex-sales-workspace\.js";/u, 'import { executeWorkspaceSalesRouteAction, loadWorkspaceSalesSources, prepareWorkspaceSalesDocument, projectWorkspaceSalesDocument, resolveCanonicalSavedViewBinding, workspaceSalesPermissions } from "./stubs.mjs";');
     writeFileSync(join(directory, "routes.mjs"), ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2024 } }).outputText);
     writeFileSync(join(directory, "stubs.mjs"), `
 export const control = globalThis.__kNexGeneratedRouteRace ??= { authorized: true, sourceCalls: 0, authorizationRevision: 1, permissions: ["sales.accounts.read", "sales.activities.read", "sales.notes.body.read"], finalGate: undefined, historyOptions: [] };
@@ -44,7 +44,9 @@ export async function loadWorkspaceSalesSources(_payload, _context, candidate) {
   return { primary: control.authorized ? { state: "success", data: sensitive } : { state: "empty" } };
 }
 export const projectSalesStateHistory = ({ audit }) => { if (audit === "malformed") throw new TypeError("Sales audit history is invalid."); return [{ actionId: "sales.account.update", stateField: "status", fromState: "active", toState: "active", revision: 1, occurredAt: "2026-09-06T00:00:00.000Z" }]; };
-export const executeWorkspaceSalesAction = async () => undefined;
+export const executeWorkspaceSalesRouteAction = async () => undefined;
+export const prepareWorkspaceSalesDocument = (document) => document;
+export const resolveCanonicalSavedViewBinding = () => undefined;
 `);
     const routes = await import(`${pathToFileURL(join(directory, "routes.mjs")).href}?race`);
     const entered = Promise.withResolvers<void>(); const release = Promise.withResolvers<void>();
