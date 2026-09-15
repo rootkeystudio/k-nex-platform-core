@@ -11,7 +11,7 @@ export type SalesReportBlockId = "sales.block.report.pipeline-value-by-stage" | 
 export declare function salesReportBlockId(reportId: string): SalesReportBlockId;
 export declare const salesPipelineValueByStageFields: readonly [{
     id: string;
-    kind: "number" | "boolean" | "resource" | "integer" | "status" | "money" | "enum" | "date" | "datetime" | "duration" | "decimal" | "percentage" | "text";
+    kind: "number" | "boolean" | "integer" | "enum" | "date" | "datetime" | "duration" | "decimal" | "money" | "percentage" | "text" | "resource" | "status";
     binding: "optional" | "required";
     nullable: boolean;
     permission: string;
@@ -19,7 +19,7 @@ export declare const salesPipelineValueByStageFields: readonly [{
     filterOperators: ("in" | "contains" | "eq" | "neq" | "not-in" | "starts-with" | "ends-with" | "gt" | "gte" | "lt" | "lte" | "is-null" | "is-not-null")[];
 }, {
     id: string;
-    kind: "number" | "boolean" | "resource" | "integer" | "status" | "money" | "enum" | "date" | "datetime" | "duration" | "decimal" | "percentage" | "text";
+    kind: "number" | "boolean" | "integer" | "enum" | "date" | "datetime" | "duration" | "decimal" | "money" | "percentage" | "text" | "resource" | "status";
     binding: "optional" | "required";
     nullable: boolean;
     permission: string;
@@ -27,7 +27,7 @@ export declare const salesPipelineValueByStageFields: readonly [{
     filterOperators: ("in" | "contains" | "eq" | "neq" | "not-in" | "starts-with" | "ends-with" | "gt" | "gte" | "lt" | "lte" | "is-null" | "is-not-null")[];
 }, {
     id: string;
-    kind: "number" | "boolean" | "resource" | "integer" | "status" | "money" | "enum" | "date" | "datetime" | "duration" | "decimal" | "percentage" | "text";
+    kind: "number" | "boolean" | "integer" | "enum" | "date" | "datetime" | "duration" | "decimal" | "money" | "percentage" | "text" | "resource" | "status";
     binding: "optional" | "required";
     nullable: boolean;
     permission: string;
@@ -36,7 +36,7 @@ export declare const salesPipelineValueByStageFields: readonly [{
 }];
 export declare const salesActivityByOwnerTeamFields: readonly [{
     id: string;
-    kind: "number" | "boolean" | "resource" | "integer" | "status" | "money" | "enum" | "date" | "datetime" | "duration" | "decimal" | "percentage" | "text";
+    kind: "number" | "boolean" | "integer" | "enum" | "date" | "datetime" | "duration" | "decimal" | "money" | "percentage" | "text" | "resource" | "status";
     binding: "optional" | "required";
     nullable: boolean;
     permission: string;
@@ -44,7 +44,7 @@ export declare const salesActivityByOwnerTeamFields: readonly [{
     filterOperators: ("in" | "contains" | "eq" | "neq" | "not-in" | "starts-with" | "ends-with" | "gt" | "gte" | "lt" | "lte" | "is-null" | "is-not-null")[];
 }, {
     id: string;
-    kind: "number" | "boolean" | "resource" | "integer" | "status" | "money" | "enum" | "date" | "datetime" | "duration" | "decimal" | "percentage" | "text";
+    kind: "number" | "boolean" | "integer" | "enum" | "date" | "datetime" | "duration" | "decimal" | "money" | "percentage" | "text" | "resource" | "status";
     binding: "optional" | "required";
     nullable: boolean;
     permission: string;
@@ -52,7 +52,7 @@ export declare const salesActivityByOwnerTeamFields: readonly [{
     filterOperators: ("in" | "contains" | "eq" | "neq" | "not-in" | "starts-with" | "ends-with" | "gt" | "gte" | "lt" | "lte" | "is-null" | "is-not-null")[];
 }, {
     id: string;
-    kind: "number" | "boolean" | "resource" | "integer" | "status" | "money" | "enum" | "date" | "datetime" | "duration" | "decimal" | "percentage" | "text";
+    kind: "number" | "boolean" | "integer" | "enum" | "date" | "datetime" | "duration" | "decimal" | "money" | "percentage" | "text" | "resource" | "status";
     binding: "optional" | "required";
     nullable: boolean;
     permission: string;
@@ -61,7 +61,7 @@ export declare const salesActivityByOwnerTeamFields: readonly [{
 }];
 export declare const salesTaskAgingFields: readonly [{
     id: string;
-    kind: "number" | "boolean" | "resource" | "integer" | "status" | "money" | "enum" | "date" | "datetime" | "duration" | "decimal" | "percentage" | "text";
+    kind: "number" | "boolean" | "integer" | "enum" | "date" | "datetime" | "duration" | "decimal" | "money" | "percentage" | "text" | "resource" | "status";
     binding: "optional" | "required";
     nullable: boolean;
     permission: string;
@@ -69,7 +69,7 @@ export declare const salesTaskAgingFields: readonly [{
     filterOperators: ("in" | "contains" | "eq" | "neq" | "not-in" | "starts-with" | "ends-with" | "gt" | "gte" | "lt" | "lte" | "is-null" | "is-not-null")[];
 }, {
     id: string;
-    kind: "number" | "boolean" | "resource" | "integer" | "status" | "money" | "enum" | "date" | "datetime" | "duration" | "decimal" | "percentage" | "text";
+    kind: "number" | "boolean" | "integer" | "enum" | "date" | "datetime" | "duration" | "decimal" | "money" | "percentage" | "text" | "resource" | "status";
     binding: "optional" | "required";
     nullable: boolean;
     permission: string;
@@ -88,8 +88,8 @@ export declare const salesPipelineValueByStageDescriptor: {
         id: string;
         version: number;
     };
-    audience: "authenticated" | "public" | "internal";
-    surfaces: ("system" | "workspace" | "cms" | "public" | "driver" | "mobile")[];
+    audience: "public" | "authenticated" | "internal";
+    surfaces: ("public" | "workspace" | "cms" | "driver" | "mobile" | "system")[];
     permission: string;
     structuralCompatibilityHash: string;
     presentationMetadataRevision: number;
@@ -113,14 +113,14 @@ export declare const salesPipelineValueByStageDescriptor: {
         maxConcurrency: number;
         ratePerMinute: number;
         burst: number;
-        costClass: "medium" | "low" | "high";
+        costClass: "low" | "medium" | "high";
         maxCost: number;
     };
     cacheClass: "public" | "no-store" | "actor" | "authorization-context";
     description?: string | undefined;
     outputFields?: {
         id: string;
-        kind: "number" | "boolean" | "resource" | "integer" | "status" | "money" | "enum" | "date" | "datetime" | "duration" | "decimal" | "percentage" | "text";
+        kind: "number" | "boolean" | "integer" | "enum" | "date" | "datetime" | "duration" | "decimal" | "money" | "percentage" | "text" | "resource" | "status";
         binding: "optional" | "required";
         nullable: boolean;
         permission: string;
@@ -140,8 +140,8 @@ export declare const salesWeightedForecastDescriptor: {
         id: string;
         version: number;
     };
-    audience: "authenticated" | "public" | "internal";
-    surfaces: ("system" | "workspace" | "cms" | "public" | "driver" | "mobile")[];
+    audience: "public" | "authenticated" | "internal";
+    surfaces: ("public" | "workspace" | "cms" | "driver" | "mobile" | "system")[];
     permission: string;
     structuralCompatibilityHash: string;
     presentationMetadataRevision: number;
@@ -165,14 +165,14 @@ export declare const salesWeightedForecastDescriptor: {
         maxConcurrency: number;
         ratePerMinute: number;
         burst: number;
-        costClass: "medium" | "low" | "high";
+        costClass: "low" | "medium" | "high";
         maxCost: number;
     };
     cacheClass: "public" | "no-store" | "actor" | "authorization-context";
     description?: string | undefined;
     outputFields?: {
         id: string;
-        kind: "number" | "boolean" | "resource" | "integer" | "status" | "money" | "enum" | "date" | "datetime" | "duration" | "decimal" | "percentage" | "text";
+        kind: "number" | "boolean" | "integer" | "enum" | "date" | "datetime" | "duration" | "decimal" | "money" | "percentage" | "text" | "resource" | "status";
         binding: "optional" | "required";
         nullable: boolean;
         permission: string;
@@ -192,8 +192,8 @@ export declare const salesWonLostConversionDescriptor: {
         id: string;
         version: number;
     };
-    audience: "authenticated" | "public" | "internal";
-    surfaces: ("system" | "workspace" | "cms" | "public" | "driver" | "mobile")[];
+    audience: "public" | "authenticated" | "internal";
+    surfaces: ("public" | "workspace" | "cms" | "driver" | "mobile" | "system")[];
     permission: string;
     structuralCompatibilityHash: string;
     presentationMetadataRevision: number;
@@ -217,14 +217,14 @@ export declare const salesWonLostConversionDescriptor: {
         maxConcurrency: number;
         ratePerMinute: number;
         burst: number;
-        costClass: "medium" | "low" | "high";
+        costClass: "low" | "medium" | "high";
         maxCost: number;
     };
     cacheClass: "public" | "no-store" | "actor" | "authorization-context";
     description?: string | undefined;
     outputFields?: {
         id: string;
-        kind: "number" | "boolean" | "resource" | "integer" | "status" | "money" | "enum" | "date" | "datetime" | "duration" | "decimal" | "percentage" | "text";
+        kind: "number" | "boolean" | "integer" | "enum" | "date" | "datetime" | "duration" | "decimal" | "money" | "percentage" | "text" | "resource" | "status";
         binding: "optional" | "required";
         nullable: boolean;
         permission: string;
@@ -244,8 +244,8 @@ export declare const salesLeadConversionDescriptor: {
         id: string;
         version: number;
     };
-    audience: "authenticated" | "public" | "internal";
-    surfaces: ("system" | "workspace" | "cms" | "public" | "driver" | "mobile")[];
+    audience: "public" | "authenticated" | "internal";
+    surfaces: ("public" | "workspace" | "cms" | "driver" | "mobile" | "system")[];
     permission: string;
     structuralCompatibilityHash: string;
     presentationMetadataRevision: number;
@@ -269,14 +269,14 @@ export declare const salesLeadConversionDescriptor: {
         maxConcurrency: number;
         ratePerMinute: number;
         burst: number;
-        costClass: "medium" | "low" | "high";
+        costClass: "low" | "medium" | "high";
         maxCost: number;
     };
     cacheClass: "public" | "no-store" | "actor" | "authorization-context";
     description?: string | undefined;
     outputFields?: {
         id: string;
-        kind: "number" | "boolean" | "resource" | "integer" | "status" | "money" | "enum" | "date" | "datetime" | "duration" | "decimal" | "percentage" | "text";
+        kind: "number" | "boolean" | "integer" | "enum" | "date" | "datetime" | "duration" | "decimal" | "money" | "percentage" | "text" | "resource" | "status";
         binding: "optional" | "required";
         nullable: boolean;
         permission: string;
@@ -296,8 +296,8 @@ export declare const salesActivityByOwnerTeamDescriptor: {
         id: string;
         version: number;
     };
-    audience: "authenticated" | "public" | "internal";
-    surfaces: ("system" | "workspace" | "cms" | "public" | "driver" | "mobile")[];
+    audience: "public" | "authenticated" | "internal";
+    surfaces: ("public" | "workspace" | "cms" | "driver" | "mobile" | "system")[];
     permission: string;
     structuralCompatibilityHash: string;
     presentationMetadataRevision: number;
@@ -321,14 +321,14 @@ export declare const salesActivityByOwnerTeamDescriptor: {
         maxConcurrency: number;
         ratePerMinute: number;
         burst: number;
-        costClass: "medium" | "low" | "high";
+        costClass: "low" | "medium" | "high";
         maxCost: number;
     };
     cacheClass: "public" | "no-store" | "actor" | "authorization-context";
     description?: string | undefined;
     outputFields?: {
         id: string;
-        kind: "number" | "boolean" | "resource" | "integer" | "status" | "money" | "enum" | "date" | "datetime" | "duration" | "decimal" | "percentage" | "text";
+        kind: "number" | "boolean" | "integer" | "enum" | "date" | "datetime" | "duration" | "decimal" | "money" | "percentage" | "text" | "resource" | "status";
         binding: "optional" | "required";
         nullable: boolean;
         permission: string;
@@ -348,8 +348,8 @@ export declare const salesTaskAgingDescriptor: {
         id: string;
         version: number;
     };
-    audience: "authenticated" | "public" | "internal";
-    surfaces: ("system" | "workspace" | "cms" | "public" | "driver" | "mobile")[];
+    audience: "public" | "authenticated" | "internal";
+    surfaces: ("public" | "workspace" | "cms" | "driver" | "mobile" | "system")[];
     permission: string;
     structuralCompatibilityHash: string;
     presentationMetadataRevision: number;
@@ -373,14 +373,14 @@ export declare const salesTaskAgingDescriptor: {
         maxConcurrency: number;
         ratePerMinute: number;
         burst: number;
-        costClass: "medium" | "low" | "high";
+        costClass: "low" | "medium" | "high";
         maxCost: number;
     };
     cacheClass: "public" | "no-store" | "actor" | "authorization-context";
     description?: string | undefined;
     outputFields?: {
         id: string;
-        kind: "number" | "boolean" | "resource" | "integer" | "status" | "money" | "enum" | "date" | "datetime" | "duration" | "decimal" | "percentage" | "text";
+        kind: "number" | "boolean" | "integer" | "enum" | "date" | "datetime" | "duration" | "decimal" | "money" | "percentage" | "text" | "resource" | "status";
         binding: "optional" | "required";
         nullable: boolean;
         permission: string;
@@ -400,8 +400,8 @@ export declare const salesSalesCycleDurationDescriptor: {
         id: string;
         version: number;
     };
-    audience: "authenticated" | "public" | "internal";
-    surfaces: ("system" | "workspace" | "cms" | "public" | "driver" | "mobile")[];
+    audience: "public" | "authenticated" | "internal";
+    surfaces: ("public" | "workspace" | "cms" | "driver" | "mobile" | "system")[];
     permission: string;
     structuralCompatibilityHash: string;
     presentationMetadataRevision: number;
@@ -425,14 +425,14 @@ export declare const salesSalesCycleDurationDescriptor: {
         maxConcurrency: number;
         ratePerMinute: number;
         burst: number;
-        costClass: "medium" | "low" | "high";
+        costClass: "low" | "medium" | "high";
         maxCost: number;
     };
     cacheClass: "public" | "no-store" | "actor" | "authorization-context";
     description?: string | undefined;
     outputFields?: {
         id: string;
-        kind: "number" | "boolean" | "resource" | "integer" | "status" | "money" | "enum" | "date" | "datetime" | "duration" | "decimal" | "percentage" | "text";
+        kind: "number" | "boolean" | "integer" | "enum" | "date" | "datetime" | "duration" | "decimal" | "money" | "percentage" | "text" | "resource" | "status";
         binding: "optional" | "required";
         nullable: boolean;
         permission: string;
@@ -452,8 +452,8 @@ export declare const salesReportDescriptors: readonly [{
         id: string;
         version: number;
     };
-    audience: "authenticated" | "public" | "internal";
-    surfaces: ("system" | "workspace" | "cms" | "public" | "driver" | "mobile")[];
+    audience: "public" | "authenticated" | "internal";
+    surfaces: ("public" | "workspace" | "cms" | "driver" | "mobile" | "system")[];
     permission: string;
     structuralCompatibilityHash: string;
     presentationMetadataRevision: number;
@@ -477,14 +477,14 @@ export declare const salesReportDescriptors: readonly [{
         maxConcurrency: number;
         ratePerMinute: number;
         burst: number;
-        costClass: "medium" | "low" | "high";
+        costClass: "low" | "medium" | "high";
         maxCost: number;
     };
     cacheClass: "public" | "no-store" | "actor" | "authorization-context";
     description?: string | undefined;
     outputFields?: {
         id: string;
-        kind: "number" | "boolean" | "resource" | "integer" | "status" | "money" | "enum" | "date" | "datetime" | "duration" | "decimal" | "percentage" | "text";
+        kind: "number" | "boolean" | "integer" | "enum" | "date" | "datetime" | "duration" | "decimal" | "money" | "percentage" | "text" | "resource" | "status";
         binding: "optional" | "required";
         nullable: boolean;
         permission: string;
@@ -503,8 +503,8 @@ export declare const salesReportDescriptors: readonly [{
         id: string;
         version: number;
     };
-    audience: "authenticated" | "public" | "internal";
-    surfaces: ("system" | "workspace" | "cms" | "public" | "driver" | "mobile")[];
+    audience: "public" | "authenticated" | "internal";
+    surfaces: ("public" | "workspace" | "cms" | "driver" | "mobile" | "system")[];
     permission: string;
     structuralCompatibilityHash: string;
     presentationMetadataRevision: number;
@@ -528,14 +528,14 @@ export declare const salesReportDescriptors: readonly [{
         maxConcurrency: number;
         ratePerMinute: number;
         burst: number;
-        costClass: "medium" | "low" | "high";
+        costClass: "low" | "medium" | "high";
         maxCost: number;
     };
     cacheClass: "public" | "no-store" | "actor" | "authorization-context";
     description?: string | undefined;
     outputFields?: {
         id: string;
-        kind: "number" | "boolean" | "resource" | "integer" | "status" | "money" | "enum" | "date" | "datetime" | "duration" | "decimal" | "percentage" | "text";
+        kind: "number" | "boolean" | "integer" | "enum" | "date" | "datetime" | "duration" | "decimal" | "money" | "percentage" | "text" | "resource" | "status";
         binding: "optional" | "required";
         nullable: boolean;
         permission: string;
@@ -554,8 +554,8 @@ export declare const salesReportDescriptors: readonly [{
         id: string;
         version: number;
     };
-    audience: "authenticated" | "public" | "internal";
-    surfaces: ("system" | "workspace" | "cms" | "public" | "driver" | "mobile")[];
+    audience: "public" | "authenticated" | "internal";
+    surfaces: ("public" | "workspace" | "cms" | "driver" | "mobile" | "system")[];
     permission: string;
     structuralCompatibilityHash: string;
     presentationMetadataRevision: number;
@@ -579,14 +579,14 @@ export declare const salesReportDescriptors: readonly [{
         maxConcurrency: number;
         ratePerMinute: number;
         burst: number;
-        costClass: "medium" | "low" | "high";
+        costClass: "low" | "medium" | "high";
         maxCost: number;
     };
     cacheClass: "public" | "no-store" | "actor" | "authorization-context";
     description?: string | undefined;
     outputFields?: {
         id: string;
-        kind: "number" | "boolean" | "resource" | "integer" | "status" | "money" | "enum" | "date" | "datetime" | "duration" | "decimal" | "percentage" | "text";
+        kind: "number" | "boolean" | "integer" | "enum" | "date" | "datetime" | "duration" | "decimal" | "money" | "percentage" | "text" | "resource" | "status";
         binding: "optional" | "required";
         nullable: boolean;
         permission: string;
@@ -605,8 +605,8 @@ export declare const salesReportDescriptors: readonly [{
         id: string;
         version: number;
     };
-    audience: "authenticated" | "public" | "internal";
-    surfaces: ("system" | "workspace" | "cms" | "public" | "driver" | "mobile")[];
+    audience: "public" | "authenticated" | "internal";
+    surfaces: ("public" | "workspace" | "cms" | "driver" | "mobile" | "system")[];
     permission: string;
     structuralCompatibilityHash: string;
     presentationMetadataRevision: number;
@@ -630,14 +630,14 @@ export declare const salesReportDescriptors: readonly [{
         maxConcurrency: number;
         ratePerMinute: number;
         burst: number;
-        costClass: "medium" | "low" | "high";
+        costClass: "low" | "medium" | "high";
         maxCost: number;
     };
     cacheClass: "public" | "no-store" | "actor" | "authorization-context";
     description?: string | undefined;
     outputFields?: {
         id: string;
-        kind: "number" | "boolean" | "resource" | "integer" | "status" | "money" | "enum" | "date" | "datetime" | "duration" | "decimal" | "percentage" | "text";
+        kind: "number" | "boolean" | "integer" | "enum" | "date" | "datetime" | "duration" | "decimal" | "money" | "percentage" | "text" | "resource" | "status";
         binding: "optional" | "required";
         nullable: boolean;
         permission: string;
@@ -656,8 +656,8 @@ export declare const salesReportDescriptors: readonly [{
         id: string;
         version: number;
     };
-    audience: "authenticated" | "public" | "internal";
-    surfaces: ("system" | "workspace" | "cms" | "public" | "driver" | "mobile")[];
+    audience: "public" | "authenticated" | "internal";
+    surfaces: ("public" | "workspace" | "cms" | "driver" | "mobile" | "system")[];
     permission: string;
     structuralCompatibilityHash: string;
     presentationMetadataRevision: number;
@@ -681,14 +681,14 @@ export declare const salesReportDescriptors: readonly [{
         maxConcurrency: number;
         ratePerMinute: number;
         burst: number;
-        costClass: "medium" | "low" | "high";
+        costClass: "low" | "medium" | "high";
         maxCost: number;
     };
     cacheClass: "public" | "no-store" | "actor" | "authorization-context";
     description?: string | undefined;
     outputFields?: {
         id: string;
-        kind: "number" | "boolean" | "resource" | "integer" | "status" | "money" | "enum" | "date" | "datetime" | "duration" | "decimal" | "percentage" | "text";
+        kind: "number" | "boolean" | "integer" | "enum" | "date" | "datetime" | "duration" | "decimal" | "money" | "percentage" | "text" | "resource" | "status";
         binding: "optional" | "required";
         nullable: boolean;
         permission: string;
@@ -707,8 +707,8 @@ export declare const salesReportDescriptors: readonly [{
         id: string;
         version: number;
     };
-    audience: "authenticated" | "public" | "internal";
-    surfaces: ("system" | "workspace" | "cms" | "public" | "driver" | "mobile")[];
+    audience: "public" | "authenticated" | "internal";
+    surfaces: ("public" | "workspace" | "cms" | "driver" | "mobile" | "system")[];
     permission: string;
     structuralCompatibilityHash: string;
     presentationMetadataRevision: number;
@@ -732,14 +732,14 @@ export declare const salesReportDescriptors: readonly [{
         maxConcurrency: number;
         ratePerMinute: number;
         burst: number;
-        costClass: "medium" | "low" | "high";
+        costClass: "low" | "medium" | "high";
         maxCost: number;
     };
     cacheClass: "public" | "no-store" | "actor" | "authorization-context";
     description?: string | undefined;
     outputFields?: {
         id: string;
-        kind: "number" | "boolean" | "resource" | "integer" | "status" | "money" | "enum" | "date" | "datetime" | "duration" | "decimal" | "percentage" | "text";
+        kind: "number" | "boolean" | "integer" | "enum" | "date" | "datetime" | "duration" | "decimal" | "money" | "percentage" | "text" | "resource" | "status";
         binding: "optional" | "required";
         nullable: boolean;
         permission: string;
@@ -758,8 +758,8 @@ export declare const salesReportDescriptors: readonly [{
         id: string;
         version: number;
     };
-    audience: "authenticated" | "public" | "internal";
-    surfaces: ("system" | "workspace" | "cms" | "public" | "driver" | "mobile")[];
+    audience: "public" | "authenticated" | "internal";
+    surfaces: ("public" | "workspace" | "cms" | "driver" | "mobile" | "system")[];
     permission: string;
     structuralCompatibilityHash: string;
     presentationMetadataRevision: number;
@@ -783,14 +783,14 @@ export declare const salesReportDescriptors: readonly [{
         maxConcurrency: number;
         ratePerMinute: number;
         burst: number;
-        costClass: "medium" | "low" | "high";
+        costClass: "low" | "medium" | "high";
         maxCost: number;
     };
     cacheClass: "public" | "no-store" | "actor" | "authorization-context";
     description?: string | undefined;
     outputFields?: {
         id: string;
-        kind: "number" | "boolean" | "resource" | "integer" | "status" | "money" | "enum" | "date" | "datetime" | "duration" | "decimal" | "percentage" | "text";
+        kind: "number" | "boolean" | "integer" | "enum" | "date" | "datetime" | "duration" | "decimal" | "money" | "percentage" | "text" | "resource" | "status";
         binding: "optional" | "required";
         nullable: boolean;
         permission: string;
@@ -993,8 +993,8 @@ export declare const salesAccountsDescriptor: {
         id: string;
         version: number;
     };
-    audience: "authenticated" | "public" | "internal";
-    surfaces: ("system" | "workspace" | "cms" | "public" | "driver" | "mobile")[];
+    audience: "public" | "authenticated" | "internal";
+    surfaces: ("public" | "workspace" | "cms" | "driver" | "mobile" | "system")[];
     permission: string;
     structuralCompatibilityHash: string;
     presentationMetadataRevision: number;
@@ -1018,14 +1018,14 @@ export declare const salesAccountsDescriptor: {
         maxConcurrency: number;
         ratePerMinute: number;
         burst: number;
-        costClass: "medium" | "low" | "high";
+        costClass: "low" | "medium" | "high";
         maxCost: number;
     };
     cacheClass: "public" | "no-store" | "actor" | "authorization-context";
     description?: string | undefined;
     outputFields?: {
         id: string;
-        kind: "number" | "boolean" | "resource" | "integer" | "status" | "money" | "enum" | "date" | "datetime" | "duration" | "decimal" | "percentage" | "text";
+        kind: "number" | "boolean" | "integer" | "enum" | "date" | "datetime" | "duration" | "decimal" | "money" | "percentage" | "text" | "resource" | "status";
         binding: "optional" | "required";
         nullable: boolean;
         permission: string;
@@ -1045,8 +1045,8 @@ export declare const salesContactsDescriptor: {
         id: string;
         version: number;
     };
-    audience: "authenticated" | "public" | "internal";
-    surfaces: ("system" | "workspace" | "cms" | "public" | "driver" | "mobile")[];
+    audience: "public" | "authenticated" | "internal";
+    surfaces: ("public" | "workspace" | "cms" | "driver" | "mobile" | "system")[];
     permission: string;
     structuralCompatibilityHash: string;
     presentationMetadataRevision: number;
@@ -1070,14 +1070,14 @@ export declare const salesContactsDescriptor: {
         maxConcurrency: number;
         ratePerMinute: number;
         burst: number;
-        costClass: "medium" | "low" | "high";
+        costClass: "low" | "medium" | "high";
         maxCost: number;
     };
     cacheClass: "public" | "no-store" | "actor" | "authorization-context";
     description?: string | undefined;
     outputFields?: {
         id: string;
-        kind: "number" | "boolean" | "resource" | "integer" | "status" | "money" | "enum" | "date" | "datetime" | "duration" | "decimal" | "percentage" | "text";
+        kind: "number" | "boolean" | "integer" | "enum" | "date" | "datetime" | "duration" | "decimal" | "money" | "percentage" | "text" | "resource" | "status";
         binding: "optional" | "required";
         nullable: boolean;
         permission: string;
@@ -1097,8 +1097,8 @@ export declare const salesLeadsDescriptor: {
         id: string;
         version: number;
     };
-    audience: "authenticated" | "public" | "internal";
-    surfaces: ("system" | "workspace" | "cms" | "public" | "driver" | "mobile")[];
+    audience: "public" | "authenticated" | "internal";
+    surfaces: ("public" | "workspace" | "cms" | "driver" | "mobile" | "system")[];
     permission: string;
     structuralCompatibilityHash: string;
     presentationMetadataRevision: number;
@@ -1122,14 +1122,14 @@ export declare const salesLeadsDescriptor: {
         maxConcurrency: number;
         ratePerMinute: number;
         burst: number;
-        costClass: "medium" | "low" | "high";
+        costClass: "low" | "medium" | "high";
         maxCost: number;
     };
     cacheClass: "public" | "no-store" | "actor" | "authorization-context";
     description?: string | undefined;
     outputFields?: {
         id: string;
-        kind: "number" | "boolean" | "resource" | "integer" | "status" | "money" | "enum" | "date" | "datetime" | "duration" | "decimal" | "percentage" | "text";
+        kind: "number" | "boolean" | "integer" | "enum" | "date" | "datetime" | "duration" | "decimal" | "money" | "percentage" | "text" | "resource" | "status";
         binding: "optional" | "required";
         nullable: boolean;
         permission: string;
@@ -1149,8 +1149,8 @@ export declare const salesAccountDetailDescriptor: {
         id: string;
         version: number;
     };
-    audience: "authenticated" | "public" | "internal";
-    surfaces: ("system" | "workspace" | "cms" | "public" | "driver" | "mobile")[];
+    audience: "public" | "authenticated" | "internal";
+    surfaces: ("public" | "workspace" | "cms" | "driver" | "mobile" | "system")[];
     permission: string;
     structuralCompatibilityHash: string;
     presentationMetadataRevision: number;
@@ -1174,14 +1174,14 @@ export declare const salesAccountDetailDescriptor: {
         maxConcurrency: number;
         ratePerMinute: number;
         burst: number;
-        costClass: "medium" | "low" | "high";
+        costClass: "low" | "medium" | "high";
         maxCost: number;
     };
     cacheClass: "public" | "no-store" | "actor" | "authorization-context";
     description?: string | undefined;
     outputFields?: {
         id: string;
-        kind: "number" | "boolean" | "resource" | "integer" | "status" | "money" | "enum" | "date" | "datetime" | "duration" | "decimal" | "percentage" | "text";
+        kind: "number" | "boolean" | "integer" | "enum" | "date" | "datetime" | "duration" | "decimal" | "money" | "percentage" | "text" | "resource" | "status";
         binding: "optional" | "required";
         nullable: boolean;
         permission: string;
@@ -1201,8 +1201,8 @@ export declare const salesContactDetailDescriptor: {
         id: string;
         version: number;
     };
-    audience: "authenticated" | "public" | "internal";
-    surfaces: ("system" | "workspace" | "cms" | "public" | "driver" | "mobile")[];
+    audience: "public" | "authenticated" | "internal";
+    surfaces: ("public" | "workspace" | "cms" | "driver" | "mobile" | "system")[];
     permission: string;
     structuralCompatibilityHash: string;
     presentationMetadataRevision: number;
@@ -1226,14 +1226,14 @@ export declare const salesContactDetailDescriptor: {
         maxConcurrency: number;
         ratePerMinute: number;
         burst: number;
-        costClass: "medium" | "low" | "high";
+        costClass: "low" | "medium" | "high";
         maxCost: number;
     };
     cacheClass: "public" | "no-store" | "actor" | "authorization-context";
     description?: string | undefined;
     outputFields?: {
         id: string;
-        kind: "number" | "boolean" | "resource" | "integer" | "status" | "money" | "enum" | "date" | "datetime" | "duration" | "decimal" | "percentage" | "text";
+        kind: "number" | "boolean" | "integer" | "enum" | "date" | "datetime" | "duration" | "decimal" | "money" | "percentage" | "text" | "resource" | "status";
         binding: "optional" | "required";
         nullable: boolean;
         permission: string;
@@ -1245,7 +1245,7 @@ export declare const salesLeadDetailDescriptor: DataSourceDescriptor;
 export declare const salesOpportunityDetailDescriptor: DataSourceDescriptor;
 export declare const salesSavedViewTableFields: readonly {
     id: string;
-    kind: "number" | "boolean" | "resource" | "integer" | "status" | "money" | "enum" | "date" | "datetime" | "duration" | "decimal" | "percentage" | "text";
+    kind: "number" | "boolean" | "integer" | "enum" | "date" | "datetime" | "duration" | "decimal" | "money" | "percentage" | "text" | "resource" | "status";
     binding: "optional" | "required";
     nullable: boolean;
     permission: string;
@@ -1254,7 +1254,7 @@ export declare const salesSavedViewTableFields: readonly {
 }[];
 export declare const salesSavedViewKanbanFields: readonly {
     id: string;
-    kind: "number" | "boolean" | "resource" | "integer" | "status" | "money" | "enum" | "date" | "datetime" | "duration" | "decimal" | "percentage" | "text";
+    kind: "number" | "boolean" | "integer" | "enum" | "date" | "datetime" | "duration" | "decimal" | "money" | "percentage" | "text" | "resource" | "status";
     binding: "optional" | "required";
     nullable: boolean;
     permission: string;
@@ -1263,7 +1263,7 @@ export declare const salesSavedViewKanbanFields: readonly {
 }[];
 export declare const salesSavedViewCalendarFields: readonly {
     id: string;
-    kind: "number" | "boolean" | "resource" | "integer" | "status" | "money" | "enum" | "date" | "datetime" | "duration" | "decimal" | "percentage" | "text";
+    kind: "number" | "boolean" | "integer" | "enum" | "date" | "datetime" | "duration" | "decimal" | "money" | "percentage" | "text" | "resource" | "status";
     binding: "optional" | "required";
     nullable: boolean;
     permission: string;
@@ -1272,7 +1272,7 @@ export declare const salesSavedViewCalendarFields: readonly {
 }[];
 export declare const salesPipelineSnapshotFields: readonly {
     id: string;
-    kind: "number" | "boolean" | "resource" | "integer" | "status" | "money" | "enum" | "date" | "datetime" | "duration" | "decimal" | "percentage" | "text";
+    kind: "number" | "boolean" | "integer" | "enum" | "date" | "datetime" | "duration" | "decimal" | "money" | "percentage" | "text" | "resource" | "status";
     binding: "optional" | "required";
     nullable: boolean;
     permission: string;
@@ -1281,7 +1281,7 @@ export declare const salesPipelineSnapshotFields: readonly {
 }[];
 export declare const salesSavedViewListFields: readonly {
     id: string;
-    kind: "number" | "boolean" | "resource" | "integer" | "status" | "money" | "enum" | "date" | "datetime" | "duration" | "decimal" | "percentage" | "text";
+    kind: "number" | "boolean" | "integer" | "enum" | "date" | "datetime" | "duration" | "decimal" | "money" | "percentage" | "text" | "resource" | "status";
     binding: "optional" | "required";
     nullable: boolean;
     permission: string;
@@ -1290,7 +1290,7 @@ export declare const salesSavedViewListFields: readonly {
 }[];
 export declare const salesSavedViewDetailFields: readonly {
     id: string;
-    kind: "number" | "boolean" | "resource" | "integer" | "status" | "money" | "enum" | "date" | "datetime" | "duration" | "decimal" | "percentage" | "text";
+    kind: "number" | "boolean" | "integer" | "enum" | "date" | "datetime" | "duration" | "decimal" | "money" | "percentage" | "text" | "resource" | "status";
     binding: "optional" | "required";
     nullable: boolean;
     permission: string;
@@ -1309,8 +1309,8 @@ export declare const salesSavedViewTableDescriptor: {
         id: string;
         version: number;
     };
-    audience: "authenticated" | "public" | "internal";
-    surfaces: ("system" | "workspace" | "cms" | "public" | "driver" | "mobile")[];
+    audience: "public" | "authenticated" | "internal";
+    surfaces: ("public" | "workspace" | "cms" | "driver" | "mobile" | "system")[];
     permission: string;
     structuralCompatibilityHash: string;
     presentationMetadataRevision: number;
@@ -1334,14 +1334,14 @@ export declare const salesSavedViewTableDescriptor: {
         maxConcurrency: number;
         ratePerMinute: number;
         burst: number;
-        costClass: "medium" | "low" | "high";
+        costClass: "low" | "medium" | "high";
         maxCost: number;
     };
     cacheClass: "public" | "no-store" | "actor" | "authorization-context";
     description?: string | undefined;
     outputFields?: {
         id: string;
-        kind: "number" | "boolean" | "resource" | "integer" | "status" | "money" | "enum" | "date" | "datetime" | "duration" | "decimal" | "percentage" | "text";
+        kind: "number" | "boolean" | "integer" | "enum" | "date" | "datetime" | "duration" | "decimal" | "money" | "percentage" | "text" | "resource" | "status";
         binding: "optional" | "required";
         nullable: boolean;
         permission: string;
@@ -1361,8 +1361,8 @@ export declare const salesSavedViewKanbanDescriptor: {
         id: string;
         version: number;
     };
-    audience: "authenticated" | "public" | "internal";
-    surfaces: ("system" | "workspace" | "cms" | "public" | "driver" | "mobile")[];
+    audience: "public" | "authenticated" | "internal";
+    surfaces: ("public" | "workspace" | "cms" | "driver" | "mobile" | "system")[];
     permission: string;
     structuralCompatibilityHash: string;
     presentationMetadataRevision: number;
@@ -1386,14 +1386,14 @@ export declare const salesSavedViewKanbanDescriptor: {
         maxConcurrency: number;
         ratePerMinute: number;
         burst: number;
-        costClass: "medium" | "low" | "high";
+        costClass: "low" | "medium" | "high";
         maxCost: number;
     };
     cacheClass: "public" | "no-store" | "actor" | "authorization-context";
     description?: string | undefined;
     outputFields?: {
         id: string;
-        kind: "number" | "boolean" | "resource" | "integer" | "status" | "money" | "enum" | "date" | "datetime" | "duration" | "decimal" | "percentage" | "text";
+        kind: "number" | "boolean" | "integer" | "enum" | "date" | "datetime" | "duration" | "decimal" | "money" | "percentage" | "text" | "resource" | "status";
         binding: "optional" | "required";
         nullable: boolean;
         permission: string;
@@ -1413,8 +1413,8 @@ export declare const salesSavedViewCalendarDescriptor: {
         id: string;
         version: number;
     };
-    audience: "authenticated" | "public" | "internal";
-    surfaces: ("system" | "workspace" | "cms" | "public" | "driver" | "mobile")[];
+    audience: "public" | "authenticated" | "internal";
+    surfaces: ("public" | "workspace" | "cms" | "driver" | "mobile" | "system")[];
     permission: string;
     structuralCompatibilityHash: string;
     presentationMetadataRevision: number;
@@ -1438,14 +1438,14 @@ export declare const salesSavedViewCalendarDescriptor: {
         maxConcurrency: number;
         ratePerMinute: number;
         burst: number;
-        costClass: "medium" | "low" | "high";
+        costClass: "low" | "medium" | "high";
         maxCost: number;
     };
     cacheClass: "public" | "no-store" | "actor" | "authorization-context";
     description?: string | undefined;
     outputFields?: {
         id: string;
-        kind: "number" | "boolean" | "resource" | "integer" | "status" | "money" | "enum" | "date" | "datetime" | "duration" | "decimal" | "percentage" | "text";
+        kind: "number" | "boolean" | "integer" | "enum" | "date" | "datetime" | "duration" | "decimal" | "money" | "percentage" | "text" | "resource" | "status";
         binding: "optional" | "required";
         nullable: boolean;
         permission: string;
@@ -1465,8 +1465,8 @@ export declare const salesPipelineSnapshotDescriptor: {
         id: string;
         version: number;
     };
-    audience: "authenticated" | "public" | "internal";
-    surfaces: ("system" | "workspace" | "cms" | "public" | "driver" | "mobile")[];
+    audience: "public" | "authenticated" | "internal";
+    surfaces: ("public" | "workspace" | "cms" | "driver" | "mobile" | "system")[];
     permission: string;
     structuralCompatibilityHash: string;
     presentationMetadataRevision: number;
@@ -1490,14 +1490,14 @@ export declare const salesPipelineSnapshotDescriptor: {
         maxConcurrency: number;
         ratePerMinute: number;
         burst: number;
-        costClass: "medium" | "low" | "high";
+        costClass: "low" | "medium" | "high";
         maxCost: number;
     };
     cacheClass: "public" | "no-store" | "actor" | "authorization-context";
     description?: string | undefined;
     outputFields?: {
         id: string;
-        kind: "number" | "boolean" | "resource" | "integer" | "status" | "money" | "enum" | "date" | "datetime" | "duration" | "decimal" | "percentage" | "text";
+        kind: "number" | "boolean" | "integer" | "enum" | "date" | "datetime" | "duration" | "decimal" | "money" | "percentage" | "text" | "resource" | "status";
         binding: "optional" | "required";
         nullable: boolean;
         permission: string;
@@ -1517,8 +1517,8 @@ export declare const salesSavedViewListDescriptor: {
         id: string;
         version: number;
     };
-    audience: "authenticated" | "public" | "internal";
-    surfaces: ("system" | "workspace" | "cms" | "public" | "driver" | "mobile")[];
+    audience: "public" | "authenticated" | "internal";
+    surfaces: ("public" | "workspace" | "cms" | "driver" | "mobile" | "system")[];
     permission: string;
     structuralCompatibilityHash: string;
     presentationMetadataRevision: number;
@@ -1542,14 +1542,14 @@ export declare const salesSavedViewListDescriptor: {
         maxConcurrency: number;
         ratePerMinute: number;
         burst: number;
-        costClass: "medium" | "low" | "high";
+        costClass: "low" | "medium" | "high";
         maxCost: number;
     };
     cacheClass: "public" | "no-store" | "actor" | "authorization-context";
     description?: string | undefined;
     outputFields?: {
         id: string;
-        kind: "number" | "boolean" | "resource" | "integer" | "status" | "money" | "enum" | "date" | "datetime" | "duration" | "decimal" | "percentage" | "text";
+        kind: "number" | "boolean" | "integer" | "enum" | "date" | "datetime" | "duration" | "decimal" | "money" | "percentage" | "text" | "resource" | "status";
         binding: "optional" | "required";
         nullable: boolean;
         permission: string;
@@ -1569,8 +1569,8 @@ export declare const salesSavedViewDetailDescriptor: {
         id: string;
         version: number;
     };
-    audience: "authenticated" | "public" | "internal";
-    surfaces: ("system" | "workspace" | "cms" | "public" | "driver" | "mobile")[];
+    audience: "public" | "authenticated" | "internal";
+    surfaces: ("public" | "workspace" | "cms" | "driver" | "mobile" | "system")[];
     permission: string;
     structuralCompatibilityHash: string;
     presentationMetadataRevision: number;
@@ -1594,14 +1594,14 @@ export declare const salesSavedViewDetailDescriptor: {
         maxConcurrency: number;
         ratePerMinute: number;
         burst: number;
-        costClass: "medium" | "low" | "high";
+        costClass: "low" | "medium" | "high";
         maxCost: number;
     };
     cacheClass: "public" | "no-store" | "actor" | "authorization-context";
     description?: string | undefined;
     outputFields?: {
         id: string;
-        kind: "number" | "boolean" | "resource" | "integer" | "status" | "money" | "enum" | "date" | "datetime" | "duration" | "decimal" | "percentage" | "text";
+        kind: "number" | "boolean" | "integer" | "enum" | "date" | "datetime" | "duration" | "decimal" | "money" | "percentage" | "text" | "resource" | "status";
         binding: "optional" | "required";
         nullable: boolean;
         permission: string;
@@ -1611,7 +1611,7 @@ export declare const salesSavedViewDetailDescriptor: {
 };
 export declare const salesImportJobListFields: readonly {
     id: string;
-    kind: "number" | "boolean" | "resource" | "integer" | "status" | "money" | "enum" | "date" | "datetime" | "duration" | "decimal" | "percentage" | "text";
+    kind: "number" | "boolean" | "integer" | "enum" | "date" | "datetime" | "duration" | "decimal" | "money" | "percentage" | "text" | "resource" | "status";
     binding: "optional" | "required";
     nullable: boolean;
     permission: string;
@@ -1620,7 +1620,7 @@ export declare const salesImportJobListFields: readonly {
 }[];
 export declare const salesImportJobDetailFields: readonly {
     id: string;
-    kind: "number" | "boolean" | "resource" | "integer" | "status" | "money" | "enum" | "date" | "datetime" | "duration" | "decimal" | "percentage" | "text";
+    kind: "number" | "boolean" | "integer" | "enum" | "date" | "datetime" | "duration" | "decimal" | "money" | "percentage" | "text" | "resource" | "status";
     binding: "optional" | "required";
     nullable: boolean;
     permission: string;
@@ -1629,7 +1629,7 @@ export declare const salesImportJobDetailFields: readonly {
 }[];
 export declare const salesExportJobListFields: readonly {
     id: string;
-    kind: "number" | "boolean" | "resource" | "integer" | "status" | "money" | "enum" | "date" | "datetime" | "duration" | "decimal" | "percentage" | "text";
+    kind: "number" | "boolean" | "integer" | "enum" | "date" | "datetime" | "duration" | "decimal" | "money" | "percentage" | "text" | "resource" | "status";
     binding: "optional" | "required";
     nullable: boolean;
     permission: string;
@@ -1638,7 +1638,7 @@ export declare const salesExportJobListFields: readonly {
 }[];
 export declare const salesExportJobDetailFields: readonly {
     id: string;
-    kind: "number" | "boolean" | "resource" | "integer" | "status" | "money" | "enum" | "date" | "datetime" | "duration" | "decimal" | "percentage" | "text";
+    kind: "number" | "boolean" | "integer" | "enum" | "date" | "datetime" | "duration" | "decimal" | "money" | "percentage" | "text" | "resource" | "status";
     binding: "optional" | "required";
     nullable: boolean;
     permission: string;
@@ -1647,7 +1647,7 @@ export declare const salesExportJobDetailFields: readonly {
 }[];
 export declare const salesDedupeCandidateFields: readonly {
     id: string;
-    kind: "number" | "boolean" | "resource" | "integer" | "status" | "money" | "enum" | "date" | "datetime" | "duration" | "decimal" | "percentage" | "text";
+    kind: "number" | "boolean" | "integer" | "enum" | "date" | "datetime" | "duration" | "decimal" | "money" | "percentage" | "text" | "resource" | "status";
     binding: "optional" | "required";
     nullable: boolean;
     permission: string;
@@ -1666,8 +1666,8 @@ export declare const salesImportJobListDescriptor: {
         id: string;
         version: number;
     };
-    audience: "authenticated" | "public" | "internal";
-    surfaces: ("system" | "workspace" | "cms" | "public" | "driver" | "mobile")[];
+    audience: "public" | "authenticated" | "internal";
+    surfaces: ("public" | "workspace" | "cms" | "driver" | "mobile" | "system")[];
     permission: string;
     structuralCompatibilityHash: string;
     presentationMetadataRevision: number;
@@ -1691,14 +1691,14 @@ export declare const salesImportJobListDescriptor: {
         maxConcurrency: number;
         ratePerMinute: number;
         burst: number;
-        costClass: "medium" | "low" | "high";
+        costClass: "low" | "medium" | "high";
         maxCost: number;
     };
     cacheClass: "public" | "no-store" | "actor" | "authorization-context";
     description?: string | undefined;
     outputFields?: {
         id: string;
-        kind: "number" | "boolean" | "resource" | "integer" | "status" | "money" | "enum" | "date" | "datetime" | "duration" | "decimal" | "percentage" | "text";
+        kind: "number" | "boolean" | "integer" | "enum" | "date" | "datetime" | "duration" | "decimal" | "money" | "percentage" | "text" | "resource" | "status";
         binding: "optional" | "required";
         nullable: boolean;
         permission: string;
@@ -1718,8 +1718,8 @@ export declare const salesImportJobDetailDescriptor: {
         id: string;
         version: number;
     };
-    audience: "authenticated" | "public" | "internal";
-    surfaces: ("system" | "workspace" | "cms" | "public" | "driver" | "mobile")[];
+    audience: "public" | "authenticated" | "internal";
+    surfaces: ("public" | "workspace" | "cms" | "driver" | "mobile" | "system")[];
     permission: string;
     structuralCompatibilityHash: string;
     presentationMetadataRevision: number;
@@ -1743,14 +1743,14 @@ export declare const salesImportJobDetailDescriptor: {
         maxConcurrency: number;
         ratePerMinute: number;
         burst: number;
-        costClass: "medium" | "low" | "high";
+        costClass: "low" | "medium" | "high";
         maxCost: number;
     };
     cacheClass: "public" | "no-store" | "actor" | "authorization-context";
     description?: string | undefined;
     outputFields?: {
         id: string;
-        kind: "number" | "boolean" | "resource" | "integer" | "status" | "money" | "enum" | "date" | "datetime" | "duration" | "decimal" | "percentage" | "text";
+        kind: "number" | "boolean" | "integer" | "enum" | "date" | "datetime" | "duration" | "decimal" | "money" | "percentage" | "text" | "resource" | "status";
         binding: "optional" | "required";
         nullable: boolean;
         permission: string;
@@ -1770,8 +1770,8 @@ export declare const salesExportJobListDescriptor: {
         id: string;
         version: number;
     };
-    audience: "authenticated" | "public" | "internal";
-    surfaces: ("system" | "workspace" | "cms" | "public" | "driver" | "mobile")[];
+    audience: "public" | "authenticated" | "internal";
+    surfaces: ("public" | "workspace" | "cms" | "driver" | "mobile" | "system")[];
     permission: string;
     structuralCompatibilityHash: string;
     presentationMetadataRevision: number;
@@ -1795,14 +1795,14 @@ export declare const salesExportJobListDescriptor: {
         maxConcurrency: number;
         ratePerMinute: number;
         burst: number;
-        costClass: "medium" | "low" | "high";
+        costClass: "low" | "medium" | "high";
         maxCost: number;
     };
     cacheClass: "public" | "no-store" | "actor" | "authorization-context";
     description?: string | undefined;
     outputFields?: {
         id: string;
-        kind: "number" | "boolean" | "resource" | "integer" | "status" | "money" | "enum" | "date" | "datetime" | "duration" | "decimal" | "percentage" | "text";
+        kind: "number" | "boolean" | "integer" | "enum" | "date" | "datetime" | "duration" | "decimal" | "money" | "percentage" | "text" | "resource" | "status";
         binding: "optional" | "required";
         nullable: boolean;
         permission: string;
@@ -1822,8 +1822,8 @@ export declare const salesExportJobDetailDescriptor: {
         id: string;
         version: number;
     };
-    audience: "authenticated" | "public" | "internal";
-    surfaces: ("system" | "workspace" | "cms" | "public" | "driver" | "mobile")[];
+    audience: "public" | "authenticated" | "internal";
+    surfaces: ("public" | "workspace" | "cms" | "driver" | "mobile" | "system")[];
     permission: string;
     structuralCompatibilityHash: string;
     presentationMetadataRevision: number;
@@ -1847,14 +1847,14 @@ export declare const salesExportJobDetailDescriptor: {
         maxConcurrency: number;
         ratePerMinute: number;
         burst: number;
-        costClass: "medium" | "low" | "high";
+        costClass: "low" | "medium" | "high";
         maxCost: number;
     };
     cacheClass: "public" | "no-store" | "actor" | "authorization-context";
     description?: string | undefined;
     outputFields?: {
         id: string;
-        kind: "number" | "boolean" | "resource" | "integer" | "status" | "money" | "enum" | "date" | "datetime" | "duration" | "decimal" | "percentage" | "text";
+        kind: "number" | "boolean" | "integer" | "enum" | "date" | "datetime" | "duration" | "decimal" | "money" | "percentage" | "text" | "resource" | "status";
         binding: "optional" | "required";
         nullable: boolean;
         permission: string;
@@ -1874,8 +1874,8 @@ export declare const salesDedupeCandidatesDescriptor: {
         id: string;
         version: number;
     };
-    audience: "authenticated" | "public" | "internal";
-    surfaces: ("system" | "workspace" | "cms" | "public" | "driver" | "mobile")[];
+    audience: "public" | "authenticated" | "internal";
+    surfaces: ("public" | "workspace" | "cms" | "driver" | "mobile" | "system")[];
     permission: string;
     structuralCompatibilityHash: string;
     presentationMetadataRevision: number;
@@ -1899,14 +1899,14 @@ export declare const salesDedupeCandidatesDescriptor: {
         maxConcurrency: number;
         ratePerMinute: number;
         burst: number;
-        costClass: "medium" | "low" | "high";
+        costClass: "low" | "medium" | "high";
         maxCost: number;
     };
     cacheClass: "public" | "no-store" | "actor" | "authorization-context";
     description?: string | undefined;
     outputFields?: {
         id: string;
-        kind: "number" | "boolean" | "resource" | "integer" | "status" | "money" | "enum" | "date" | "datetime" | "duration" | "decimal" | "percentage" | "text";
+        kind: "number" | "boolean" | "integer" | "enum" | "date" | "datetime" | "duration" | "decimal" | "money" | "percentage" | "text" | "resource" | "status";
         binding: "optional" | "required";
         nullable: boolean;
         permission: string;
@@ -2002,8 +2002,8 @@ export declare const salesTimelineDescriptor: {
         id: string;
         version: number;
     };
-    audience: "authenticated" | "public" | "internal";
-    surfaces: ("system" | "workspace" | "cms" | "public" | "driver" | "mobile")[];
+    audience: "public" | "authenticated" | "internal";
+    surfaces: ("public" | "workspace" | "cms" | "driver" | "mobile" | "system")[];
     permission: string;
     structuralCompatibilityHash: string;
     presentationMetadataRevision: number;
@@ -2027,14 +2027,14 @@ export declare const salesTimelineDescriptor: {
         maxConcurrency: number;
         ratePerMinute: number;
         burst: number;
-        costClass: "medium" | "low" | "high";
+        costClass: "low" | "medium" | "high";
         maxCost: number;
     };
     cacheClass: "public" | "no-store" | "actor" | "authorization-context";
     description?: string | undefined;
     outputFields?: {
         id: string;
-        kind: "number" | "boolean" | "resource" | "integer" | "status" | "money" | "enum" | "date" | "datetime" | "duration" | "decimal" | "percentage" | "text";
+        kind: "number" | "boolean" | "integer" | "enum" | "date" | "datetime" | "duration" | "decimal" | "money" | "percentage" | "text" | "resource" | "status";
         binding: "optional" | "required";
         nullable: boolean;
         permission: string;
@@ -2045,7 +2045,7 @@ export declare const salesTimelineDescriptor: {
 /** Recipient-scoped work queues expose neither provider data nor credential references. */
 export declare const salesNotificationFields: readonly {
     id: string;
-    kind: "number" | "boolean" | "resource" | "integer" | "status" | "money" | "enum" | "date" | "datetime" | "duration" | "decimal" | "percentage" | "text";
+    kind: "number" | "boolean" | "integer" | "enum" | "date" | "datetime" | "duration" | "decimal" | "money" | "percentage" | "text" | "resource" | "status";
     binding: "optional" | "required";
     nullable: boolean;
     permission: string;
@@ -2054,7 +2054,7 @@ export declare const salesNotificationFields: readonly {
 }[];
 export declare const salesReminderFields: readonly {
     id: string;
-    kind: "number" | "boolean" | "resource" | "integer" | "status" | "money" | "enum" | "date" | "datetime" | "duration" | "decimal" | "percentage" | "text";
+    kind: "number" | "boolean" | "integer" | "enum" | "date" | "datetime" | "duration" | "decimal" | "money" | "percentage" | "text" | "resource" | "status";
     binding: "optional" | "required";
     nullable: boolean;
     permission: string;
@@ -2064,7 +2064,7 @@ export declare const salesReminderFields: readonly {
 /** Public provider configuration status. Secret references and values are intentionally unrepresentable. */
 export declare const salesProviderConfigurationFields: readonly {
     id: string;
-    kind: "number" | "boolean" | "resource" | "integer" | "status" | "money" | "enum" | "date" | "datetime" | "duration" | "decimal" | "percentage" | "text";
+    kind: "number" | "boolean" | "integer" | "enum" | "date" | "datetime" | "duration" | "decimal" | "money" | "percentage" | "text" | "resource" | "status";
     binding: "optional" | "required";
     nullable: boolean;
     permission: string;
@@ -2083,8 +2083,8 @@ export declare const salesNotificationsDescriptor: {
         id: string;
         version: number;
     };
-    audience: "authenticated" | "public" | "internal";
-    surfaces: ("system" | "workspace" | "cms" | "public" | "driver" | "mobile")[];
+    audience: "public" | "authenticated" | "internal";
+    surfaces: ("public" | "workspace" | "cms" | "driver" | "mobile" | "system")[];
     permission: string;
     structuralCompatibilityHash: string;
     presentationMetadataRevision: number;
@@ -2108,14 +2108,14 @@ export declare const salesNotificationsDescriptor: {
         maxConcurrency: number;
         ratePerMinute: number;
         burst: number;
-        costClass: "medium" | "low" | "high";
+        costClass: "low" | "medium" | "high";
         maxCost: number;
     };
     cacheClass: "public" | "no-store" | "actor" | "authorization-context";
     description?: string | undefined;
     outputFields?: {
         id: string;
-        kind: "number" | "boolean" | "resource" | "integer" | "status" | "money" | "enum" | "date" | "datetime" | "duration" | "decimal" | "percentage" | "text";
+        kind: "number" | "boolean" | "integer" | "enum" | "date" | "datetime" | "duration" | "decimal" | "money" | "percentage" | "text" | "resource" | "status";
         binding: "optional" | "required";
         nullable: boolean;
         permission: string;
@@ -2135,8 +2135,8 @@ export declare const salesRemindersDescriptor: {
         id: string;
         version: number;
     };
-    audience: "authenticated" | "public" | "internal";
-    surfaces: ("system" | "workspace" | "cms" | "public" | "driver" | "mobile")[];
+    audience: "public" | "authenticated" | "internal";
+    surfaces: ("public" | "workspace" | "cms" | "driver" | "mobile" | "system")[];
     permission: string;
     structuralCompatibilityHash: string;
     presentationMetadataRevision: number;
@@ -2160,14 +2160,14 @@ export declare const salesRemindersDescriptor: {
         maxConcurrency: number;
         ratePerMinute: number;
         burst: number;
-        costClass: "medium" | "low" | "high";
+        costClass: "low" | "medium" | "high";
         maxCost: number;
     };
     cacheClass: "public" | "no-store" | "actor" | "authorization-context";
     description?: string | undefined;
     outputFields?: {
         id: string;
-        kind: "number" | "boolean" | "resource" | "integer" | "status" | "money" | "enum" | "date" | "datetime" | "duration" | "decimal" | "percentage" | "text";
+        kind: "number" | "boolean" | "integer" | "enum" | "date" | "datetime" | "duration" | "decimal" | "money" | "percentage" | "text" | "resource" | "status";
         binding: "optional" | "required";
         nullable: boolean;
         permission: string;
@@ -2187,8 +2187,8 @@ export declare const salesProviderConfigurationsDescriptor: {
         id: string;
         version: number;
     };
-    audience: "authenticated" | "public" | "internal";
-    surfaces: ("system" | "workspace" | "cms" | "public" | "driver" | "mobile")[];
+    audience: "public" | "authenticated" | "internal";
+    surfaces: ("public" | "workspace" | "cms" | "driver" | "mobile" | "system")[];
     permission: string;
     structuralCompatibilityHash: string;
     presentationMetadataRevision: number;
@@ -2212,14 +2212,14 @@ export declare const salesProviderConfigurationsDescriptor: {
         maxConcurrency: number;
         ratePerMinute: number;
         burst: number;
-        costClass: "medium" | "low" | "high";
+        costClass: "low" | "medium" | "high";
         maxCost: number;
     };
     cacheClass: "public" | "no-store" | "actor" | "authorization-context";
     description?: string | undefined;
     outputFields?: {
         id: string;
-        kind: "number" | "boolean" | "resource" | "integer" | "status" | "money" | "enum" | "date" | "datetime" | "duration" | "decimal" | "percentage" | "text";
+        kind: "number" | "boolean" | "integer" | "enum" | "date" | "datetime" | "duration" | "decimal" | "money" | "percentage" | "text" | "resource" | "status";
         binding: "optional" | "required";
         nullable: boolean;
         permission: string;
@@ -3170,7 +3170,7 @@ export declare const salesAccountCreateDescriptor: {
     };
     permission: string;
     policy: string;
-    effect: "write" | "external" | "read-only" | "destructive";
+    effect: "external" | "read-only" | "write" | "destructive";
     idempotency: "required" | "not-applicable";
     dryRun: boolean;
     outputSchema?: AgentToolJsonSchema | undefined;
@@ -3190,7 +3190,7 @@ export declare const salesAccountUpdateDescriptor: {
     };
     permission: string;
     policy: string;
-    effect: "write" | "external" | "read-only" | "destructive";
+    effect: "external" | "read-only" | "write" | "destructive";
     idempotency: "required" | "not-applicable";
     dryRun: boolean;
     outputSchema?: AgentToolJsonSchema | undefined;
@@ -3210,7 +3210,7 @@ export declare const salesAccountArchiveDescriptor: {
     };
     permission: string;
     policy: string;
-    effect: "write" | "external" | "read-only" | "destructive";
+    effect: "external" | "read-only" | "write" | "destructive";
     idempotency: "required" | "not-applicable";
     dryRun: boolean;
     outputSchema?: AgentToolJsonSchema | undefined;
@@ -3230,7 +3230,7 @@ export declare const salesContactCreateDescriptor: {
     };
     permission: string;
     policy: string;
-    effect: "write" | "external" | "read-only" | "destructive";
+    effect: "external" | "read-only" | "write" | "destructive";
     idempotency: "required" | "not-applicable";
     dryRun: boolean;
     outputSchema?: AgentToolJsonSchema | undefined;
@@ -3250,7 +3250,7 @@ export declare const salesContactUpdateDescriptor: {
     };
     permission: string;
     policy: string;
-    effect: "write" | "external" | "read-only" | "destructive";
+    effect: "external" | "read-only" | "write" | "destructive";
     idempotency: "required" | "not-applicable";
     dryRun: boolean;
     outputSchema?: AgentToolJsonSchema | undefined;
@@ -3270,7 +3270,7 @@ export declare const salesContactArchiveDescriptor: {
     };
     permission: string;
     policy: string;
-    effect: "write" | "external" | "read-only" | "destructive";
+    effect: "external" | "read-only" | "write" | "destructive";
     idempotency: "required" | "not-applicable";
     dryRun: boolean;
     outputSchema?: AgentToolJsonSchema | undefined;
@@ -3290,7 +3290,7 @@ export declare const salesLeadCreateDescriptor: {
     };
     permission: string;
     policy: string;
-    effect: "write" | "external" | "read-only" | "destructive";
+    effect: "external" | "read-only" | "write" | "destructive";
     idempotency: "required" | "not-applicable";
     dryRun: boolean;
     outputSchema?: AgentToolJsonSchema | undefined;
@@ -3310,7 +3310,7 @@ export declare const salesLeadUpdateDescriptor: {
     };
     permission: string;
     policy: string;
-    effect: "write" | "external" | "read-only" | "destructive";
+    effect: "external" | "read-only" | "write" | "destructive";
     idempotency: "required" | "not-applicable";
     dryRun: boolean;
     outputSchema?: AgentToolJsonSchema | undefined;
@@ -3330,7 +3330,7 @@ export declare const salesLeadQualifyDescriptor: {
     };
     permission: string;
     policy: string;
-    effect: "write" | "external" | "read-only" | "destructive";
+    effect: "external" | "read-only" | "write" | "destructive";
     idempotency: "required" | "not-applicable";
     dryRun: boolean;
     outputSchema?: AgentToolJsonSchema | undefined;
@@ -3350,7 +3350,7 @@ export declare const salesLeadDisqualifyDescriptor: {
     };
     permission: string;
     policy: string;
-    effect: "write" | "external" | "read-only" | "destructive";
+    effect: "external" | "read-only" | "write" | "destructive";
     idempotency: "required" | "not-applicable";
     dryRun: boolean;
     outputSchema?: AgentToolJsonSchema | undefined;
@@ -3370,7 +3370,7 @@ export declare const salesLeadArchiveDescriptor: {
     };
     permission: string;
     policy: string;
-    effect: "write" | "external" | "read-only" | "destructive";
+    effect: "external" | "read-only" | "write" | "destructive";
     idempotency: "required" | "not-applicable";
     dryRun: boolean;
     outputSchema?: AgentToolJsonSchema | undefined;
@@ -3390,7 +3390,7 @@ export declare const salesOpportunityCreateDescriptor: {
     };
     permission: string;
     policy: string;
-    effect: "write" | "external" | "read-only" | "destructive";
+    effect: "external" | "read-only" | "write" | "destructive";
     idempotency: "required" | "not-applicable";
     dryRun: boolean;
     outputSchema?: AgentToolJsonSchema | undefined;
@@ -3410,7 +3410,7 @@ export declare const salesOpportunityUpdateDescriptor: {
     };
     permission: string;
     policy: string;
-    effect: "write" | "external" | "read-only" | "destructive";
+    effect: "external" | "read-only" | "write" | "destructive";
     idempotency: "required" | "not-applicable";
     dryRun: boolean;
     outputSchema?: AgentToolJsonSchema | undefined;
@@ -3430,7 +3430,7 @@ export declare const salesOpportunityCloseDescriptor: {
     };
     permission: string;
     policy: string;
-    effect: "write" | "external" | "read-only" | "destructive";
+    effect: "external" | "read-only" | "write" | "destructive";
     idempotency: "required" | "not-applicable";
     dryRun: boolean;
     outputSchema?: AgentToolJsonSchema | undefined;
@@ -3450,7 +3450,7 @@ export declare const salesOpportunityArchiveDescriptor: {
     };
     permission: string;
     policy: string;
-    effect: "write" | "external" | "read-only" | "destructive";
+    effect: "external" | "read-only" | "write" | "destructive";
     idempotency: "required" | "not-applicable";
     dryRun: boolean;
     outputSchema?: AgentToolJsonSchema | undefined;
@@ -3470,7 +3470,7 @@ export declare const salesPipelineUpdateDescriptor: {
     };
     permission: string;
     policy: string;
-    effect: "write" | "external" | "read-only" | "destructive";
+    effect: "external" | "read-only" | "write" | "destructive";
     idempotency: "required" | "not-applicable";
     dryRun: boolean;
     outputSchema?: AgentToolJsonSchema | undefined;
@@ -3490,7 +3490,7 @@ export declare const salesPipelineArchiveDescriptor: {
     };
     permission: string;
     policy: string;
-    effect: "write" | "external" | "read-only" | "destructive";
+    effect: "external" | "read-only" | "write" | "destructive";
     idempotency: "required" | "not-applicable";
     dryRun: boolean;
     outputSchema?: AgentToolJsonSchema | undefined;
@@ -3510,7 +3510,7 @@ export declare const salesSavedViewCreateDescriptor: {
     };
     permission: string;
     policy: string;
-    effect: "write" | "external" | "read-only" | "destructive";
+    effect: "external" | "read-only" | "write" | "destructive";
     idempotency: "required" | "not-applicable";
     dryRun: boolean;
     outputSchema?: AgentToolJsonSchema | undefined;
@@ -3530,7 +3530,7 @@ export declare const salesSavedViewUpdateDescriptor: {
     };
     permission: string;
     policy: string;
-    effect: "write" | "external" | "read-only" | "destructive";
+    effect: "external" | "read-only" | "write" | "destructive";
     idempotency: "required" | "not-applicable";
     dryRun: boolean;
     outputSchema?: AgentToolJsonSchema | undefined;
@@ -3550,7 +3550,7 @@ export declare const salesSavedViewArchiveDescriptor: {
     };
     permission: string;
     policy: string;
-    effect: "write" | "external" | "read-only" | "destructive";
+    effect: "external" | "read-only" | "write" | "destructive";
     idempotency: "required" | "not-applicable";
     dryRun: boolean;
     outputSchema?: AgentToolJsonSchema | undefined;
@@ -3570,7 +3570,7 @@ export declare const salesActivityCreateDescriptor: {
     };
     permission: string;
     policy: string;
-    effect: "write" | "external" | "read-only" | "destructive";
+    effect: "external" | "read-only" | "write" | "destructive";
     idempotency: "required" | "not-applicable";
     dryRun: boolean;
     outputSchema?: AgentToolJsonSchema | undefined;
@@ -3590,7 +3590,7 @@ export declare const salesActivityCompleteDescriptor: {
     };
     permission: string;
     policy: string;
-    effect: "write" | "external" | "read-only" | "destructive";
+    effect: "external" | "read-only" | "write" | "destructive";
     idempotency: "required" | "not-applicable";
     dryRun: boolean;
     outputSchema?: AgentToolJsonSchema | undefined;
@@ -3610,7 +3610,7 @@ export declare const salesActivityCancelDescriptor: {
     };
     permission: string;
     policy: string;
-    effect: "write" | "external" | "read-only" | "destructive";
+    effect: "external" | "read-only" | "write" | "destructive";
     idempotency: "required" | "not-applicable";
     dryRun: boolean;
     outputSchema?: AgentToolJsonSchema | undefined;
@@ -3630,7 +3630,7 @@ export declare const salesNoteCreateDescriptor: {
     };
     permission: string;
     policy: string;
-    effect: "write" | "external" | "read-only" | "destructive";
+    effect: "external" | "read-only" | "write" | "destructive";
     idempotency: "required" | "not-applicable";
     dryRun: boolean;
     outputSchema?: AgentToolJsonSchema | undefined;
@@ -3650,7 +3650,7 @@ export declare const salesAttachmentLinkDescriptor: {
     };
     permission: string;
     policy: string;
-    effect: "write" | "external" | "read-only" | "destructive";
+    effect: "external" | "read-only" | "write" | "destructive";
     idempotency: "required" | "not-applicable";
     dryRun: boolean;
     outputSchema?: AgentToolJsonSchema | undefined;
@@ -3670,7 +3670,7 @@ export declare const salesAttachmentRemoveDescriptor: {
     };
     permission: string;
     policy: string;
-    effect: "write" | "external" | "read-only" | "destructive";
+    effect: "external" | "read-only" | "write" | "destructive";
     idempotency: "required" | "not-applicable";
     dryRun: boolean;
     outputSchema?: AgentToolJsonSchema | undefined;
@@ -3690,7 +3690,7 @@ export declare const salesOwnershipAssignDescriptor: {
     };
     permission: string;
     policy: string;
-    effect: "write" | "external" | "read-only" | "destructive";
+    effect: "external" | "read-only" | "write" | "destructive";
     idempotency: "required" | "not-applicable";
     dryRun: boolean;
     outputSchema?: AgentToolJsonSchema | undefined;
@@ -3710,7 +3710,7 @@ export declare const salesImportDryRunDescriptor: {
     };
     permission: string;
     policy: string;
-    effect: "write" | "external" | "read-only" | "destructive";
+    effect: "external" | "read-only" | "write" | "destructive";
     idempotency: "required" | "not-applicable";
     dryRun: boolean;
     outputSchema?: AgentToolJsonSchema | undefined;
@@ -3730,7 +3730,7 @@ export declare const salesImportCommitDescriptor: {
     };
     permission: string;
     policy: string;
-    effect: "write" | "external" | "read-only" | "destructive";
+    effect: "external" | "read-only" | "write" | "destructive";
     idempotency: "required" | "not-applicable";
     dryRun: boolean;
     outputSchema?: AgentToolJsonSchema | undefined;
@@ -3750,7 +3750,7 @@ export declare const salesImportCancelDescriptor: {
     };
     permission: string;
     policy: string;
-    effect: "write" | "external" | "read-only" | "destructive";
+    effect: "external" | "read-only" | "write" | "destructive";
     idempotency: "required" | "not-applicable";
     dryRun: boolean;
     outputSchema?: AgentToolJsonSchema | undefined;
@@ -3770,7 +3770,7 @@ export declare const salesExportCreateDescriptor: {
     };
     permission: string;
     policy: string;
-    effect: "write" | "external" | "read-only" | "destructive";
+    effect: "external" | "read-only" | "write" | "destructive";
     idempotency: "required" | "not-applicable";
     dryRun: boolean;
     outputSchema?: AgentToolJsonSchema | undefined;
@@ -3790,7 +3790,7 @@ export declare const salesExportCancelDescriptor: {
     };
     permission: string;
     policy: string;
-    effect: "write" | "external" | "read-only" | "destructive";
+    effect: "external" | "read-only" | "write" | "destructive";
     idempotency: "required" | "not-applicable";
     dryRun: boolean;
     outputSchema?: AgentToolJsonSchema | undefined;
@@ -3810,7 +3810,7 @@ export declare const salesMergeCommitDescriptor: {
     };
     permission: string;
     policy: string;
-    effect: "write" | "external" | "read-only" | "destructive";
+    effect: "external" | "read-only" | "write" | "destructive";
     idempotency: "required" | "not-applicable";
     dryRun: boolean;
     outputSchema?: AgentToolJsonSchema | undefined;
@@ -3830,7 +3830,7 @@ export declare const salesEmailSendDescriptor: {
     };
     permission: string;
     policy: string;
-    effect: "write" | "external" | "read-only" | "destructive";
+    effect: "external" | "read-only" | "write" | "destructive";
     idempotency: "required" | "not-applicable";
     dryRun: boolean;
     outputSchema?: AgentToolJsonSchema | undefined;
@@ -3850,7 +3850,7 @@ export declare const salesCalendarSyncDescriptor: {
     };
     permission: string;
     policy: string;
-    effect: "write" | "external" | "read-only" | "destructive";
+    effect: "external" | "read-only" | "write" | "destructive";
     idempotency: "required" | "not-applicable";
     dryRun: boolean;
     outputSchema?: AgentToolJsonSchema | undefined;
@@ -3870,7 +3870,7 @@ export declare const salesReminderScheduleDescriptor: {
     };
     permission: string;
     policy: string;
-    effect: "write" | "external" | "read-only" | "destructive";
+    effect: "external" | "read-only" | "write" | "destructive";
     idempotency: "required" | "not-applicable";
     dryRun: boolean;
     outputSchema?: AgentToolJsonSchema | undefined;
@@ -3890,7 +3890,7 @@ export declare const salesNotificationReadDescriptor: {
     };
     permission: string;
     policy: string;
-    effect: "write" | "external" | "read-only" | "destructive";
+    effect: "external" | "read-only" | "write" | "destructive";
     idempotency: "required" | "not-applicable";
     dryRun: boolean;
     outputSchema?: AgentToolJsonSchema | undefined;
@@ -3910,7 +3910,7 @@ export declare const salesNotificationArchiveDescriptor: {
     };
     permission: string;
     policy: string;
-    effect: "write" | "external" | "read-only" | "destructive";
+    effect: "external" | "read-only" | "write" | "destructive";
     idempotency: "required" | "not-applicable";
     dryRun: boolean;
     outputSchema?: AgentToolJsonSchema | undefined;
@@ -3930,7 +3930,7 @@ export declare const salesReminderDismissDescriptor: {
     };
     permission: string;
     policy: string;
-    effect: "write" | "external" | "read-only" | "destructive";
+    effect: "external" | "read-only" | "write" | "destructive";
     idempotency: "required" | "not-applicable";
     dryRun: boolean;
     outputSchema?: AgentToolJsonSchema | undefined;
@@ -3950,7 +3950,7 @@ export declare const salesIntegrationConfigureDescriptor: {
     };
     permission: string;
     policy: string;
-    effect: "write" | "external" | "read-only" | "destructive";
+    effect: "external" | "read-only" | "write" | "destructive";
     idempotency: "required" | "not-applicable";
     dryRun: boolean;
     outputSchema?: AgentToolJsonSchema | undefined;
@@ -3970,7 +3970,7 @@ export declare const salesReportRunDescriptor: {
     };
     permission: string;
     policy: string;
-    effect: "write" | "external" | "read-only" | "destructive";
+    effect: "external" | "read-only" | "write" | "destructive";
     idempotency: "required" | "not-applicable";
     dryRun: boolean;
     outputSchema?: AgentToolJsonSchema | undefined;
@@ -3990,7 +3990,7 @@ export declare const salesReportScheduleDescriptor: {
     };
     permission: string;
     policy: string;
-    effect: "write" | "external" | "read-only" | "destructive";
+    effect: "external" | "read-only" | "write" | "destructive";
     idempotency: "required" | "not-applicable";
     dryRun: boolean;
     outputSchema?: AgentToolJsonSchema | undefined;
@@ -4013,7 +4013,7 @@ export declare const salesCommunicationActionDescriptors: readonly {
     };
     permission: string;
     policy: string;
-    effect: "write" | "external" | "read-only" | "destructive";
+    effect: "external" | "read-only" | "write" | "destructive";
     idempotency: "required" | "not-applicable";
     dryRun: boolean;
     outputSchema?: AgentToolJsonSchema | undefined;
@@ -4035,7 +4035,7 @@ export declare const salesReportActionDescriptors: readonly [{
     };
     permission: string;
     policy: string;
-    effect: "write" | "external" | "read-only" | "destructive";
+    effect: "external" | "read-only" | "write" | "destructive";
     idempotency: "required" | "not-applicable";
     dryRun: boolean;
     outputSchema?: AgentToolJsonSchema | undefined;
@@ -4054,7 +4054,7 @@ export declare const salesReportActionDescriptors: readonly [{
     };
     permission: string;
     policy: string;
-    effect: "write" | "external" | "read-only" | "destructive";
+    effect: "external" | "read-only" | "write" | "destructive";
     idempotency: "required" | "not-applicable";
     dryRun: boolean;
     outputSchema?: AgentToolJsonSchema | undefined;
@@ -4078,8 +4078,8 @@ export declare const salesRouteDescriptors: readonly {
     parameters: Record<string, {
         type: "string" | "boolean" | "integer";
     }>;
-    surface: "system" | "workspace" | "cms" | "public" | "driver" | "mobile";
-    audience: "system" | "authenticated" | "public";
+    surface: "public" | "workspace" | "cms" | "driver" | "mobile" | "system";
+    audience: "public" | "authenticated" | "system";
     permission: string;
     viewId: string;
 }[];
@@ -4106,7 +4106,7 @@ export declare const salesAccountsPageTemplate: {
         routeId: string;
         params: Record<string, string | number | boolean>;
     };
-    surface: "workspace" | "cms" | "public";
+    surface: "public" | "workspace" | "cms";
     profile: "workspace" | "cms";
     permission: string;
     publicationPolicy: {
@@ -4151,7 +4151,7 @@ export declare const salesAccountDetailPageTemplate: {
         routeId: string;
         params: Record<string, string | number | boolean>;
     };
-    surface: "workspace" | "cms" | "public";
+    surface: "public" | "workspace" | "cms";
     profile: "workspace" | "cms";
     permission: string;
     publicationPolicy: {
@@ -4196,7 +4196,7 @@ export declare const salesContactsPageTemplate: {
         routeId: string;
         params: Record<string, string | number | boolean>;
     };
-    surface: "workspace" | "cms" | "public";
+    surface: "public" | "workspace" | "cms";
     profile: "workspace" | "cms";
     permission: string;
     publicationPolicy: {
@@ -4241,7 +4241,7 @@ export declare const salesContactDetailPageTemplate: {
         routeId: string;
         params: Record<string, string | number | boolean>;
     };
-    surface: "workspace" | "cms" | "public";
+    surface: "public" | "workspace" | "cms";
     profile: "workspace" | "cms";
     permission: string;
     publicationPolicy: {
@@ -4286,7 +4286,7 @@ export declare const salesLeadsPageTemplate: {
         routeId: string;
         params: Record<string, string | number | boolean>;
     };
-    surface: "workspace" | "cms" | "public";
+    surface: "public" | "workspace" | "cms";
     profile: "workspace" | "cms";
     permission: string;
     publicationPolicy: {
@@ -4331,7 +4331,7 @@ export declare const salesLeadDetailPageTemplate: {
         routeId: string;
         params: Record<string, string | number | boolean>;
     };
-    surface: "workspace" | "cms" | "public";
+    surface: "public" | "workspace" | "cms";
     profile: "workspace" | "cms";
     permission: string;
     publicationPolicy: {
@@ -4376,7 +4376,7 @@ export declare const salesOpportunityDetailPageTemplate: {
         routeId: string;
         params: Record<string, string | number | boolean>;
     };
-    surface: "workspace" | "cms" | "public";
+    surface: "public" | "workspace" | "cms";
     profile: "workspace" | "cms";
     permission: string;
     publicationPolicy: {
@@ -4421,7 +4421,7 @@ export declare const salesCalendarPageTemplate: {
         routeId: string;
         params: Record<string, string | number | boolean>;
     };
-    surface: "workspace" | "cms" | "public";
+    surface: "public" | "workspace" | "cms";
     profile: "workspace" | "cms";
     permission: string;
     publicationPolicy: {
@@ -4466,7 +4466,7 @@ export declare const salesPipelineSettingsPageTemplate: {
         routeId: string;
         params: Record<string, string | number | boolean>;
     };
-    surface: "workspace" | "cms" | "public";
+    surface: "public" | "workspace" | "cms";
     profile: "workspace" | "cms";
     permission: string;
     publicationPolicy: {
@@ -4511,7 +4511,7 @@ export declare const salesSavedViewsPageTemplate: {
         routeId: string;
         params: Record<string, string | number | boolean>;
     };
-    surface: "workspace" | "cms" | "public";
+    surface: "public" | "workspace" | "cms";
     profile: "workspace" | "cms";
     permission: string;
     publicationPolicy: {
@@ -4556,7 +4556,7 @@ export declare const salesImportsPageTemplate: {
         routeId: string;
         params: Record<string, string | number | boolean>;
     };
-    surface: "workspace" | "cms" | "public";
+    surface: "public" | "workspace" | "cms";
     profile: "workspace" | "cms";
     permission: string;
     publicationPolicy: {
@@ -4601,7 +4601,7 @@ export declare const salesExportsPageTemplate: {
         routeId: string;
         params: Record<string, string | number | boolean>;
     };
-    surface: "workspace" | "cms" | "public";
+    surface: "public" | "workspace" | "cms";
     profile: "workspace" | "cms";
     permission: string;
     publicationPolicy: {
@@ -4646,7 +4646,7 @@ export declare const salesReportsPageTemplate: {
         routeId: string;
         params: Record<string, string | number | boolean>;
     };
-    surface: "workspace" | "cms" | "public";
+    surface: "public" | "workspace" | "cms";
     profile: "workspace" | "cms";
     permission: string;
     publicationPolicy: {
@@ -4691,7 +4691,7 @@ export declare const salesNotificationsPageTemplate: {
         routeId: string;
         params: Record<string, string | number | boolean>;
     };
-    surface: "workspace" | "cms" | "public";
+    surface: "public" | "workspace" | "cms";
     profile: "workspace" | "cms";
     permission: string;
     publicationPolicy: {
@@ -4736,7 +4736,7 @@ export declare const salesPageTemplates: readonly {
         routeId: string;
         params: Record<string, string | number | boolean>;
     };
-    surface: "workspace" | "cms" | "public";
+    surface: "public" | "workspace" | "cms";
     profile: "workspace" | "cms";
     permission: string;
     publicationPolicy: {
@@ -4789,8 +4789,8 @@ export declare const salesCalendarBlockDescriptor: {
         required?: string[] | undefined;
     };
     profiles: ("workspace" | "cms")[];
-    surfaces: ("workspace" | "cms" | "public")[];
-    audience: "authenticated" | "public";
+    surfaces: ("public" | "workspace" | "cms")[];
+    audience: "public" | "authenticated";
     requiredStates: ("error" | "forbidden" | "loading" | "empty")[];
     permission?: string | undefined;
     sourcePolicy?: {
@@ -4823,8 +4823,8 @@ export declare const salesPipelineSettingsBlockDescriptor: {
         required?: string[] | undefined;
     };
     profiles: ("workspace" | "cms")[];
-    surfaces: ("workspace" | "cms" | "public")[];
-    audience: "authenticated" | "public";
+    surfaces: ("public" | "workspace" | "cms")[];
+    audience: "public" | "authenticated";
     requiredStates: ("error" | "forbidden" | "loading" | "empty")[];
     permission?: string | undefined;
     sourcePolicy?: {
@@ -4857,8 +4857,8 @@ export declare const salesSavedViewsBlockDescriptor: {
         required?: string[] | undefined;
     };
     profiles: ("workspace" | "cms")[];
-    surfaces: ("workspace" | "cms" | "public")[];
-    audience: "authenticated" | "public";
+    surfaces: ("public" | "workspace" | "cms")[];
+    audience: "public" | "authenticated";
     requiredStates: ("error" | "forbidden" | "loading" | "empty")[];
     permission?: string | undefined;
     sourcePolicy?: {
@@ -4891,8 +4891,8 @@ export declare const salesSavedViewTableBlockDescriptor: {
         required?: string[] | undefined;
     };
     profiles: ("workspace" | "cms")[];
-    surfaces: ("workspace" | "cms" | "public")[];
-    audience: "authenticated" | "public";
+    surfaces: ("public" | "workspace" | "cms")[];
+    audience: "public" | "authenticated";
     requiredStates: ("error" | "forbidden" | "loading" | "empty")[];
     permission?: string | undefined;
     sourcePolicy?: {
@@ -4925,8 +4925,8 @@ export declare const salesNotificationsBlockDescriptor: {
         required?: string[] | undefined;
     };
     profiles: ("workspace" | "cms")[];
-    surfaces: ("workspace" | "cms" | "public")[];
-    audience: "authenticated" | "public";
+    surfaces: ("public" | "workspace" | "cms")[];
+    audience: "public" | "authenticated";
     requiredStates: ("error" | "forbidden" | "loading" | "empty")[];
     permission?: string | undefined;
     sourcePolicy?: {
@@ -4959,8 +4959,8 @@ export declare const salesRemindersBlockDescriptor: {
         required?: string[] | undefined;
     };
     profiles: ("workspace" | "cms")[];
-    surfaces: ("workspace" | "cms" | "public")[];
-    audience: "authenticated" | "public";
+    surfaces: ("public" | "workspace" | "cms")[];
+    audience: "public" | "authenticated";
     requiredStates: ("error" | "forbidden" | "loading" | "empty")[];
     permission?: string | undefined;
     sourcePolicy?: {
@@ -4993,8 +4993,8 @@ export declare const salesCommunicationActionsBlockDescriptor: {
         required?: string[] | undefined;
     };
     profiles: ("workspace" | "cms")[];
-    surfaces: ("workspace" | "cms" | "public")[];
-    audience: "authenticated" | "public";
+    surfaces: ("public" | "workspace" | "cms")[];
+    audience: "public" | "authenticated";
     requiredStates: ("error" | "forbidden" | "loading" | "empty")[];
     permission?: string | undefined;
     sourcePolicy?: {
@@ -5027,8 +5027,8 @@ export declare const salesIntegrationSettingsBlockDescriptor: {
         required?: string[] | undefined;
     };
     profiles: ("workspace" | "cms")[];
-    surfaces: ("workspace" | "cms" | "public")[];
-    audience: "authenticated" | "public";
+    surfaces: ("public" | "workspace" | "cms")[];
+    audience: "public" | "authenticated";
     requiredStates: ("error" | "forbidden" | "loading" | "empty")[];
     permission?: string | undefined;
     sourcePolicy?: {
@@ -5070,8 +5070,8 @@ export declare const salesAccountListComponentDescriptor: {
         required?: string[] | undefined;
     };
     profiles: ("workspace" | "cms")[];
-    surfaces: ("workspace" | "cms" | "public")[];
-    audience: "authenticated" | "public";
+    surfaces: ("public" | "workspace" | "cms")[];
+    audience: "public" | "authenticated";
     requiredStates: ("error" | "forbidden" | "loading" | "empty")[];
     permission?: string | undefined;
     sourcePolicy?: {
@@ -5104,8 +5104,8 @@ export declare const salesAccountDetailComponentDescriptor: {
         required?: string[] | undefined;
     };
     profiles: ("workspace" | "cms")[];
-    surfaces: ("workspace" | "cms" | "public")[];
-    audience: "authenticated" | "public";
+    surfaces: ("public" | "workspace" | "cms")[];
+    audience: "public" | "authenticated";
     requiredStates: ("error" | "forbidden" | "loading" | "empty")[];
     permission?: string | undefined;
     sourcePolicy?: {
@@ -5138,8 +5138,8 @@ export declare const salesContactListComponentDescriptor: {
         required?: string[] | undefined;
     };
     profiles: ("workspace" | "cms")[];
-    surfaces: ("workspace" | "cms" | "public")[];
-    audience: "authenticated" | "public";
+    surfaces: ("public" | "workspace" | "cms")[];
+    audience: "public" | "authenticated";
     requiredStates: ("error" | "forbidden" | "loading" | "empty")[];
     permission?: string | undefined;
     sourcePolicy?: {
@@ -5172,8 +5172,8 @@ export declare const salesContactDetailComponentDescriptor: {
         required?: string[] | undefined;
     };
     profiles: ("workspace" | "cms")[];
-    surfaces: ("workspace" | "cms" | "public")[];
-    audience: "authenticated" | "public";
+    surfaces: ("public" | "workspace" | "cms")[];
+    audience: "public" | "authenticated";
     requiredStates: ("error" | "forbidden" | "loading" | "empty")[];
     permission?: string | undefined;
     sourcePolicy?: {
@@ -5206,8 +5206,8 @@ export declare const salesLeadListComponentDescriptor: {
         required?: string[] | undefined;
     };
     profiles: ("workspace" | "cms")[];
-    surfaces: ("workspace" | "cms" | "public")[];
-    audience: "authenticated" | "public";
+    surfaces: ("public" | "workspace" | "cms")[];
+    audience: "public" | "authenticated";
     requiredStates: ("error" | "forbidden" | "loading" | "empty")[];
     permission?: string | undefined;
     sourcePolicy?: {
@@ -5240,8 +5240,8 @@ export declare const salesLeadDetailComponentDescriptor: {
         required?: string[] | undefined;
     };
     profiles: ("workspace" | "cms")[];
-    surfaces: ("workspace" | "cms" | "public")[];
-    audience: "authenticated" | "public";
+    surfaces: ("public" | "workspace" | "cms")[];
+    audience: "public" | "authenticated";
     requiredStates: ("error" | "forbidden" | "loading" | "empty")[];
     permission?: string | undefined;
     sourcePolicy?: {
@@ -5274,8 +5274,8 @@ export declare const salesAccountListBlockDescriptor: {
         required?: string[] | undefined;
     };
     profiles: ("workspace" | "cms")[];
-    surfaces: ("workspace" | "cms" | "public")[];
-    audience: "authenticated" | "public";
+    surfaces: ("public" | "workspace" | "cms")[];
+    audience: "public" | "authenticated";
     requiredStates: ("error" | "forbidden" | "loading" | "empty")[];
     permission?: string | undefined;
     sourcePolicy?: {
@@ -5308,8 +5308,8 @@ export declare const salesAccountDetailBlockDescriptor: {
         required?: string[] | undefined;
     };
     profiles: ("workspace" | "cms")[];
-    surfaces: ("workspace" | "cms" | "public")[];
-    audience: "authenticated" | "public";
+    surfaces: ("public" | "workspace" | "cms")[];
+    audience: "public" | "authenticated";
     requiredStates: ("error" | "forbidden" | "loading" | "empty")[];
     permission?: string | undefined;
     sourcePolicy?: {
@@ -5342,8 +5342,8 @@ export declare const salesContactListBlockDescriptor: {
         required?: string[] | undefined;
     };
     profiles: ("workspace" | "cms")[];
-    surfaces: ("workspace" | "cms" | "public")[];
-    audience: "authenticated" | "public";
+    surfaces: ("public" | "workspace" | "cms")[];
+    audience: "public" | "authenticated";
     requiredStates: ("error" | "forbidden" | "loading" | "empty")[];
     permission?: string | undefined;
     sourcePolicy?: {
@@ -5376,8 +5376,8 @@ export declare const salesContactDetailBlockDescriptor: {
         required?: string[] | undefined;
     };
     profiles: ("workspace" | "cms")[];
-    surfaces: ("workspace" | "cms" | "public")[];
-    audience: "authenticated" | "public";
+    surfaces: ("public" | "workspace" | "cms")[];
+    audience: "public" | "authenticated";
     requiredStates: ("error" | "forbidden" | "loading" | "empty")[];
     permission?: string | undefined;
     sourcePolicy?: {
@@ -5410,8 +5410,8 @@ export declare const salesLeadListBlockDescriptor: {
         required?: string[] | undefined;
     };
     profiles: ("workspace" | "cms")[];
-    surfaces: ("workspace" | "cms" | "public")[];
-    audience: "authenticated" | "public";
+    surfaces: ("public" | "workspace" | "cms")[];
+    audience: "public" | "authenticated";
     requiredStates: ("error" | "forbidden" | "loading" | "empty")[];
     permission?: string | undefined;
     sourcePolicy?: {
@@ -5444,8 +5444,8 @@ export declare const salesLeadDetailBlockDescriptor: {
         required?: string[] | undefined;
     };
     profiles: ("workspace" | "cms")[];
-    surfaces: ("workspace" | "cms" | "public")[];
-    audience: "authenticated" | "public";
+    surfaces: ("public" | "workspace" | "cms")[];
+    audience: "public" | "authenticated";
     requiredStates: ("error" | "forbidden" | "loading" | "empty")[];
     permission?: string | undefined;
     sourcePolicy?: {
@@ -5480,8 +5480,8 @@ export declare const salesReportBlockDescriptors: readonly [{
         required?: string[] | undefined;
     };
     profiles: ("workspace" | "cms")[];
-    surfaces: ("workspace" | "cms" | "public")[];
-    audience: "authenticated" | "public";
+    surfaces: ("public" | "workspace" | "cms")[];
+    audience: "public" | "authenticated";
     requiredStates: ("error" | "forbidden" | "loading" | "empty")[];
     permission?: string | undefined;
     sourcePolicy?: {
@@ -5513,8 +5513,8 @@ export declare const salesReportBlockDescriptors: readonly [{
         required?: string[] | undefined;
     };
     profiles: ("workspace" | "cms")[];
-    surfaces: ("workspace" | "cms" | "public")[];
-    audience: "authenticated" | "public";
+    surfaces: ("public" | "workspace" | "cms")[];
+    audience: "public" | "authenticated";
     requiredStates: ("error" | "forbidden" | "loading" | "empty")[];
     permission?: string | undefined;
     sourcePolicy?: {
@@ -5546,8 +5546,8 @@ export declare const salesReportBlockDescriptors: readonly [{
         required?: string[] | undefined;
     };
     profiles: ("workspace" | "cms")[];
-    surfaces: ("workspace" | "cms" | "public")[];
-    audience: "authenticated" | "public";
+    surfaces: ("public" | "workspace" | "cms")[];
+    audience: "public" | "authenticated";
     requiredStates: ("error" | "forbidden" | "loading" | "empty")[];
     permission?: string | undefined;
     sourcePolicy?: {
@@ -5579,8 +5579,8 @@ export declare const salesReportBlockDescriptors: readonly [{
         required?: string[] | undefined;
     };
     profiles: ("workspace" | "cms")[];
-    surfaces: ("workspace" | "cms" | "public")[];
-    audience: "authenticated" | "public";
+    surfaces: ("public" | "workspace" | "cms")[];
+    audience: "public" | "authenticated";
     requiredStates: ("error" | "forbidden" | "loading" | "empty")[];
     permission?: string | undefined;
     sourcePolicy?: {
@@ -5612,8 +5612,8 @@ export declare const salesReportBlockDescriptors: readonly [{
         required?: string[] | undefined;
     };
     profiles: ("workspace" | "cms")[];
-    surfaces: ("workspace" | "cms" | "public")[];
-    audience: "authenticated" | "public";
+    surfaces: ("public" | "workspace" | "cms")[];
+    audience: "public" | "authenticated";
     requiredStates: ("error" | "forbidden" | "loading" | "empty")[];
     permission?: string | undefined;
     sourcePolicy?: {
@@ -5645,8 +5645,8 @@ export declare const salesReportBlockDescriptors: readonly [{
         required?: string[] | undefined;
     };
     profiles: ("workspace" | "cms")[];
-    surfaces: ("workspace" | "cms" | "public")[];
-    audience: "authenticated" | "public";
+    surfaces: ("public" | "workspace" | "cms")[];
+    audience: "public" | "authenticated";
     requiredStates: ("error" | "forbidden" | "loading" | "empty")[];
     permission?: string | undefined;
     sourcePolicy?: {
@@ -5678,8 +5678,8 @@ export declare const salesReportBlockDescriptors: readonly [{
         required?: string[] | undefined;
     };
     profiles: ("workspace" | "cms")[];
-    surfaces: ("workspace" | "cms" | "public")[];
-    audience: "authenticated" | "public";
+    surfaces: ("public" | "workspace" | "cms")[];
+    audience: "public" | "authenticated";
     requiredStates: ("error" | "forbidden" | "loading" | "empty")[];
     permission?: string | undefined;
     sourcePolicy?: {

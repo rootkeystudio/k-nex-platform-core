@@ -1099,13 +1099,81 @@ async function salesActionRecord(capability: PayloadPersistenceCapabilityContext
       : scope.and;
   const select = collection === "sales-pipelines" ? { status: true, revision: true } : collection === "sales-saved-views" ? { ownerId: true, visibility: true, visibilityTeamId: true, status: true, revision: true }
     : collection === "sales-notifications" || collection === "sales-reminders" ? { recipientId: true, state: true, revision: true }
-    : { ownerId: true, teamId: true, status: true, archiveStatus: true, revision: true, accountId: true, relatedRecordType: true, relatedRecordId: true };
+    : { ownerId: true, teamId: true, status: true, archiveStatus: true, revision: true, accountId: true, pipelineId: true, stageId: true, relatedRecordType: true, relatedRecordId: true };
   const result = await capability.payload.find({ collection, depth: 0, limit: 1, pagination: false, overrideAccess: true,
     select, where: { and: [{ id: { equals: id } }, ...authorityWhere] } }) as { docs?: unknown };
   if (!Array.isArray(result.docs) || result.docs.length !== 1 || result.docs[0] === null || typeof result.docs[0] !== "object") {
     throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales action target is unavailable.");
   }
-  return result.docs[0] as { ownerId?: unknown; teamId?: unknown; visibility?: unknown; visibilityTeamId?: unknown; status?: unknown; archiveStatus?: unknown; revision?: unknown; accountId?: unknown; relatedRecordType?: unknown; relatedRecordId?: unknown };
+  return result.docs[0] as { ownerId?: unknown; teamId?: unknown; visibility?: unknown; visibilityTeamId?: unknown; status?: unknown; archiveStatus?: unknown; revision?: unknown; accountId?: unknown; pipelineId?: unknown; stageId?: unknown; relatedRecordType?: unknown; relatedRecordId?: unknown };
+}
+
+export type WorkspaceSalesRouteActionIntent = Readonly<{ kind: "opportunity-close" | "opportunity-stage-update"; routeId: "sales.route.opportunity-detail"; nodeId: string }>;
+
+function closeIntent(input: unknown): Readonly<{ id: string; expectedRevision: number; destinationSemantic: "won" | "lost"; lossReason?: string }> {
+  if (input === null || typeof input !== "object" || Array.isArray(input)) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales close intent is invalid.");
+  const value = input as Readonly<Record<string, unknown>>; const keys = Object.keys(value).sort().join("\\0");
+  if (keys !== "expectedRevision\\0id\\0stage" && keys !== "expectedRevision\\0id\\0lossReason\\0stage" || typeof value.id !== "string" || !/^(?:[1-9][0-9]{0,8}|1[0-9]{9}|20[0-9]{8}|21[0-3][0-9]{7}|214[0-6][0-9]{6}|2147[0-3][0-9]{5}|21474[0-7][0-9]{4}|214748[0-2][0-9]{3}|2147483[0-5][0-9]{2}|21474836[0-3][0-9]|214748364[0-7])$/u.test(value.id) || !positiveSafeInteger(value.expectedRevision) || value.stage !== "won" && value.stage !== "lost") throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales close intent is invalid.");
+  const lossReason = value.lossReason;
+  if (value.stage === "lost" ? typeof lossReason !== "string" || lossReason.trim() !== lossReason || Buffer.byteLength(lossReason) < 1 || Buffer.byteLength(lossReason) > 500 : lossReason !== undefined) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales close intent is invalid.");
+  const exactLossReason = typeof lossReason === "string" ? lossReason : undefined;
+  return Object.freeze({ id: value.id, expectedRevision: value.expectedRevision, destinationSemantic: value.stage, ...(exactLossReason === undefined ? {} : { lossReason: exactLossReason }) });
+}
+
+function stageUpdateIntent(input: unknown): Readonly<{ id: string; expectedRevision: number; destinationSemantic: "qualification" | "discovery" | "proposal" | "negotiation" }> {
+  if (input === null || typeof input !== "object" || Array.isArray(input)) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales stage intent is invalid.");
+  const value = input as Readonly<Record<string, unknown>>;
+  if (Object.keys(value).sort().join("\\0") !== "expectedRevision\\0id\\0stage" || typeof value.id !== "string" || !/^(?:[1-9][0-9]{0,8}|1[0-9]{9}|20[0-9]{8}|21[0-3][0-9]{7}|214[0-6][0-9]{6}|2147[0-3][0-9]{5}|21474[0-7][0-9]{4}|214748[0-2][0-9]{3}|2147483[0-5][0-9]{2}|21474836[0-3][0-9]|214748364[0-7])$/u.test(value.id) || !positiveSafeInteger(value.expectedRevision) || !["qualification", "discovery", "proposal", "negotiation"].includes(value.stage as string)) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales stage intent is invalid.");
+  return Object.freeze({ id: value.id, expectedRevision: value.expectedRevision, destinationSemantic: value.stage as "qualification" | "discovery" | "proposal" | "negotiation" });
+}
+
+/** Fixed detail routes may name semantics only; all opaque Stage CAS facts stay server-side. */
+async function resolveOpportunityRouteIntent(payload: Payload, context: KnexRequestContext, capability: PayloadPersistenceCapabilityContext, current: Awaited<ReturnType<typeof actor>>, actionId: "sales.opportunity.close" | "sales.opportunity.stage.update", intent: Readonly<{ id: string; expectedRevision: number; destinationSemantic: string; lossReason?: string }>, signal: AbortSignal): Promise<Readonly<Record<string, unknown>>> {
+  // Read under the caller's current scope before acquiring locks, then lock the
+  // shared pipeline graph in the same order as canonical Opportunity actions.
+  if (signal.aborted) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales action target is unavailable.");
+  const preliminary = await salesActionRecord(capability, "sales-opportunities", intent.id, current.authorization);
+  if (!await allowed(payload, context, salesActionGrant(actionId).permissionId, intent.id, preliminary, signal, current.authorization)) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Current authority does not permit this action.");
+  const pipelineId = Number.isSafeInteger(preliminary.pipelineId) && (preliminary.pipelineId as number) > 0 ? preliminary.pipelineId as number
+    : typeof preliminary.pipelineId === "string" && /^(?:[1-9][0-9]{0,8}|1[0-9]{9}|20[0-9]{8}|21[0-3][0-9]{7}|214[0-6][0-9]{6}|2147[0-3][0-9]{5}|21474[0-7][0-9]{4}|214748[0-2][0-9]{3}|2147483[0-5][0-9]{2}|21474836[0-3][0-9]|214748364[0-7])$/u.test(preliminary.pipelineId) ? Number(preliminary.pipelineId) : undefined;
+  const sourceStageId = typeof preliminary.stageId === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(preliminary.stageId) ? preliminary.stageId : undefined;
+  if (pipelineId === undefined || sourceStageId === undefined) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales action target is unavailable.");
+  const transaction = await activePayloadPostgresTransaction(current.request);
+  const pipeline = postgresRows(await transaction.execute(sql\`
+    SELECT "id","revision" FROM "sales_pipelines"
+    WHERE "application_id"=\${kNexIdentity.applicationId} AND "environment"=\${kNexIdentity.environment}
+      AND "id"=\${pipelineId} AND "status"='active' AND "is_active"=true
+    FOR UPDATE
+  \`));
+  if (pipeline.length !== 1 || pipeline[0] === null || typeof pipeline[0] !== "object" || Array.isArray(pipeline[0])) throw new ActionGatewayError("STALE_RECORD", 409, "Sales opportunity or pipeline changed before route action.");
+  const stages = postgresRows(await transaction.execute(sql\`
+    SELECT "stage_id","semantic","revision" FROM "sales_pipeline_stages"
+    WHERE "application_id"=\${kNexIdentity.applicationId} AND "environment"=\${kNexIdentity.environment}
+      AND "pipeline_id"=\${pipelineId} AND "status"='active'
+    ORDER BY "stage_id" FOR UPDATE
+  \`));
+  if (stages.length !== 6) throw new ActionGatewayError("STALE_RECORD", 409, "Sales opportunity or pipeline changed before route action.");
+  if (await capability.guard({ collection: "sales-opportunities", id: intent.id, operation: "update" }) !== true) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales action target is unavailable.");
+  const currentRecord = await salesActionRecord(capability, "sales-opportunities", intent.id, current.authorization);
+  if (!await allowed(payload, context, salesActionGrant(actionId).permissionId, intent.id, currentRecord, signal, current.authorization) || !await currentSalesAuthorityFence(current.request, current.authorization)) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Current authority does not permit this action.");
+  const rows = postgresRows(await transaction.execute(sql\`
+    SELECT opportunity."revision" AS "opportunity_revision", pipeline."id" AS "pipeline_id", pipeline."revision" AS "pipeline_revision",
+      source."stage_id" AS "source_stage_id", source."revision" AS "source_stage_revision",
+      destination."stage_id" AS "destination_stage_id", destination."revision" AS "destination_stage_revision"
+    FROM "sales_opportunities" AS opportunity
+    JOIN "sales_pipelines" AS pipeline ON pipeline."id"=opportunity."pipeline_id" AND pipeline."application_id"=opportunity."application_id" AND pipeline."environment"=opportunity."environment" AND pipeline."status"='active' AND pipeline."is_active"=true
+    JOIN "sales_pipeline_stages" AS source ON source."application_id"=opportunity."application_id" AND source."environment"=opportunity."environment" AND source."pipeline_id"=opportunity."pipeline_id" AND source."stage_id"=opportunity."stage_id" AND source."status"='active'
+    JOIN "sales_pipeline_stages" AS destination ON destination."application_id"=opportunity."application_id" AND destination."environment"=opportunity."environment" AND destination."pipeline_id"=opportunity."pipeline_id" AND destination."semantic"=\${intent.destinationSemantic} AND destination."status"='active'
+    WHERE opportunity."id"=\${intent.id} AND opportunity."application_id"=\${kNexIdentity.applicationId} AND opportunity."environment"=\${kNexIdentity.environment} AND opportunity."archive_status"='active'
+  \`));
+  const row = rows[0];
+  if (rows.length !== 1 || row === null || typeof row !== "object" || Array.isArray(row)) throw new ActionGatewayError("STALE_RECORD", 409, "Sales opportunity or pipeline changed before route action.");
+  const value = row as Readonly<Record<string, unknown>>;
+  const stageId = (candidate: unknown) => typeof candidate === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(candidate) ? candidate : undefined;
+  const lockedStages = new Map(stages.flatMap((raw) => raw !== null && typeof raw === "object" && !Array.isArray(raw) && stageId((raw as Record<string, unknown>).stage_id) !== undefined && typeof (raw as Record<string, unknown>).semantic === "string" && positiveSafeInteger((raw as Record<string, unknown>).revision) ? [[(raw as Record<string, unknown>).stage_id as string, raw as Record<string, unknown>]] : []));
+  const lockedSourceStageId = stageId(value.source_stage_id); const lockedDestinationStageId = stageId(value.destination_stage_id);
+  if (!positiveSafeInteger(value.opportunity_revision) || !positiveSafeInteger(value.pipeline_id) || !positiveSafeInteger(value.pipeline_revision) || !positiveSafeInteger(value.source_stage_revision) || !positiveSafeInteger(value.destination_stage_revision) || lockedSourceStageId === undefined || lockedDestinationStageId === undefined || lockedStages.get(lockedSourceStageId) === undefined || lockedStages.get(lockedDestinationStageId) === undefined) throw new ActionGatewayError("STALE_RECORD", 409, "Sales opportunity or pipeline changed before route action.");
+  return Object.freeze({ id: intent.id, expectedRevision: value.opportunity_revision, expectedPipelineId: String(value.pipeline_id), expectedPipelineRevision: value.pipeline_revision, expectedSourceStageId: lockedSourceStageId, expectedSourceStageRevision: value.source_stage_revision, destinationStageId: lockedDestinationStageId, expectedDestinationStageRevision: value.destination_stage_revision, ...(intent.lossReason === undefined ? {} : { lossReason: intent.lossReason }) });
 }
 
 async function salesNoteReplacementIdentity(request: PayloadRequest, id: string) {
@@ -1657,7 +1725,7 @@ export async function projectWorkspaceSalesDocument(payload: Payload, context: K
   } finally { if (!settled && document !== undefined) await abandonSavedViewExecution(document); }
 }
 
-export async function executeWorkspaceSalesAction(payload: Payload, context: KnexRequestContext, action: Readonly<{ id: string; version: number }>, input: unknown, idempotencyKey: string, signal: AbortSignal) {
+export async function executeWorkspaceSalesAction(payload: Payload, context: KnexRequestContext, action: Readonly<{ id: string; version: number }>, input: unknown, idempotencyKey: string, signal: AbortSignal, routeIntent?: WorkspaceSalesRouteActionIntent) {
   const contribution = kNexSalesRegistry.scopedRegistration.contributions.actions.find((entry) => entry.id === action.id)?.value as { readonly descriptor?: { readonly id?: unknown; readonly version?: unknown } } | undefined;
   if (contribution?.descriptor?.id !== action.id || contribution.descriptor.version !== action.version) throw Object.assign(new Error("Workspace Sales action is unavailable."), { code: "NOT_FOUND" });
   let persistence: PayloadPersistenceCapabilityContext | undefined;
@@ -1665,13 +1733,14 @@ export async function executeWorkspaceSalesAction(payload: Payload, context: Kne
   let currentAuthorization: ReturnType<typeof authorization> | undefined;
   let actionReportingTimezone: LockedSalesReportingTimezone | undefined;
   let trustedTaskCreateRequest: PayloadRequest | undefined;
+  let preauthenticated: Awaited<ReturnType<typeof actor>> | undefined;
   const gateway = new RegisteredActionGateway(kNexSalesRegistry.scopedRegistration, {
     async authenticate(request) {
-      const current = await actor(payload, context, false, salesActionActorPermissionIds(action.id));
-      persistence = salesActionCapability(payload, context, current.request, action.id, current.authorization);
-      idempotency = { request: current.request, actionId: action.id, idempotencyKey: request.idempotencyKey ?? "", requestDigest: actionDigest({ actionId: action.id, input: request.input }) };
+      const current = preauthenticated ?? await actor(payload, context, false, salesActionActorPermissionIds(action.id));
+      persistence ??= salesActionCapability(payload, context, current.request, action.id, current.authorization);
+      idempotency ??= { request: current.request, actionId: action.id, idempotencyKey: request.idempotencyKey ?? "", requestDigest: actionDigest({ actionId: action.id, input: request.input }) };
       currentAuthorization = current.authorization;
-      await persistence.transaction.begin();
+      if (preauthenticated === undefined) await persistence.transaction.begin();
       await lockSalesPipelineReferences(current.request, action.id, request.input);
       actionReportingTimezone = await lockSalesReportingTimezone(current.request, action.id, request.input);
       return { actor: current.authorization, request: persistence, authorizationContext: Object.freeze({ ...context, actionId: action.id, dataMovement: current.dataMovement, providerGateway: current.providerGateway, reporting: current.reporting, reportingAuthority: current.reportingAuthority }) };
@@ -1850,6 +1919,20 @@ export async function executeWorkspaceSalesAction(payload: Payload, context: Kne
       ...(replay === undefined ? {} : { idempotencyReplay: replay }) });
         }});
   try {
+    if (routeIntent !== undefined) {
+      const expectedActionId = routeIntent.kind === "opportunity-close" ? "sales.opportunity.close" : "sales.opportunity.stage.update";
+      if (routeIntent.routeId !== "sales.route.opportunity-detail" || action.id !== expectedActionId || action.version < 1) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales route intent is unavailable.");
+      preauthenticated = await actor(payload, context, false, salesActionActorPermissionIds(action.id));
+      if (!preauthenticated.permissions.includes(salesActionGrant(action.id).permissionId)) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Current authority does not permit this action.");
+      persistence = salesActionCapability(payload, context, preauthenticated.request, action.id, preauthenticated.authorization);
+      currentAuthorization = preauthenticated.authorization;
+      await persistence.transaction.begin();
+      const intent = routeIntent.kind === "opportunity-close" ? closeIntent(input) : stageUpdateIntent(input);
+      idempotency = { request: preauthenticated.request, actionId: action.id, idempotencyKey, requestDigest: actionDigest({ actionId: action.id, input }) };
+      input = await resolveOpportunityRouteIntent(payload, context, persistence, preauthenticated, action.id, intent, signal);
+      const replay = await reserveSalesActionIdempotency(idempotency, currentAuthorization);
+      if (replay === undefined && (input as Readonly<Record<string, unknown>>).expectedRevision !== intent.expectedRevision) throw new ActionGatewayError("STALE_RECORD", 409, "Sales opportunity changed before route action.");
+    }
     const response = await gateway.execute({ correlationId: context.correlationId, rawRequest: Object.freeze({}), actionId: action.id, input, idempotencyKey, signal });
     if (response.ok && idempotency !== undefined && currentAuthorization !== undefined && idempotency.replay === undefined) await completeSalesActionIdempotency(idempotency, currentAuthorization, response.body.data);
     if (response.ok) await persistence?.transaction.commit();
@@ -1857,10 +1940,20 @@ export async function executeWorkspaceSalesAction(payload: Payload, context: Kne
     return response;
   } catch (error) {
     await persistence?.transaction.rollback();
+    if (error instanceof ActionGatewayError) return Object.freeze({
+      ok: false as const,
+      status: error.status,
+      body: Object.freeze({ code: error.code, status: error.status, detail: error.message, correlationId: context.correlationId.slice(0, 128) })
+    });
     throw error;
   } finally {
     if (trustedTaskCreateRequest !== undefined) revokeTrustedSalesTaskCreateId(trustedTaskCreateRequest);
   }
+}
+
+/** Fixed Sales-route intents are adapted before the unchanged canonical action gateway. */
+export async function executeWorkspaceSalesRouteAction(payload: Payload, context: KnexRequestContext, action: Readonly<{ id: string; version: number }>, input: unknown, idempotencyKey: string, signal: AbortSignal, intent: WorkspaceSalesRouteActionIntent | undefined) {
+  return executeWorkspaceSalesAction(payload, context, action, input, idempotencyKey, signal, intent);
 }
 `;
 }

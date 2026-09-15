@@ -82,6 +82,42 @@ describe("Sales fixed detail form interaction", () => {
     root.unmount();
   });
 
+  it("derives Close destinations and the required loss reason from the authoritative stage semantic", async () => {
+    const definition = salesUiBlockDefinitions.find(({ id }) => id === "sales.opportunity-detail")!;
+    const calls: Array<{ input: Record<string, unknown> }> = [];
+    const render = (semantic: "qualification" | "negotiation" | "won") => definition.render({
+      node: { id: "opportunity-close", type: definition.id, version: definition.version, props: { title: "Close opportunity" }, bindings: { source: { source: { id: salesOpportunityDetailDescriptor.id, version: salesOpportunityDetailDescriptor.version }, input: { id: "71" }, structuralCompatibilityHash: salesOpportunityDetailDescriptor.structuralCompatibilityHash, selectedFields: ["name", "stage-semantic", "archive-status", "revision"] }, action: { id: salesOpportunityCloseDescriptor.id, version: salesOpportunityCloseDescriptor.version } } },
+      props: { title: "Close opportunity" }, surface: "workspace", actor: { authenticated: true, permissions: new Set(["sales.opportunities.read", "sales.opportunities.close"]) },
+      sourceResult: { state: "success", data: { fields: ["name", "stage-semantic", "archive-status", "revision"], rows: [{ key: "71", values: { name: { kind: "text", value: "Opportunity" }, "stage-semantic": { kind: "enum", value: semantic }, "archive-status": { kind: "status", value: "active" }, revision: { kind: "integer", value: semantic === "qualification" ? 5 : semantic === "negotiation" ? 6 : 7 } } }], page: { number: 1, pageSize: 1, hasNext: false } } },
+      action: { id: salesOpportunityCloseDescriptor.id, version: salesOpportunityCloseDescriptor.version }, dispatchAction: async (request) => { calls.push(request as { input: Record<string, unknown> }); }
+    }).element as ReactNode;
+    const host = document.createElement("div"); document.body.append(host); const root = createRoot(host);
+
+    await act(async () => { root.render(render("qualification")); });
+    const qualificationStage = host.querySelector('[name="stage"]') as HTMLSelectElement;
+    expect(qualificationStage.value).toBe("lost");
+    expect(Array.from(qualificationStage.options).map(({ value }) => value)).toEqual(["lost"]);
+    const qualificationLossReason = host.querySelector('[name="lossReason"]') as HTMLInputElement;
+    expect(qualificationLossReason.required).toBe(true);
+    await act(async () => { change(qualificationLossReason, "Not ready"); host.querySelector("form")!.requestSubmit(); });
+    expect(calls[0]?.input).toEqual({ id: "71", expectedRevision: 5, stage: "lost", lossReason: "Not ready" });
+
+    await act(async () => { root.render(render("negotiation")); });
+    const negotiationStage = host.querySelector('[name="stage"]') as HTMLSelectElement;
+    expect(negotiationStage.value).toBe("won");
+    expect(Array.from(negotiationStage.options).map(({ value }) => value)).toEqual(["won", "lost"]);
+    expect(host.querySelector('[name="lossReason"]')).toBeNull();
+    await act(async () => { select(negotiationStage, "lost"); });
+    const negotiationLossReason = host.querySelector('[name="lossReason"]') as HTMLInputElement;
+    expect(negotiationLossReason.required).toBe(true);
+    await act(async () => { change(negotiationLossReason, "Budget"); host.querySelector("form")!.requestSubmit(); });
+    expect(calls[1]?.input).toEqual({ id: "71", expectedRevision: 6, stage: "lost", lossReason: "Budget" });
+
+    await act(async () => { root.render(render("won")); });
+    expect(host.querySelector("form")).toBeNull();
+    root.unmount();
+  });
+
   it("requires a canonical scheduled UTC instant, focuses errors, and dispatches the exact value", async () => {
     const definition = salesUiBlockDefinitions.find(({ id }) => id === "sales.account-detail")!;
     const calls: unknown[] = [];
@@ -254,7 +290,7 @@ describe("Sales fixed detail form interaction", () => {
     ["sales.account-detail", salesAccountDetailDescriptor, { name: { kind: "text", value: "Merged" }, "owner-id": { kind: "text", value: "owner-1" }, "team-id": null, status: { kind: "status", value: "merged" }, revision: { kind: "integer", value: 2 } }, [salesAccountUpdateDescriptor, salesAccountArchiveDescriptor, salesOwnershipAssignDescriptor]],
     ["sales.contact-detail", salesContactDetailDescriptor, { "display-name": { kind: "text", value: "Archived" }, "owner-id": { kind: "text", value: "owner-1" }, "team-id": null, "account-id": { kind: "integer", value: 1 }, status: { kind: "status", value: "archived" }, revision: { kind: "integer", value: 2 } }, [salesContactUpdateDescriptor, salesContactArchiveDescriptor, salesOwnershipAssignDescriptor]],
     ["sales.lead-detail", salesLeadDetailDescriptor, { "display-name": { kind: "text", value: "Qualified" }, "owner-id": { kind: "text", value: "owner-1" }, "team-id": null, status: { kind: "status", value: "qualified" }, "archive-status": { kind: "status", value: "active" }, revision: { kind: "integer", value: 2 } }, [salesLeadQualifyDescriptor, salesOwnershipAssignDescriptor]],
-    ["sales.opportunity-detail", salesOpportunityDetailDescriptor, { name: { kind: "text", value: "Won" }, "owner-id": { kind: "text", value: "owner-1" }, "team-id": null, "account-id": { kind: "integer", value: 1 }, "primary-contact-id": null, "pipeline-id": { kind: "integer", value: 2 }, "stage-id": { kind: "status", value: "won" }, "archive-status": { kind: "status", value: "active" }, revision: { kind: "integer", value: 2 } }, [salesOpportunityUpdateDescriptor, salesOpportunityStageUpdateDescriptor, salesOpportunityCloseDescriptor, salesOwnershipAssignDescriptor]]
+    ["sales.opportunity-detail", salesOpportunityDetailDescriptor, { name: { kind: "text", value: "Won" }, "owner-id": { kind: "text", value: "owner-1" }, "team-id": null, "account-id": { kind: "integer", value: 1 }, "primary-contact-id": null, "pipeline-id": { kind: "integer", value: 2 }, "pipeline-revision": { kind: "integer", value: 1 }, "stage-id": { kind: "status", value: "00000000-0000-5000-8000-000000000004" }, "stage-name": { kind: "text", value: "Won" }, "stage-semantic": { kind: "enum", value: "won" }, "stage-revision": { kind: "integer", value: 1 }, "archive-status": { kind: "status", value: "active" }, revision: { kind: "integer", value: 2 } }, [salesOpportunityUpdateDescriptor, salesOpportunityStageUpdateDescriptor, salesOpportunityCloseDescriptor, salesOwnershipAssignDescriptor]]
   ])("hides rejected terminal mutations but preserves permitted interactions for %s", async (definitionId, source, values, hiddenActions) => {
     const definition = salesUiBlockDefinitions.find(({ id }) => id === definitionId)!;
     const host = document.createElement("div"); document.body.append(host); const root = createRoot(host);
@@ -267,7 +303,7 @@ describe("Sales fixed detail form interaction", () => {
   });
 
   it("dispatches complete, cancel, and remove against selected timeline children", async () => {
-    const calls: Array<{ action: { id: string }; input: unknown }> = [];
+    const calls: Array<{ action: { id: string }; input: unknown; nodeId: string }> = [];
     const host = document.createElement("div"); document.body.append(host);
     const root = createRoot(host);
     await act(async () => { root.render(<SalesTimeline permissions={["sales.activities.write", "sales.attachments.write", "sales.tasks.read"]} dispatchAction={async (request) => { calls.push(request); }} requestState={{ state: "success", data: {
@@ -280,10 +316,10 @@ describe("Sales fixed detail form interaction", () => {
     for (const label of ["Complete Call Ada", "Cancel Call Ada", "Remove brief.pdf"]) {
       await act(async () => { (Array.from(host.querySelectorAll("button")).find((button) => button.textContent === label) as HTMLButtonElement).click(); });
     }
-    expect(calls.map(({ action, input }) => [action.id, input])).toEqual([
-      ["sales.activity.complete", { id: "12", expectedRevision: 4 }],
-      ["sales.activity.cancel", { id: "12", expectedRevision: 4 }],
-      ["sales.attachment.remove", { id: "13", expectedRevision: 2 }]
+    expect(calls.map(({ action, input, nodeId }) => [action.id, input, nodeId])).toEqual([
+      ["sales.activity.complete", { id: "12", expectedRevision: 4 }, "sales-fixed-timeline"],
+      ["sales.activity.cancel", { id: "12", expectedRevision: 4 }, "sales-fixed-timeline"],
+      ["sales.attachment.remove", { id: "13", expectedRevision: 2 }, "sales-fixed-timeline"]
     ]);
     expect(JSON.stringify(calls)).not.toContain("relatedRecordId");
     root.unmount();

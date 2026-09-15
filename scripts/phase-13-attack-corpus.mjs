@@ -81,6 +81,7 @@ const proofs = [
     "P13.3 CRM HTTP/PG actions preserve replay, target scope, and protected-input boundaries"
   ]),
   nodeProof("crm-browser", ["tests/p13-3-generated-crm-browser-postgres.test.mjs"], [
+    "P13.3 CRM fixture reuses only the exact generated system.general bootstrap",
     "P13.3 generated Payload and Next CRM routes pass real persona, keyboard, hidden-data, and accessibility journeys"
   ]),
   nodeProof("crm-recovery", [

@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
+
+import { canonicalJson } from "@k-nex/contracts";
 
 import { withGeneratedCrmBrowserFixture } from "./p13-3-generated-crm-fixture.mjs";
 
@@ -40,6 +43,27 @@ async function loserEvidence(pool, actionId, key, opportunityId) {
     (select count(*)::int from sales_action_idempotency where action_id=$1 and idempotency_key=$2) idempotency_count`, [actionId, key]);
   const opportunity = opportunityId === undefined ? undefined : (await pool.query("select revision,stage_id,closed_at,loss_reason,audit from sales_opportunities where id=$1", [opportunityId])).rows[0];
   return { ...result.rows[0], opportunity };
+}
+
+async function routeEvidence(pool, actionId, key, opportunityId) {
+  return (await pool.query(`select
+    (select revision from sales_opportunities where id=$3) opportunity_revision,
+    (select count(*)::int from jsonb_array_elements((select audit from sales_opportunities where id=$3)) entry where entry->>'actionId'=$1) audit_count,
+    (select count(*)::int from k_nex_outbox where payload->>'actionId'=$1) outbox_count,
+    (select count(*)::int from sales_action_idempotency where action_id=$1 and idempotency_key=$2) idempotency_count`, [actionId, key, opportunityId])).rows[0];
+}
+
+function resultDigest(value) {
+  return `sha256:${createHash("sha256").update(canonicalJson(value)).digest("hex")}`;
+}
+
+async function canonicalActionProblem(response, status, code, detail) {
+  assert.equal(response.status, status, await response.clone().text());
+  const body = await response.json();
+  assert.deepEqual(Object.keys(body).sort(), ["code", "correlationId", "detail", "status"]);
+  assert.deepEqual({ code: body.code, status: body.status, detail: body.detail }, { code, status, detail });
+  assert.equal(typeof body.correlationId, "string");
+  assert.match(body.correlationId, /^sales-route-action-[0-9a-f-]{36}$/u);
 }
 
 test("P13.4 generated transactions serialize pipeline snapshots against create, stage, and close without loser residue", { timeout: 480_000 }, async () => {
@@ -103,5 +127,116 @@ test("P13.4 generated transactions serialize pipeline snapshots against create, 
         assert.equal(typeof entry.actorId, "string"); winnerActorId ??= entry.actorId; assert.equal(entry.actorId, winnerActorId); assert.match(entry.occurredAt, /^\d{4}-\d{2}-\d{2}T/u);
       }
     }
+
+    // Route-private semantic inputs retain their digest, but a replay must still
+    // pass current target, scope, authority, and registered output validation.
+    const representativeCookie = await ownerSession(origin, personas.representative);
+    const representativeStage = (await pool.query("select revision from sales_opportunities where id=$1", [records.repOpportunityId])).rows[0];
+    const representativeInput = { id: records.repOpportunityId, expectedRevision: representativeStage.revision, stage: "discovery" };
+    const representativeKey = "p134-route-private-replay";
+    const representativeResponse = await action(origin, representativeCookie, "sales.opportunity.stage.update", "sales.route.opportunity-detail", "sales-page-opportunity-detail-main-action-1", representativeInput, representativeKey);
+    assert.equal(representativeResponse.status, 200, await representativeResponse.clone().text());
+    const representativeBody = await representativeResponse.json();
+    assert.deepEqual(Object.keys(representativeBody.data).sort(), ["id", "pipelineId", "revision", "stageId"]);
+    const replayBefore = await routeEvidence(pool, "sales.opportunity.stage.update", representativeKey, records.repOpportunityId);
+    const replayResponse = await action(origin, representativeCookie, "sales.opportunity.stage.update", "sales.route.opportunity-detail", "sales-page-opportunity-detail-main-action-1", representativeInput, representativeKey);
+    assert.equal(replayResponse.status, 200, await replayResponse.clone().text());
+    assert.deepEqual(await replayResponse.json(), representativeBody, "exact private intent replay must return the registered canonical output without another effect");
+    assert.deepEqual(await routeEvidence(pool, "sales.opportunity.stage.update", representativeKey, records.repOpportunityId), replayBefore, "exact private replay adds no audit, outbox, revision, or idempotency effect");
+
+    const changedIntent = await action(origin, representativeCookie, "sales.opportunity.stage.update", "sales.route.opportunity-detail", "sales-page-opportunity-detail-main-action-1", { ...representativeInput, stage: "proposal" }, representativeKey);
+    await canonicalActionProblem(changedIntent, 409, "IDEMPOTENCY_CONFLICT", "Sales action idempotency key was reused for different input.");
+    assert.deepEqual(await routeEvidence(pool, "sales.opportunity.stage.update", representativeKey, records.repOpportunityId), replayBefore, "changed private bytes conflict without a second effect");
+
+    const staleKey = "p134-route-private-stale";
+    const stale = await action(origin, representativeCookie, "sales.opportunity.stage.update", "sales.route.opportunity-detail", "sales-page-opportunity-detail-main-action-1", representativeInput, staleKey);
+    assert.equal(stale.status, 409, await stale.clone().text());
+    assert.equal((await routeEvidence(pool, "sales.opportunity.stage.update", staleKey, records.repOpportunityId)).idempotency_count, 0, "stale private resolution rolls back its pending reservation");
+
+    const managerCookie = await ownerSession(origin, personas.manager);
+    const managerStage = (await pool.query("select revision from sales_opportunities where id=$1", [records.repOpportunityId])).rows[0];
+    const managerInput = { id: records.repOpportunityId, expectedRevision: managerStage.revision, stage: "proposal" };
+    const managerKey = "p134-route-private-owner-scope";
+    const managerResponse = await action(origin, managerCookie, "sales.opportunity.stage.update", "sales.route.opportunity-detail", "sales-page-opportunity-detail-main-action-1", managerInput, managerKey);
+    assert.equal(managerResponse.status, 200, await managerResponse.clone().text());
+    const ownerId = String((await pool.query("select id from users where email=$1", [personas.owner.email])).rows[0]?.id); assert.notEqual(ownerId, "undefined");
+    await pool.query("update sales_opportunities set owner_id=$2,team_id=$3,updated_by=$2 where id=$1", [records.repOpportunityId, ownerId, `team:${ownerId}`]);
+    const scopeBefore = await routeEvidence(pool, "sales.opportunity.stage.update", managerKey, records.repOpportunityId);
+    const scopeDenied = await action(origin, managerCookie, "sales.opportunity.stage.update", "sales.route.opportunity-detail", "sales-page-opportunity-detail-main-action-1", managerInput, managerKey);
+    await canonicalActionProblem(scopeDenied, 403, "ACTION_FORBIDDEN", "Sales action target is unavailable.");
+    assert.deepEqual(await routeEvidence(pool, "sales.opportunity.stage.update", managerKey, records.repOpportunityId), scopeBefore, "owner/scope change denies completed private replay without durable delta");
+
+    const malformedStage = (await pool.query("select revision from sales_opportunities where id=$1", [records.opportunityLossId])).rows[0];
+    const malformedInput = { id: records.opportunityLossId, expectedRevision: malformedStage.revision, stage: "discovery" };
+    const malformedKey = "p134-route-private-malformed";
+    const ownerCookie = await ownerSession(origin, personas.owner);
+    const malformedSuccess = await action(origin, ownerCookie, "sales.opportunity.stage.update", "sales.route.opportunity-detail", "sales-page-opportunity-detail-main-action-1", malformedInput, malformedKey);
+    assert.equal(malformedSuccess.status, 200, await malformedSuccess.clone().text());
+    const malformedResult = { state: "succeeded", data: { id: records.opportunityLossId } };
+    await pool.query("update sales_action_idempotency set result_json=$1::jsonb,result_digest=$2 where action_id='sales.opportunity.stage.update' and idempotency_key=$3", [JSON.stringify(malformedResult), resultDigest(malformedResult), malformedKey]);
+    const malformedBefore = await routeEvidence(pool, "sales.opportunity.stage.update", malformedKey, records.opportunityLossId);
+    const malformedReplay = await action(origin, ownerCookie, "sales.opportunity.stage.update", "sales.route.opportunity-detail", "sales-page-opportunity-detail-main-action-1", malformedInput, malformedKey);
+    assert.equal(malformedReplay.status, 403, await malformedReplay.clone().text());
+    assert.equal((await malformedReplay.json()).code, "ACTION_FORBIDDEN");
+    assert.deepEqual(await routeEvidence(pool, "sales.opportunity.stage.update", malformedKey, records.opportunityLossId), malformedBefore, "malformed stored replay is rejected through the registered output schema without a leak or effect");
+
+    // The route adapter locks the graph before the target, matching canonical
+    // Stage actions. The canonical winner changes the target revision; the
+    // private loser must roll back its reservation instead of deadlocking.
+    const overlapSnapshot = await pipelineSnapshot(pool, records.pipelineId, "P13.4 route/private overlap");
+    const overlapCurrent = (await pool.query("select revision,stage_id,audit from sales_opportunities where id=$1", [records.opportunityArchiveId])).rows[0];
+    const overlapSource = overlapSnapshot.stages.find(({ stage_id }) => stage_id === overlapCurrent.stage_id);
+    const overlapDestination = overlapSnapshot.stages.find(({ semantic }) => semantic === "discovery");
+    assert.ok(overlapSource && overlapDestination);
+    const canonicalOverlapInput = {
+      id: String(records.opportunityArchiveId), expectedRevision: overlapCurrent.revision,
+      expectedPipelineId: String(overlapSnapshot.pipeline.id), expectedPipelineRevision: overlapSnapshot.pipeline.revision,
+      expectedSourceStageId: overlapSource.stage_id, expectedSourceStageRevision: overlapSource.revision,
+      destinationStageId: overlapDestination.stage_id, expectedDestinationStageRevision: overlapDestination.revision
+    };
+    const privateOverlapKey = "p134-route-private-overlap";
+    const privateOverlapInput = { id: records.opportunityArchiveId, expectedRevision: overlapCurrent.revision, stage: "lost", lossReason: "Route overlap stale loser" };
+    const overlapOutboxBefore = (await pool.query("select count(*)::int count from k_nex_outbox where payload->>'actionId'='sales.opportunity.stage.update'")).rows[0].count;
+    const overlapBlocker = await pool.connect();
+    try {
+      await overlapBlocker.query("begin");
+      await overlapBlocker.query("lock table sales_action_idempotency in access exclusive mode");
+      const canonicalWinner = action(origin, ownerCookie, "sales.opportunity.stage.update", "sales.route.opportunity-detail", "sales-page-opportunity-detail-main-action-1", canonicalOverlapInput, "p134-canonical-overlap-winner");
+      await waitForBlockedRequests(pool, 1);
+      const privateLoser = action(origin, ownerCookie, "sales.opportunity.close", "sales.route.opportunity-detail", "sales-page-opportunity-detail-main-action-2", privateOverlapInput, privateOverlapKey);
+      await waitForBlockedRequests(pool, 2);
+      await overlapBlocker.query("rollback");
+      const [winnerResponse, loserResponse] = await Promise.all([canonicalWinner, privateLoser]);
+      const [winnerText, loserText] = await Promise.all([winnerResponse.clone().text(), loserResponse.clone().text()]);
+      assert.equal(winnerResponse.status, 200, winnerText);
+      assert.equal(loserResponse.status, 409, loserText);
+      assert.doesNotMatch(`${winnerText}\n${loserText}`, /40P01|deadlock detected/iu, "route/private overlap must complete without a PostgreSQL deadlock");
+    } finally {
+      await overlapBlocker.query("rollback").catch(() => undefined);
+      overlapBlocker.release();
+    }
+    const overlapAfter = (await pool.query("select revision,stage_id,audit from sales_opportunities where id=$1", [records.opportunityArchiveId])).rows[0];
+    assert.equal(overlapAfter.revision, overlapCurrent.revision + 1, "canonical action is the sole deterministic winner");
+    assert.equal(overlapAfter.stage_id, overlapDestination.stage_id);
+    assert.deepEqual(overlapAfter.audit.slice(0, -1), overlapCurrent.audit, "loser cannot append an audit record");
+    assert.equal(overlapAfter.audit.at(-1)?.actionId, "sales.opportunity.stage.update");
+    assert.equal((await pool.query("select count(*)::int count from k_nex_outbox where payload->>'actionId'='sales.opportunity.stage.update'")).rows[0].count, overlapOutboxBefore + 1, "only canonical winner emits an outbox record");
+    assert.equal((await routeEvidence(pool, "sales.opportunity.close", privateOverlapKey, records.opportunityArchiveId)).idempotency_count, 0, "private loser leaves no pending idempotency row");
+
+    const resolverFailureKey = "p134-route-private-resolver-failure";
+    const resolverCurrent = (await pool.query("select revision from sales_opportunities where id=$1", [records.opportunityWinId])).rows[0];
+    await pool.query("update sales_opportunities set archive_status='archived' where id=$1", [records.opportunityWinId]);
+    const resolverFailure = await action(origin, ownerCookie, "sales.opportunity.stage.update", "sales.route.opportunity-detail", "sales-page-opportunity-detail-main-action-1", { id: records.opportunityWinId, expectedRevision: resolverCurrent.revision, stage: "discovery" }, resolverFailureKey);
+    await canonicalActionProblem(resolverFailure, 409, "STALE_RECORD", "Sales opportunity or pipeline changed before route action.");
+    assert.equal((await routeEvidence(pool, "sales.opportunity.stage.update", resolverFailureKey, records.opportunityWinId)).idempotency_count, 0, "resolver denial never leaves an idempotency reservation");
+
+    // Permission revocation plus the current authority revision must deny a
+    // previously completed private replay before its stored result is exposed.
+    const authorizationBefore = await routeEvidence(pool, "sales.opportunity.stage.update", representativeKey, records.repOpportunityId);
+    await pool.query("delete from k_nex_role_permission_grants where application_id='p13-crm-browser' and role_id='p13.crm.representative' and permission_id='sales.opportunities.stage.update'");
+    await pool.query("update k_nex_authorization_state set authorization_revision=authorization_revision+1 where application_id='p13-crm-browser'");
+    const authorizationDenied = await action(origin, representativeCookie, "sales.opportunity.stage.update", "sales.route.opportunity-detail", "sales-page-opportunity-detail-main-action-1", representativeInput, representativeKey);
+    await canonicalActionProblem(authorizationDenied, 403, "ACTION_FORBIDDEN", "Current authority does not permit this action.");
+    assert.deepEqual(await routeEvidence(pool, "sales.opportunity.stage.update", representativeKey, records.repOpportunityId), authorizationBefore, "permission/auth-revision change denies replay without a target, audit, outbox, or idempotency delta");
   });
 });

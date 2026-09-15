@@ -4,7 +4,7 @@ import test from "node:test";
 import { chromium } from "playwright";
 
 import { seriousAccessibilityViolations } from "./p13-3-browser-accessibility.mjs";
-import { withGeneratedCrmBrowserFixture } from "./p13-3-generated-crm-fixture.mjs";
+import { ensureCanonicalInitialSystemGeneral, withGeneratedCrmBrowserFixture } from "./p13-3-generated-crm-fixture.mjs";
 
 async function bounded(promise, label, timeoutMs = 25_000) {
   let timer;
@@ -105,12 +105,28 @@ async function exactDetailProjection(page, routeId, id, expected = {}) {
   return { projection: projection.body, record };
 }
 
+async function archivedAccountInteractionReady(page, id, revision) {
+  await eventually(async () => {
+    const { record } = await exactDetailProjection(page, "sales.route.account-detail", id, { status: "archived", revision });
+    return cellValue(record.values.status) === "archived"
+      && await page.locator('section[aria-label="Summary"] [data-slot="value"]', { hasText: "archived" }).count() === 1;
+  }, "archived account summary did not converge after its authoritative projection");
+  await eventually(async () => await page.getByRole("button", { name: "Note Create", exact: true }).count() === 1, "archived account lost its permitted Note Create interaction");
+}
+
 function currentDetail(page) {
   const segments = new URL(page.url()).pathname.split("/").filter(Boolean);
   if (segments.length !== 3 || segments[0] !== "sales") return undefined;
   const routes = { accounts: "account", contacts: "contact", leads: "lead", opportunities: "opportunity" };
   const kind = routes[segments[1]];
   return kind === undefined ? undefined : { id: segments[2], routeId: `sales.route.${kind}-detail` };
+}
+
+async function assertCanonicalOpportunityTransition(page, result, expected) {
+  assert.deepEqual(Object.keys(result).sort(), ["id", "pipelineId", "revision", "stageId"], "opportunity transition response must remain the closed opaque canonical shape");
+  assert.deepEqual({ id: result.id, pipelineId: result.pipelineId }, { id: expected.id, pipelineId: expected.pipelineId });
+  assert.match(result.stageId, /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u, "opportunity transition returns its opaque canonical stage identity");
+  await exactDetailProjection(page, "sales.route.opportunity-detail", expected.id, { "pipeline-id": expected.pipelineId, "stage-id": result.stageId, "stage-semantic": expected.semantic, revision: result.revision });
 }
 
 async function submitAction(page, actionId, fields = {}, options = {}) {
@@ -168,7 +184,8 @@ async function submitAction(page, actionId, fields = {}, options = {}) {
   assert.equal(typeof payload.data?.id, "string", `${actionId} returned no canonical ID.`);
   assert.equal(Number.isSafeInteger(payload.data?.revision), true, `${actionId} returned no revision.`);
   if (options.expectConfirmation !== false && options.terminal !== true) {
-    try { await form.getByRole("status").filter({ hasText: `${label} completed.` }).waitFor(); }
+    const completion = page.locator(`[data-k-nex-sales-action-id="${actionId}"][data-k-nex-sales-action-revision="${payload.data.revision}"]`);
+    try { await completion.getByText(`${label} completed.`, { exact: true }).waitFor(); }
     catch (error) { throw new Error(`${error}\n${actionId} response=${responseBody}\nstatuses=${JSON.stringify(await page.getByRole("status").allInnerTexts())}`); }
   }
   if (priorRevision !== undefined) {
@@ -371,6 +388,37 @@ async function assertTimelineRow(page, label, status) {
   await row.getByText(status, { exact: false }).waitFor();
 }
 
+test("P13.3 CRM fixture reuses only the exact generated system.general bootstrap", async () => {
+  const queries = [];
+  const canonicalPool = {
+    query: async (text) => {
+      queries.push(text);
+      if (text.includes("from k_nex_system_settings_state")) return { rows: [{ settings_revision: 1 }] };
+      if (text.includes("from k_nex_system_settings_documents")) return { rows: [{
+        descriptor_schema_version: 3, owner_scope_key: "platform:system", owner_kind: "platform", owner_namespace: "system",
+        owner_delivery_class: null, owner_extension_id: null, owner_generation: null, document_revision: 1, settings_revision: 1,
+        values_json: { siteName: "K-Nex", reportingCurrency: "USD", reportingTimezone: "UTC" }
+      }] };
+      throw new Error(`unexpected fixture query: ${text}`);
+    }
+  };
+  await ensureCanonicalInitialSystemGeneral(canonicalPool);
+  assert.equal(queries.length, 2, "canonical generated bootstrap must be reused without a fixture write");
+
+  const mismatchedPool = {
+    query: async (text) => {
+      if (text.includes("from k_nex_system_settings_state")) return { rows: [{ settings_revision: 1 }] };
+      if (text.includes("from k_nex_system_settings_documents")) return { rows: [{
+        descriptor_schema_version: 3, owner_scope_key: "platform:system", owner_kind: "platform", owner_namespace: "system",
+        owner_delivery_class: null, owner_extension_id: null, owner_generation: null, document_revision: 1, settings_revision: 1,
+        values_json: { siteName: "Forged", reportingCurrency: "USD", reportingTimezone: "UTC" }
+      }] };
+      throw new Error(`fixture must not write a conflicting bootstrap: ${text}`);
+    }
+  };
+  await assert.rejects(ensureCanonicalInitialSystemGeneral(mismatchedPool), /system\.general conflicts with the canonical generated bootstrap/u);
+});
+
 test("P13.3 generated Payload and Next CRM routes pass real persona, keyboard, hidden-data, and accessibility journeys", { timeout: 360_000 }, async () => {
   await withGeneratedCrmBrowserFixture(async ({ origin, personas, records, pool, applicationOutput }) => {
     const stage = (value) => process.stdout.write(`P13_3_CRM_BROWSER_STAGE ${value}\n`);
@@ -518,24 +566,48 @@ test("P13.3 generated Payload and Next CRM routes pass real persona, keyboard, h
       await submitAction(owner.page, "sales.lead.archive", {}, { terminal: true });
 
       await accessible(owner.page, "/sales/opportunities");
-      const createdOpportunity = await submitAction(owner.page, "sales.opportunity.create", { Name: "Browser created opportunity", "Account ID": records.accountId, "Pipeline ID": records.pipelineId, "Stage ID": "qualification" });
-      assert.deepEqual({ revision: createdOpportunity.revision, status: createdOpportunity.status }, { revision: 1, status: "qualification" });
-      await exactDetailProjection(owner.page, "sales.route.opportunity-detail", createdOpportunity.id, { name: "Browser created opportunity", "account-id": records.accountId, "pipeline-id": records.pipelineId, "stage-id": "qualification", revision: 1 });
+      assert.match(records.qualificationStageId, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u, "fixture must expose the opaque qualification stage identity");
+      assert.equal(records.pipelineRevision, 1, "fixture must expose the pipeline CAS revision");
+      assert.equal(records.qualificationStageRevision, 1, "fixture must expose the qualification stage CAS revision");
+      const createdOpportunity = await submitAction(owner.page, "sales.opportunity.create", { Name: "Browser created opportunity", "Account ID": records.accountId, "Pipeline ID": records.pipelineId, "Expected pipeline revision": records.pipelineRevision, "Stage ID": records.qualificationStageId, "Expected stage revision": records.qualificationStageRevision });
+      assert.equal(createdOpportunity.stageId, records.qualificationStageId);
+      await assertCanonicalOpportunityTransition(owner.page, createdOpportunity, { id: createdOpportunity.id, pipelineId: records.pipelineId, semantic: "qualification" });
+      await exactDetailProjection(owner.page, "sales.route.opportunity-detail", createdOpportunity.id, { name: "Browser created opportunity", "account-id": records.accountId });
       await accessible(owner.page, `/sales/opportunities/${records.opportunityWinId}`);
-      await submitAction(owner.page, "sales.opportunity.update", { Name: "Browser-updated opportunity" });
+      const beforeOpportunityUpdate = await exactDetailProjection(owner.page, "sales.route.opportunity-detail", records.opportunityWinId);
+      const projectedPipelineId = cellValue(beforeOpportunityUpdate.record.values["pipeline-id"]);
+      const retainedOpportunityState = Object.freeze({
+        "pipeline-id": String(projectedPipelineId),
+        "pipeline-revision": cellValue(beforeOpportunityUpdate.record.values["pipeline-revision"]),
+        "stage-id": cellValue(beforeOpportunityUpdate.record.values["stage-id"]),
+        "stage-semantic": cellValue(beforeOpportunityUpdate.record.values["stage-semantic"]),
+        "stage-revision": cellValue(beforeOpportunityUpdate.record.values["stage-revision"]),
+        revision: cellValue(beforeOpportunityUpdate.record.values.revision)
+      });
+      assert.equal(Number.isSafeInteger(projectedPipelineId) && projectedPipelineId > 0, true, "opportunity update requires its authoritative pre-update pipeline identity");
+      assert.equal(retainedOpportunityState["pipeline-id"], records.pipelineId, "projection pipeline identity must canonicalize only at the action boundary");
+      assert.match(retainedOpportunityState["stage-id"], /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u, "opportunity update requires its authoritative pre-update opaque stage identity");
+      assert.equal(typeof retainedOpportunityState["stage-semantic"], "string", "opportunity update requires the authoritative pre-update stage semantic");
+      assert.equal(Number.isSafeInteger(retainedOpportunityState.revision), true, "opportunity update requires its authoritative pre-update revision");
+      const updatedOpportunity = await submitAction(owner.page, "sales.opportunity.update", { Name: "Browser-updated opportunity" });
+      assert.equal(updatedOpportunity.revision, retainedOpportunityState.revision + 1, "opportunity update must advance only the record revision");
+      await exactDetailProjection(owner.page, "sales.route.opportunity-detail", records.opportunityWinId, { name: "Browser-updated opportunity", ...retainedOpportunityState, revision: updatedOpportunity.revision });
       const won = await submitAction(owner.page, "sales.opportunity.close", { Stage: "won" }, { terminal: true });
-      assert.equal(won.status, "won");
+      await assertCanonicalOpportunityTransition(owner.page, won, { id: records.opportunityWinId, pipelineId: records.pipelineId, semantic: "won" });
       await assertHidden(owner.page, ["Opportunity Update", "Opportunity Stage Update", "Opportunity Close", "Ownership Assign"]);
       assert.equal(await owner.page.getByRole("button", { name: "Note Create", exact: true }).count(), 1, "terminal opportunity keeps permitted interactions");
       assert.equal(await owner.page.getByRole("button", { name: "Opportunity Archive", exact: true }).count(), 1, "won opportunity remains archivable");
       await submitAction(owner.page, "sales.opportunity.archive", {}, { terminal: true });
       assert.equal(await owner.page.getByRole("button", { name: "Opportunity Archive", exact: true }).count(), 0);
       await accessible(owner.page, `/sales/opportunities/${records.opportunityLossId}`);
-      await submitAction(owner.page, "sales.opportunity.stage.update", { Stage: "discovery" });
-      await submitAction(owner.page, "sales.opportunity.stage.update", { Stage: "proposal" });
-      await submitAction(owner.page, "sales.opportunity.stage.update", { Stage: "negotiation" });
+      await exactDetailProjection(owner.page, "sales.route.opportunity-detail", records.opportunityLossId, { "stage-semantic": "qualification" });
+      const earlyClose = owner.page.getByRole("button", { name: "Opportunity Close", exact: true });
+      const earlyCloseForm = earlyClose.locator("xpath=ancestor::form");
+      const earlyCloseStage = earlyCloseForm.getByLabel("Stage", { exact: true });
+      assert.deepEqual(await earlyCloseStage.locator("option").evaluateAll((options) => options.map((option) => option.value)), ["lost"], "qualification Close must not offer an impossible Won destination");
+      assert.equal(await earlyCloseForm.getByLabel("Loss reason", { exact: true }).evaluate((input) => input.required), true, "qualification Lost requires its reason before dispatch");
       const lost = await submitAction(owner.page, "sales.opportunity.close", { Stage: "lost", "Loss reason": "Browser loss" }, { terminal: true });
-      assert.equal(lost.status, "lost");
+      await assertCanonicalOpportunityTransition(owner.page, lost, { id: records.opportunityLossId, pipelineId: records.pipelineId, semantic: "lost" });
       await assertHidden(owner.page, ["Opportunity Update", "Opportunity Stage Update", "Opportunity Close", "Ownership Assign"]);
       assert.equal(await owner.page.getByRole("button", { name: "Opportunity Archive", exact: true }).count(), 1, "lost opportunity remains archivable");
       await submitAction(owner.page, "sales.opportunity.archive", {}, { terminal: true });
@@ -567,9 +639,9 @@ test("P13.3 generated Payload and Next CRM routes pass real persona, keyboard, h
       await submitAction(owner.page, "sales.contact.archive", {}, { terminal: true });
       await assertHidden(owner.page, ["Contact Update", "Contact Archive", "Ownership Assign"]);
       await accessible(owner.page, `/sales/accounts/${records.accountId}`);
-      await submitAction(owner.page, "sales.account.archive", {}, { terminal: true });
+      const archivedAccount = await submitAction(owner.page, "sales.account.archive", {}, { terminal: true });
       await assertHidden(owner.page, ["Account Update", "Account Archive", "Ownership Assign"]);
-      assert.equal(await owner.page.getByRole("button", { name: "Note Create", exact: true }).count(), 1, "archived account keeps permitted interactions");
+      await archivedAccountInteractionReady(owner.page, records.accountId, archivedAccount.revision);
       await owner.context.close();
       stage("account-archive-complete");
 
@@ -611,7 +683,7 @@ test("P13.3 generated Payload and Next CRM routes pass real persona, keyboard, h
       await assertHidden(representative.page, ["Opportunity Close", "Opportunity Archive", "Ownership Assign"]);
       assert.equal(await representative.page.getByRole("button", { name: "Opportunity Stage Update", exact: true }).count(), 1);
       const repStage = await submitAction(representative.page, "sales.opportunity.stage.update", { Stage: "discovery" });
-      assert.equal(repStage.stage, "discovery");
+      await assertCanonicalOpportunityTransition(representative.page, repStage, { id: records.repOpportunityId, pipelineId: records.pipelineId, semantic: "discovery" });
       await representative.context.close();
       stage("representative-complete");
 
@@ -619,7 +691,7 @@ test("P13.3 generated Payload and Next CRM routes pass real persona, keyboard, h
       await manager.page.getByText(`${records.repOpportunityAmount} ${records.repOpportunityCurrency}`, { exact: true }).waitFor();
       assert.deepEqual((await exactDetailProjection(manager.page, "sales.route.opportunity-detail", records.repOpportunityId)).record.values.amount, { kind: "money", value: records.repOpportunityAmount, currency: records.repOpportunityCurrency, scale: 2 });
       const managedClose = await submitAction(manager.page, "sales.opportunity.close", { Stage: "lost", "Loss reason": "Managed-team closure" }, { terminal: true });
-      assert.equal(managedClose.status, "lost");
+      await assertCanonicalOpportunityTransition(manager.page, managedClose, { id: records.repOpportunityId, pipelineId: records.pipelineId, semantic: "lost" });
       assert.equal(await manager.page.getByRole("button", { name: "Opportunity Archive", exact: true }).count(), 1);
       await submitAction(manager.page, "sales.opportunity.archive", {}, { terminal: true });
       await manager.context.close();

@@ -272,7 +272,7 @@ export function SalesTimeline({ requestState, permissions, dispatchAction, onRet
     const id = timelineEntryId(row, prefix); const revision = Number(cellText(row.values.revision));
     if (dispatchAction === undefined || id === undefined || !Number.isSafeInteger(revision)) return;
     try {
-      await dispatchAction({ action, input: { id, expectedRevision: revision }, nodeId: `sales-fixed-timeline-${row.key}` });
+      await dispatchAction({ action, input: { id, expectedRevision: revision }, nodeId: "sales-fixed-timeline" });
       setAnnouncement(`${label} completed.`);
     } catch { setAnnouncement(`${label} failed. Refresh record and try again.`); }
   };

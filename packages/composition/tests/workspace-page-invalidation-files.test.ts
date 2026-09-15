@@ -110,7 +110,12 @@ describe("generated workspace invalidation runtime", () => {
     expect(runtime).toContain("function fixedDetailTimelineDocument(document: UiDocument");
     expect(runtime).toContain('id: "sales-fixed-timeline"');
     expect(runtime).toContain('selectedFields: ["kind", "subject", "status", "occurred-at", "revision", ...(permissions.includes("sales.notes.body.read") ? ["body"] : [])]');
-    expect(runtime).toContain("executeWorkspaceSalesAction(payload, context, registeredAction(routeId, nodeId, actionId, selection)");
+    expect(runtime).toContain("const action = registeredAction(routeId, nodeId, actionId, selection);");
+    expect(runtime).toContain('const routeIntent = routeId === "sales.route.opportunity-detail" && input !== null && typeof input === "object" && !Array.isArray(input) && "stage" in input && (action.id === "sales.opportunity.close" || action.id === "sales.opportunity.stage.update")');
+    expect(runtime).toContain("canonical callers retain");
+    expect(runtime).toContain('kind: action.id === "sales.opportunity.close" ? "opportunity-close" as const : "opportunity-stage-update" as const');
+    expect(runtime).toContain("executeWorkspaceSalesRouteAction(payload, context, action, input, idempotencyKey, signal, routeIntent)");
+    expect(runtime.indexOf("const action = registeredAction(routeId, nodeId, actionId, selection);")).toBeLessThan(runtime.indexOf('const routeIntent = routeId === "sales.route.opportunity-detail"'));
     expect(runtime).not.toContain("openWorkspacePageSession");
     expect(client).toContain("createUiDocumentRuntime(createUiRuntimeRegistry");
     expect(client).toContain('const query = new URLSearchParams();');
@@ -181,6 +186,53 @@ describe("generated workspace invalidation runtime", () => {
     expect(readiness).toContain('"src/app/(workspace)/sales/opportunities/[id]/page.tsx"');
     expect(readiness).toContain('"src/app/api/k-nex/sales/actions/[actionId]/route.ts"');
     expect(readiness).toContain('"src/app/api/k-nex/sales/routes/[routeId]/route.ts"');
+  });
+
+  it("admits only exact registered fixed-detail timeline actions", () => {
+    const runtime = applicationAuthFiles({ applicationId: "customer-alpha", applicationName: "Customer Alpha", theme: "minimal" })["src/k-nex-sales-routes.ts"]!;
+    const body = runtime.slice(runtime.indexOf("type RegisteredRouteActionDescriptor"), runtime.indexOf("function fixedDetailState"));
+    const executable = ts.transpileModule(`${body}\nreturn registeredAction;`, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText;
+    const action = (id: string, version = 1) => ({ id, value: { descriptor: { id, version, permission: "sales.activities.write" } } });
+    const template = (actions: readonly { id: string; version: number }[]) => ({ document: { regions: { main: [] } }, requirements: { actions } });
+    const templates: Record<string, ReturnType<typeof template>> = {
+      "sales.route.account-detail": template([{ id: "sales.activity.complete", version: 1 }, { id: "sales.activity.cancel", version: 1 }, { id: "sales.attachment.remove", version: 1 }, { id: "sales.account.update", version: 1 }]),
+      "sales.route.accounts": template([{ id: "sales.activity.complete", version: 1 }]),
+      "sales.route.contact-detail": template([{ id: "sales.activity.complete", version: 2 }])
+    };
+    const registeredAction = new Function("kNexSalesRegistry", "routeTemplate", "withDataMovementSelection", "prepareWorkspaceSalesDocument", executable)(
+      { scopedRegistration: { contributions: { actions: [action("sales.activity.complete"), action("sales.activity.cancel"), action("sales.attachment.remove"), action("sales.account.update")] } } },
+      (routeId: string) => ({ template: templates[routeId]! }), (document: unknown) => document, (document: unknown) => document
+    ) as (routeId: string, nodeId: string, actionId: string, selection: unknown) => unknown;
+
+    expect(registeredAction("sales.route.account-detail", "sales-fixed-timeline", "sales.activity.complete", {})).toEqual({ id: "sales.activity.complete", version: 1 });
+    expect(() => registeredAction("sales.route.account-detail", "sales-fixed-timeline-activity:12", "sales.activity.complete", {})).toThrow("Sales route action is unavailable");
+    expect(() => registeredAction("sales.route.accounts", "sales-fixed-timeline", "sales.activity.complete", {})).toThrow("Sales route action is unavailable");
+    expect(() => registeredAction("sales.route.account-detail", "sales-fixed-timeline", "sales.account.update", {})).toThrow("Sales route action is unavailable");
+    expect(() => registeredAction("sales.route.contact-detail", "sales-fixed-timeline", "sales.activity.complete", {})).toThrow("Sales route action is unavailable");
+  });
+
+  it("retains only the current route-scoped Sales action acknowledgement across realtime remount races", () => {
+    const client = applicationAuthFiles({ applicationId: "customer-alpha", applicationName: "Customer Alpha", theme: "minimal" })["src/app/components/k-nex-sales-route-runtime.tsx"]!;
+    const body = client.slice(client.indexOf("type SalesActionCompletion"), client.indexOf("export function RegisteredSalesRouteRuntime"));
+    const executable = ts.transpileModule(`${body}\nreturn { salesRouteKey, salesActionCompletion, activeSalesActionCompletion };`, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText;
+    const emitted = new Function("canonicalJson", executable)(JSON.stringify) as {
+      salesRouteKey(routeId: string, recordId: string | undefined, selection: Record<string, unknown>): string;
+      salesActionCompletion(routeKey: string, attempt: number, request: unknown, body: unknown): unknown;
+      activeSalesActionCompletion(completion: unknown, routeKey: string, attempt: number): unknown;
+    };
+    const routeKey = emitted.salesRouteKey("sales.route.contact-detail", "1", {});
+    const request = { action: { id: "sales.contact.update", version: 2 }, nodeId: "sales-page-contact-detail-main" };
+    const completion = emitted.salesActionCompletion(routeKey, 7, request, { action: { id: "sales.contact.update", version: 2 }, data: { id: "1", revision: 2, status: "active" } });
+    expect(completion).toMatchObject({ actionId: "sales.contact.update", nodeId: "sales-page-contact-detail-main", revision: 2, label: "Contact Update completed." });
+    expect(emitted.activeSalesActionCompletion(completion, routeKey, 7)).toEqual(completion);
+    expect(emitted.activeSalesActionCompletion(completion, routeKey, 8)).toBeUndefined();
+    expect(emitted.activeSalesActionCompletion(completion, emitted.salesRouteKey("sales.route.contact-detail", "2", {}), 7)).toBeUndefined();
+    expect(emitted.salesActionCompletion(routeKey, 7, request, { action: { id: "sales.contact.update", version: 1 }, data: { id: "1", revision: 2 } })).toBeUndefined();
+    expect(emitted.salesActionCompletion(routeKey, 7, request, { action: { id: "sales.contact.update", version: 2 }, data: { id: "1", revision: 0 } })).toBeUndefined();
+    expect(client).toContain("const attempt = ++actionAttempt.current; setActionCompletion(undefined);");
+    expect(client).toContain("actionAttempt.current === attempt && currentRouteKey.current === routeKey");
+    expect(client).toContain('data-k-nex-sales-action-id={completion.actionId}');
+    expect(client).toContain('data-k-nex-sales-action-revision={completion.revision}');
   });
 
   it("keeps the exact current Sales generation available across unrelated lifecycle advances", () => {

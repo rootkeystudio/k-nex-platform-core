@@ -943,7 +943,7 @@ packages:
       react: ^18.0.0 || ^19.0.0
 
   '@k-nex/composition@file:../customer-gate-1/packages/k-nex-composition-1.0.0.tgz':
-    resolution: {integrity: sha512-MeyCVzeGFckXGcrjQkNu0Bva+5Z0/sJ68MT8aUe1YaRUVLHGEZbD+W28OZjONh03EuXPD7YlvMTvaekzI6fOiQ==, tarball: file:../customer-gate-1/packages/k-nex-composition-1.0.0.tgz}
+    resolution: {integrity: sha512-l5wpKL4fbf4DM2MxhNG2XFuRJ3S6fD5Yqi/xF/5qIu5WWQ+xX+ivS/OamAsT3kyzdAoH5cyGKgj3x/RaxWDwfA==, tarball: file:../customer-gate-1/packages/k-nex-composition-1.0.0.tgz}
     version: 1.0.0
 
   '@k-nex/contracts@file:../customer-gate-1/packages/k-nex-contracts-1.0.0.tgz':
@@ -955,7 +955,7 @@ packages:
     version: 1.0.0
 
   '@k-nex/module-sales@file:../customer-gate-1/packages/k-nex-module-sales-1.0.0.tgz':
-    resolution: {integrity: sha512-evGk6B5kHig/yCCrvjMUFDV8PErznQMV+qrgIW+72nX/dciaDEeNnjVl0U3O3BHwhd8NlzX/UgJHM4dANqgKjg==, tarball: file:../customer-gate-1/packages/k-nex-module-sales-1.0.0.tgz}
+    resolution: {integrity: sha512-GPM9I8ofUD21+Qtp73fI18ma2+g82+XcPf3c7h1Iz4AX334L1MTwSsVDl3G/kP4dLdcm0HfTVEzn5fv5A7NqhA==, tarball: file:../customer-gate-1/packages/k-nex-module-sales-1.0.0.tgz}
     version: 1.0.0
     peerDependencies:
       '@k-nex/contracts': 1.0.0

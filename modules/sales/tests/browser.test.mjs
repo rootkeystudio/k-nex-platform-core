@@ -65,6 +65,8 @@ test("Sales browser factories use stable platform query/action metadata", async 
     salesAccountsQuery.source.id, salesContactsQuery.source.id, salesLeadsQuery.source.id,
     salesAccountDetailQuery.source.id, salesContactDetailQuery.source.id, salesLeadDetailQuery.source.id, salesOpportunityDetailQuery.source.id
   ], ["sales.accounts", "sales.contacts", "sales.leads", "sales.account.detail", "sales.contact.detail", "sales.lead.detail", "sales.opportunity.detail"]);
+  assert.deepEqual(salesOpportunityDetailQuery.selectedFields, ["name", "owner-id", "team-id", "account-id", "primary-contact-id", "pipeline-id", "pipeline-revision", "stage-id", "stage-name", "stage-semantic", "stage-revision", "archive-status", "expected-close-date", "revision"]);
+  assert.equal(salesOpportunityDetailQuery.selectedFields.includes("amount"), false);
   assert.equal(salesContactsQuery.selectedFields.includes("email"), false);
   assert.equal(salesLeadsQuery.selectedFields.includes("phone"), false);
   assert.deepEqual(salesProviderConfigurationsQuery.source, { id: "sales.provider-configurations", version: 1 });

@@ -196,10 +196,49 @@ function audit(actionId, resourceId, actorId, fromState, toState, revision, key,
   return { actionId, resourceId: String(resourceId), applicationId, environment: environmentName, fromState, toState, occurredAt: "2026-09-06T00:00:00.000Z", actorId, revision, idempotencyKey: key, ...(ownershipGenesis === undefined ? {} : { ownershipGenesis }) };
 }
 
+const initialSystemGeneral = Object.freeze({ siteName: "K-Nex", reportingCurrency: "USD", reportingTimezone: "UTC" });
+
+export async function ensureCanonicalInitialSystemGeneral(pool) {
+  const state = await pool.query("select settings_revision from k_nex_system_settings_state where application_id=$1 and environment=$2", [applicationId, environmentName]);
+  const documents = await pool.query("select descriptor_schema_version,owner_scope_key,owner_kind,owner_namespace,owner_delivery_class,owner_extension_id,owner_generation,document_revision,settings_revision,values_json from k_nex_system_settings_documents where application_id=$1 and environment=$2 and descriptor_id='system.general'", [applicationId, environmentName]);
+  if (state.rows.length === 0 && documents.rows.length === 0) {
+    await pool.query("insert into k_nex_system_settings_state (application_id,environment,settings_revision) values ($1,$2,1)", [applicationId, environmentName]);
+    await pool.query("insert into k_nex_system_settings_documents (application_id,environment,descriptor_id,descriptor_schema_version,owner_scope_key,owner_kind,owner_namespace,owner_delivery_class,owner_extension_id,owner_generation,document_revision,settings_revision,values_json) values ($1,$2,'system.general',3,'platform:system','platform','system',null,null,null,1,1,$3::jsonb)", [applicationId, environmentName, JSON.stringify(initialSystemGeneral)]);
+    return;
+  }
+  assert.equal(state.rows.length, 1, "Generated CRM fixture system settings state is missing or ambiguous.");
+  assert.equal(documents.rows.length, 1, "Generated CRM fixture system.general document is missing or ambiguous.");
+  const document = documents.rows[0];
+  assert.deepEqual({
+    stateRevision: state.rows[0]?.settings_revision,
+    descriptorSchemaVersion: document?.descriptor_schema_version,
+    ownerScopeKey: document?.owner_scope_key,
+    ownerKind: document?.owner_kind,
+    ownerNamespace: document?.owner_namespace,
+    ownerDeliveryClass: document?.owner_delivery_class,
+    ownerExtensionId: document?.owner_extension_id,
+    ownerGeneration: document?.owner_generation,
+    documentRevision: document?.document_revision,
+    settingsRevision: document?.settings_revision,
+    values: document?.values_json
+  }, {
+    stateRevision: 1,
+    descriptorSchemaVersion: 3,
+    ownerScopeKey: "platform:system",
+    ownerKind: "platform",
+    ownerNamespace: "system",
+    ownerDeliveryClass: null,
+    ownerExtensionId: null,
+    ownerGeneration: null,
+    documentRevision: 1,
+    settingsRevision: 1,
+    values: initialSystemGeneral
+  }, "Generated CRM fixture system.general conflicts with the canonical generated bootstrap.");
+}
+
 async function seedRecords(pool, ids) {
   const teamId = `team:${ids.owner}`;
-  await pool.query("insert into k_nex_system_settings_state (application_id,environment,settings_revision) values ($1,$2,1) on conflict (application_id,environment) do update set settings_revision=greatest(k_nex_system_settings_state.settings_revision,1)", [applicationId, environmentName]);
-  await pool.query("insert into k_nex_system_settings_documents (application_id,environment,descriptor_id,descriptor_schema_version,owner_scope_key,owner_kind,owner_namespace,owner_delivery_class,owner_extension_id,owner_generation,document_revision,settings_revision,values_json) values ($1,$2,'system.general',3,'platform:system','platform','system',null,null,null,1,1,$3::jsonb)", [applicationId, environmentName, JSON.stringify({ reportingTimezone: "UTC", reportingCurrency: "USD" })]);
+  await ensureCanonicalInitialSystemGeneral(pool);
   const insertAccount = async (name, ownerId = ids.owner, team = teamId) => {
     const row = (await pool.query("insert into sales_accounts (application_id,environment,owner_id,team_id,created_by,updated_by,name) values ($1,$2,$3,$4,$3,$3,$5) returning id", [applicationId, environmentName, ownerId, team, name])).rows[0];
     await pool.query("update sales_accounts set audit=$2::jsonb where id=$1", [row.id, JSON.stringify([audit("sales.account.create", row.id, ownerId, "absent", "active", 1, `account-create-${row.id}`, { ownerId, teamId: team })])]);
@@ -279,7 +318,7 @@ async function seedRecords(pool, ids) {
   }
   const attachment = (await pool.query("insert into sales_attachment_references (application_id,environment,owner_id,team_id,created_by,updated_by,storage_reference,filename,media_type,byte_size,uploader_id,related_record_id,related_record_type) values ($1,$2,$3,$4,$3,$3,'browser/object','browser.txt','text/plain',7,$3,$5,'sales.account') returning id", [applicationId, environmentName, ids.owner, teamId, accountId])).rows[0];
   await pool.query("update sales_attachment_references set audit=$2::jsonb where id=$1", [attachment.id, JSON.stringify([audit("sales.attachment.link", attachment.id, ids.owner, "absent", "active", 1, `attachment-link-${attachment.id}`, { ownerId: ids.owner, teamId })])]);
-  return { accountId, managerAccountId, managerOpportunityId, managerOpportunityAmount, managerOpportunityCurrency: "USD", repAccountId, representativeActorId: ids.representative, repOpportunityId, repOpportunityAmount, repOpportunityCurrency: "USD", page2AccountName, page2TimelineBody, candidateOwnerId: ids.candidate, pipelineId: String(pipeline.id), contactId: String(contact.id), contactEmail: "owner-contact-secret@example.test", contactPhone, leadQualifyId: leadIds[0], leadArchiveId: leadIds[1], linkerLeadId: leadIds[2], leadEmail: "archive-secret@example.test", leadPhone, opportunityWinId, opportunityLossId, opportunityArchiveId, amount: "98765.43", activityId, activityCancelId, attachmentId: String(attachment.id), noteBody };
+  return { accountId, managerAccountId, managerOpportunityId, managerOpportunityAmount, managerOpportunityCurrency: "USD", repAccountId, representativeActorId: ids.representative, repOpportunityId, repOpportunityAmount, repOpportunityCurrency: "USD", page2AccountName, page2TimelineBody, candidateOwnerId: ids.candidate, pipelineId: String(pipeline.id), pipelineRevision: 1, qualificationStageId: opaqueStageId(pipeline.id, "qualification"), qualificationStageRevision: 1, contactId: String(contact.id), contactEmail: "owner-contact-secret@example.test", contactPhone, leadQualifyId: leadIds[0], leadArchiveId: leadIds[1], linkerLeadId: leadIds[2], leadEmail: "archive-secret@example.test", leadPhone, opportunityWinId, opportunityLossId, opportunityArchiveId, amount: "98765.43", activityId, activityCancelId, attachmentId: String(attachment.id), noteBody };
 }
 
 export async function withGeneratedCrmBrowserFixture(runBrowser) {

@@ -143,7 +143,7 @@ export function SalesTimeline({ requestState, permissions, dispatchAction, onRet
         if (dispatchAction === undefined || id === undefined || !Number.isSafeInteger(revision))
             return;
         try {
-            await dispatchAction({ action, input: { id, expectedRevision: revision }, nodeId: `sales-fixed-timeline-${row.key}` });
+            await dispatchAction({ action, input: { id, expectedRevision: revision }, nodeId: "sales-fixed-timeline" });
             setAnnouncement(`${label} completed.`);
         }
         catch {

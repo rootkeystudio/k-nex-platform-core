@@ -108,7 +108,7 @@ const kanbanData = {
     { key: "opportunity:4", values: { "row-kind": { kind: "enum", value: "opportunity" }, name: { kind: "text", value: "Acme" }, "stage-id": { kind: "enum", value: "00000000-0000-5100-8000-000000000001" }, "stage-metadata": null, revision: { kind: "integer", value: 7 } } }
   ], page: { number: 1, pageSize: 25, hasNext: false }
 };
-const opportunityDetailData = { ...opportunityData, fields: ["name", "owner-id", "team-id", "account-id", "primary-contact-id", "pipeline-id", "stage-id", "archive-status", "revision"], rows: opportunityData.rows.map((row) => ({ ...row, values: { name: row.values.name, "owner-id": { kind: "text", value: "owner-1" }, "team-id": { kind: "text", value: "team-1" }, "account-id": { kind: "integer", value: 1 }, "primary-contact-id": { kind: "integer", value: 2 }, "pipeline-id": { kind: "integer", value: 3 }, "stage-id": row.values["stage-id"], "archive-status": { kind: "status", value: "active" }, revision: row.values.revision } })) };
+const opportunityDetailData = { ...opportunityData, fields: ["name", "owner-id", "team-id", "account-id", "primary-contact-id", "pipeline-id", "pipeline-revision", "stage-id", "stage-name", "stage-semantic", "stage-revision", "archive-status", "revision"], rows: opportunityData.rows.map((row) => ({ ...row, values: { name: row.values.name, "owner-id": { kind: "text", value: "owner-1" }, "team-id": { kind: "text", value: "team-1" }, "account-id": { kind: "integer", value: 1 }, "primary-contact-id": { kind: "integer", value: 2 }, "pipeline-id": { kind: "integer", value: 3 }, "pipeline-revision": { kind: "integer", value: 1 }, "stage-id": row.values["stage-id"], "stage-name": { kind: "text", value: "Qualification" }, "stage-semantic": { kind: "enum", value: "qualification" }, "stage-revision": { kind: "integer", value: 1 }, "archive-status": { kind: "status", value: "active" }, revision: row.values.revision } })) };
 const accountData = { fields: ["name", "owner-id", "status", "revision"], rows: [{ key: "1", values: { name: { kind: "text", value: "Acme" }, "owner-id": { kind: "text", value: "owner-1" }, status: { kind: "status", value: "active" }, revision: { kind: "integer", value: 2 } } }], page: { number: 1, pageSize: 25, hasNext: false } };
 const contactData = { fields: ["display-name", "owner-id", "account-id", "status", "revision"], rows: [{ key: "2", values: { "display-name": { kind: "text", value: "Ada" }, "owner-id": { kind: "text", value: "owner-1" }, "account-id": { kind: "integer", value: 1 }, status: { kind: "status", value: "active" }, revision: { kind: "integer", value: 2 } } }], page: { number: 1, pageSize: 25, hasNext: false } };
 const leadData = { fields: ["display-name", "owner-id", "status", "archive-status", "revision"], rows: [{ key: "3", values: { "display-name": { kind: "text", value: "Grace" }, "owner-id": { kind: "text", value: "owner-1" }, status: { kind: "status", value: "working" }, "archive-status": { kind: "status", value: "active" }, revision: { kind: "integer", value: 3 } } }], page: { number: 1, pageSize: 25, hasNext: false } };
@@ -149,7 +149,7 @@ function nodeFor(bridge) {
     ...(source.id === salesTasksDescriptor.id ? { selectedFields: ["title", "status"] } : {}),
     ...(source.id === salesPipelineValueByStageDescriptor.id ? { selectedFields: ["stage-id", "stage-name", "value"] } : source.id === salesActivityByOwnerTeamDescriptor.id ? { selectedFields: ["actor-id", "team-id", "count"] } : source.id === salesTaskAgingDescriptor.id ? { selectedFields: ["bucket", "count"] } : {}),
     ...(source.id === salesSavedViewCalendarDescriptor.id ? { selectedFields: ["type", "subject", "status", "scheduled-at", "occurred-at", "related-record-type", "related-record-id", "revision"] } : source.id === salesSavedViewTableDescriptor.id ? { selectedFields: ["name"] } : source.id === salesSavedViewKanbanDescriptor.id ? { selectedFields: ["row-kind", "name", "stage-id", "stage-metadata", "revision"] } : source.id === salesOpportunitiesDescriptor.id ? { selectedFields: ["name", "pipeline-id", "pipeline-revision", "stage-id", "stage-name", "stage-semantic", "stage-revision", "revision", "amount"] } : {})
-    ,...(source.id === salesOpportunityDetailDescriptor.id ? { selectedFields: ["name", "owner-id", "team-id", "account-id", "primary-contact-id", "pipeline-id", "stage-id", "archive-status", "revision"] } : {})
+    ,...(source.id === salesOpportunityDetailDescriptor.id ? { selectedFields: ["name", "owner-id", "team-id", "account-id", "primary-contact-id", "pipeline-id", "pipeline-revision", "stage-id", "stage-name", "stage-semantic", "stage-revision", "archive-status", "revision"] } : {})
     ,...(source.id === salesAccountDetailDescriptor.id ? { selectedFields: ["name", "owner-id", "team-id", "status", "revision"] } : source.id === salesAccountsDescriptor.id ? { selectedFields: ["name", "owner-id", "status", "revision"] } : {})
     ,...(source.id === salesContactDetailDescriptor.id ? { selectedFields: ["display-name", "owner-id", "team-id", "account-id", "status", "revision"] } : source.id === salesContactsDescriptor.id ? { selectedFields: ["display-name", "owner-id", "account-id", "status", "revision"] } : {})
     ,...(source.id === salesLeadDetailDescriptor.id ? { selectedFields: ["display-name", "owner-id", "team-id", "status", "archive-status", "revision"] } : source.id === salesLeadsDescriptor.id ? { selectedFields: ["display-name", "owner-id", "status", "archive-status", "revision"] } : {})
@@ -392,7 +392,6 @@ test("every permitted detail action remains keyboard-reachable with safe target 
       assert.ok(definition);
       const action = node.bindings.action;
       actionIds.add(action.id);
-      if (action.id === "sales.opportunity.stage.update") continue;
       const rendered = definition.render({
         node, props: node.props, surface: "workspace", actor,
         sourceResult: { state: "success", data: node.type.includes("account") ? accountData : node.type.includes("contact") ? contactData : node.type.includes("lead") ? leadData : opportunityDetailData },
@@ -405,7 +404,16 @@ test("every permitted detail action remains keyboard-reachable with safe target 
       if (["sales.activity.create", "sales.note.create", "sales.attachment.link"].includes(action.id)) {
         assert.match(markup, /name="relatedRecordId"[^>]*value="[1-4]"/);
       }
-      if (action.id === "sales.opportunity.close") assert.match(markup, /name="expectedStage"[^>]*value="discovery"/);
+      if (action.id === "sales.opportunity.close") {
+        assert.match(markup, /<select[^>]*name="stage"[^>]*>[\s\S]*<option value="lost" selected="">Lost<\/option>/);
+        assert.doesNotMatch(markup, /<option value="won">Won<\/option>/);
+        assert.match(markup, /<input(?=[^>]*name="lossReason")(?=[^>]*required="")[^>]*>/);
+        assert.doesNotMatch(markup, /name="expectedStage"/);
+      }
+      if (action.id === "sales.opportunity.stage.update") {
+        assert.match(markup, /<select[^>]*name="stage"[^>]*>[\s\S]*<option value="discovery" selected="">Discovery<\/option>/);
+        assert.doesNotMatch(markup, /name="expectedStage"|name="expectedPipelineId"|name="destinationStageId"/);
+      }
     }
   }
   assert.deepEqual([...actionIds].sort(), [
@@ -414,6 +422,20 @@ test("every permitted detail action remains keyboard-reachable with safe target 
     "sales.opportunity.archive", "sales.opportunity.close", "sales.opportunity.stage.update", "sales.opportunity.update", "sales.ownership.assign"
   ]);
   for (const id of ["sales.activity.complete", "sales.activity.cancel", "sales.attachment.remove"]) assert.equal(requiredActionIds.has(id), true);
+});
+
+test("opportunity detail template, custom component, and embedded block require every runtime field without protected amount", () => {
+  const required = salesOpportunityDetailDescriptor.outputFields.filter(({ binding }) => binding === "required").map(({ id }) => id);
+  const bindings = salesOpportunityDetailPageTemplate.document.regions.main.map(({ bindings }) => bindings?.source).filter((binding) => binding !== undefined);
+  assert.ok(bindings.length > 0);
+  for (const binding of bindings) {
+    assert.deepEqual(binding.selectedFields.filter((fieldId) => required.includes(fieldId)), required);
+    assert.equal(binding.selectedFields.includes("amount"), false);
+  }
+  for (const descriptor of [salesOpportunityDetailComponentDescriptor, salesOpportunityDetailBlockDescriptor]) {
+    assert.deepEqual(descriptor.sourcePolicy.requiredFields, required);
+    assert.equal(descriptor.sourcePolicy.requiredFields.includes("amount"), false);
+  }
 });
 
 test("fixed detail document renders one structured record surface and action-only secondary nodes", () => {

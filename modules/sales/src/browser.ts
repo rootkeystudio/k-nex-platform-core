@@ -196,7 +196,7 @@ export const salesLeadsQuery = crmListQuery(salesLeadsDescriptor, salesLeadsOutp
 export const salesAccountDetailQuery = crmDetailQuery(salesAccountDetailDescriptor, salesAccountDetailOutputRuntimeSchema, ["name", "owner-id", "team-id", "status", "revision"]);
 export const salesContactDetailQuery = crmDetailQuery(salesContactDetailDescriptor, salesContactDetailOutputRuntimeSchema, ["display-name", "owner-id", "team-id", "account-id", "status", "revision"]);
 export const salesLeadDetailQuery = crmDetailQuery(salesLeadDetailDescriptor, salesLeadDetailOutputRuntimeSchema, ["display-name", "source", "owner-id", "team-id", "status", "archive-status", "revision", "decided-at", "qualified-at", "disqualified-at", "qualified-account-id", "qualified-contact-id", "qualified-opportunity-id"]);
-export const salesOpportunityDetailQuery = crmDetailQuery(salesOpportunityDetailDescriptor, salesOpportunityDetailOutputRuntimeSchema, ["name", "owner-id", "team-id", "account-id", "primary-contact-id", "pipeline-id", "stage-id", "archive-status", "expected-close-date", "revision"]);
+export const salesOpportunityDetailQuery = crmDetailQuery(salesOpportunityDetailDescriptor, salesOpportunityDetailOutputRuntimeSchema, ["name", "owner-id", "team-id", "account-id", "primary-contact-id", "pipeline-id", "pipeline-revision", "stage-id", "stage-name", "stage-semantic", "stage-revision", "archive-status", "expected-close-date", "revision"]);
 
 type TimelineInput = Readonly<{ "related-record-type": "sales.account" | "sales.contact" | "sales.lead" | "sales.opportunity" | "sales.task"; "related-record-id": string }>;
 const timelineBrowserInput = { safeParse(value: unknown) {

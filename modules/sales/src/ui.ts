@@ -114,7 +114,13 @@ const workflowFields: Readonly<Record<string, readonly string[]>> = Object.freez
   "sales.lead.qualify": ["id", "expectedRevision", "accountMode", "accountName", "accountId", "contactMode", "contactName", "contactId", "opportunityName", "pipelineId"], "sales.lead.disqualify": ["id", "expectedRevision"], "sales.lead.archive": ["id", "expectedRevision"],
   "sales.opportunity.create": ["name", "accountId", "pipelineId", "expectedPipelineRevision", "stageId", "expectedStageRevision", "primaryContactId", "amountValue", "amountCurrency", "amountScale", "expectedCloseDate"],
   "sales.opportunity.update": ["id", "expectedRevision", "name", "primaryContactMode", "primaryContactId", "amountMode", "amountValue", "amountCurrency", "amountScale", "expectedCloseDateMode", "expectedCloseDate"],
-  "sales.opportunity.close": ["id", "expectedRevision", "expectedStage", "stage", "lossReason"], "sales.opportunity.archive": ["id", "expectedRevision"],
+  // Fixed detail routes adapt a nonterminal semantic without disclosing opaque
+  // pipeline references. Terminal transitions remain the separate close intent.
+  "sales.opportunity.stage.update": ["id", "expectedRevision", "stage"],
+  // The fixed detail route adapts this bounded close intent to the canonical
+  // opaque pipeline CAS input after route/action authorization.  It must not
+  // disclose destination Stage IDs or revisions to an Opportunity reader.
+  "sales.opportunity.close": ["id", "expectedRevision", "stage", "lossReason"], "sales.opportunity.archive": ["id", "expectedRevision"],
   "sales.activity.create": ["relatedRecordType", "relatedRecordId", "type", "subject", "scheduledAt", "supersedesActivityId"],
   "sales.activity.complete": ["id", "expectedRevision"], "sales.activity.cancel": ["id", "expectedRevision"],
   "sales.note.create": ["relatedRecordType", "relatedRecordId", "body", "replacesNoteId"],
@@ -162,10 +168,10 @@ function initialWorkflowValues(input: UiBlockRenderInput, actionId: string, fiel
       return [field, kind];
     }
     if (field === "expectedRevision") return [field, targetMatchesSource && cellText(row?.values.revision) !== "—" ? cellText(row?.values.revision) : ""];
-    if (field === "expectedStage") return [field, targetMatchesSource && cellText(row?.values["stage-id"]) !== "—" ? cellText(row?.values["stage-id"]) : ""];
+    if (actionId === "sales.opportunity.close" && field === "stage") return [field, closeStageOptions(cellText(row?.values["stage-semantic"]))[0]?.id ?? ""];
     if (actionId === "sales.opportunity.stage.update" && field === "stage") {
-      const current = cellText(row?.values["stage-id"]);
-      return [field, opportunityTransitionTarget[current as keyof typeof opportunityTransitionTarget] ?? ""];
+      const current = cellText(row?.values["stage-semantic"]);
+      return [field, opportunityTransitionTarget[current as keyof typeof opportunityTransitionTarget]?.[0] ?? ""];
     }
     const sourceField = field.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
     const value = cellText(row?.values[sourceField]);
@@ -175,6 +181,12 @@ function initialWorkflowValues(input: UiBlockRenderInput, actionId: string, fiel
 
 function nextStageOptions(value: string | undefined): readonly { readonly id: string; readonly label: string }[] {
   return value === undefined || value === "" ? [] : [{ id: value, label: value[0]!.toUpperCase() + value.slice(1) }];
+}
+
+function closeStageOptions(stageSemantic: string): readonly { readonly id: "won" | "lost"; readonly label: string }[] {
+  if (["qualification", "discovery", "proposal"].includes(stageSemantic)) return [{ id: "lost", label: "Lost" }];
+  if (stageSemantic === "negotiation") return [{ id: "won", label: "Won" }, { id: "lost", label: "Lost" }];
+  return [];
 }
 
 function SalesWorkflowActionForm({ label, input }: { readonly label: string; readonly input: UiBlockRenderInput }) {
@@ -202,7 +214,8 @@ function SalesWorkflowActionForm({ label, input }: { readonly label: string; rea
     if (["amountValue", "amountCurrency", "amountScale"].includes(field)) return values.amountMode === "set";
     if (field === "expectedCloseDate") return values.expectedCloseDateMode === "set";
     return true;
-  }) : actionId === "sales.contact.update" || actionId === "sales.lead.update" ? fields.filter((field) => field === "email" ? values.emailMode === "set" : field === "phone" ? values.phoneMode === "set" : true)
+  }) : actionId === "sales.opportunity.close" ? fields.filter((field) => field !== "lossReason" || values.stage === "lost")
+    : actionId === "sales.contact.update" || actionId === "sales.lead.update" ? fields.filter((field) => field === "email" ? values.emailMode === "set" : field === "phone" ? values.phoneMode === "set" : true)
     : actionId !== "sales.lead.qualify" ? fields : fields.filter((field) => {
     if (field === "accountName") return values.accountMode === "create";
     if (field === "accountId") return values.accountMode === "link";
@@ -239,7 +252,9 @@ function SalesWorkflowActionForm({ label, input }: { readonly label: string; rea
           ? createElement(Select, { key: field, name: field, label: fieldLabels[field] ?? field, value: values[field] ?? "retain", required: true, options: ["retain", "set", "clear"].map((id) => ({ id, label: id[0]!.toUpperCase() + id.slice(1) })), onChange: (value: string) => setValues((current) => ({ ...current, [field]: value })) })
         : actionId === "sales.opportunity.stage.update" && field === "stage"
           ? createElement(Select, { key: field, name: field, label: fieldLabels[field] ?? field, value: values[field] ?? "", required: true, options: nextStageOptions(values.stage), onChange: (value: string) => setValues((current) => ({ ...current, stage: value })) })
-        : createElement(TextInput, { key: field, name: field, label: fieldLabels[field] ?? field, value: values[field] ?? "", required: !optionalFields.includes(field) || actionId === "sales.opportunity.update" && ["primaryContactId", "amountValue", "amountCurrency", "amountScale", "expectedCloseDate"].includes(field), ...(fieldErrors[field] === undefined ? {} : { error: fieldErrors[field] }), onChange: (value: string) => { setValues((current) => ({ ...current, [field]: value })); setFieldErrors((current) => Object.fromEntries(Object.entries(current).filter(([key]) => key !== field))); } })),
+        : actionId === "sales.opportunity.close" && field === "stage"
+          ? createElement(Select, { key: field, name: field, label: fieldLabels[field] ?? field, value: values[field] ?? "", required: true, options: closeStageOptions(cellText(projected?.values["stage-semantic"])), onChange: (value: string) => setValues((current) => ({ ...current, stage: value })) })
+        : createElement(TextInput, { key: field, name: field, label: fieldLabels[field] ?? field, value: values[field] ?? "", required: !optionalFields.includes(field) || actionId === "sales.opportunity.update" && ["primaryContactId", "amountValue", "amountCurrency", "amountScale", "expectedCloseDate"].includes(field) || actionId === "sales.opportunity.close" && field === "lossReason" && values.stage === "lost", ...(fieldErrors[field] === undefined ? {} : { error: fieldErrors[field] }), onChange: (value: string) => { setValues((current) => ({ ...current, [field]: value })); setFieldErrors((current) => Object.fromEntries(Object.entries(current).filter(([key]) => key !== field))); } })),
       createElement(FormActions, { key: "actions", children: createElement("button", { type: "submit", disabled: !enabled }, label) }),
       createElement("p", { key: "announcement", role: "status", "aria-live": "polite" }, announcement)
     ]
@@ -847,7 +862,8 @@ function detailActionAllowed(input: UiBlockRenderInput, record: TableRecords["ro
   const sourceId = input.node.bindings?.source?.source.id;
   const status = cellText(record?.values.status);
   const archiveStatus = cellText(record?.values["archive-status"]);
-  const stage = cellText(record?.values["stage-id"]);
+  // Stage IDs are opaque; terminal availability follows the selected semantic.
+  const stageSemantic = cellText(record?.values["stage-semantic"]);
   if ((sourceId === salesAccountDetailDescriptor.id || sourceId === salesContactDetailDescriptor.id) && (status === "archived" || status === "merged")) {
     return !["sales.account.update", "sales.account.archive", "sales.contact.update", "sales.contact.archive", "sales.ownership.assign"].includes(actionId);
   }
@@ -860,7 +876,9 @@ function detailActionAllowed(input: UiBlockRenderInput, record: TableRecords["ro
   if (sourceId === salesOpportunityDetailDescriptor.id && archiveStatus === "archived") {
     return !["sales.opportunity.update", "sales.opportunity.stage.update", "sales.opportunity.close", "sales.opportunity.archive", "sales.ownership.assign"].includes(actionId);
   }
-  if (sourceId === salesOpportunityDetailDescriptor.id && (stage === "won" || stage === "lost")) return actionId === "sales.opportunity.archive" || !["sales.opportunity.update", "sales.opportunity.stage.update", "sales.opportunity.close", "sales.ownership.assign"].includes(actionId);
+  if (sourceId === salesOpportunityDetailDescriptor.id && actionId === "sales.opportunity.close" && closeStageOptions(stageSemantic).length === 0) return false;
+  if (sourceId === salesOpportunityDetailDescriptor.id && stageSemantic === "negotiation" && actionId === "sales.opportunity.stage.update") return false;
+  if (sourceId === salesOpportunityDetailDescriptor.id && (stageSemantic === "won" || stageSemantic === "lost")) return actionId === "sales.opportunity.archive" || !["sales.opportunity.update", "sales.opportunity.stage.update", "sales.opportunity.close", "sales.ownership.assign"].includes(actionId);
   return true;
 }
 
