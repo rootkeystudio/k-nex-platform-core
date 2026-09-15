@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { errors as playwrightErrors } from "playwright";
 
 import { navigateGeneratedRouteToReady, proveGeneratedSalesTaskRouteHydration, waitForGeneratedRouteProjection } from "./generated-browser-navigation.mjs";
+
+const generatedApplicationProofSource = readFileSync(new URL("./generated-runnable-application-postgres.test.mjs", import.meta.url), "utf8");
 
 function pageFixture({ status = 200, responseUrl = "http://fixture.test/sales/tasks", pageUrl = responseUrl, projectionUrl = "http://fixture.test/api/k-nex/sales/routes/sales.route.tasks?page=1", projectionStatus = 200, readyError } = {}) {
   const calls = [];
@@ -273,4 +276,18 @@ test("generated route navigation preserves bounded response and readiness diagno
     navigateGeneratedRouteToReady(notReady, "http://fixture.test/sales/tasks", notReady.ready, () => "fixture process"),
     /semantic route missing[\s\S]*body=fixture body[\s\S]*process=fixture process/u
   );
+});
+
+test("generated application keeps only its aggregate proof ceiling at nine hundred seconds", () => {
+  assert.match(
+    generatedApplicationProofSource,
+    /test\("P12[.]9 generated app completes the durable authorized workspace journey", \{ timeout: 900_000 \}/u
+  );
+  assert.equal(generatedApplicationProofSource.includes("timeout: 600_000"), false);
+  for (const retainedBound of [
+    /managerPage[.]getByText\("Page access revoked", \{ exact: true \}\)[.]waitFor\(\{ timeout: 10_000 \}\)/u,
+    /managerEditorPage[.]getByRole\("alert"\)[.]getByText\("Editor authority changed", \{ exact: true \}\)[.]waitFor\(\{ timeout: 10_000 \}\)/u,
+    /managerSalesRoutePage[.]getByRole\("alert"\)[.]getByText\("Sales route unavailable", \{ exact: true \}\)[.]waitFor\(\{ timeout: 10_000 \}\)/u,
+    /retiredRoutePage[.]getByRole\("alert"\)[.]getByText\("Sales route unavailable", \{ exact: true \}\)[.]waitFor\(\{ timeout: 10_000 \}\)/u
+  ]) assert.match(generatedApplicationProofSource, retainedBound, "Authority-revocation and disable UI convergence bounds must remain ten seconds.");
 });
