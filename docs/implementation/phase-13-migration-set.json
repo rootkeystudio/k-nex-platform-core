@@ -1,0 +1,36 @@
+{
+  "$schema": "../../schemas/phase-13-migration-set.v1.schema.json",
+  "schemaVersion": 1,
+  "sourceRelease": "1.0.0",
+  "steps": [
+    {
+      "id": "20260905_000027_crm_core",
+      "phase": "offline-required"
+    },
+    {
+      "id": "20260907_000030_pipeline_saved_views",
+      "phase": "offline-required"
+    },
+    {
+      "id": "20260907_000031_data_movement",
+      "phase": "offline-required"
+    },
+    {
+      "id": "20260908_000032_communications",
+      "phase": "offline-required"
+    },
+    {
+      "id": "20260908_000033_crm_workflows",
+      "phase": "offline-required"
+    },
+    {
+      "id": "20260908_000034_reports",
+      "phase": "offline-required"
+    },
+    {
+      "id": "20260909_000035_static_rebind_lock_protocol",
+      "phase": "offline-required"
+    }
+  ],
+  "targetRelease": "1.1.0"
+}

@@ -22,19 +22,17 @@ const definition = defineDataTable({
   query: salesTasksQuery,
   columns: [
     { id: "title", label: "Title", size: 240 },
-    { id: "status", label: "Status" },
-    { id: "potential-revenue", label: "Potential revenue" },
-    { id: "private-note", label: "Private note" }
+    { id: "status", label: "Status" }
   ],
   paginationModes: ["offset", "cursor"],
   defaultPageSize: 25,
   searchField: "title",
-  facets: { status: ["open", "done"] },
+  facets: { status: ["open", "completed"] },
   rowActions: [
-    { id: salesUpdateTaskMutation.action.id, action: salesUpdateTaskMutation.action, mutation: salesUpdateTaskMutation, input: (rowKey: string) => ({ id: rowKey, status: "done" }), label: "Complete" },
-    { id: salesOpportunityStageMutation.action.id, action: salesOpportunityStageMutation.action, mutation: salesOpportunityStageMutation, input: (rowKey: string) => ({ id: rowKey, stage: "won" }), label: "Secret" }
+    { id: salesUpdateTaskMutation.action.id, action: salesUpdateTaskMutation.action, mutation: salesUpdateTaskMutation, input: (rowKey: string) => ({ id: rowKey, expectedRevision: 1, expectedStatus: "open" as const, status: "completed" as const }), label: "Complete" },
+    { id: salesOpportunityStageMutation.action.id, action: salesOpportunityStageMutation.action, mutation: salesOpportunityStageMutation, input: (rowKey: string) => ({ id: rowKey, expectedRevision: 1, expectedPipelineId: "17", expectedPipelineRevision: 1, expectedSourceStageId: "76ad7b41-5584-5d62-ab10-2575df5a8d47", expectedSourceStageRevision: 1, destinationStageId: "a5299df1-1fd8-50dd-947a-4ed1ea145b2d", expectedDestinationStageRevision: 1 }), label: "Secret" }
   ],
-  bulkActions: [{ id: salesUpdateTaskMutation.action.id, action: salesUpdateTaskMutation.action, mutation: salesUpdateTaskMutation, input: (rowKey: string) => ({ id: rowKey, status: "done" }), label: "Complete" }]
+  bulkActions: [{ id: salesUpdateTaskMutation.action.id, action: salesUpdateTaskMutation.action, mutation: salesUpdateTaskMutation, input: (rowKey: string) => ({ id: rowKey, expectedRevision: 1, expectedStatus: "open" as const, status: "completed" as const }), label: "Complete" }]
 });
 
 const actorFingerprint = `sha256:${"a".repeat(64)}`;
@@ -44,11 +42,10 @@ const authorization = resolveDataTableActionAuthorization(definition, actorFinge
 });
 
 const records = {
-  fields: ["title", "status", "potential-revenue"],
+  fields: ["title", "status"],
   rows: [{ key: "task-1", values: {
     title: { kind: "text" as const, value: "Call customer" },
-    status: { kind: "status" as const, value: "open" },
-    "potential-revenue": { kind: "money" as const, value: "1200", currency: "USD", scale: 2 }
+    status: { kind: "status" as const, value: "open" }
   } }],
   page: { number: 1, pageSize: 25, hasNext: false }
 };
@@ -58,8 +55,8 @@ const context = {
   authorizationBoundary: { kind: "actor" as const, actorFingerprint: `sha256:${"a".repeat(64)}` },
   signal: new AbortController().signal
 };
-const allTaskFields = new Set(["title", "status", "potential-revenue", "private-note"]);
-const nonPrivateTaskFields = new Set(["title", "status", "potential-revenue"]);
+const allTaskFields = new Set(["title", "status"]);
+const titleOnlyTaskFields = new Set(["title"]);
 
 describe("P7.6 standard DataTable/DataGrid", () => {
   it("turns Sales task state into bounded server-owned query controls", async () => {
@@ -82,15 +79,13 @@ describe("P7.6 standard DataTable/DataGrid", () => {
     const query = vi.fn(async () => ({ ok: true as const, data: records }));
     const transport: BrowserDataTransport = { query, mutate: async () => ({ ok: false, problem: { code: "UNUSED", status: 500 } }) };
     await expect(controller.execute(transport, {}, state, allTaskFields, context)).resolves.toEqual({ state: "success", data: records });
-    expect(query).toHaveBeenCalledWith(expect.objectContaining({ controls: controller.controls(state), selectedFields: ["title", "status", "potential-revenue", "private-note"] }));
+    expect(query).toHaveBeenCalledWith(expect.objectContaining({ controls: controller.controls(state), selectedFields: ["title", "status"] }));
     const firstIdentity = await controller.identity({}, state, allTaskFields, context);
     const secondIdentity = await controller.identity({}, { ...state, search: "different" }, allTaskFields, context);
     expect(firstIdentity.key).not.toBe(secondIdentity.key);
-    const restrictedIdentity = await controller.identity({}, state, nonPrivateTaskFields, context);
-    expect(firstIdentity.key).not.toBe(restrictedIdentity.key);
-    await expect(controller.execute(transport, {}, state, nonPrivateTaskFields, context)).resolves.toEqual({ state: "success", data: records });
-    expect(query).toHaveBeenLastCalledWith(expect.objectContaining({ selectedFields: ["title", "status", "potential-revenue"] }));
-    await expect(controller.execute(transport, {}, state, new Set(["title", "status"]), context)).resolves.toEqual({ state: "insufficient-permission" });
+    await expect(controller.identity({}, state, titleOnlyTaskFields, context)).rejects.toThrow(/not authorized/);
+    await expect(controller.execute(transport, {}, state, titleOnlyTaskFields, context)).resolves.toEqual({ state: "insufficient-permission" });
+    expect(query).toHaveBeenCalledTimes(1);
   });
 
   it("rejects undeclared operations and keeps URL state non-authoritative", () => {
@@ -101,7 +96,7 @@ describe("P7.6 standard DataTable/DataGrid", () => {
     })).toThrow(/exceed source capabilities/);
     const controller = createDataTableController(definition);
     const state = { ...createDataTableState(definition), selectedRows: ["task-1"], detailRow: "task-1" };
-    expect(() => controller.controls({ ...state, sort: [{ field: "potential-revenue", direction: "desc" }] })).toThrow(/not declared/);
+    expect(() => controller.controls({ ...state, sort: [{ field: "unknown-field", direction: "desc" }] })).toThrow(/not declared/);
     expect(() => controller.controls({ ...state, search: "customer", filters: Array.from({ length: definition.descriptor.limits.maxFilters }, () => ({ field: "status", operator: "eq" as const, value: "open" })) })).toThrow(/exceed source limits/);
     const serialized = controller.serializeView(state);
     expect(deserializeBrowserViewState(serialized)).not.toHaveProperty("selectedRows");
@@ -148,7 +143,7 @@ describe("P7.6 standard DataTable/DataGrid", () => {
     const executor = { execute };
     const action = await controller.executeAction(executor, authorization, actorFingerprint, salesUpdateTaskMutation.action.id, "task-1", context);
     expect(action.result.state).toBe("success");
-    expect(action.invalidatedSources).toEqual(["sales.tasks", "sales.total-potential-revenue"]);
+    expect(action.invalidatedSources).toEqual(["sales.tasks"]);
     await expect(controller.executeAction(executor, authorization, actorFingerprint, salesOpportunityStageMutation.action.id, "task-1", context)).resolves.toMatchObject({ result: { state: "forbidden" } });
     await expect(controller.executeAction(executor, authorization, actorFingerprint, "sales.task.unknown", "task-1", context)).resolves.toMatchObject({ result: { state: "forbidden" } });
     const bulk = await controller.executeBulkAction(executor, authorization, actorFingerprint, salesUpdateTaskMutation.action.id, ["task-1", "task-2"], context);
@@ -194,7 +189,7 @@ describe("P7.6 standard DataTable/DataGrid", () => {
     expect(table).toContain("Complete");
     expect(table).toContain("Complete");
     expect(table).not.toContain("Secret");
-    expect(table).not.toContain(">Private note</th>");
+    expect(table).toContain(">Status</th>");
     expect(table).toContain('data-k-nex-component="search-control"');
     expect(table).toContain('data-k-nex-component="facet-filter"');
     expect(table).toContain('data-k-nex-component="sort-control"');
@@ -210,36 +205,39 @@ describe("P7.6 standard DataTable/DataGrid", () => {
 
   it("renders only fields returned by the authorized projection", () => {
     const table = renderToStaticMarkup(<DataTable definition={definition} viewState={createDataTableState(definition)} requestState={{ state: "success", data: records }} />);
-    expect(table).not.toContain(">Private note</th>");
-    const authorized = { ...records, fields: [...records.fields, "private-note"], rows: [{ ...records.rows[0]!, values: { ...records.rows[0]!.values, "private-note": { kind: "text" as const, value: "Customer requested a call." } } }] };
-    expect(renderToStaticMarkup(<DataTable definition={definition} viewState={createDataTableState(definition)} requestState={{ state: "success", data: authorized }} />)).toContain(">Private note</th>");
+    expect(table).toContain(">Title</th>");
+    const authorized = { ...records, fields: ["status"], rows: [{ key: "task-1", values: { status: { kind: "status" as const, value: "open" } } }], page: { number: 1, pageSize: 25, hasNext: false } };
+    const authorizedMarkup = renderToStaticMarkup(<DataTable definition={definition} viewState={createDataTableState(definition)} requestState={{ state: "success", data: authorized }} />);
+    expect(authorizedMarkup).toContain(">Status</th>");
+    expect(authorizedMarkup).not.toContain(">Title</th>");
   });
 
   it("removes hidden-field operations from UI and rejects them before transport", async () => {
     const hiddenDescriptor = {
       ...salesTasksDescriptor,
-      outputFields: salesTasksDescriptor.outputFields?.map((field) => field.id === "private-note"
-        ? { ...field, sortable: true, filterOperators: ["contains" as const] }
+      outputFields: salesTasksDescriptor.outputFields?.map((field) => field.id === "status"
+        ? { ...field, filterOperators: ["eq", "in", "contains"] as const }
         : field)
     };
     const hiddenDefinition = defineDataTable({
       ...definition,
       descriptor: hiddenDescriptor,
-      searchField: "private-note"
+      searchField: "status"
     });
     const hiddenState = {
       ...createDataTableState(hiddenDefinition),
       search: "secret",
-      sort: [{ field: "private-note", direction: "asc" as const }]
+      sort: [{ field: "status", direction: "asc" as const }]
     };
     const queryCall = vi.fn(async () => ({ ok: true as const, data: records }));
     const hiddenTransport: BrowserDataTransport = { query: queryCall, mutate: async () => ({ ok: false, problem: { code: "UNUSED", status: 500 } }) };
-    await expect(createDataTableController(hiddenDefinition).execute(hiddenTransport, {}, hiddenState, nonPrivateTaskFields, context))
-      .resolves.toEqual({ state: "invalid-contract" });
+    await expect(createDataTableController(hiddenDefinition).execute(hiddenTransport, {}, hiddenState, titleOnlyTaskFields, context))
+      .resolves.toEqual({ state: "insufficient-permission" });
     expect(queryCall).not.toHaveBeenCalled();
-    const markup = renderToStaticMarkup(<DataTable definition={hiddenDefinition} viewState={hiddenState} requestState={{ state: "success", data: records }} />);
+    const hiddenRecords = { ...records, fields: ["title"], rows: [{ key: "task-1", values: { title: { kind: "text" as const, value: "Call customer" } } }] };
+    const markup = renderToStaticMarkup(<DataTable definition={hiddenDefinition} viewState={hiddenState} requestState={{ state: "success", data: hiddenRecords }} />);
     expect(markup).not.toContain('data-k-nex-component="search-control"');
-    expect(markup).not.toContain('<option value="private-note"');
+    expect(markup).not.toContain('<option value="status"');
   });
 
   it("reflects and updates array-backed facet state", () => {

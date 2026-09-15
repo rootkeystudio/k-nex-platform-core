@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 
 import { createPlatformPluginLifecycleState, executeRegistration, reconcilePlatformPluginAvailability, scopePlatformPluginRegistration, type RegistrationResult, type ScopedRegistrationResult } from "@k-nex/runtime";
 import { PluginManifestSchema } from "@k-nex/contracts";
-import { salesOpportunitiesCollection, salesRegistration, salesTasksCollection } from "@k-nex/module-sales/server";
+import { salesCoreCollectionSlugs, salesOpportunitiesCollection, salesRegistration, salesTasksCollection } from "@k-nex/module-sales/server";
 import { salesTaskFixture } from "@k-nex/module-sales/testing";
 import { composePayloadApplication, PayloadCompositionError } from "@k-nex/payload-adapter";
 import { buildConfig, type CollectionConfig } from "payload";
@@ -88,11 +88,12 @@ describe("Payload application composition", () => {
   it("composes the owned Sales collection with the Postgres adapter and sanitizes through public Payload APIs", async () => {
     const application = compose();
     expect(application.config.db.name).toBe("postgres");
-    expect(application.config.collections?.map(({ slug }) => slug)).toEqual(["sales-opportunities", "sales-tasks"]);
-    expect(application.collectionOwnership).toEqual([
-      { slug: "sales-opportunities", pluginId: "module.sales", contributionId: "sales.opportunities.collection" },
-      { slug: "sales-tasks", pluginId: "module.sales", contributionId: "sales.tasks.collection" }
-    ]);
+    expect(application.config.collections?.map(({ slug }) => slug)).toEqual([...salesCoreCollectionSlugs].sort());
+    expect(application.collectionOwnership).toEqual([...salesCoreCollectionSlugs].sort().map((slug) => ({
+      slug,
+      pluginId: "module.sales",
+      contributionId: `sales.${slug.slice("sales-".length)}.collection`
+    })));
 
     const sanitized = await buildConfig(application.config);
     expect(sanitized.collections.map(({ slug }) => slug)).toContain("sales-tasks");
@@ -186,10 +187,10 @@ describe("Payload application composition", () => {
     const packageJson = JSON.parse(readFileSync(resolve(import.meta.dirname, "../package.json"), "utf8"));
     expect(Object.hasOwn(packageJson.exports, ".")).toBe(false);
     expect(Object.keys(packageJson.exports).sort()).toEqual([
-      "./browser", "./contracts", "./manifest", "./migrations", "./pages", "./payload-baseline-down.sql",
-      "./payload-baseline-up.sql", "./puck", "./server", "./testing", "./ui"
+      "./browser", "./contracts", "./crm-authority", "./crm-core", "./manifest", "./migrations", "./pages",
+      "./payload-baseline-down.sql", "./payload-baseline-up.sql", "./puck", "./server", "./testing", "./ui"
     ]);
-    expect(salesTaskFixture).toEqual({ title: "Prepare customer follow-up", status: "open" });
+    expect(salesTaskFixture).toEqual({ title: "Prepare customer follow-up" });
   });
 
   it("does not accept an empty database connection setting", () => {

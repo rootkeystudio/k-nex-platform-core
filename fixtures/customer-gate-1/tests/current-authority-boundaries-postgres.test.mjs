@@ -17,7 +17,7 @@ const image = "postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4
 const directory = fileURLToPath(new URL("..", import.meta.url));
 const applicationId = "customer-gate-1";
 const owner = Object.freeze({ kind: "extension", deliveryClass: "platform-plugin", extensionId: "module.sales", generation: 1 });
-const readPermissions = ["sales.tasks.read", "sales.tasks.title.read", "sales.tasks.status.read", "sales.tasks.revenue.read"];
+const readPermissions = ["sales.tasks.read"];
 const sha256 = (value) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
 
 installStaticAuthorizationEnvironment();
@@ -54,7 +54,7 @@ async function seed(store, database, userId) {
     await transaction.write({ kind: "role", role: { schemaVersion: 1, applicationId, id: "fixture.sales", label: "Fixture Sales", revision: 0 } });
     await transaction.write({ kind: "assignment", assignment: { schemaVersion: 1, applicationId, id: "fixture.sales.user", roleId: "fixture.sales", principal: { kind: "user", id: String(userId) }, state: "active", revision: 0 } });
   });
-  await store.transaction({ applicationId, environment: "production", authorizationRevision: first.state.authorizationRevision, lifecycleRevision: first.state.lifecycleRevision }, async (transaction) => {
+  const granted = await store.transaction({ applicationId, environment: "production", authorizationRevision: first.state.authorizationRevision, lifecycleRevision: first.state.lifecycleRevision }, async (transaction) => {
     for (const permissionId of readPermissions) {
       await transaction.write({ kind: "grant", grant: { schemaVersion: 1, applicationId, id: `fixture.${permissionId}`, roleId: "fixture.sales", permissionId, owner, revision: 0 } });
     }
@@ -62,6 +62,24 @@ async function seed(store, database, userId) {
   await database.query(
     "insert into runtime_extensions (application_id, environment, delivery_class, extension_id, revision, disposition, active_generation_id, active_generation) values ($1,$2,$3,$4,1,'active',$5,$6::jsonb)",
     [applicationId, "production", "platform-plugin", "module.sales", "static-module-sales-1", JSON.stringify(staticAuthorizationBuild)]
+  );
+  await database.query(
+    `insert into sales_current_authority_scopes
+      (application_id,environment,principal_id,record_scope,application_wide,mutation_allowed,authorized_team_ids,state,revision)
+     values ($1,'production',$2,'owned-or-assigned-team',false,true,'[]'::jsonb,'active',1)`,
+    [applicationId, String(userId)]
+  );
+  await database.query(
+    "insert into k_nex_system_settings_state (application_id,environment,settings_revision) values ($1,'production',1)",
+    [applicationId]
+  );
+  await database.query(
+    "insert into k_nex_system_settings_documents (application_id,environment,descriptor_id,descriptor_schema_version,owner_scope_key,owner_kind,owner_namespace,document_revision,settings_revision,values_json) values ($1,'production','system.general',3,'platform:system','platform','system',1,1,$2::jsonb)",
+    [applicationId, JSON.stringify({ reportingTimezone: "UTC", reportingCurrency: "USD" })]
+  );
+  await database.query(
+    "update k_nex_extension_authorization_generations set authorization_revision=$1,lifecycle_revision=$2 where application_id=$3 and delivery_class='platform-plugin' and extension_id='module.sales' and authorization_generation=1",
+    [granted.state.authorizationRevision, granted.state.lifecycleRevision, applicationId]
   );
 }
 
@@ -126,7 +144,11 @@ test("P10.5 current authority denies fixture source/action before handler, cache
     const password = "p10-5-boundaries-password";
     const user = await payload.create({ collection: "users", data: { email: "p10-5@example.test", password } });
     const otherUser = await payload.create({ collection: "users", data: { email: "p10-5-other@example.test", password } });
-    await payload.create({ collection: "sales-tasks", data: { title: "P10.5 task", status: "open", potentialRevenue: "1" } });
+    await payload.create({ collection: "sales-tasks", data: {
+      applicationId, environment: "production", ownerId: String(user.id), createdBy: String(user.id), updatedBy: String(user.id),
+      revision: 1, audit: [{ kind: "phase-13-legacy-upgrade", receiptDigest: `sha256:${"a".repeat(64)}` }],
+      title: "P10.5 task", status: "open", archiveStatus: "active"
+    } });
     const login = await payload.login({ collection: "users", data: { email: "p10-5@example.test", password }, overrideAccess: false });
     const otherLogin = await payload.login({ collection: "users", data: { email: "p10-5-other@example.test", password }, overrideAccess: false });
     assert.ok(login.token && otherLogin.token);
@@ -145,10 +167,10 @@ test("P10.5 current authority denies fixture source/action before handler, cache
       payloadInstanceCacheKey: "p10-5-boundaries",
       request: new Request(`http://localhost/api${path}`, { method: "POST", headers: { authorization: `JWT ${token}`, "content-type": "application/json", "idempotency-key": "p10-5-proof" }, body: JSON.stringify(body) })
     });
-    const sourceBody = { sourceId: "sales.tasks", surface: "workspace", input: {}, query: { page: { number: 1, size: 25 }, filters: [], sort: [] }, selectedFields: ["title", "status", "potential-revenue"] };
+    const sourceBody = { sourceId: "sales.tasks", surface: "workspace", input: {}, query: { page: { number: 1, size: 25 }, filters: [], sort: [] }, selectedFields: ["title", "status"] };
     assert.equal((await source.handler(await request("/k-nex/data-source-query", sourceBody))).status, 403);
     assert.equal(finds, 0, "denied source must not enter handler/cache/Payload");
-    const deniedActionRequest = await request("/k-nex/action", { actionId: "sales.task.create", input: { title: "blocked", status: "open" } });
+    const deniedActionRequest = await request("/k-nex/action", { actionId: "sales.task.create", input: { title: "blocked" } });
     assert.equal((await action.handler(deniedActionRequest)).status, 403);
     assert.equal(creates, 0, "denied action must not enter handler/Payload");
 
@@ -181,7 +203,7 @@ test("P10.5 current authority denies fixture source/action before handler, cache
     assert.equal(topicAuthorizations, 0, "denied realtime must not enter topic authorization");
 
     const remote = hotApplicationFixture();
-    const otherAuthorityRequest = await request("/k-nex/action", { actionId: "sales.task.create", input: { title: "other", status: "open" } }, otherLogin.token);
+    const otherAuthorityRequest = await request("/k-nex/action", { actionId: "sales.task.create", input: { title: "other" } }, otherLogin.token);
     const otherAuthorityContext = composedApplication.authority.context(otherAuthorityRequest, "p10-5-other-boundary-proof", otherAuthorityRequest.user);
     const remoteUserA = Object.freeze({ sessionId: "remote-user-a", ...composedApplication.authority.remoteUi(authorityContext) });
     const remoteUserB = Object.freeze({ sessionId: "remote-user-b", ...composedApplication.authority.remoteUi(otherAuthorityContext) });

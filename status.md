@@ -1,22 +1,22 @@
 # Project Status
 
-- **Updated:** 2026-09-05
-- **Phase:** Phase 12 — Runnable Customer Workspace and Dashboard Builder
-- **Active task:** Phase 12 complete; awaiting phase review
-- **State:** Ready for phase review
+- **Updated:** 2026-09-16
+- **Phase:** Phase 13 — CRM-First Productization and Pilot Readiness
+- **Active task:** P13.10 — Gate 13 limited-beta closeout
+- **State:** In progress
 
 ## Last completed
 
-Closed final execute-digest P0 with atomic terminal binding, cross-actor denial, and pre-mutation/post-commit crash recovery; refreshed signed v1 evidence from exact code head.
+PR #35's immutable `1.0.0`, coordinated `1.1.0` train, transition attestation, Sales boundary, upload budget, ADR identity, and real generated-repository upgrade blockers are closed. P13.9 executes the accepted Phase 12 factory from its frozen 1.0 closure, preserves the full source manifest/customer/template state, materializes deterministic isolated 1.1 worktrees, and proves the exact byte-stable 26-migration prefix plus seven additions. Focused Gate 13 now builds the fixture's exact transitive workspace prerequisites in clean checkouts before building the fixture.
 
 ## Validation
 
-Focused handler/store tests 39/39 PASS; payload-adapter build PASS; packed v1 closure/factory locks PASS; one real generated PostgreSQL/HTTP/Chromium journey PASS with cross-actor, crash/restart, exact replay, response-loss, audit, receipt, and outbox markers; audit-high PASS; signed release evidence run `33944370651` PASS on `c8fe7f2`; generated-evidence checks PASS; same Sol xhigh reviewer PASS. No cumulative suite rerun.
+Node 24.19/pnpm 11.9: Contracts PASS (244 tests), Composition PASS (185 tests), both builds PASS, real frozen 1.0→1.1 repository journey PASS (~23s), generated/AJV/repository validation, syntax, and `git diff --check` PASS. A clean detached frozen install plus dependency-only 15/23 workspace build and fixture build PASS; persistent reviewer PASS. Hosted workflow `35027505574` PASS on `035fe17`; final-head rerun remains pending. No full gate run.
 
 ## Next
 
-Project-manager review of PR #33 after exact-head focused PR evidence; implementation agent does not merge.
+Implement P13.9 pre-upgrade backup, post-migration/pre-promotion failure recovery, exact 1.0 restart, and target protection proof; then rerun/overlay final-head hosted transition evidence and focused Gate 13 before PR rereview. Do not merge or promote.
 
 ## Blockers
 
-None.
+PR review blockers remaining: pre-upgrade source protection/recovery and final exact-head focused/repository evidence. Limited beta separately lacks human-operation evidence and sign-offs.

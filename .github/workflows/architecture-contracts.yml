@@ -43,12 +43,12 @@ jobs:
           K_NEX_RUNNER_ISOLATION_POLICY: apparmor
       - name: Install browser proofs
         run: pnpm exec playwright install --with-deps chromium
-      - name: Run Phase 12 focused evidence
+      - name: Run Phase 13 focused evidence
         if: github.event_name == 'pull_request'
-        run: pnpm gate:12:focused
-      - name: Run Phase 0 through Gate 12
+        run: pnpm gate:13:focused
+      - name: Run Phase 0 through Gate 13
         if: github.event_name != 'pull_request'
-        run: pnpm gate:12
+        run: pnpm gate:13
         env:
           K_NEX_RUNNER_ISOLATION_POLICY: apparmor
   repository-evidence:

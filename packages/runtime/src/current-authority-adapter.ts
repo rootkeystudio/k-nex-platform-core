@@ -78,6 +78,10 @@ export function isCurrentAuthorityTarget(value: unknown): value is CurrentAuthor
  * `allows` before admitting work.
  */
 export class CurrentAuthorityAdapter<TContext> {
+  private closed = false;
+  private readonly deadlines = new Set<AbortController>();
+  private readonly pending = new Set<Promise<unknown>>();
+
   constructor(
     private readonly sessions: CurrentAuthoritySessionProvider<TContext>,
     private readonly authority: Pick<EffectiveAuthorityResolver, "authorize">,
@@ -86,15 +90,32 @@ export class CurrentAuthorityAdapter<TContext> {
     if (!Number.isSafeInteger(deadlineMs) || deadlineMs < 1 || deadlineMs > 5_000) throw new TypeError("Current authority deadline is invalid.");
   }
 
+  /** Stops new policy admission, aborts adapter-owned waits, then joins raw dependency work. */
+  async drain(): Promise<void> {
+    this.closed = true;
+    for (const deadline of this.deadlines) deadline.abort();
+    while (this.pending.size > 0) await Promise.allSettled([...this.pending]);
+  }
+
+  private track<T>(operation: Promise<T>): Promise<T> {
+    this.pending.add(operation);
+    void operation.then(
+      () => { this.pending.delete(operation); },
+      () => { this.pending.delete(operation); }
+    );
+    return operation;
+  }
+
   async authorize(context: TContext, target: CurrentAuthorityTarget, signal: AbortSignal = new AbortController().signal): Promise<AuthorizationDecision | undefined> {
-    if (!isCurrentAuthorityTarget(target) || signal.aborted) return undefined;
+    if (!isCurrentAuthorityTarget(target) || signal.aborted || this.closed) return undefined;
     const deadline = new AbortController();
     const abort = () => deadline.abort();
     signal.addEventListener("abort", abort, { once: true });
     const timeout = setTimeout(abort, this.deadlineMs);
+    this.deadlines.add(deadline);
     try {
-      const session = await untilAbort(Promise.resolve(this.sessions.current(context, deadline.signal)), deadline.signal);
-      if (!session || !isTrustedAuthorizationSession(session) || deadline.signal.aborted) return undefined;
+      const session = await untilAbort(this.track(Promise.resolve().then(() => this.sessions.current(context, deadline.signal))), deadline.signal);
+      if (!session || !isTrustedAuthorizationSession(session) || deadline.signal.aborted || this.closed) return undefined;
       const request = createEffectiveAuthorizationRequest({
         schemaVersion: 1,
         decisionId: await digest({
@@ -112,9 +133,10 @@ export class CurrentAuthorityAdapter<TContext> {
         scope: target.scope,
         facts: target.facts
       });
-      const decision = await untilAbort(Promise.resolve(this.authority.authorize(session, request, deadline.signal)), deadline.signal);
+      if (deadline.signal.aborted || this.closed) return undefined;
+      const decision = await untilAbort(this.track(Promise.resolve().then(() => this.authority.authorize(session, request, deadline.signal))), deadline.signal);
       const parsed = AuthorizationDecisionSchema.safeParse(decision);
-      if (!parsed.success || deadline.signal.aborted || parsed.data.decisionId !== request.decisionId ||
+      if (!parsed.success || deadline.signal.aborted || this.closed || parsed.data.decisionId !== request.decisionId ||
         parsed.data.applicationId !== session.applicationId || parsed.data.environment !== session.environment ||
         parsed.data.correlationId !== session.correlationId || parsed.data.permissionId !== target.permissionId ||
         !same(parsed.data.scope, target.scope) || !same(parsed.data.principal, session.principal) ||
@@ -125,6 +147,7 @@ export class CurrentAuthorityAdapter<TContext> {
     } finally {
       clearTimeout(timeout);
       signal.removeEventListener("abort", abort);
+      this.deadlines.delete(deadline);
     }
   }
 

@@ -23,7 +23,7 @@ const proofs = [
   ["static-public-block", "@k-nex/ui-runtime", "tests/spike-blocks.test.ts", "renders one shared static block on the public CMS surface"],
   ["authenticated-block", "@k-nex/ui-runtime", "tests/spike-blocks.test.ts", "renders the authenticated workspace table from the Phase 2 sales.tasks projection"],
   ["source-result-authority", "@k-nex/ui-runtime", "tests/spike-blocks.test.ts", "rejects undeclared or unauthorized fields reintroduced by a source result"],
-  ["optional-source-omission", "@k-nex/ui-runtime", "tests/spike-blocks.test.ts", "accepts omitted nullable cells and drops a denied optional selection exactly like the Phase 2 gateway"],
+  ["removed-optional-field", "@k-nex/ui-runtime", "tests/spike-blocks.test.ts", "rejects a removed optional field from the prior source version"],
   ["gateway-result-projection-parity", "@k-nex/ui-runtime", "tests/spike-blocks.test.ts", "accepts gateway-valid field reordering and omitted applicable cells"],
   ["public-internal-separation", "@k-nex/ui-runtime", "tests/spike-blocks.test.ts", "does not turn the workspace source into publishable authority during authenticated CMS preview"],
   ["safe-fallback", "@k-nex/ui-runtime", "tests/fallback-readiness.test.ts", "identifies a missing plugin while preserving its node and rendered children"],

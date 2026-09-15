@@ -30,7 +30,7 @@ const environment = "production";
 const extensionId = "module.sales";
 const sourceCommit = "a".repeat(40);
 const applicationDigest = "sha256:474447597887192457f6eb22c3e512e3a27294a060798fae58b9f9e6e53a3f2f";
-const permissions = ["sales.tasks.read", "sales.tasks.title.read", "sales.tasks.status.read", "sales.tasks.revenue.read"];
+const permissions = ["sales.tasks.read"];
 const owner = (generation) => ({ kind: "extension", deliveryClass: "platform-plugin", extensionId, generation });
 const expected = (state) => ({ applicationId, environment, authorizationRevision: state.authorizationRevision, lifecycleRevision: state.lifecycleRevision });
 const digest = (character) => `sha256:${character.repeat(64)}`;
@@ -135,18 +135,40 @@ test("P10.7 durable lifecycle catalog binds and revokes Sales and Hot authority"
       "update runtime_extensions set active_generation=$1::jsonb where application_id=$2 and environment=$3 and delivery_class=$4 and extension_id=$5",
       [JSON.stringify(staticBuild("static-module-sales-1")), applicationId, environment, "platform-plugin", extensionId]
     );
-    await store.transaction(expected((await store.readState(applicationId, environment))), async (view) => {
+    const assigned = await store.transaction(expected((await store.readState(applicationId, environment))), async (view) => {
       await view.write({ kind: "role", role: { schemaVersion: 1, applicationId, id: "fixture.sales-reader", label: "Fixture Sales reader", revision: 0 } });
       for (const permissionId of permissions) await view.write({ kind: "grant", grant: { schemaVersion: 1, applicationId, id: `fixture.${permissionId}`, roleId: "fixture.sales-reader", permissionId, owner: owner(1), revision: 0 } });
       await view.write({ kind: "assignment", assignment: { schemaVersion: 1, applicationId, id: "fixture.sales-reader.user", roleId: "fixture.sales-reader", principal: { kind: "user", id: String(user.id) }, state: "active", revision: 0 } });
     });
-    await payload.create({ collection: "sales-tasks", data: { title: "durable catalog proof", status: "open", potentialRevenue: "1" } });
+    await pool.query(
+      `insert into sales_current_authority_scopes
+        (application_id,environment,principal_id,record_scope,application_wide,mutation_allowed,authorized_team_ids,state,revision)
+       values ($1,$2,$3,'owned-or-assigned-team',false,true,'[]'::jsonb,'active',1)`,
+      [applicationId, environment, String(user.id)]
+    );
+    await pool.query(
+      "insert into k_nex_system_settings_state (application_id,environment,settings_revision) values ($1,$2,1)",
+      [applicationId, environment]
+    );
+    await pool.query(
+      "insert into k_nex_system_settings_documents (application_id,environment,descriptor_id,descriptor_schema_version,owner_scope_key,owner_kind,owner_namespace,document_revision,settings_revision,values_json) values ($1,$2,'system.general',3,'platform:system','platform','system',1,1,$3::jsonb)",
+      [applicationId, environment, JSON.stringify({ reportingTimezone: "UTC", reportingCurrency: "USD" })]
+    );
+    await pool.query(
+      "update k_nex_extension_authorization_generations set authorization_revision=$1,lifecycle_revision=$2 where application_id=$3 and delivery_class='platform-plugin' and extension_id='module.sales' and authorization_generation=1",
+      [assigned.state.authorizationRevision, assigned.state.lifecycleRevision, applicationId]
+    );
+    await payload.create({ collection: "sales-tasks", data: {
+      applicationId, environment, ownerId: String(user.id), createdBy: String(user.id), updatedBy: String(user.id),
+      revision: 1, audit: [{ kind: "phase-13-legacy-upgrade", receiptDigest: `sha256:${"b".repeat(64)}` }],
+      title: "durable catalog proof", status: "open", archiveStatus: "active"
+    } });
     const login = await payload.login({ collection: "users", data: { email: "fixture-user@example.test", password: "fixture-password" }, overrideAccess: false });
     const endpoint = payload.config.endpoints.find(({ path }) => path === "/k-nex/data-source-query");
     assert.ok(endpoint && login.token);
     const source = async () => endpoint.handler(await createPayloadRequest({ config: payload.config, payloadInstanceCacheKey: "p10-7-current-authority", request: new Request("http://localhost/api/k-nex/data-source-query", {
       method: "POST", headers: { authorization: `JWT ${login.token}`, "content-type": "application/json" },
-      body: JSON.stringify({ sourceId: "sales.tasks", surface: "workspace", input: {}, query: { page: { number: 1, size: 25 }, filters: [], sort: [] }, selectedFields: ["title", "status", "potential-revenue"] })
+      body: JSON.stringify({ sourceId: "sales.tasks", surface: "workspace", input: {}, query: { page: { number: 1, size: 25 }, filters: [], sort: [] }, selectedFields: ["title", "status"] })
     }) }));
     assert.equal((await source()).status, 200);
 

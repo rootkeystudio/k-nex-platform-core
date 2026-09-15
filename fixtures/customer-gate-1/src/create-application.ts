@@ -24,7 +24,7 @@ import {
 import resolvedJson from "../.k-nex/generated/k-nex.resolved.json" with { type: "json" };
 import { runtimeRegistration } from "../.k-nex/generated/runtime-registration.js";
 import { createDataSourceQueryEndpoint } from "./data-source-endpoint.js";
-import { createActionEndpoint } from "./action-endpoint.js";
+import { createActionEndpoint, createSalesReportArtifactEndpoint } from "./action-endpoint.js";
 import {
   createFixtureCurrentAuthority,
   createFixtureHotApplicationRuntimeRegistry,
@@ -34,6 +34,8 @@ import {
 } from "./current-authority.js";
 import { applicationMigrationRevision } from "./migration-revision.js";
 import { createGate1RuntimeInventory, createRuntimeInventoryEndpoint } from "./runtime-inventory.js";
+import { createSalesDataMovementEndpoints } from "./data-movement-host.js";
+import { createGeneratedEnvironmentProviderSecretResolver, generatedSalesProviderWebhookEndpoints } from "./k-nex-sales-communications.js";
 
 export interface CreateGate1ApplicationOptions {
   readonly databaseUrl: string;
@@ -141,9 +143,9 @@ export function createGate1Application(options: CreateGate1ApplicationOptions): 
   const application = composePayloadApplication({
     baseConfig: {
       secret: options.payloadSecret,
-      custom: { kNexApplicationId: "customer-gate-1" },
+      custom: { kNexApplicationId: "customer-gate-1", kNexEnvironment: "production" },
       plugins: mcp === undefined ? [] : [mcp],
-      endpoints: [createRuntimeInventoryEndpoint(inventory), createDataSourceQueryEndpoint(scopedRegistration, authority), createActionEndpoint(scopedRegistration, authority)]
+      endpoints: [createRuntimeInventoryEndpoint(inventory), createDataSourceQueryEndpoint(scopedRegistration, authority), createActionEndpoint(scopedRegistration, authority), createSalesReportArtifactEndpoint(authority), ...createSalesDataMovementEndpoints(authority), ...generatedSalesProviderWebhookEndpoints("customer-gate-1", "production", createGeneratedEnvironmentProviderSecretResolver())]
     },
     baseCollections: [usersCollection],
     databaseUrl: options.databaseUrl,

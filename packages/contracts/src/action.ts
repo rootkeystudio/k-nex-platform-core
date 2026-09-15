@@ -21,8 +21,11 @@ function validateSchemaDepth(schema: AgentToolJsonSchema, depth: number, context
     context.addIssue({ code: "custom", message: `JSON schema nesting cannot exceed ${actionSchemaDepthLimit} levels.` });
     return;
   }
-  for (const child of Object.values(schema.properties ?? {})) validateSchemaDepth(child, depth + 1, context);
-  if (schema.items !== undefined) validateSchemaDepth(schema.items, depth + 1, context);
+  if ("oneOf" in schema) for (const child of schema.oneOf) validateSchemaDepth(child, depth + 1, context);
+  else {
+    for (const child of Object.values(schema.properties ?? {})) validateSchemaDepth(child, depth + 1, context);
+    if (schema.items !== undefined) validateSchemaDepth(schema.items, depth + 1, context);
+  }
 }
 
 /** Static, serializable metadata for a registered server-side action. */

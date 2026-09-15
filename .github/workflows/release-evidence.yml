@@ -3,7 +3,7 @@ name: Release evidence
 on:
   workflow_dispatch:
   push:
-    tags: ["v1.0.0"]
+    tags: ["v1.0.0", "v1.1.0"]
 
 permissions:
   contents: read
@@ -12,6 +12,7 @@ permissions:
 
 jobs:
   attest-current-v1:
+    if: github.event_name == 'push' && github.ref == 'refs/tags/v1.0.0'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -24,12 +25,9 @@ jobs:
       - run: pnpm build
       - name: Verify packed package and factory lock release inputs
         run: |
-          node scripts/generate-phase-8-packed-packages.mjs
-          node scripts/generate-phase-12-factory-locks.mjs
-          node scripts/generate-phase-8-release-manifests.mjs
-          node scripts/generate-phase-12-factory-locks.mjs --check
-          node scripts/check-phase-8-packed-packages.mjs
-          git diff --exit-code -- releases/1.0.0/package-release-manifest.json fixtures/customer-gate-1/packages
+          node scripts/generate-phase-12-factory-locks.mjs --check --version 1.0.0
+          node scripts/check-phase-8-packed-packages.mjs --version 1.0.0
+          git diff --exit-code -- releases/1.0.0/package-release-manifest.json 'fixtures/customer-gate-1/packages/*-1.0.0.tgz' fixtures/customer-gate-1/packages/factory-lock-sales-reference-minimal-2016a99b6e0c342345b02e262f6554d91c134a46793aa0bea7e1f8f1d94e9db5.yaml fixtures/customer-gate-1/packages/factory-lock-sales-reference-neobrutalism-b09a7daf157e9a6d8698bd06de30e69bf8b55fa972ef8734a6d4c4c496c4b5f9.yaml
       - name: Build both current customer bundles
         run: |
           pnpm --dir fixtures/customer-alpha install --frozen-lockfile
@@ -117,4 +115,171 @@ jobs:
             fixtures/customer-beta/deployment-receipt.json
             fixtures/customer-beta/restore-redeployment-proof.json
             docs/implementation/phase-8-fleet-evidence.json
+          if-no-files-found: error
+
+  attest-phase-13-v1-1:
+    if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/tags/v1.1.0'
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - name: Bind evidence to exact workflow head
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Verify Phase 13 1.1 closure and generated inputs
+        run: |
+          node scripts/generate-current-v1-sales-release-source.mjs --check --version 1.1.0 --source modules/sales
+          node scripts/generate-phase-8-release-manifests.mjs --version 1.1.0
+          git diff --exit-code -- releases/1.1.0/package-release-manifest.json
+          node scripts/generate-phase-12-factory-locks.mjs --check --version 1.1.0
+          node scripts/check-phase-8-packed-packages.mjs --version 1.1.0
+          pnpm --filter @k-nex/composition check:gate-1
+          git diff --exit-code -- releases/1.0.0 releases/sources/sales-1.0.0 'fixtures/customer-gate-1/packages/*-1.0.0.tgz'
+      - name: Create Phase 13 evidence namespace
+        env:
+          WORKFLOW_IDENTITY: ${{ github.repository }}/.github/workflows/release-evidence.yml@${{ github.sha }}
+        run: |
+          mkdir -p release-evidence/phase-13-v1.1/hosted/source-1.0 release-evidence/phase-13-v1.1/hosted/target-1.1 release-evidence/phase-13-v1.1/hosted/transition
+          node scripts/generate-phase-13-transition-policy.mjs --output release-evidence/phase-13-v1.1/transition-policy.json --source-trust-output release-evidence/phase-13-v1.1/source-release-trust.json
+          cp releases/1.0.0/package-release-manifest.json release-evidence/phase-13-v1.1/source-package-release-manifest.json
+          cp releases/1.1.0/package-release-manifest.json release-evidence/phase-13-v1.1/target-package-release-manifest.json
+          node --input-type=module <<'NODE'
+          import { createHash } from "node:crypto";
+          import { readFileSync, writeFileSync } from "node:fs";
+          import { canonicalJson } from "./packages/contracts/dist/index.js";
+          const sourceContent = readFileSync("release-evidence/phase-13-v1.1/source-package-release-manifest.json", "utf8");
+          if ("sha256:" + createHash("sha256").update(sourceContent).digest("hex") !== "sha256:1d8b40e0073fb24d42f47bc3a0fd763db0a0fb5baf706120f7fe3a2768c13eea") throw new Error("Accepted 1.0 source manifest digest changed.");
+          const path = "releases/1.1.0/package-release-manifest.json";
+          const content = readFileSync(path, "utf8");
+          const manifest = JSON.parse(content);
+          if (content !== canonicalJson(manifest) || manifest.release.version !== "1.1.0") throw new Error("Target release manifest is not canonical 1.1.0.");
+          const predicate = {
+            schemaVersion: 1,
+            sourceCommit: process.env.GITHUB_SHA,
+            workflowIdentity: process.env.WORKFLOW_IDENTITY,
+            release: manifest.release.version,
+            closureDigest: "sha256:" + createHash("sha256").update(canonicalJson(manifest.packages)).digest("hex")
+          };
+          writeFileSync("release-evidence/phase-13-v1.1/release-manifest-predicate.json", canonicalJson(predicate));
+          NODE
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-path: releases/1.1.0/package-release-manifest.json
+          predicate-type: https://k-nex.dev/release-manifest/v1
+          predicate-path: release-evidence/phase-13-v1.1/release-manifest-predicate.json
+      - name: Download and verify source and target release attestations
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          download_attestation() {
+            subject="$1"
+            destination="$2"
+            predicate="$3"
+            filename="$4"
+            mkdir -p "$destination"
+            rm -f "$destination/$filename"
+            (
+              cd "$destination"
+              gh attestation download "$GITHUB_WORKSPACE/$subject" --repo "$GITHUB_REPOSITORY" --predicate-type "$predicate"
+            )
+            downloaded="$(find "$destination" -maxdepth 1 -type f -name 'sha256:*.jsonl' -print -quit)"
+            test -n "$downloaded"
+            mv "$downloaded" "$destination/$filename"
+          }
+          source_dir=release-evidence/phase-13-v1.1/hosted/source-1.0
+          target_dir=release-evidence/phase-13-v1.1/hosted/target-1.1
+          download_attestation releases/1.0.0/package-release-manifest.json "$source_dir" https://k-nex.dev/release-manifest/v1 source-attestation.jsonl
+          download_attestation releases/1.1.0/package-release-manifest.json "$target_dir" https://k-nex.dev/release-manifest/v1 target-attestation.jsonl
+          gh attestation verify release-evidence/phase-13-v1.1/source-package-release-manifest.json --bundle "$source_dir/source-attestation.jsonl" --repo "$GITHUB_REPOSITORY" --predicate-type https://k-nex.dev/release-manifest/v1 --format json |
+            jq --arg sha "c8fe7f2518c219957297155e307768837186ec5f" --arg workflow "rootkeystudio/k-nex-platform-core/.github/workflows/release-evidence.yml@c8fe7f2518c219957297155e307768837186ec5f" 'map(select(.verificationResult.statement.predicate.sourceCommit == $sha and .verificationResult.statement.predicate.workflowIdentity == $workflow)) as $matches | if (($matches | length) >= 1 and (($matches | map(.verificationResult.statement) | unique | length) == 1)) then $matches else error("Committed historical 1.0 source identity is not verified.") end' > "$source_dir/verification.json"
+          gh attestation verify release-evidence/phase-13-v1.1/target-package-release-manifest.json --bundle "$target_dir/target-attestation.jsonl" --repo "$GITHUB_REPOSITORY" --predicate-type https://k-nex.dev/release-manifest/v1 --format json |
+            jq --arg sha "$GITHUB_SHA" --arg workflow "$GITHUB_REPOSITORY/.github/workflows/release-evidence.yml@$GITHUB_SHA" 'map(select(.verificationResult.statement.predicate.sourceCommit == $sha and .verificationResult.statement.predicate.workflowIdentity == $workflow)) as $matches | if (($matches | length) >= 1 and (($matches | map(.verificationResult.statement) | unique | length) == 1)) then $matches else error("Target attestation is not bound to this workflow head.") end' > "$target_dir/verification.json"
+      - name: Publish exact 1.0 to 1.1 transition
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node scripts/publish-platform-release-transition.mjs \
+            --source release-evidence/phase-13-v1.1/source-package-release-manifest.json \
+            --target release-evidence/phase-13-v1.1/target-package-release-manifest.json \
+            --policy release-evidence/phase-13-v1.1/transition-policy.json \
+            --output release-evidence/phase-13-v1.1/platform-release-transition.json \
+            --repository "$GITHUB_REPOSITORY" \
+            --workflow release-evidence.yml \
+            --source-attestation-bundle release-evidence/phase-13-v1.1/hosted/source-1.0/source-attestation.jsonl \
+            --target-attestation-bundle release-evidence/phase-13-v1.1/hosted/target-1.1/target-attestation.jsonl \
+            --source-trust release-evidence/phase-13-v1.1/source-release-trust.json \
+            --target-attestation-source-commit "$GITHUB_SHA"
+          node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from "node:fs";
+          import { canonicalJson } from "./packages/contracts/dist/index.js";
+          const transition = JSON.parse(readFileSync("release-evidence/phase-13-v1.1/platform-release-transition.json", "utf8"));
+          writeFileSync("release-evidence/phase-13-v1.1/platform-release-transition-predicate.json", canonicalJson({
+            schemaVersion: 1,
+            sourceCommit: process.env.GITHUB_SHA,
+            workflowIdentity: process.env.GITHUB_REPOSITORY + "/.github/workflows/release-evidence.yml@" + process.env.GITHUB_SHA,
+            transitionId: transition.transitionId,
+            source: transition.source,
+            target: transition.target,
+            migrationGraphDigest: transition.migrations.graphDigest
+          }));
+          NODE
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-path: release-evidence/phase-13-v1.1/platform-release-transition.json
+          predicate-type: https://k-nex.dev/platform-release-transition/v1
+          predicate-path: release-evidence/phase-13-v1.1/platform-release-transition-predicate.json
+      - name: Download and verify transition attestation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          transition_dir=release-evidence/phase-13-v1.1/hosted/transition
+          download_attestation() {
+            subject="$1"
+            destination="$2"
+            predicate="$3"
+            filename="$4"
+            mkdir -p "$destination"
+            rm -f "$destination/$filename"
+            (
+              cd "$destination"
+              gh attestation download "$GITHUB_WORKSPACE/$subject" --repo "$GITHUB_REPOSITORY" --predicate-type "$predicate"
+            )
+            downloaded="$(find "$destination" -maxdepth 1 -type f -name 'sha256:*.jsonl' -print -quit)"
+            test -n "$downloaded"
+            mv "$downloaded" "$destination/$filename"
+          }
+          download_attestation release-evidence/phase-13-v1.1/platform-release-transition.json "$transition_dir" https://k-nex.dev/platform-release-transition/v1 transition-attestation.jsonl
+          gh attestation verify release-evidence/phase-13-v1.1/platform-release-transition.json --bundle "$transition_dir/transition-attestation.jsonl" --repo "$GITHUB_REPOSITORY" --predicate-type https://k-nex.dev/platform-release-transition/v1 --format json |
+            jq --arg sha "$GITHUB_SHA" --arg workflow "$GITHUB_REPOSITORY/.github/workflows/release-evidence.yml@$GITHUB_SHA" 'map(select(.verificationResult.statement.predicate.sourceCommit == $sha and .verificationResult.statement.predicate.workflowIdentity == $workflow)) as $matches | if (($matches | length) >= 1 and (($matches | map(.verificationResult.statement) | unique | length) == 1)) then $matches else error("Transition attestation is not bound to this workflow head.") end' > "$transition_dir/verification.json"
+      - name: Check transition against downloaded attestations
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node scripts/publish-platform-release-transition.mjs \
+            --check \
+            --source release-evidence/phase-13-v1.1/source-package-release-manifest.json \
+            --target release-evidence/phase-13-v1.1/target-package-release-manifest.json \
+            --policy release-evidence/phase-13-v1.1/transition-policy.json \
+            --output release-evidence/phase-13-v1.1/platform-release-transition.json \
+            --repository "$GITHUB_REPOSITORY" \
+            --workflow release-evidence.yml \
+            --source-attestation-bundle release-evidence/phase-13-v1.1/hosted/source-1.0/source-attestation.jsonl \
+            --target-attestation-bundle release-evidence/phase-13-v1.1/hosted/target-1.1/target-attestation.jsonl \
+            --transition-attestation-bundle release-evidence/phase-13-v1.1/hosted/transition/transition-attestation.jsonl \
+            --source-trust release-evidence/phase-13-v1.1/source-release-trust.json \
+            --target-attestation-source-commit "$GITHUB_SHA" \
+            --transition-attestation-source-commit "$GITHUB_SHA"
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4
+        with:
+          name: phase-13-v1.1-release-evidence
+          path: release-evidence/phase-13-v1.1
           if-no-files-found: error

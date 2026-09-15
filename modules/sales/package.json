@@ -1,6 +1,6 @@
 {
   "name": "@k-nex/module-sales",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "sideEffects": false,
@@ -9,6 +9,14 @@
     "./contracts": {
       "types": "./dist/contracts.d.ts",
       "default": "./dist/contracts.js"
+    },
+    "./crm-authority": {
+      "types": "./dist/crm-authority.d.ts",
+      "default": "./dist/crm-authority.js"
+    },
+    "./crm-core": {
+      "types": "./dist/crm-core.d.ts",
+      "default": "./dist/crm-core.js"
     },
     "./server": {
       "types": "./dist/server.d.ts",
@@ -56,16 +64,16 @@
     "test:sources": "node --test tests/server.test.mjs"
   },
   "peerDependencies": {
-    "@k-nex/contracts": "1.0.0",
-    "@k-nex/payload-adapter": "1.0.0",
-    "@k-nex/runtime": "1.0.0",
-    "@k-nex/ui-runtime": "1.0.0",
-    "@k-nex/ui-components": "1.0.0",
-    "@k-nex/ui-builder-blocks": "1.0.0",
-    "@k-nex/ui-data": "1.0.0",
-    "@k-nex/ui-design-system-contracts": "1.0.0",
-    "@k-nex/ui-forms": "1.0.0",
-    "@k-nex/ui-pages": "1.0.0",
+    "@k-nex/contracts": "1.1.0",
+    "@k-nex/payload-adapter": "1.1.0",
+    "@k-nex/runtime": "1.1.0",
+    "@k-nex/ui-runtime": "1.1.0",
+    "@k-nex/ui-components": "1.1.0",
+    "@k-nex/ui-builder-blocks": "1.1.0",
+    "@k-nex/ui-data": "1.1.0",
+    "@k-nex/ui-design-system-contracts": "1.1.0",
+    "@k-nex/ui-forms": "1.1.0",
+    "@k-nex/ui-pages": "1.1.0",
     "react": "^18.0.0 || ^19.0.0"
   },
   "peerDependenciesMeta": {

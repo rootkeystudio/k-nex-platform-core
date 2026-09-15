@@ -31,6 +31,9 @@ let heartbeat;
 let heartbeatEpoch = 0;
 let renewalQueue = Promise.resolve();
 const inFlight = new Set();
+let drainStarted = false;
+let releaseDrainWaiters;
+const drainStartedSignal = new Promise((resolve) => { releaseDrainWaiters = resolve; });
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 const sha256 = (value) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
 const heartbeatMs = Number(process.env.P9_WORKER_HEARTBEAT_MS ?? "250");
@@ -111,7 +114,7 @@ async function executeEffect(command) {
   if (mode !== "active") throw new Error("Only the active fenced release worker may execute effects.");
   if (!workerAuthority) throw new Error("Active release worker has no validated deployment owner.");
   const authority = workerAuthority;
-  if (typeof command.effectId !== "string" || !command.effectId || typeof command.payload !== "string" || !Number.isInteger(command.delayMs) || command.delayMs < 0 || command.delayMs > 30_000) {
+  if (typeof command.effectId !== "string" || !command.effectId || typeof command.payload !== "string" || !Number.isInteger(command.delayMs) || command.delayMs < 0 || command.delayMs > 30_000 || (command.waitForDrain !== undefined && typeof command.waitForDrain !== "boolean")) {
     throw new Error("Release worker effect command is invalid.");
   }
   const effectLeaseDurationMs = Math.max(leaseDurationMs, command.delayMs + 5_000);
@@ -126,6 +129,7 @@ async function executeEffect(command) {
   if (claim.status !== "claimed") return { status: claim.status, externalIdempotencyKey: claim.externalIdempotencyKey };
   await event("worker-effect-started", { effectId: command.effectId, claimToken: claim.claimToken, claimLeaseDurationMs });
   await delay(command.delayMs);
+  if (command.waitForDrain && !drainStarted) await drainStartedSignal;
   const resultDigest = sha256(command.payload);
   const inserted = await pool.query(
     "insert into p9_static_external_effects (idempotency_key, result_digest) values ($1,$2) on conflict (idempotency_key) do nothing returning result_digest",
@@ -218,6 +222,8 @@ createServer(async (request, response) => {
       mode = "draining";
       stopHeartbeat();
       await event("worker-draining", { mode, inFlight: draining.length });
+      drainStarted = true;
+      releaseDrainWaiters();
       await Promise.all(draining);
       mode = "drained";
       await event("worker-drained", { mode, waitedFor: draining.length });

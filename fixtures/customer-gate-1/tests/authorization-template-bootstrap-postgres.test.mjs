@@ -5,7 +5,7 @@ import test from "node:test";
 
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import salesManifest from "@k-nex/module-sales-current/manifest" with { type: "json" };
-import { salesPermissionDescriptors, salesRegistration } from "@k-nex/module-sales-current/server";
+import { salesCrmPermissionDescriptors, salesRegistration } from "@k-nex/module-sales-current/server";
 import {
   bootstrapFirstOwner,
   compareInstantiatedRoleTemplate,
@@ -95,7 +95,7 @@ function salesCatalog() {
 }
 
 function testSalesTemplate(template, descriptorIds, templateOwner = owner) {
-  const descriptors = salesPermissionDescriptors.filter(({ id }) => descriptorIds.includes(id));
+  const descriptors = salesCrmPermissionDescriptors.filter(({ id }) => descriptorIds.includes(id));
   const manifest = {
     apiVersion: 1, id: "module.sales", kind: "module", displayName: "Sales test template", version: "1.0.0", package: "@k-nex/module-sales",
     compatibility: { core: ">=1.0.0 <2.0.0", payload: ">=3.0.0 <4.0.0", node: ">=24.0.0 <25.0.0", payloadDatabaseAdapters: ["postgres"] },
@@ -210,33 +210,37 @@ test("P10.6 persists protected roles and Sales template bootstrap through Postgr
         schemaVersion: 1, applicationId, owner, runtimeGenerationIds: ["sales-template-generation"], state: "current", authorizationRevision: protectedAfterState.authorizationRevision, lifecycleRevision: protectedAfterState.lifecycleRevision
       } });
     });
-    const manual = salesCatalog().roleTemplates.find(({ template }) => template.id === "sales.template.viewer");
-    assert.ok(manual, "The actual Sales registration must publish its Viewer template.");
+    const publishedManual = salesCatalog().roleTemplates.find(({ template }) => template.id === "sales.template.viewer");
+    assert.ok(publishedManual, "The actual Sales registration must publish its Viewer template.");
+    const manual = testSalesTemplate({
+      schemaVersion: 1, id: "sales.template.viewer", publisher: { kind: "extension", deliveryClass: "platform-plugin", extensionId: "module.sales" },
+      version: 1, instantiation: "manual", title: "Sales Viewer v1", permissionIds: ["sales.tasks.read"]
+    }, ["sales.tasks.read"]);
     const automatic = testSalesTemplate({
       schemaVersion: 1, id: "sales.template.postgres-auto", publisher: { kind: "extension", deliveryClass: "platform-plugin", extensionId: "module.sales" },
       version: 1, instantiation: "automatic", title: "Sales PostgreSQL automatic", permissionIds: ["sales.tasks.read"]
     }, ["sales.tasks.read"]);
     const automaticV2 = testSalesTemplate({
       schemaVersion: 1, id: "sales.template.postgres-auto", publisher: { kind: "extension", deliveryClass: "platform-plugin", extensionId: "module.sales" },
-      version: 2, instantiation: "automatic", title: "Sales PostgreSQL automatic v2", permissionIds: ["sales.tasks.read", "sales.tasks.status.read"]
-    }, ["sales.tasks.read", "sales.tasks.status.read"]);
+      version: 2, instantiation: "automatic", title: "Sales PostgreSQL automatic v2", permissionIds: ["sales.tasks.read", "sales.tasks.write"]
+    }, ["sales.tasks.read", "sales.tasks.write"]);
     const automaticNewGeneration = testSalesTemplate({
       schemaVersion: 1, id: "sales.template.postgres-auto", publisher: { kind: "extension", deliveryClass: "platform-plugin", extensionId: "module.sales" },
-      version: 3, instantiation: "automatic", title: "Sales PostgreSQL automatic generation two", permissionIds: ["sales.tasks.read", "sales.tasks.status.read"]
-    }, ["sales.tasks.read", "sales.tasks.status.read"], { ...owner, generation: 2 });
+      version: 3, instantiation: "automatic", title: "Sales PostgreSQL automatic generation two", permissionIds: ["sales.tasks.read", "sales.tasks.write"]
+    }, ["sales.tasks.read", "sales.tasks.write"], { ...owner, generation: 2 });
     const copyBeforeReconcile = testSalesTemplate({
       schemaVersion: 1, id: "sales.template.postgres-copy-auto", publisher: { kind: "extension", deliveryClass: "platform-plugin", extensionId: "module.sales" },
       version: 1, instantiation: "automatic", title: "Sales PostgreSQL copy automatic", permissionIds: ["sales.tasks.read"]
     }, ["sales.tasks.read"]);
     const copyBeforeReconcileV2 = testSalesTemplate({
       schemaVersion: 1, id: "sales.template.postgres-copy-auto", publisher: { kind: "extension", deliveryClass: "platform-plugin", extensionId: "module.sales" },
-      version: 2, instantiation: "automatic", title: "Sales PostgreSQL copy automatic v2", permissionIds: ["sales.tasks.read", "sales.tasks.revenue.read"]
-    }, ["sales.tasks.read", "sales.tasks.revenue.read"]);
+      version: 2, instantiation: "automatic", title: "Sales PostgreSQL copy automatic v2", permissionIds: ["sales.tasks.archive", "sales.tasks.read"]
+    }, ["sales.tasks.archive", "sales.tasks.read"]);
     const viewerV2 = testSalesTemplate({
       schemaVersion: 1, id: "sales.template.viewer", publisher: { kind: "extension", deliveryClass: "platform-plugin", extensionId: "module.sales" },
-      version: 2, instantiation: "manual", title: "Sales Viewer v2", permissionIds: ["sales.opportunities.name.read", "sales.opportunities.read", "sales.opportunities.stage.read", "sales.tasks.read", "sales.tasks.revenue.read", "sales.tasks.status.read", "sales.tasks.title.read"]
-    }, ["sales.opportunities.name.read", "sales.opportunities.read", "sales.opportunities.stage.read", "sales.tasks.read", "sales.tasks.revenue.read", "sales.tasks.status.read", "sales.tasks.title.read"]);
-    assert.ok(automatic && automaticV2 && automaticNewGeneration && copyBeforeReconcile && copyBeforeReconcileV2 && viewerV2);
+      version: 2, instantiation: "manual", title: "Sales Viewer v2", permissionIds: ["sales.opportunities.amount.read", "sales.tasks.read"]
+    }, ["sales.opportunities.amount.read", "sales.tasks.read"]);
+    assert.ok(manual && automatic && automaticV2 && automaticNewGeneration && copyBeforeReconcile && copyBeforeReconcileV2 && viewerV2);
 
     const manualResult = await instantiateRoleTemplate({ store, expected: expected(seeded.state), effectiveTemplate: manual, role: { id: "sales.customer-viewer", label: "Customer Sales Viewer" } });
     assert.equal((await pool.query("select count(*)::int as count from k_nex_role_assignments where application_id=$1", [applicationId])).rows[0].count, 1, "Template instantiation never assigns users.");
@@ -246,7 +250,7 @@ test("P10.6 persists protected roles and Sales template bootstrap through Postgr
     const comparisonState = await store.readState(applicationId, environment);
     const comparison = await compareInstantiatedRoleTemplate({ store, expected: expected(comparisonState), effectiveTemplate: viewerV2, roleId: "sales.customer-viewer" });
     assert.deepEqual(comparison.value.customerAddedPermissionIds, ["sales.tasks.write"]);
-    assert.deepEqual(comparison.value.templateAddedPermissionIds, ["sales.tasks.revenue.read"]);
+    assert.deepEqual(comparison.value.templateAddedPermissionIds, ["sales.opportunities.amount.read"]);
     assert.deepEqual(comparison.state, comparisonState, "Comparison is read-only.");
 
     const automaticBeforeTombstone = await Promise.all([
@@ -283,9 +287,9 @@ test("P10.6 persists protected roles and Sales template bootstrap through Postgr
     assert.deepEqual(copyReconciliation.value, [], "Copying an automatic template suppresses its default role before reconciliation.");
     assert.deepEqual(copyReconciliation.state, copied.state);
     const beforeV2Copy = await pool.query("select permission_id from k_nex_role_permission_grants where application_id=$1 and role_id='customer.mixed' order by permission_id", [applicationId]);
-    await assert.rejects(copyTemplatePermissionsToRole({ store, expected: expected(copied.state), effectiveTemplate: copyBeforeReconcileV2, roleId: "customer.mixed", permissionIds: ["sales.tasks.revenue.read"] }), { code: "REVISION_CONFLICT" });
+    await assert.rejects(copyTemplatePermissionsToRole({ store, expected: expected(copied.state), effectiveTemplate: copyBeforeReconcileV2, roleId: "customer.mixed", permissionIds: ["sales.tasks.archive"] }), { code: "REVISION_CONFLICT" });
     assert.deepEqual((await pool.query("select permission_id from k_nex_role_permission_grants where application_id=$1 and role_id='customer.mixed' order by permission_id", [applicationId])).rows, beforeV2Copy.rows);
-    assert.equal((await pool.query("select count(*)::int as count from k_nex_role_permission_grants where application_id=$1 and role_id='customer.mixed' and permission_id='sales.tasks.revenue.read'", [applicationId])).rows[0].count, 0, "Copied roles do not subscribe to later template versions.");
+    assert.equal((await pool.query("select count(*)::int as count from k_nex_role_permission_grants where application_id=$1 and role_id='customer.mixed' and permission_id='sales.tasks.archive'", [applicationId])).rows[0].count, 0, "Copied roles do not subscribe to later template versions.");
     const copyV2Reconciliation = await reconcileAutomaticRoleTemplates({ store, expected: expected(copied.state), effectiveTemplates: [copyBeforeReconcileV2] });
     assert.deepEqual(copyV2Reconciliation.value, [], "A future copied automatic template version creates no default role.");
 

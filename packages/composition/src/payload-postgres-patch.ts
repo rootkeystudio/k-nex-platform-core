@@ -1,0 +1,17 @@
+/**
+ * Pinned upstream fix for Payload 3.88.0. This must be packaged with
+ * composition: generated applications cannot depend on this repository path.
+ */
+export const payloadPostgresPatchSource = `diff --git a/dist/connect.js b/dist/connect.js
+index bf4beedd6617e13dbafab75c82f356095ffa4e5f..80e127fdc494806d2018c7603a249645aad4c5bb 100644
+--- a/dist/connect.js
++++ b/dist/connect.js
+@@ -35,6 +35,7 @@ const connectWithReconnect = async function({ adapter, pool, reconnect = false }
+         // swallow error
+         }
+     });
++    result.release();
+ };
+ export const connect = async function connect(options = {
+     hotReload: false
+`;

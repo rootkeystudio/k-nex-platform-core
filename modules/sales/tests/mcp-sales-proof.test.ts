@@ -102,22 +102,44 @@ describe("P2A.8 Sales tool proof", () => {
       principal: { kind: "user" as const, id: "user-1" },
       effectiveActor: { kind: "user" as const, id: "user-1" }
     };
-    const tasks = [{ id: "task-1", title: "Seed follow-up", status: "open", potentialRevenue: "10.00", privateNote: "seed-secret" }];
+    const tasks: Array<{ id: string; title: string; status: "open" | "completed" | "cancelled"; revision: number }> = [{ id: "1", title: "Seed follow-up", status: "open", revision: 1 }];
     let creates = 0;
+    let updates = 0;
+    const createCalls: Array<{
+      data: {
+        id: number; title: string; status: "open" | "completed" | "cancelled"; applicationId: string; environment: string;
+        ownerId: string; teamId: string; createdBy: string; updatedBy: string; revision: number;
+        audit: Array<Record<string, unknown>>; archiveStatus: "active" | "archived";
+      };
+      context: { kNexSalesEvent: { eventId: string; type: string; transition: Record<string, unknown> } };
+    }> = [];
     const payloadRequest = {
       user: { id: "user-1", collection: "users" },
       payload: {
+        config: { custom: { kNexApplicationId: "app-1", kNexEnvironment: "production" } },
         find: async (options: { page?: number; limit?: number }) => {
           const page = options.page ?? 1;
           const limit = options.limit ?? tasks.length;
           const totalPages = Math.max(1, Math.ceil(tasks.length / limit));
           return { docs: tasks.slice((page - 1) * limit, page * limit), page, totalPages, hasNextPage: page < totalPages };
         },
-        create: async (options: { data: { title: string; status?: "open" | "done" } }) => {
+        create: async (options: {
+          data: {
+            id: number; title: string; status: "open" | "completed" | "cancelled"; applicationId: string; environment: string;
+            ownerId: string; teamId: string; createdBy: string; updatedBy: string; revision: number;
+            audit: Array<Record<string, unknown>>; archiveStatus: "active" | "archived";
+          };
+          context: { kNexSalesEvent: { eventId: string; type: string; transition: Record<string, unknown> } };
+        }) => {
           creates += 1;
-          const task = { id: `task-${tasks.length + 1}`, title: options.data.title, status: options.data.status ?? "open", potentialRevenue: null, privateNote: null };
+          createCalls.push(options);
+          const task = { id: String(options.data.id), title: options.data.title, status: options.data.status, revision: options.data.revision };
           tasks.push(task);
-          return task;
+          return { ...options.data };
+        },
+        update: async () => {
+          updates += 1;
+          throw new Error("Sales task creation must not issue an update.");
         }
       },
       locale: "en-US",
@@ -215,9 +237,11 @@ describe("P2A.8 Sales tool proof", () => {
         const permissionFingerprint = (authorizationContext as { permissionFingerprint?: unknown }).permissionFingerprint;
         return {
           sourceAllowed: permissionFingerprint === "sales:open:full" && descriptor.id === salesTasksDefinition.descriptor.id,
-          recordScope: { kind: "sales.tasks", where: { status: { equals: "open" } } },
+          recordScope: { kind: "sales.tasks", where: { and: [
+            { applicationId: { equals: "app-1" } }, { environment: { equals: "production" } }, { status: { equals: "open" } }
+          ] } },
           allowedFields: descriptor.primaryContract.id === "table.records"
-            ? ["title", "status", "potential-revenue"]
+            ? ["title", "status"]
             : []
         };
       }
@@ -227,7 +251,7 @@ describe("P2A.8 Sales tool proof", () => {
         actor: salesActor,
         authorizationContext: () => ({ permissionFingerprint: "sales:open:full" }),
         requestContext: (request) => createPayloadPersistenceCapability(request, [
-          { collection: "sales-tasks", operations: ["find", "create"] }
+          { collection: "sales-tasks", operations: ["find"] }
         ], { authorize: () => true })
       }),
       catalog: sourceCatalog,
@@ -250,7 +274,15 @@ describe("P2A.8 Sales tool proof", () => {
           delegation.resourceScope?.kind !== "sales.tasks" || delegation.resourceScope.id !== "team-1") {
           throw new ToolGatewayError("TOOL_TARGET_FORBIDDEN", 403, "Tool target access is forbidden.");
         }
-        return Object.freeze({ resourceScope: delegation.resourceScope });
+        return Object.freeze({
+          actionId: target.definition.descriptor.id,
+          applicationId: "app-1",
+          environment: "production",
+          actorId: "user-1",
+          ownerId: "user-1",
+          teamId: delegation.resourceScope.id,
+          resourceId: "2"
+        });
       }
     });
     const registeredDispatcher = new RegisteredToolDispatcher(
@@ -263,7 +295,7 @@ describe("P2A.8 Sales tool proof", () => {
             filters: [{ field: "title", operator: "contains", value: (context.input as { title: string }).title }],
             sort: []
           },
-          selectedFields: ["title", "status", "potential-revenue"]
+          selectedFields: ["title", "status"]
         })
       })
     );
@@ -274,7 +306,7 @@ describe("P2A.8 Sales tool proof", () => {
             actor: salesActor,
             authorizationContext: () => catalogContext.authorizationContext,
             requestContext: (payloadRequest) => createPayloadPersistenceCapability(payloadRequest, [
-              { collection: "sales-tasks", operations: ["find", "create"] }
+              { collection: "sales-tasks", operations: ["create"] }
             ], { authorize: () => true })
           }).authenticate({
             correlationId: request.correlationId,
@@ -358,8 +390,8 @@ describe("P2A.8 Sales tool proof", () => {
       forbiddenTool: { id: "sales.tools.forbidden", version: 1 },
       forbiddenInput: {},
       writeTool: salesCreateTaskToolDescriptor,
-      writeInput: { title: "Approved follow-up", privateNote: "never-audit-this" },
-      changedWriteInput: { title: "Changed follow-up", privateNote: "never-audit-this-either" },
+      writeInput: { title: "Approved follow-up" },
+      changedWriteInput: { title: "Changed follow-up" },
       idempotencyKey: "create-task-proof-1",
       approval: ({ stage }) => ({ id: `approval-${stage}`, decision: "approve", expiresAtEpochMs: 2_000 })
     });
@@ -369,12 +401,21 @@ describe("P2A.8 Sales tool proof", () => {
     expect(JSON.stringify(proof.read)).not.toContain("seed-secret");
     expect(proof.forbidden).toMatchObject({ ok: false, status: 404, body: { code: "TOOL_NOT_FOUND" } });
     expect(proof.prepared).toMatchObject({ ok: true, body: { status: "required" } });
-    expect(proof.write).toMatchObject({ ok: true, body: { data: { id: "task-2", title: "Approved follow-up", status: "open" } } });
+    expect(proof.write).toMatchObject({ ok: true, body: { data: { id: "2", title: "Approved follow-up", status: "open", revision: 1 } } });
     expect(proof.replay).toEqual(proof.write);
     expect(proof.changedReplay).toMatchObject({ ok: false, status: 409, body: { code: "IDEMPOTENCY_KEY_REUSED" } });
     expect(creates).toBe(1);
+    expect(updates).toBe(0);
+    expect(createCalls).toHaveLength(1);
+    expect(createCalls[0]?.data).toMatchObject({ id: 2, title: "Approved follow-up", status: "open", revision: 1 });
+    expect(createCalls[0]?.data.audit).toHaveLength(1);
+    expect(createCalls[0]?.data.audit[0]).toMatchObject({
+      actionId: "sales.task.create", resourceId: "2", applicationId: "app-1", environment: "production",
+      fromState: "absent", toState: "open", actorId: "user-1", revision: 1, idempotencyKey: "create-task-proof-1"
+    });
+    expect(createCalls[0]?.context.kNexSalesEvent).toMatchObject({ eventId: "create-task-proof-1", type: "sales.event.task-changed" });
+    expect(createCalls[0]?.context.kNexSalesEvent.transition).toEqual(createCalls[0]?.data.audit[0]);
     expect(tasks).toHaveLength(2);
-    expect(JSON.stringify(audits)).not.toContain("never-audit-this");
     const cursorRequest = (query: unknown) => dataSourceGateway.query({
       correlationId: "sales-cursor-proof",
       rawRequest: payloadRequest,
@@ -382,16 +423,16 @@ describe("P2A.8 Sales tool proof", () => {
       surface: "workspace",
       input: {},
       query,
-      selectedFields: ["title", "status", "potential-revenue"],
+      selectedFields: ["title", "status"],
       signal: new AbortController().signal
     });
     const firstCursorPage = await cursorRequest({ cursor: { size: 1 }, filters: [], sort: [] });
-    expect(firstCursorPage).toMatchObject({ ok: true, body: { data: { rows: [{ key: "task-1" }], page: { number: 1, pageSize: 1, hasNext: true } } } });
+    expect(firstCursorPage).toMatchObject({ ok: true, body: { data: { rows: [{ key: "1" }], page: { number: 1, pageSize: 1, hasNext: true } } } });
     if (!firstCursorPage.ok) throw new Error("First authenticated Sales cursor page failed.");
     const nextCursor = (firstCursorPage.body.data as { page: { nextCursor?: string } }).page.nextCursor;
     expect(nextCursor).toMatch(/^[A-Za-z0-9_-]+$/);
     const secondCursorPage = await cursorRequest({ cursor: { size: 1, after: nextCursor }, filters: [], sort: [] });
-    expect(secondCursorPage).toMatchObject({ ok: true, body: { data: { rows: [{ key: "task-2" }], page: { number: 2, pageSize: 1, hasNext: false } } } });
+    expect(secondCursorPage).toMatchObject({ ok: true, body: { data: { rows: [{ key: "2" }], page: { number: 2, pageSize: 1, hasNext: false } } } });
     const changedQueryReplay = await cursorRequest({ cursor: { size: 2, after: nextCursor }, filters: [], sort: [] });
     expect(changedQueryReplay).toMatchObject({ ok: false, status: 400, body: { code: "INVALID_CURSOR" } });
     const malformedCursorReplay = await cursorRequest({ cursor: { size: 1, after: "not-a-sales-cursor" }, filters: [], sort: [] });
@@ -422,8 +463,8 @@ describe("P2A.8 Sales tool proof", () => {
       enableAPIKey: true,
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
       "payload-mcp-tool": {
-        kNexSalesToolsSearchTasksV1: true,
-        kNexSalesToolsCreateTaskV1: true
+        kNexSalesToolsSearchTasksV2: true,
+        kNexSalesToolsCreateTaskV2: true
       }
     } as never;
     const access = await adapter.overrideAuth!(payloadMcpRequest as never, async () => defaults);
@@ -462,8 +503,8 @@ describe("P2A.8 Sales tool proof", () => {
         enableAPIKey: true,
         expiresAt: new Date(Date.now() + 60_000).toISOString(),
         "payload-mcp-tool": {
-          kNexSalesToolsSearchTasksV1: true,
-          kNexSalesToolsCreateTaskV1: true
+          kNexSalesToolsSearchTasksV2: true,
+          kNexSalesToolsCreateTaskV2: true
         }
       }],
       [digest(foreignApiKey), {
@@ -472,8 +513,8 @@ describe("P2A.8 Sales tool proof", () => {
         enableAPIKey: true,
         expiresAt: new Date(Date.now() + 60_000).toISOString(),
         "payload-mcp-tool": {
-          kNexSalesToolsSearchTasksV1: true,
-          kNexSalesToolsCreateTaskV1: true
+          kNexSalesToolsSearchTasksV2: true,
+          kNexSalesToolsCreateTaskV2: true
         }
       }]
     ]);
@@ -524,11 +565,11 @@ describe("P2A.8 Sales tool proof", () => {
 
     const listedForOwner = await protocolCall(ownerApiKey, "tools/list");
     expect(listedForOwner.result?.tools?.map(({ name }) => name)).toEqual([
-      "k-nex-sales-tools-search-tasks-v1",
-      "k-nex-sales-tools-create-task-v1"
+      "k-nex-sales-tools-search-tasks-v2",
+      "k-nex-sales-tools-create-task-v2"
     ]);
     const calledForOwner = await protocolCall(ownerApiKey, "tools/call", {
-      name: "k-nex-sales-tools-search-tasks-v1",
+      name: "k-nex-sales-tools-search-tasks-v2",
       arguments: { title: "Seed" }
     });
     expect(calledForOwner.result?.isError).toBeUndefined();
@@ -538,7 +579,7 @@ describe("P2A.8 Sales tool proof", () => {
     expect(listedForForeignActor.error).toEqual({ code: -32601, message: "Method not found" });
     expect(listedForForeignActor.result?.tools).toBeUndefined();
     const calledForForeignActor = await protocolCall(foreignApiKey, "tools/call", {
-      name: "k-nex-sales-tools-search-tasks-v1",
+      name: "k-nex-sales-tools-search-tasks-v2",
       arguments: { title: "Seed" }
     });
     expect(calledForForeignActor.error).toEqual({ code: -32601, message: "Method not found" });

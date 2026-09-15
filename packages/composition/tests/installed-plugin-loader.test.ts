@@ -165,6 +165,19 @@ function input(fixture: ApplicationFixture, overrides: Partial<{ framework: type
   };
 }
 
+it("accepts the canonical current framework tuple", async () => {
+  expect(framework).toEqual({
+    core: "1.1.0",
+    payload: "3.88.0",
+    node: "24.19.0",
+    payloadDatabaseAdapter: "postgres"
+  });
+  expect(framework.core).toBe(supportedFrameworkTuple.core);
+  await withApplication([{ name: "@k-nex/plugin-alpha" }], async (fixture) => {
+    expect(loadInstalledPlatformPluginManifests(input(fixture))).toHaveLength(1);
+  });
+});
+
 async function withApplication<T>(fixtures: PackageFixture[], run: (fixture: ApplicationFixture) => Promise<T>): Promise<T> {
   const fixture = await makeApplication(fixtures);
   try {

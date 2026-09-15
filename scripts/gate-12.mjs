@@ -28,8 +28,8 @@ const builds = [
 ];
 for (const workspace of builds) run(`${workspace} build`, "pnpm", ["--filter", workspace, "build"]);
 run("customer fixture build", "pnpm", ["--filter", "@k-nex/customer-gate-1", "build"]);
-run("packed v1 closure", process.execPath, ["scripts/check-phase-8-packed-packages.mjs"]);
-run("factory lock generation check", process.execPath, ["scripts/generate-phase-12-factory-locks.mjs", "--check"]);
+run("current 1.1 closure", process.execPath, ["scripts/check-phase-8-packed-packages.mjs", "--version", "1.1.0"]);
+run("current 1.1 factory lock generation check", process.execPath, ["scripts/generate-phase-12-factory-locks.mjs", "--check", "--version", "1.1.0"]);
 
 const passedProofs = new Set();
 function vitest(id, workspace, files, selected) {
@@ -143,7 +143,7 @@ const unitProofs = [
     "plans deterministic exact Sales applications for local or external Postgres",
     "binds a generated application to every exact artifact in a packed release mirror",
     "rejects tampered mirrors and installs immutable bytes captured by the verified plan",
-    "uses workspace only for side-effect-free planning and defaults to the verified bundled release",
+    "uses workspace only for side-effect-free planning and selects current or historical bundled releases explicitly",
     "rejects a coherently forged manifest, tarball, and lock before target write",
     "rejects nonofficial hosted workflow and source identities before target write",
     "applies idempotently and refuses to overwrite customer files",
@@ -174,6 +174,10 @@ const processTap = run("Phase 12 PostgreSQL/HTTP/Chromium proofs", process.execP
   "tests/workspace-page-storage-postgres.test.mjs", "tests/generated-runnable-application-postgres.test.mjs", "tests/generated-runnable-theme-profiles-postgres.test.mjs"
 ], fixture);
 assert.equal(Number(/^# pass (\d+)$/mu.exec(processTap)?.[1]), 3, "Phase 12 process proofs must pass exactly three tests.");
+const workerFenceHeartbeatTap = run("Phase 12 administration operator worker-fence heartbeat proofs", process.execPath, [
+  "--test", "--test-reporter=tap", "tests/administration-operator-worker-fence.test.mjs"
+], fixture);
+assert.equal(Number(/^# pass (\d+)$/mu.exec(workerFenceHeartbeatTap)?.[1]), 4, "Administration operator worker-fence heartbeat must pass exactly four focused tests.");
 const processMarkers = [
   "P12_5_WORKSPACE_STORAGE_POSTGRES_EVIDENCE=PASS",
   "P12_9_GENERATED_APP_POSTGRES_HTTP_CHROMIUM_EVIDENCE=PASS",
@@ -185,6 +189,8 @@ const processMarkers = [
   "P12_ADMINISTRATION_OPERATOR_PRE_MUTATION_CRASH_RESTART_POSTGRES_MTLS_HTTP=PASS",
   "P12_ADMINISTRATION_OPERATOR_POST_COMMIT_CRASH_EXACT_REPLAY_POSTGRES_MTLS_HTTP=PASS",
   "P12_ADMINISTRATION_OPERATOR_RESPONSE_LOSS_POSTGRES_MTLS_HTTP=PASS",
+  "P12_ADMINISTRATION_OPERATOR_WORKER_FENCE_HEARTBEAT_POSTGRES=PASS",
+  "P12_ADMINISTRATION_OPERATOR_STALE_WORKER_FENCE_POSTGRES_MTLS_HTTP_DENIED=PASS",
   "P12_SYSTEM_SUBNAVIGATION_CURRENT_AUTHORITY_POSTGRES_HTTP=PASS",
   "P12_ATK_02_CROSS_CUSTOMER_READ_POSTGRES_DENIED=PASS",
   "P12_ATK_05_UNAUTHORIZED_DIRECT_URL_AND_ENUMERATION_HTTP_DENIED=PASS",
@@ -199,7 +205,7 @@ const processMarkers = [
   "P12_ATK_13_ACTION_SUBSTITUTION_HTTP_POSTGRES_DENIED=PASS",
   "P12_ATK_07_PAGE_ACL_ONLY_SALES_ACTION_HTTP_POSTGRES_DENIED=PASS",
   "P12_ATK_07_PAGE_ACL_ONLY_SALES_SOURCE_AND_RECORD_HTTP_POSTGRES_DENIED=PASS",
-  "P12_ATK_07_PAGE_ACL_ONLY_SALES_FIELD_HTTP_POSTGRES_DENIED=PASS",
+  "P12_ATK_07_PAGE_ACL_ONLY_SALES_FIELD_HTTP_POSTGRES_REDACTED=PASS",
   "P12_ATK_13_UNBOUND_ACTION_HTTP_POSTGRES_DENIED=PASS",
   "P12_ATK_13_CROSS_PAGE_ACTION_HTTP_POSTGRES_DENIED=PASS",
   "P12_ATK_13_REVOKED_PAGE_ACTION_HTTP_POSTGRES_DENIED=PASS",
@@ -237,7 +243,7 @@ const attackProofs = {
   "P12-ATK-04": ["unit:navigation:rejects invalid or duplicate implemented System IDs alongside invalid graphs"],
   "P12-ATK-05": ["unit:page-service:returns the same non-enumerating denial for missing and unauthorized direct pages", "process:P12_ATK_05_UNAUTHORIZED_DIRECT_URL_AND_ENUMERATION_HTTP_DENIED=PASS"],
   "P12-ATK-06": ["unit:page-service:denies non-owner ACL expansion beyond the editor's exact held capability"],
-  "P12-ATK-07": ["process:P12_ATK_07_PAGE_ACL_ONLY_SALES_ACTION_HTTP_POSTGRES_DENIED=PASS", "process:P12_ATK_07_PAGE_ACL_ONLY_SALES_SOURCE_AND_RECORD_HTTP_POSTGRES_DENIED=PASS", "process:P12_ATK_07_PAGE_ACL_ONLY_SALES_FIELD_HTTP_POSTGRES_DENIED=PASS"],
+  "P12-ATK-07": ["process:P12_ATK_07_PAGE_ACL_ONLY_SALES_ACTION_HTTP_POSTGRES_DENIED=PASS", "process:P12_ATK_07_PAGE_ACL_ONLY_SALES_SOURCE_AND_RECORD_HTTP_POSTGRES_DENIED=PASS", "process:P12_ATK_07_PAGE_ACL_ONLY_SALES_FIELD_HTTP_POSTGRES_REDACTED=PASS"],
   "P12-ATK-08": ["process:P12_ATK_08_STALE_AUTOSAVE_CAS_POSTGRES_DENIED=PASS"],
   "P12-ATK-09": ["process:P12_ATK_09_CHANGED_IDEMPOTENCY_PAYLOAD_POSTGRES_DENIED=PASS"],
   "P12-ATK-10": ["unit:contracts:bounds depth, arrays, strings, and canonical document bytes", "process:P12_ATK_10_CSRF_REPLAY_AND_MALFORMED_AUTOSAVE_HTTP_DENIED=PASS"],
@@ -259,7 +265,7 @@ const attackProofs = {
   "P12-ATK-19": ["process:P12_BOOTSTRAP_CRASH_PROTECTED_OWNER_RECOVERY=PASS", "process:P12_BOOTSTRAP_CRASH_SALES_AUTHORITY_RECOVERY=PASS", "process:P12_BOOTSTRAP_CRASH_TOKEN_CONSUMPTION_RECOVERY=PASS", "process:P12_ATK_19_BOOTSTRAP_SCOPE_AND_REPLAY_POSTGRES_DENIED=PASS"],
   "P12-ATK-20": ["unit:page-service:cancels pending editor work after page-access invalidation", "process:P12_ATK_20_REVOKED_AUTOSAVE_POSTGRES_DENIED=PASS", "process:P12_ATK_20_OPEN_PAGE_AND_EDITOR_SALES_AUTHORITY_REVOCATION_POSTGRES_HTTP_CHROMIUM_DENIED=PASS", "process:P12_ATK_20_REVOKED_STALE_PUBLISH_AND_LOST_INVALIDATION_DENIED=PASS"],
   "P12-ATK-21": ["unit:generator:writes byte-identical controlled source to different clean targets"],
-  "P12-ATK-22": ["unit:generator:uses workspace only for side-effect-free planning and defaults to the verified bundled release", "unit:generator:rejects a coherently forged manifest, tarball, and lock before target write", "unit:generator:binds a generated application to every exact artifact in a packed release mirror", "unit:generator:rejects tampered mirrors and installs immutable bytes captured by the verified plan"]
+  "P12-ATK-22": ["unit:generator:uses workspace only for side-effect-free planning and selects current or historical bundled releases explicitly", "unit:generator:rejects a coherently forged manifest, tarball, and lock before target write", "unit:generator:binds a generated application to every exact artifact in a packed release mirror", "unit:generator:rejects tampered mirrors and installs immutable bytes captured by the verified plan"]
 };
 assert.deepEqual(Object.keys(attackProofs), phase12AttackMap.map(({ id }) => id), "Gate 12 attack proof IDs must match the contract exactly.");
 for (const attack of phase12AttackMap) {
@@ -274,5 +280,5 @@ for (const marker of ["# Phase 12 Result", "**Decision:** **READY FOR PHASE REVI
 }
 for (let task = 1; task <= 10; task += 1) assert.ok(result.includes(`P12.${task}`), `Phase 12 result is missing task P12.${task}.`);
 
-console.log(JSON.stringify({ gate: "Gate 12", unitProofs, processProofs: 3, attacks: attackProofs, referenceModules: ["sales"] }, null, 2));
+console.log(JSON.stringify({ gate: "Gate 12", unitProofs, workerFenceHeartbeatProofs: 4, processProofs: 3, attacks: attackProofs, referenceModules: ["sales"] }, null, 2));
 console.log("GATE_12_PASS");

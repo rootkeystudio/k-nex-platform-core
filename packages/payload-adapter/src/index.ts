@@ -2,6 +2,7 @@ import { postgresAdapter } from "@payloadcms/db-postgres";
 import type { MigrateDownArgs, MigrateUpArgs } from "@payloadcms/db-postgres";
 import { assertExecutableRegistrationAuthority, platformPluginEnabledInRegistration, type ScopedRegistrationResult } from "@k-nex/runtime";
 import type { CollectionConfig, Config } from "payload";
+import { withTrustedSalesTaskCreateIdAdmission } from "./persistence-capability.js";
 
 export * from "./data-source-authenticator.js";
 export * from "./administration-operator-client.js";
@@ -121,11 +122,12 @@ function ownedCollection(value: unknown): OwnedCollectionValue | undefined {
 }
 
 function collectionForAvailability(collection: CollectionConfig, enabled: boolean): CollectionConfig {
-  if (enabled) return collection;
+  const guarded = withTrustedSalesTaskCreateIdAdmission(collection);
+  if (enabled) return guarded;
   return {
-    ...collection,
+    ...guarded,
     access: {
-      ...collection.access,
+      ...guarded.access,
       create: () => false,
       delete: () => false,
       update: () => false
@@ -177,7 +179,7 @@ export function composePayloadApplication(options: ComposePayloadApplicationOpti
     fail("INVALID_DATABASE_URL", "A non-empty Postgres connection string is required.");
   }
 
-  const collections: CollectionConfig[] = [...(options.baseCollections ?? [])];
+  const collections: CollectionConfig[] = (options.baseCollections ?? []).map((collection) => collectionForAvailability(collection, true));
   const ownership: CollectionOwnership[] = [];
   for (const contribution of options.registration.contributions.schema) {
     const value = ownedCollection(contribution.value);
@@ -211,7 +213,8 @@ export function composePayloadApplication(options: ComposePayloadApplicationOpti
     db: postgresAdapter({
       pool: { connectionString: options.databaseUrl },
       prodMigrations: [...(options.migrations ?? [])],
-      push: false
+      push: false,
+      allowIDOnCreate: true
     }),
     collections
   };

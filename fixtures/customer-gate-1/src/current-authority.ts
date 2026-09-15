@@ -13,6 +13,7 @@ import {
   createPlatformPluginPolicyExecutable,
   createPlatformPluginRegistrationAuthorizationContribution,
   createTrustedAuthorizationSession,
+  canonicalIana,
   isEffectiveAuthorizationCatalogForGeneration,
   readAuthoritativeHotApplicationAuthorizationSource,
   AuthoritativeHotApplicationRuntime,
@@ -25,6 +26,7 @@ import {
   type RemoteUiFrameAuthorityIdentity
 } from "@k-nex/runtime";
 import { PostgresAuthorizationStore, type RuntimeExtensionPool } from "@k-nex/payload-adapter";
+import { salesAccountsDescriptor, salesContactsDescriptor, salesLeadsDescriptor } from "@k-nex/module-sales-current/contracts";
 import type { PayloadRequest } from "payload";
 
 const applicationId = "customer-gate-1";
@@ -129,8 +131,37 @@ export function createFixtureStaticProcessIdentityProvider(
 }
 
 export interface FixtureAuthorityContext {
+  readonly applicationId: string;
+  readonly environment: string;
+  readonly actorId: string;
+  readonly ownerId: string;
+  readonly teamId: string;
   /** Actor-isolated cache identity; current RBAC is rechecked before every cache lookup. */
   readonly permissionFingerprint: string;
+}
+export interface FixtureDurableSalesAuthority {
+  readonly context: FixtureAuthorityContext;
+  readonly recordScope: "owned-or-assigned-team" | "managed-teams-and-own" | "application-sales-scope" | "explicit-application-or-team-scope";
+  readonly applicationWide: boolean;
+  readonly mutationAllowed: boolean;
+  readonly authorizedTeamIds: readonly string[];
+  readonly scopeRevision: number;
+  readonly authorizationRevision: number;
+  readonly lifecycleRevision: number;
+  readonly settingsRevision: number;
+  readonly reportingTimezone: string;
+  readonly reportingCurrency: string;
+  /** The exact static module.sales authorization generation bound to this process. */
+  readonly moduleSalesAuthorizationGeneration: number;
+  /** Exact ordered runtime generation IDs from that process-bound authorization generation. */
+  readonly moduleSalesRuntimeGenerationIds: readonly string[];
+  /** Revisions carried by the exact process-bound generation row, independent of later RBAC revisions. */
+  readonly moduleSalesGenerationAuthorizationRevision: number;
+  readonly moduleSalesGenerationLifecycleRevision: number;
+  /** Exact effective grants retained with a data-movement job for its fenced worker. */
+  readonly permissionGrants: readonly string[];
+  /** Registered CRM fields whose current field permission is granted. */
+  readonly fieldGrants: readonly `${"sales.object.lead" | "sales.object.account" | "sales.object.contact"}:${string}`[];
 }
 
 export type FixtureSalesProfile = "normal" | "done";
@@ -139,6 +170,9 @@ export interface FixtureCurrentAuthority {
   readonly adapter: CurrentAuthorityAdapter<FixtureAuthorityContext>;
   readonly permissions: CurrentAuthorityPermissionProjection<FixtureAuthorityContext>;
   context(request: PayloadRequest, correlationId: string, user?: unknown): FixtureAuthorityContext;
+  resolveDurableSalesAuthority(request: PayloadRequest, correlationId: string): Promise<FixtureDurableSalesAuthority>;
+  revalidateDurableSalesAuthority(request: PayloadRequest, durable: FixtureDurableSalesAuthority): Promise<boolean>;
+  durableSalesAuthority(request: PayloadRequest): FixtureDurableSalesAuthority;
   salesProfile(context: FixtureAuthorityContext): FixtureSalesProfile;
   source(descriptor: DataSourceDescriptor, surface: string): CurrentAuthorityTarget;
   field(descriptor: DataSourceDescriptor, fieldId: string, surface: string): CurrentAuthorityTarget;
@@ -150,6 +184,7 @@ export interface FixtureCurrentAuthority {
     subscription: RealtimeSubscriptionContext<Readonly<Record<string, unknown>>>
   ): Promise<boolean>;
   payload(collection: string, operation: "find" | "create" | "update"): CurrentAuthorityTarget;
+  payloadAction(actionId: string, collection: string, operation: "find" | "create" | "update"): CurrentAuthorityTarget;
   remoteUi(context: FixtureAuthorityContext): FixtureRemoteUiAuthorization;
 }
 
@@ -165,6 +200,36 @@ function pool(request: PayloadRequest): RuntimeExtensionPool {
     throw new TypeError("Payload PostgreSQL pool is unavailable.");
   }
   return value as RuntimeExtensionPool;
+}
+
+type MovementTarget = "sales.object.lead" | "sales.object.account" | "sales.object.contact";
+const movementFieldBindings = Object.freeze([
+  { target: "sales.object.account" as const, fieldId: "name", descriptor: salesAccountsDescriptor, sourceFieldId: "name" },
+  { target: "sales.object.contact" as const, fieldId: "displayName", descriptor: salesContactsDescriptor, sourceFieldId: "display-name" },
+  { target: "sales.object.contact" as const, fieldId: "accountId", descriptor: salesContactsDescriptor, sourceFieldId: "account-id" },
+  { target: "sales.object.contact" as const, fieldId: "email", descriptor: salesContactsDescriptor, sourceFieldId: "email" },
+  { target: "sales.object.contact" as const, fieldId: "phone", descriptor: salesContactsDescriptor, sourceFieldId: "phone" },
+  { target: "sales.object.lead" as const, fieldId: "displayName", descriptor: salesLeadsDescriptor, sourceFieldId: "display-name" },
+  { target: "sales.object.lead" as const, fieldId: "source", descriptor: salesLeadsDescriptor, sourceFieldId: "source" },
+  { target: "sales.object.lead" as const, fieldId: "email", descriptor: salesLeadsDescriptor, sourceFieldId: "email" },
+  { target: "sales.object.lead" as const, fieldId: "phone", descriptor: salesLeadsDescriptor, sourceFieldId: "phone" }
+] as const);
+
+function effectiveMovementFieldGrants(permissionGrants: readonly string[]): readonly `${MovementTarget}:${string}`[] {
+  const granted = new Set(permissionGrants);
+  const resolved = movementFieldBindings.flatMap(({ target, fieldId, descriptor, sourceFieldId }) => {
+    const permission = descriptor.outputFields?.find((field) => field.id === sourceFieldId)?.permission;
+    return permission !== undefined && granted.has(permission) ? [`${target}:${fieldId}` as const] : [];
+  });
+  return Object.freeze([...new Set(resolved)].sort());
+}
+
+function effectivePermissionGrants(rows: readonly Record<string, unknown>[]): readonly string[] {
+  const grants = rows.map(({ permission_id: permissionId }) => permissionId).filter((permissionId): permissionId is string =>
+    typeof permissionId === "string" && /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/u.test(permissionId)
+  );
+  if (grants.length !== rows.length || grants.length > 512) throw new TypeError("Durable Sales permission grants are unavailable.");
+  return Object.freeze([...new Set(grants)].sort());
 }
 
 function actor(user: unknown): { readonly id: string; readonly salesProfile: FixtureSalesProfile } {
@@ -257,6 +322,50 @@ function staticRuntimeMatches(row: Record<string, unknown>, identity: FixtureSta
     (active as Record<string, unknown>).generationId === identity.generationId &&
     (active as Record<string, unknown>).sourceCommit === identity.sourceCommit &&
     (active as Record<string, unknown>).applicationDigest === identity.applicationDigest;
+}
+
+type ProcessBoundSalesGeneration = Readonly<{
+  authorizationGeneration: number;
+  runtimeGenerationIds: readonly string[];
+  authorizationRevision: number;
+  lifecycleRevision: number;
+}>;
+
+/**
+ * A request may only retain the authorization generation baked into this
+ * process. Durable state can revoke that generation, never select another one
+ * for an already-running binary.
+ */
+async function processBoundSalesGeneration(
+  database: RuntimeExtensionPool,
+  staticIdentityProvider: FixtureStaticProcessIdentityProvider,
+  owner: FixtureApplicationIdentity
+): Promise<ProcessBoundSalesGeneration> {
+  const staticIdentity = staticIdentityProvider.current();
+  if (staticIdentity === undefined) throw new TypeError("Static Sales process identity is unavailable.");
+  const identity = staticProcessIdentity(staticIdentity);
+  const [generations, runtime] = await Promise.all([
+    database.query<Record<string, unknown>>(
+      "select application_id, delivery_class, extension_id, authorization_generation, runtime_generation_ids, state, authorization_revision, lifecycle_revision from k_nex_extension_authorization_generations where application_id=$1 and delivery_class=$2 and extension_id=$3 and state='current' order by authorization_generation",
+      [owner.applicationId, deliveryClass, extensionId]
+    ),
+    database.query<Record<string, unknown>>(
+      "select disposition, active_generation_id, active_generation from runtime_extensions where application_id=$1 and environment=$2 and delivery_class=$3 and extension_id=$4",
+      [owner.applicationId, owner.environment, deliveryClass, extensionId]
+    )
+  ]);
+  const current = generations.rows.map(generation);
+  if (current.length !== 1 || current[0] === undefined || runtime.rows.length !== 1 ||
+    current[0].runtimeGenerationIds.length !== 1 || current[0].runtimeGenerationIds[0] !== identity.generationId ||
+    !staticRuntimeMatches(runtime.rows[0]!, identity)) {
+    throw new TypeError("Static Sales authorization generation is unavailable.");
+  }
+  return Object.freeze({
+    authorizationGeneration: current[0].owner.generation,
+    runtimeGenerationIds: Object.freeze([...current[0].runtimeGenerationIds]),
+    authorizationRevision: current[0].authorizationRevision,
+    lifecycleRevision: current[0].lifecycleRevision
+  });
 }
 
 function hotRuntimeMatches(row: Record<string, unknown>, source: Readonly<{
@@ -405,6 +514,7 @@ export function createFixtureCurrentAuthority(
   /** Domain facts stay in the branded context store: the cache accepts JSON-safe context projections only. */
   const salesProfiles = new WeakMap<FixtureAuthorityContext, FixtureSalesProfile>();
   const contexts = new WeakMap<PayloadRequest, Readonly<{ actorId: string; salesProfile: FixtureSalesProfile; context: FixtureAuthorityContext }>>();
+  const durableContexts = new WeakMap<PayloadRequest, FixtureDurableSalesAuthority>();
   const stores = new WeakMap<TrustedAuthorizationSession, PostgresAuthorizationStore>();
   const databases = new WeakMap<TrustedAuthorizationSession, RuntimeExtensionPool>();
   const resolver = {
@@ -415,7 +525,22 @@ export function createFixtureCurrentAuthority(
       return new EffectiveAuthorityResolver({ store, catalogProvider: catalogProvider(registration, database, staticIdentityProvider, hotRuntimeRegistry, owner) }).authorize(session, request, signal);
     }
   };
-  const adapter = new CurrentAuthorityAdapter<FixtureAuthorityContext>({ current: (context) => sessions.get(context) }, resolver);
+  const currentAuthorityDeadlineMs = 5_000;
+  // Fixture authority gives real PostgreSQL resolution the platform's maximum bounded deadline.
+  const adapter = new CurrentAuthorityAdapter<FixtureAuthorityContext>({ current: (context) => sessions.get(context) }, resolver, currentAuthorityDeadlineMs);
+  const withinCurrentAuthorityDeadline = async <Value>(operation: Promise<Value>): Promise<Value> => {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        operation,
+        new Promise<never>((_resolve, reject) => {
+          timeout = setTimeout(() => reject(new Error("Current authority resolution timed out.")), currentAuthorityDeadlineMs);
+        })
+      ]);
+    } finally {
+      if (timeout !== undefined) clearTimeout(timeout);
+    }
+  };
   const realtimeContexts = new WeakMap<object, FixtureAuthorityContext>();
   const permissions = new CurrentAuthorityPermissionProjection(adapter, (kind, descriptor) =>
     target(permission, descriptor.permission, `${kind}-${descriptor.id}`));
@@ -432,6 +557,17 @@ export function createFixtureCurrentAuthority(
       return target(permission, permissionId, `realtime-${topic.id}`);
     }
   );
+  const sameDurableAuthority = (left: FixtureDurableSalesAuthority, row: Record<string, unknown> | undefined, revision: Record<string, unknown> | undefined, settings: Record<string, unknown> | undefined, grants: readonly Record<string, unknown>[], processBound: ProcessBoundSalesGeneration) =>
+    row !== undefined && revision !== undefined && row.record_scope === left.recordScope && row.application_wide === left.applicationWide && row.mutation_allowed === left.mutationAllowed &&
+    Array.isArray(row.authorized_team_ids) && JSON.stringify(row.authorized_team_ids) === JSON.stringify(left.authorizedTeamIds) && row.revision === left.scopeRevision &&
+    revision.authorization_revision === left.authorizationRevision && revision.lifecycle_revision === left.lifecycleRevision &&
+    settings !== undefined && settings.descriptor_schema_version === 3 && settings.document_revision === settings.settings_revision && settings.settings_revision === left.settingsRevision &&
+    canonicalIana(settings.reportingTimezone) &&
+    typeof settings.reportingTimezone === "string" && settings.reportingTimezone === left.reportingTimezone && typeof settings.reportingCurrency === "string" && settings.reportingCurrency === left.reportingCurrency &&
+    processBound.authorizationGeneration === left.moduleSalesAuthorizationGeneration && JSON.stringify(processBound.runtimeGenerationIds) === JSON.stringify(left.moduleSalesRuntimeGenerationIds) &&
+    processBound.authorizationRevision === left.moduleSalesGenerationAuthorizationRevision && processBound.lifecycleRevision === left.moduleSalesGenerationLifecycleRevision &&
+    JSON.stringify(effectivePermissionGrants(grants)) === JSON.stringify(left.permissionGrants) &&
+    JSON.stringify(effectiveMovementFieldGrants(left.permissionGrants)) === JSON.stringify(left.fieldGrants);
   const fixture: FixtureCurrentAuthority = {
     adapter,
     permissions,
@@ -453,6 +589,11 @@ export function createFixtureCurrentAuthority(
         effectiveActor: { kind: "user", id: current.id }
       });
       const context = Object.freeze({
+        applicationId: owner.applicationId,
+        environment: owner.environment,
+        actorId: current.id,
+        ownerId: current.id,
+        teamId: `team:${current.id}`,
         permissionFingerprint: `${owner.applicationId}:${owner.environment}:user:${current.id}:sales:${current.salesProfile}`
       });
       const database = pool(request);
@@ -462,6 +603,44 @@ export function createFixtureCurrentAuthority(
       salesProfiles.set(context, current.salesProfile);
       contexts.set(request, Object.freeze({ actorId: current.id, salesProfile: current.salesProfile, context }));
       return context;
+    },
+    async resolveDurableSalesAuthority(request, correlationId) {
+      const current = fixture.context(request, correlationId);
+      const database = pool(request);
+      const [scope, state, grants, settings, processBound] = await withinCurrentAuthorityDeadline(Promise.all([
+        database.query<Record<string, unknown>>("select record_scope, application_wide, mutation_allowed, authorized_team_ids, revision from sales_current_authority_scopes where application_id=$1 and environment=$2 and principal_id=$3 and state='active'", [owner.applicationId, owner.environment, current.actorId]),
+        database.query<Record<string, unknown>>("select authorization_revision, lifecycle_revision from k_nex_authorization_state where application_id=$1", [owner.applicationId]),
+        database.query<Record<string, unknown>>("select distinct g.permission_id from k_nex_role_assignments a join k_nex_role_permission_grants g on g.application_id=a.application_id and g.role_id=a.role_id where a.application_id=$1 and a.subject_kind='user' and a.subject_id=$2 and a.state='active' order by g.permission_id", [owner.applicationId, current.actorId]),
+        database.query<Record<string, unknown>>("select d.descriptor_schema_version,d.document_revision,d.settings_revision,d.values_json from k_nex_system_settings_documents d where d.application_id=$1 and d.environment=$2 and d.descriptor_id='system.general' and d.owner_scope_key='platform:system'", [owner.applicationId, owner.environment]),
+        processBoundSalesGeneration(database, staticIdentityProvider, owner)
+      ]));
+      const row = scope.rows[0]; const revision = state.rows[0]; const settingsRow = settings.rows[0]; const settingsValues = settingsRow?.values_json;
+      if (scope.rows.length !== 1 || state.rows.length !== 1 || row === undefined || revision === undefined ||
+        !["owned-or-assigned-team", "managed-teams-and-own", "application-sales-scope", "explicit-application-or-team-scope"].includes(String(row.record_scope)) ||
+        typeof row.application_wide !== "boolean" || typeof row.mutation_allowed !== "boolean" || !Array.isArray(row.authorized_team_ids) || row.authorized_team_ids.length > 32 || row.authorized_team_ids.some((teamId) => typeof teamId !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,159}$/u.test(teamId)) || JSON.stringify(row.authorized_team_ids) !== JSON.stringify([...new Set(row.authorized_team_ids)].sort()) ||
+        !Number.isSafeInteger(row.revision) || !Number.isSafeInteger(revision.authorization_revision) || !Number.isSafeInteger(revision.lifecycle_revision) || settings.rows.length !== 1 || settingsRow === undefined || settingsRow.descriptor_schema_version !== 3 || !Number.isSafeInteger(settingsRow.document_revision) || !Number.isSafeInteger(settingsRow.settings_revision) || settingsRow.document_revision !== settingsRow.settings_revision || settingsValues === null || typeof settingsValues !== "object" || Array.isArray(settingsValues) || typeof (settingsValues as Record<string, unknown>).reportingTimezone !== "string" || !canonicalIana((settingsValues as Record<string, unknown>).reportingTimezone) || typeof (settingsValues as Record<string, unknown>).reportingCurrency !== "string" || !/^[A-Z]{3}$/u.test((settingsValues as Record<string, unknown>).reportingCurrency as string)) throw new TypeError("Durable Sales authority is unavailable.");
+      const permissionGrants = effectivePermissionGrants(grants.rows);
+      const resolved = Object.freeze({ context: current, recordScope: row.record_scope as FixtureDurableSalesAuthority["recordScope"], applicationWide: row.application_wide, mutationAllowed: row.mutation_allowed, authorizedTeamIds: Object.freeze(row.authorized_team_ids.map(String)), scopeRevision: row.revision as number, authorizationRevision: revision.authorization_revision as number, lifecycleRevision: revision.lifecycle_revision as number, settingsRevision: settingsRow.settings_revision as number, reportingTimezone: (settingsValues as Record<string, unknown>).reportingTimezone as string, reportingCurrency: (settingsValues as Record<string, unknown>).reportingCurrency as string, moduleSalesAuthorizationGeneration: processBound.authorizationGeneration, moduleSalesRuntimeGenerationIds: processBound.runtimeGenerationIds, moduleSalesGenerationAuthorizationRevision: processBound.authorizationRevision, moduleSalesGenerationLifecycleRevision: processBound.lifecycleRevision, permissionGrants, fieldGrants: effectiveMovementFieldGrants(permissionGrants) });
+      durableContexts.set(request, resolved);
+      return resolved;
+    },
+    async revalidateDurableSalesAuthority(request, durable) {
+      const database = pool(request);
+      const [scope, state, grants, settings, processBound] = await withinCurrentAuthorityDeadline(Promise.all([
+        database.query<Record<string, unknown>>("select record_scope, application_wide, mutation_allowed, authorized_team_ids, revision from sales_current_authority_scopes where application_id=$1 and environment=$2 and principal_id=$3 and state='active'", [durable.context.applicationId, durable.context.environment, durable.context.actorId]),
+        database.query<Record<string, unknown>>("select authorization_revision, lifecycle_revision from k_nex_authorization_state where application_id=$1", [durable.context.applicationId]),
+        database.query<Record<string, unknown>>("select distinct g.permission_id from k_nex_role_assignments a join k_nex_role_permission_grants g on g.application_id=a.application_id and g.role_id=a.role_id where a.application_id=$1 and a.subject_kind='user' and a.subject_id=$2 and a.state='active' order by g.permission_id", [durable.context.applicationId, durable.context.actorId]),
+        database.query<Record<string, unknown>>("select d.descriptor_schema_version,d.document_revision,d.settings_revision,d.values_json from k_nex_system_settings_documents d where d.application_id=$1 and d.environment=$2 and d.descriptor_id='system.general' and d.owner_scope_key='platform:system'", [durable.context.applicationId, durable.context.environment]),
+        processBoundSalesGeneration(database, staticIdentityProvider, owner)
+      ]));
+      const settingsRow = settings.rows[0]; const settingsValues = settingsRow?.values_json;
+      const normalizedSettings = settingsRow === undefined || settingsValues === null || typeof settingsValues !== "object" || Array.isArray(settingsValues) ? undefined : { ...settingsRow, reportingTimezone: (settingsValues as Record<string, unknown>).reportingTimezone, reportingCurrency: (settingsValues as Record<string, unknown>).reportingCurrency };
+      return scope.rows.length === 1 && state.rows.length === 1 && settings.rows.length === 1 && sameDurableAuthority(durable, scope.rows[0], state.rows[0], normalizedSettings, grants.rows, processBound);
+    },
+    durableSalesAuthority(request) {
+      const resolved = durableContexts.get(request);
+      if (resolved === undefined) throw new TypeError("Durable Sales authority is unavailable.");
+      return resolved;
     },
     salesProfile(context) {
       const profile = salesProfiles.get(context);
@@ -475,7 +654,7 @@ export function createFixtureCurrentAuthority(
       return target(permission, field.permission, `field-${surface}-${descriptor.id}-${fieldId}`);
     },
     action(action, input) {
-      const recordId = typeof input === "object" && input !== null && "id" in input && typeof input.id === "string" ? input.id : undefined;
+      const recordId = action.descriptor.id.startsWith("sales.import.") || action.descriptor.id.startsWith("sales.export.") || action.descriptor.id === "sales.merge.commit" ? "collection" : typeof input === "object" && input !== null && "id" in input && typeof input.id === "string" ? input.id : undefined;
       return target(permission, action.descriptor.permission, `action-${action.descriptor.id}`, recordId);
     },
     tool(descriptor) { return target(permission, descriptor.permission, `tool-${descriptor.id}`); },
@@ -489,9 +668,74 @@ export function createFixtureCurrentAuthority(
         ? operation === "find" ? "sales.tasks.read" : "sales.tasks.write"
         : collection === "sales-opportunities"
           ? operation === "find" ? "sales.opportunities.read" : "sales.opportunities.write"
-          : undefined;
+          : collection === "sales-accounts"
+            ? operation === "find" ? "sales.accounts.read" : "sales.accounts.write"
+            : collection === "sales-contacts"
+              ? operation === "find" ? "sales.contacts.read" : "sales.contacts.write"
+              : collection === "sales-leads"
+                ? operation === "find" ? "sales.leads.read" : "sales.leads.write"
+                : collection === "sales-activities"
+                  ? operation === "find" ? "sales.activities.read" : "sales.activities.write"
+                  : collection === "sales-notes"
+                    ? operation === "find" ? "sales.notes.read" : "sales.notes.write"
+                    : collection === "sales-attachment-references"
+                      ? operation === "find" ? "sales.attachments.read" : "sales.attachments.write"
+                      : collection === "sales-pipelines"
+                        ? "sales.pipelines.read"
+                      : collection === "sales-pipeline-stages"
+                          ? "sales.pipelines.read"
+                        : collection === "sales-notifications"
+                          ? operation === "find" ? "sales.notifications.read" : "sales.notifications.write"
+                          : collection === "sales-reminders"
+                            ? operation === "find" ? "sales.reminders.read" : "sales.reminders.write"
+                : undefined;
       if (permissionId === undefined) throw new TypeError("Payload collection is unavailable.");
       return target(permission, permissionId, `payload-${collection}-${operation}`);
+    },
+    payloadAction(actionId, collection, operation) {
+      const permissionId = actionId === "sales.opportunity.stage.update" || actionId === "sales.opportunity.close"
+        ? collection === "sales-opportunities" ? actionId === "sales.opportunity.close" ? "sales.opportunities.close" : "sales.opportunities.stage.update"
+          : (collection === "sales-pipelines" || collection === "sales-pipeline-stages") && operation === "find" ? actionId === "sales.opportunity.close" ? "sales.opportunities.close" : "sales.opportunities.stage.update" : undefined
+        : actionId === "sales.email.send"
+          ? collection === "sales-activities" ? "sales.communications.email.send" : collection === "sales-contacts" && operation === "find" ? "sales.contacts.read" : collection === "sales-leads" && operation === "find" ? "sales.leads.read" : undefined
+        : actionId === "sales.calendar.sync"
+          ? collection === "sales-activities" && operation === "find" ? "sales.communications.calendar.sync" : undefined
+        : actionId === "sales.reminder.schedule"
+          ? collection === "sales-reminders" ? "sales.reminders.write" : collection === "sales-tasks" && operation === "find" ? "sales.tasks.read" : collection === "sales-activities" && operation === "find" ? "sales.activities.read" : undefined
+        : (actionId === "sales.notification.read" || actionId === "sales.notification.archive") && collection === "sales-notifications"
+          ? "sales.notifications.write"
+        : actionId === "sales.reminder.dismiss" && collection === "sales-reminders"
+          ? "sales.reminders.write"
+        : actionId === "sales.task.create" || actionId === "sales.task.update"
+          ? collection === "sales-tasks" ? "sales.tasks.write" : undefined
+          : actionId === "sales.ownership.assign" && ["sales-accounts", "sales-contacts", "sales-leads", "sales-opportunities"].includes(collection)
+            ? "sales.ownership.write"
+          : actionId.startsWith("sales.account.") && collection === "sales-accounts"
+            ? actionId.endsWith(".archive") ? "sales.accounts.archive" : "sales.accounts.write"
+            : actionId.startsWith("sales.contact.") && collection === "sales-contacts"
+              ? actionId.endsWith(".archive") ? "sales.contacts.archive" : "sales.contacts.write"
+              : actionId.startsWith("sales.lead.")
+                ? collection === "sales-leads"
+                  ? actionId.endsWith(".archive") ? "sales.leads.archive" : actionId.endsWith(".qualify") ? "sales.leads.qualify" : actionId.endsWith(".disqualify") ? "sales.leads.disqualify" : "sales.leads.write"
+                    : actionId === "sales.lead.qualify" && collection === "sales-accounts" ? operation === "find" ? "sales.accounts.read" : "sales.accounts.write"
+                      : actionId === "sales.lead.qualify" && collection === "sales-contacts" ? operation === "find" ? "sales.contacts.read" : "sales.contacts.write"
+                      : actionId === "sales.lead.qualify" && collection === "sales-opportunities" ? "sales.opportunities.write"
+                        : actionId === "sales.lead.qualify" && (collection === "sales-pipelines" || collection === "sales-pipeline-stages") && operation === "find" ? "sales.pipelines.read" : undefined
+                : actionId.startsWith("sales.opportunity.") && collection === "sales-opportunities"
+                  ? actionId.endsWith(".archive") ? "sales.opportunities.archive" : actionId.endsWith(".close") ? "sales.opportunities.close" : "sales.opportunities.write"
+                  : (actionId === "sales.opportunity.create" || actionId === "sales.opportunity.update") && collection === "sales-contacts" && operation === "find" ? "sales.contacts.read"
+                    : actionId === "sales.opportunity.update" && collection === "sales-pipeline-stages" && operation === "find" ? "sales.opportunities.write"
+                    : actionId === "sales.opportunity.create" && collection === "sales-accounts" && operation === "find" ? "sales.accounts.read"
+                    : actionId === "sales.opportunity.create" && (collection === "sales-pipelines" || collection === "sales-pipeline-stages") && operation === "find" ? "sales.pipelines.read"
+                      : actionId === "sales.contact.create" && collection === "sales-accounts" && operation === "find" ? "sales.accounts.read"
+                  : actionId.startsWith("sales.activity.") && collection === "sales-activities" ? "sales.activities.write"
+                    : actionId === "sales.note.create" && collection === "sales-notes" ? operation === "find" ? "sales.notes.read" : "sales.notes.write"
+                      : (actionId === "sales.attachment.link" || actionId === "sales.attachment.remove") && collection === "sales-attachment-references" ? "sales.attachments.write"
+                        : (actionId.startsWith("sales.activity.") || actionId === "sales.note.create" || actionId === "sales.attachment.link" || actionId === "sales.attachment.remove") && operation === "find"
+                          ? collection === "sales-tasks" ? "sales.tasks.read" : collection === "sales-opportunities" ? "sales.opportunities.read" : collection === "sales-accounts" ? "sales.accounts.read" : collection === "sales-contacts" ? "sales.contacts.read" : collection === "sales-leads" ? "sales.leads.read" : undefined
+                  : undefined;
+      if (permissionId === undefined) throw new TypeError("Action Payload collection is unavailable.");
+      return target(permission, permissionId, `payload-action-${actionId}-${collection}-${operation}`);
     },
     remoteUi(context): FixtureRemoteUiAuthorization {
       const validIdentity = (identity: RemoteUiFrameAuthorityIdentity) =>
