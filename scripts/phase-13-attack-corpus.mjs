@@ -21,7 +21,7 @@ assert.deepEqual(
 function run(label, command, args, cwd = root) {
   const result = spawnSync(command, args, { cwd, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
   assert.equal(result.error, undefined, `${label} could not start: ${result.error?.message}`);
-  assert.equal(result.status, 0, `${label} failed:\n${result.stderr || result.stdout}`);
+  assert.equal(result.status, 0, `${label} failed:\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
   return `${result.stdout}\n${result.stderr}`;
 }
 
@@ -67,6 +67,7 @@ function nodeProof(id, files, names) {
   return result;
 }
 
+run("customer fixture workspace prerequisite build", "pnpm", ["--filter", "@k-nex/customer-gate-1^...", "build"]);
 run("customer fixture build", "pnpm", ["--filter", "@k-nex/customer-gate-1", "build"]);
 run("current 1.1 Sales release source", process.execPath, ["scripts/generate-current-v1-sales-release-source.mjs", "--check", "--version", "1.1.0"]);
 run("current 1.1 closure", process.execPath, ["scripts/check-phase-8-packed-packages.mjs", "--version", "1.1.0"]);
