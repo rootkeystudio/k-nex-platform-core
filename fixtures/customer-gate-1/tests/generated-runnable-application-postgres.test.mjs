@@ -1058,7 +1058,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
 
     browser = await chromium.launch();
     const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: "reduce" });
-    const page = await context.newPage();
+    let page = await context.newPage();
     await page.goto(`${applicationProcess.origin}/login`);
     await page.getByLabel("Email").fill(ownerEmail);
     await page.getByLabel("Password").fill(ownerPassword);
@@ -1181,6 +1181,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     const moved = await pool.query("select name, stage_id from sales_opportunities order by id");
     assert.deepEqual(moved.rows, [{ name: "Alpha renewal", stage_id: stageIds.discovery }, { name: "Beta expansion", stage_id: stageIds.proposal }]);
     assert.equal(await page.locator('[data-k-nex-component="workspace-shell"]').getAttribute("data-k-nex-theme-profile"), inventoryBody.theme.activeRevisionId);
+    await page.close();
 
     const workspacePageUrl = `${applicationProcess.origin}/workspace/pages/${encodeURIComponent(pageId)}`;
     const workspacePageSessionUrl = `${applicationProcess.origin}/api/k-nex/workspace-pages/${encodeURIComponent(pageId)}/session`;
@@ -1548,7 +1549,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     assert.equal((await pool.query("select count(*)::int as count from k_nex_authorization_audit where application_id=$1 and environment=$2 and audit_json->>'operation'='sales-scope-administration'", [applicationId, environmentName])).rows[0].count, 6, "Scope transitions, including replay-principal restoration, have immutable canonical authorization audit evidence.");
     assert.equal((await pool.query("select count(*)::int as count from k_nex_authorization_audit audit join k_nex_authorization_outbox outbox on outbox.application_id=audit.application_id and outbox.environment=audit.environment and outbox.authorization_revision=audit.authorization_revision and outbox.lifecycle_revision=audit.lifecycle_revision where audit.application_id=$1 and audit.environment=$2 and audit.audit_json->>'operation'='sales-scope-administration'", [applicationId, environmentName])).rows[0].count, 6, "Every durable scope transition has one matching authorization invalidation event.");
     console.log("P13_SALES_SCOPE_ADMIN_CREATE_UPDATE_REVOKE_REACTIVATE_CAS_REPLAY_POSTGRES_HTTP=PASS");
-    const managerPage = await managerContext.newPage();
+    let managerPage = await managerContext.newPage();
     await managerPage.goto(`${applicationProcess.origin}/login`);
     await managerPage.getByLabel("Email").fill(managerEmail);
     await managerPage.getByLabel("Password").fill(managerPassword);
@@ -1556,9 +1557,9 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     await managerPage.waitForURL(`${applicationProcess.origin}/`);
     await managerPage.goto(`${applicationProcess.origin}/workspace/pages/${encodeURIComponent(pageId)}`);
     await managerPage.getByRole("region", { name: "Sales opportunity Kanban" }).waitFor();
-    const managerPublishedNavigationLink = managerPage.locator('[data-navigation-node="sales.navigation.root"]').getByRole("link", { name: "Sales command center" });
+    let managerPublishedNavigationLink = managerPage.locator('[data-navigation-node="sales.navigation.root"]').getByRole("link", { name: "Sales command center" });
     await managerPublishedNavigationLink.waitFor();
-    const managerEditorPage = await managerContext.newPage();
+    let managerEditorPage = await managerContext.newPage();
     const managerEditorResponse = await managerEditorPage.goto(`${applicationProcess.origin}/workspace/pages/${encodeURIComponent(pageId)}/edit`);
     assert.equal(managerEditorResponse?.status(), 200, "An assigned editor must enter the current editor route.");
     await managerEditorPage.getByRole("region", { name: "Canvas block keyboard controls" }).waitFor();
@@ -1580,6 +1581,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     await managerEditorPage.getByRole("alert").getByText("Editor authority changed", { exact: true }).waitFor({ timeout: 10_000 });
     assert.equal(await managerEditorPage.getByRole("region", { name: "Canvas block keyboard controls" }).count(), 0, "An already-open editor must fail closed after its Sales authority changes.");
     console.log("P12_ATK_20_OPEN_PAGE_AND_EDITOR_SALES_AUTHORITY_REVOCATION_POSTGRES_HTTP_CHROMIUM_DENIED=PASS");
+    await Promise.all([managerPage.close(), managerEditorPage.close()]);
     const revokedManagerSalesAuthority = await store.readState(applicationId, environmentName);
     assert.ok(revokedManagerSalesAuthority);
     await store.transaction(expected(revokedManagerSalesAuthority), async (transaction) => {
@@ -1621,14 +1623,12 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     });
     await managerSalesRoutePage.close();
     console.log("P12_OPEN_REGISTERED_SALES_ROUTE_PERMISSION_REVOCATION_POSTGRES_HTTP_CHROMIUM_DENIED=PASS");
-    await managerEditorPage.reload();
-    await managerEditorPage.getByRole("region", { name: "Canvas block keyboard controls" }).waitFor();
-
     workerProcess = start("node", ["dist/k-nex-worker.js"], { cwd: application, env: applicationEnvironment });
     await until(async () => workerProcess.output().includes("K_NEX_WORKER_READY"), () => `Generated worker did not restart.\n${workerProcess.output()}`, workerProcess.child);
     await until(async () => (await pool.query("select count(*)::int as count from k_nex_workspace_page_outbox where application_id=$1 and environment=$2 and status<>'delivered'", [applicationId, environmentName])).rows[0].count === 0, "Workspace page outbox did not converge after worker restart.", workerProcess.child);
     await stop(workerProcess.child, "lost-notification boundary");
     workerProcess = undefined;
+    page = await context.newPage();
     await page.goto(`${applicationProcess.origin}/`);
     const reportsFolder = page.locator(`[data-navigation-node="${folderId}"]`);
     await reportsFolder.locator('[data-navigation-label="true"]').filter({ hasText: /^Reports$/u }).waitFor();
@@ -1650,6 +1650,15 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     const revokeAccess = new URLSearchParams({ expectedPageRevision: String(currentPageState.projection.watermark.pageRevision), expectedAccessRevision: String(currentPageState.projection.watermark.accessRevision), idempotencyKey: `workspace-revoke-${randomUUID()}` });
     revokeAccess.append("assignment", `user|${ownerUserId}|edit`);
     revokeAccess.append("assignment", `user|${representativeUserId}|view`);
+    managerPage = await managerContext.newPage();
+    await managerPage.goto(`${applicationProcess.origin}/workspace/pages/${encodeURIComponent(pageId)}`);
+    await managerPage.getByRole("region", { name: "Sales opportunity Kanban" }).waitFor();
+    managerPublishedNavigationLink = managerPage.locator('[data-navigation-node="sales.navigation.root"]').getByRole("link", { name: "Sales command center" });
+    await managerPublishedNavigationLink.waitFor();
+    managerEditorPage = await managerContext.newPage();
+    const restoredManagerEditorResponse = await managerEditorPage.goto(`${applicationProcess.origin}/workspace/pages/${encodeURIComponent(pageId)}/edit`);
+    assert.equal(restoredManagerEditorResponse?.status(), 200, "The restored assigned editor must enter a fresh current editor route.");
+    await managerEditorPage.getByRole("region", { name: "Canvas block keyboard controls" }).waitFor();
     const revoke = await fetch(`${applicationProcess.origin}/api/k-nex/workspace-pages/${encodeURIComponent(pageId)}/access`, {
       method: "POST", redirect: "manual",
       headers: { "content-type": "application/x-www-form-urlencoded", cookie: restartedOwner.cookie.header, origin: applicationProcess.origin }, body: revokeAccess

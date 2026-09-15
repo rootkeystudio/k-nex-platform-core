@@ -5,7 +5,7 @@
 - **Accepted base:** Phase 12 / `694bd2f`
 - **Hosted evidence source head:** `7275866` (`fix(phase-13): stabilize generated Sales authority hydration`)
 - **Decision:** **REWORK — automated fixture readiness only; not a limited-beta approval**
-- **Review state:** P13.1–P13.10 implementation, the bounded authority-projection and route-telemetry/hydration repairs, their generated closure where applicable, and hosted run `34897020052`'s exact 33-file overlay passed persistent review. The latest P12.9 aggregate-ceiling repair passes static proof and awaits persistent review before another exact-head cumulative run.
+- **Review state:** P13.1–P13.10 implementation, the bounded authority-projection, route-telemetry/hydration, and aggregate-ceiling repairs, their generated closure where applicable, and hosted run `34897020052`'s exact 33-file overlay passed persistent review. The latest P12.9 browser-lifecycle repair passes focused proof and awaits persistent review before another exact-head cumulative run.
 
 ## Scope delivered
 
@@ -119,9 +119,11 @@ The reviewed overlay was committed at `fdc1b275e02746906584e974a297edce0733be1a`
 
 That reviewed harness batch was committed at `922eecb08a55a275a06a37a938ed9f4acef70f20`. Cumulative run `34906668475` on the exact head passed Gates 0–11, P12.5, and P12.10. P12.9 passed the earlier hydration and open-route revocation proof, continued through restart replay, query-budget recovery, and current-owner handoff, then Node terminated it at exactly `600002.95ms` before the later disable/operator markers. No helper assertion or route telemetry failure occurred; the test exhausted its outer aggregate ceiling. Only P12.9's Node test metadata now permits 900 seconds, the same finite ceiling already used by the generated Phase 13 and static-deployment heavyweight fixtures. The static guard fixes that aggregate ceiling at 900 seconds, forbids the retired 600-second value in P12.9, and retains all four exact ten-second authority-revocation/disable UI waits. Every child-command, HTTP, Playwright navigation, hydration, product, revocation, disable, process-stop, and cleanup bound is unchanged. The metadata-only repair does not require another focused seven-minute execution before review; helper/static proof passes 12/12 and an exact-head cumulative rerun remains required.
 
+Cumulative run `34913057019` on exact head `4a6b088cd1e001a82b963b385fb3cfb46b5aea2b` confirmed the 900-second aggregate ceiling and passed Gates 0–11 plus P12.5/P12.10. P12.9 failed after 576.77 seconds when its isolated `/sales/tasks` hydration proof retained the complete server-rendered Task form but observed no React-owned Title transition, projection response, request failure, page error, or error console event. The fixture was keeping the owner Sales page plus a manager published page and editor alive across independent authority mutations; their one-second shell/page/editor polling kept concurrent projection attempts active across unrelated revision changes, while reusing the first manager page also allowed the later page-ACL proof to match its stale earlier `Page access revoked` alert. The repair closes the owner page after its route/action proof, closes the first manager page/editor pair immediately after their Sales-authority revocation proof, runs the registered-route revoke proof with the sole live manager page, then opens fresh manager view/editor surfaces only immediately before the separate page-ACL mutation. This removes unrelated pollers and makes the later alert/navigation assertions originate from the new mutation. No production, timeout, polling, authorization, or convergence contract changed. The focused lifecycle/static helper passes 13/13, and exact P12.9 real PostgreSQL/Chromium passes 1/1 in 376.64 seconds through every final marker. Persistent review and an exact-head cumulative rerun remain pending.
+
 ```text
 OBSERVED: P13.10 focused PostgreSQL and generated-host proofs
-FAIL: cumulative run 34906668475 at Gate 12 P12.9 aggregate test ceiling
+FAIL: cumulative run 34913057019 at Gate 12 P12.9 browser hydration
 PASS: hosted current-v1 attestation refresh, run 34897020052, source 7275866
 PASS: remediated exact static deployment PostgreSQL proof, 1/1, 358.92s
 PENDING: repaired exact-head Gate 0–13 result

@@ -291,3 +291,22 @@ test("generated application keeps only its aggregate proof ceiling at nine hundr
     /retiredRoutePage[.]getByRole\("alert"\)[.]getByText\("Sales route unavailable", \{ exact: true \}\)[.]waitFor\(\{ timeout: 10_000 \}\)/u
   ]) assert.match(generatedApplicationProofSource, retainedBound, "Authority-revocation and disable UI convergence bounds must remain ten seconds.");
 });
+
+test("generated browser proof closes polling pages between independent authority boundaries", () => {
+  const registeredActionMarker = generatedApplicationProofSource.indexOf("P12_REGISTERED_SALES_ROUTES_AND_ACTION_POSTGRES_HTTP_CHROMIUM=PASS");
+  const ownerClose = generatedApplicationProofSource.indexOf("await page.close();", registeredActionMarker);
+  const managerContext = generatedApplicationProofSource.indexOf("const managerContext = await browser.newContext");
+  const salesAuthorityMarker = generatedApplicationProofSource.indexOf("P12_ATK_20_OPEN_PAGE_AND_EDITOR_SALES_AUTHORITY_REVOCATION_POSTGRES_HTTP_CHROMIUM_DENIED=PASS");
+  const managerClose = generatedApplicationProofSource.indexOf("await Promise.all([managerPage.close(), managerEditorPage.close()]);");
+  const registeredRouteOpen = generatedApplicationProofSource.indexOf("const managerSalesRoutePage = await managerContext.newPage();");
+  const registeredRouteMarker = generatedApplicationProofSource.indexOf("P12_OPEN_REGISTERED_SALES_ROUTE_PERMISSION_REVOCATION_POSTGRES_HTTP_CHROMIUM_DENIED=PASS");
+  const freshManagerPage = generatedApplicationProofSource.indexOf("\n    managerPage = await managerContext.newPage();");
+  const freshManagerEditor = generatedApplicationProofSource.indexOf("\n    managerEditorPage = await managerContext.newPage();");
+  const pageAccessMutation = generatedApplicationProofSource.indexOf("const revoke = await fetch");
+  const freshOwnerPage = generatedApplicationProofSource.indexOf("\n    page = await context.newPage();");
+  assert.equal([registeredActionMarker, ownerClose, managerContext, salesAuthorityMarker, managerClose, registeredRouteOpen, registeredRouteMarker, freshOwnerPage, freshManagerPage, freshManagerEditor, pageAccessMutation].every((index) => index >= 0), true, "Every browser lifecycle boundary must remain explicit in the generated proof.");
+  assert.equal(registeredActionMarker < ownerClose && ownerClose < managerContext, true, "The owner Sales page must stop polling after its route proof and before the manager authority proofs.");
+  assert.equal(salesAuthorityMarker < managerClose && managerClose < registeredRouteOpen, true, "The first revoked manager page/editor pair must close before the registered-route proof.");
+  assert.equal(registeredRouteMarker < freshManagerPage && freshManagerPage < freshManagerEditor && freshManagerEditor < pageAccessMutation, true, "The page-ACL revocation proof must use a fresh manager page, editor, and navigation locator.");
+  assert.equal(registeredRouteMarker < freshOwnerPage && freshOwnerPage < freshManagerPage, true, "The stopped-worker navigation proof must reopen its owner shell before the later manager page-access proof.");
+});
