@@ -57,6 +57,8 @@ test("P13.5 fixture upload admission CAS denies stale, revoked, disabled, raced,
   try {
     await pool.query(`create table payload_locked_documents_rels(id bigserial primary key);
       create table k_nex_authorization_state(application_id text primary key,authorization_revision integer,lifecycle_revision integer);
+      create table k_nex_system_settings_state(application_id text,environment text,settings_revision integer);
+      create table k_nex_system_settings_documents(application_id text,environment text,descriptor_id text,owner_scope_key text,descriptor_schema_version integer,document_revision integer,settings_revision integer,values_json jsonb);
       create table sales_current_authority_scopes(application_id text,environment text,principal_id text,record_scope text,application_wide boolean,mutation_allowed boolean,authorized_team_ids jsonb,state text,revision integer);
       create table k_nex_role_assignments(application_id text,role_id text,subject_kind text,subject_id text,state text);
       create table k_nex_role_permission_grants(application_id text,role_id text,permission_id text,owner_kind text,owner_delivery_class text,owner_extension_id text,owner_generation bigint);
@@ -65,6 +67,8 @@ test("P13.5 fixture upload admission CAS denies stale, revoked, disabled, raced,
       create table k_nex_permission_catalog_snapshots(application_id text,snapshot_id text,source text,permission_json jsonb,state text,owner_kind text,owner_delivery_class text,owner_extension_id text,owner_generation bigint);`);
     await up({ db: drizzle(pool) });
     await pool.query(`insert into k_nex_authorization_state values ('customer-gate-1',7,3);
+      insert into k_nex_system_settings_state values ('customer-gate-1','production',1);
+      insert into k_nex_system_settings_documents values ('customer-gate-1','production','system.general','platform:system',3,1,1,'{"siteName":"K-Nex","reportingTimezone":"UTC","reportingCurrency":"USD"}'::jsonb);
       insert into sales_current_authority_scopes values ('customer-gate-1','production','upload-user','owned-or-assigned-team',false,true,'["team:upload-user"]'::jsonb,'active',11);
       insert into k_nex_role_assignments values ('customer-gate-1','sales.manager','user','upload-user','active');
       insert into k_nex_extension_authorization_generations values ('customer-gate-1','platform-plugin','module.sales',41,'["sales-generation-1"]'::jsonb,'current',7,3);
