@@ -42,7 +42,7 @@ describe("application upgrade contracts", () => {
   it("accepts sorted generated ownership and excludes every release-control class", () => {
     expect(GeneratedFileOwnershipManifestSchema.parse(ownership)).toEqual(ownership);
     expect(GeneratedFileOwnershipManifestSchema.safeParse({ ...ownership, files: [...ownership.files].reverse() }).success).toBe(false);
-    for (const path of ["k-nex.app.json", "package.json", "pnpm-lock.yaml", ".k-nex/release-lock.json", ".k-nex/generated-files.json", ".k-nex/packages/runtime.tgz", ".k-nex/upgrades/plan.json"]) {
+    for (const path of ["k-nex.app.json", "package.json", "pnpm-lock.yaml", ".k-nex/application-plan.json", ".k-nex/package-release-manifest.json", ".k-nex/release-lock.json", ".k-nex/generated-files.json", ".k-nex/packages/runtime.tgz", ".k-nex/upgrades/plan.json"]) {
       expect(GeneratedFileOwnershipManifestSchema.safeParse({ ...ownership, files: [{ ...ownership.files[0], path }] }).success, path).toBe(false);
     }
   });

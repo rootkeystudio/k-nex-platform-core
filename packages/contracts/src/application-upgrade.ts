@@ -14,7 +14,7 @@ const relativePathSchema = z.string().min(1).max(512).superRefine((path, context
 });
 
 const releaseControlPaths = new Set([
-  "k-nex.app.json", "package.json", "pnpm-lock.yaml", ".k-nex/release-lock.json", ".k-nex/generated-files.json"
+  "k-nex.app.json", "package.json", "pnpm-lock.yaml", ".k-nex/application-plan.json", ".k-nex/package-release-manifest.json", ".k-nex/release-lock.json", ".k-nex/generated-files.json"
 ]);
 const isReleaseControlPath = (path: string) => releaseControlPaths.has(path) || path.startsWith(".k-nex/packages/") || path.startsWith(".k-nex/upgrades/");
 

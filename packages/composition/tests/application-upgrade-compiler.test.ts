@@ -14,7 +14,7 @@ import {
   type VerifiedPackageReleaseManifest,
   type VerifiedPlatformReleaseTransitionManifest
 } from "@k-nex/contracts";
-import { applicationUpgradeCompilerDigests, compileApplicationUpgrade, createPreparationResultV1, type CompileApplicationUpgradeInput, type SourceApplicationSnapshotAuthority, type SourceApplicationSnapshotBinding, type TargetGeneratedApplication, type TargetGeneratedApplicationAuthority, type UpgradeRepositoryFile, type VerifiedSourceApplicationSnapshot, type VerifiedTargetGeneratedApplication } from "../src/application-upgrade-compiler.js";
+import { applicationUpgradeCompilerDigests, compileApplicationUpgrade, createPreparationResultV1, type CompileApplicationUpgradeInput, type SourceApplicationSnapshotAuthority, type SourceApplicationSnapshotBinding, type TargetGeneratedApplication, type TargetGeneratedApplicationAuthority, type TargetGeneratedApplicationProvenance, type UpgradeRepositoryFile, type VerifiedSourceApplicationSnapshot, type VerifiedTargetGeneratedApplication } from "../src/application-upgrade-compiler.js";
 
 const encode = (value: string) => new TextEncoder().encode(value);
 const text = (value: Uint8Array) => new TextDecoder().decode(value);
@@ -37,10 +37,10 @@ function authorized<T extends object, Token extends object>(manifest: T): { auth
   return { token, authority: { read(candidate) { const record = records.get(candidate); if (record === undefined) throw new TypeError("unverified"); return record; } } };
 }
 
-function authorizedTarget(generation: TargetGeneratedApplication): { authority: TargetGeneratedApplicationAuthority; token: VerifiedTargetGeneratedApplication } {
+function authorizedTarget(generation: TargetGeneratedApplication, provenance: TargetGeneratedApplicationProvenance): { authority: TargetGeneratedApplicationAuthority; token: VerifiedTargetGeneratedApplication } {
   const token = Object.freeze({}) as VerifiedTargetGeneratedApplication;
-  const records = new WeakMap<object, { generation: TargetGeneratedApplication; digest: string }>();
-  records.set(token, Object.freeze({ generation, digest: applicationUpgradeCompilerDigests.targetGeneration(generation) }));
+  const records = new WeakMap<object, { generation: TargetGeneratedApplication; digest: string; provenance: TargetGeneratedApplicationProvenance }>();
+  records.set(token, Object.freeze({ generation, digest: applicationUpgradeCompilerDigests.targetGeneration(generation), provenance: Object.freeze(provenance) }));
   return { token, authority: { read(candidate) { const record = records.get(candidate); if (record === undefined) throw new TypeError("unverified"); return record; } } };
 }
 
@@ -99,18 +99,18 @@ function fixture(applicationId = "customer-alpha"): CompileApplicationUpgradeInp
     transitionChain: [{ transitionId: transitionManifest.transitionId, sourceRelease: "1.0.0", targetRelease: "1.1.0", manifestDigest: transitionManifestDigest }]
   };
   const currentFiles: Record<string, UpgradeRepositoryFile> = {
-    ".k-nex/generated-files.json": file(canonicalGeneratedFileOwnershipManifest(sourceOwnership)), ".k-nex/release-lock.json": file(canonicalApplicationReleaseLock(sourceReleaseLock)),
+    ".k-nex/application-plan.json": file("source application plan"), ".k-nex/generated-files.json": file(canonicalGeneratedFileOwnershipManifest(sourceOwnership)), ".k-nex/package-release-manifest.json": file("source release manifest"), ".k-nex/release-lock.json": file(canonicalApplicationReleaseLock(sourceReleaseLock)),
     "README.md": file("customer edited template"), "customer/custom.ts": file("preserve me"), "k-nex.app.json": { kind: "file", bytes: applicationManifestBytes(applicationId) }, "package.json": { kind: "file", bytes: packageJsonBytes("1.0.0") }, "pnpm-lock.yaml": { kind: "file", bytes: pnpmLockBytes("1.0.0") },
     "src/generated.ts": file("source generated"), "src/migrations/0001.ts": file("migration one")
   };
   const targetGeneration: TargetGeneratedApplication = {
     files: { "README.md": encode("target template"), "src/generated.ts": encode("target generated"), "src/migrations/0001.ts": encode("migration one"), "src/migrations/0002.ts": encode("migration two") }, ownership: targetOwnership, releaseLock: targetLock,
-    controlFiles: { ".k-nex/generated-files.json": encode(canonicalGeneratedFileOwnershipManifest(targetOwnership)), ".k-nex/release-lock.json": encode(canonicalApplicationReleaseLock(targetLock)), ".k-nex/packages/k-nex-runtime-1.1.0.tgz": archiveBytes, "k-nex.app.json": applicationManifestBytes(applicationId), "package.json": packageJsonBytes("1.1.0"), "pnpm-lock.yaml": pnpmLockBytes("1.1.0") }
+    controlFiles: { ".k-nex/application-plan.json": encode("target application plan"), ".k-nex/generated-files.json": encode(canonicalGeneratedFileOwnershipManifest(targetOwnership)), ".k-nex/package-release-manifest.json": encode("target release manifest"), ".k-nex/release-lock.json": encode(canonicalApplicationReleaseLock(targetLock)), ".k-nex/packages/k-nex-runtime-1.1.0.tgz": archiveBytes, "k-nex.app.json": applicationManifestBytes(applicationId), "package.json": packageJsonBytes("1.1.0"), "pnpm-lock.yaml": pnpmLockBytes("1.1.0") }
   };
   const installedInventory = { packages: sourceReleaseLock.packages, plugins: sourceReleaseLock.plugins };
   const transitionAuthorization = authorized<typeof transitionManifest, VerifiedPlatformReleaseTransitionManifest>(transitionManifest);
   const targetReleaseAuthorization = authorized<typeof targetReleaseManifest, VerifiedPackageReleaseManifest>(targetReleaseManifest);
-  const targetGenerationAuthorization = authorizedTarget(targetGeneration);
+  const targetGenerationAuthorization = authorizedTarget(targetGeneration, { sourceApplicationManifestDigest: applicationUpgradeCompilerDigests.value(JSON.parse(text((currentFiles["k-nex.app.json"] as { kind: "file"; bytes: Uint8Array }).bytes))), sourceCommit, sourceTreeDigest: applicationUpgradeCompilerDigests.repository(currentFiles) });
   const sourceSnapshotAuthorization = authorizedSource(currentFiles, { applicationId, sourceCommit, applicationManifestSchemaVersion: transitionManifest.applicationManifest.sourceSchemaVersion, sourceReleaseLockDigest: applicationUpgradeCompilerDigests.value(sourceReleaseLock), packageAndLockClosureDigest: applicationUpgradeCompilerDigests.value(sourceReleaseLock.packages), applicationManifestPluginGraphDigest: applicationUpgradeCompilerDigests.value(sourceReleaseLock.plugins) });
   return {
     expectedSourceCommit: sourceCommit, actualSourceCommit: sourceCommit, sourceSnapshotAuthority: sourceSnapshotAuthorization.authority, sourceSnapshotToken: sourceSnapshotAuthorization.token, currentFilesDigest: applicationUpgradeCompilerDigests.repository(currentFiles),
@@ -131,8 +131,8 @@ function refreshed(input: CompileApplicationUpgradeInput): CompileApplicationUpg
   target.releaseLock = { ...target.releaseLock, sourceOwnershipDigest: applicationUpgradeCompilerDigests.value(target.ownership) };
   target.releaseLock.transitionChain = target.releaseLock.transitionChain.map((entry: any, index: number, entries: any[]) => index === entries.length - 1 ? { ...entry, manifestDigest: transitionManifestDigest } : entry);
   target.controlFiles = { ...target.controlFiles, ".k-nex/generated-files.json": encode(canonicalGeneratedFileOwnershipManifest(target.ownership)), ".k-nex/release-lock.json": encode(canonicalApplicationReleaseLock(target.releaseLock)) };
-  const targetAuthorization = authorizedTarget(target);
   const sourceFiles = sourceOf(input);
+  const targetAuthorization = authorizedTarget(target, { sourceApplicationManifestDigest: applicationUpgradeCompilerDigests.value(JSON.parse(text((sourceFiles["k-nex.app.json"] as { kind: "file"; bytes: Uint8Array }).bytes))), sourceCommit: input.actualSourceCommit, sourceTreeDigest: applicationUpgradeCompilerDigests.repository(sourceFiles) });
   const sourceAuthorization = authorizedSource(sourceFiles, { applicationId: input.sourceReleaseLock.applicationId, sourceCommit: input.actualSourceCommit, applicationManifestSchemaVersion: transitionManifest.applicationManifest.sourceSchemaVersion, sourceReleaseLockDigest: applicationUpgradeCompilerDigests.value(input.sourceReleaseLock), packageAndLockClosureDigest: applicationUpgradeCompilerDigests.value(input.sourceReleaseLock.packages), applicationManifestPluginGraphDigest: applicationUpgradeCompilerDigests.value(input.sourceReleaseLock.plugins) });
   return { ...input, transitionAuthority: transitionAuthorization.authority as PlatformReleaseTransitionManifestAuthority, transitionToken: transitionAuthorization.token, transitionManifestDigest, targetGenerationAuthority: targetAuthorization.authority as TargetGeneratedApplicationAuthority, targetGenerationToken: targetAuthorization.token, sourceSnapshotAuthority: sourceAuthorization.authority, sourceSnapshotToken: sourceAuthorization.token, currentFilesDigest: applicationUpgradeCompilerDigests.repository(sourceFiles), sourceReleaseLockDigest: applicationUpgradeCompilerDigests.value(input.sourceReleaseLock), sourceOwnershipDigest: applicationUpgradeCompilerDigests.value(input.sourceOwnership), installedInventoryDigest: applicationUpgradeCompilerDigests.inventory(input.installedInventory), targetGenerationDigest: applicationUpgradeCompilerDigests.targetGeneration(target) };
 }
@@ -208,7 +208,7 @@ describe("application upgrade compiler", () => {
     const rawSource = fixture(); rawSource.sourceSnapshotToken = Object.freeze({}) as VerifiedSourceApplicationSnapshot;
     expect(() => compileApplicationUpgrade(rawSource)).toThrow(/authority-verified source application snapshot/u);
     const commitSwap = fixture(); commitSwap.expectedSourceCommit = "b".repeat(40); commitSwap.actualSourceCommit = "b".repeat(40);
-    expect(() => compileApplicationUpgrade(commitSwap)).toThrow(/Source application controls do not bind/u);
+    expect(() => compileApplicationUpgrade(commitSwap)).toThrow(/target generation does not bind/u);
     const crossedAuthority = fixture(); crossedAuthority.sourceSnapshotToken = crossedAuthority.targetGenerationToken as unknown as VerifiedSourceApplicationSnapshot;
     expect(() => compileApplicationUpgrade(crossedAuthority)).toThrow(/authority-verified source application snapshot/u);
     const sourceMutations: Array<(files: Readonly<Record<string, UpgradeRepositoryFile>>) => void> = [
@@ -232,7 +232,7 @@ describe("application upgrade compiler", () => {
       const input = fixture(); const record = input.sourceSnapshotAuthority.read(input.sourceSnapshotToken);
       const authorization = authorizedSource(record.files, { ...record.binding, ...bindingMutation });
       input.sourceSnapshotAuthority = authorization.authority; input.sourceSnapshotToken = authorization.token;
-      expect(() => compileApplicationUpgrade(input)).toThrow(/Source application controls do not bind/u);
+      expect(() => compileApplicationUpgrade(input)).toThrow(/Source application controls do not bind|target generation does not bind/u);
     }
 
     const raw = fixture();
@@ -240,6 +240,18 @@ describe("application upgrade compiler", () => {
     expect(() => compileApplicationUpgrade(raw)).toThrow(/authority-verified transition/u);
     const rawTarget = fixture(); rawTarget.targetGenerationToken = Object.freeze({}) as VerifiedTargetGeneratedApplication;
     expect(() => compileApplicationUpgrade(rawTarget)).toThrow(/authority-verified target generation/u);
+    const crossedSourceManifest = fixture(); const crossedFiles = structuredClone(sourceOf(crossedSourceManifest)) as Record<string, UpgradeRepositoryFile>;
+    const crossedManifest = JSON.parse(text((crossedFiles["k-nex.app.json"] as { kind: "file"; bytes: Uint8Array }).bytes)); crossedManifest.application.name = "Same graph, different preserved config";
+    crossedFiles["k-nex.app.json"] = file(canonicalJson(crossedManifest));
+    const crossedSourceAuthorization = authorizedSource(crossedFiles, crossedSourceManifest.sourceSnapshotAuthority.read(crossedSourceManifest.sourceSnapshotToken).binding);
+    crossedSourceManifest.sourceSnapshotAuthority = crossedSourceAuthorization.authority; crossedSourceManifest.sourceSnapshotToken = crossedSourceAuthorization.token; crossedSourceManifest.currentFilesDigest = applicationUpgradeCompilerDigests.repository(crossedFiles);
+    expect(() => compileApplicationUpgrade(crossedSourceManifest)).toThrow(/does not bind the exact source manifest, commit, and repository snapshot/u);
+    for (const provenanceMutation of [{ sourceCommit: "b".repeat(40) }, { sourceTreeDigest: digest("f") }]) {
+      const input = fixture(); const sourceRecord = input.sourceSnapshotAuthority.read(input.sourceSnapshotToken); const target = targetOf(input);
+      const targetAuthorization = authorizedTarget(target, { sourceApplicationManifestDigest: applicationUpgradeCompilerDigests.value(JSON.parse(text((sourceRecord.files["k-nex.app.json"] as { kind: "file"; bytes: Uint8Array }).bytes))), sourceCommit, sourceTreeDigest: sourceRecord.digest, ...provenanceMutation });
+      input.targetGenerationAuthority = targetAuthorization.authority; input.targetGenerationToken = targetAuthorization.token;
+      expect(() => compileApplicationUpgrade(input)).toThrow(/does not bind the exact source manifest, commit, and repository snapshot/u);
+    }
     for (const [path, collection] of [["k-nex.app.json", "controlFiles"], ["package.json", "controlFiles"], ["pnpm-lock.yaml", "controlFiles"], ["src/generated.ts", "files"]] as const) {
       const input = fixture(); const target = targetOf(input); (target[collection] as any)[path] = encode("post-issuance mutation");
       input.targetGenerationDigest = applicationUpgradeCompilerDigests.targetGeneration(target);

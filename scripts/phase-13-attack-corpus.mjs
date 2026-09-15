@@ -158,9 +158,11 @@ const proofs = [
     "P13.8 generated HTTP/Chromium reports route queues one artifact and keeps unrelated CRM healthy"
   ]),
   nodeProof("upgrade-restore", [
+    "tests/p13-9-upgrade-repository-preparation.test.mjs",
     "tests/p13-9-upgrade-backup-restore-postgres.test.mjs",
     "tests/p13-9-generated-restore-browser-postgres.test.mjs"
   ], [
+    "P13.9 prepares an exact generated 1.0.0 repository for deterministic 1.1.0 upgrade without touching source",
     "P13.9 upgrades the exact Phase-12 Sales predecessor and restores its current-v1 truth into a clean PostgreSQL database",
     "P13.9 generated Chromium proves physical Postgres restore preserves current CRM product"
   ]),

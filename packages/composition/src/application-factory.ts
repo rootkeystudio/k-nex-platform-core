@@ -113,6 +113,21 @@ export interface CreateKnexApplicationOptions {
   };
 }
 
+declare const verifiedSourceApplicationManifest: unique symbol;
+export interface VerifiedSourceApplicationManifest {
+  readonly [verifiedSourceApplicationManifest]: true;
+}
+
+export interface SourceApplicationManifestAuthority {
+  read(token: VerifiedSourceApplicationManifest): Readonly<{ manifest: ApplicationManifest; digest: string }>;
+}
+
+export type UpgradeTargetKnexApplicationOptions = Pick<CreateKnexApplicationOptions, "packageSource" | "primaryCurrency"> & {
+  readonly sourceManifestAuthority: SourceApplicationManifestAuthority;
+  readonly sourceManifest: VerifiedSourceApplicationManifest;
+  readonly sourceManifestDigest: string;
+};
+
 export interface ApplicationFactoryPlan {
   readonly planVersion: 1;
   readonly preset: "sales-reference";
@@ -275,7 +290,8 @@ function packageIdentity(archive: Uint8Array): { readonly name: string; readonly
   throw new Error("Packed release archive has no package identity.");
 }
 
-function registrySource(theme: SalesPresetTheme, applicationId: string, salesIntegrity: string, realtimeIntegrity: string, release: string): string {
+function registrySource(theme: SalesPresetTheme, applicationId: string, salesIntegrity: string, realtimeIntegrity: string, release: string, includeRealtime = true): string {
+  if (!includeRealtime) return salesOnlyRegistrySource(theme, applicationId, salesIntegrity, release);
   const themeExport = theme === "minimal" ? "resolveMinimalThemeProfile" : "resolveNeobrutalismThemeProfile";
   return `import { PluginManifestSchema } from "@k-nex/contracts";
 import manifestJson from "@k-nex/module-sales/manifest" with { type: "json" };
@@ -338,6 +354,43 @@ export const kNexInitialThemeProfile = Object.freeze({
   values: {},
   revision: { id: "workspace.theme.initial", number: 1, state: "published", createdAt: initialThemeTime, publishedAt: initialThemeTime }
 });
+export const kNexThemePresentation = ${themeExport}(kNexInitialThemeProfile);
+`;
+}
+
+function salesOnlyRegistrySource(theme: SalesPresetTheme, applicationId: string, salesIntegrity: string, release: string): string {
+  const themeExport = theme === "minimal" ? "resolveMinimalThemeProfile" : "resolveNeobrutalismThemeProfile";
+  return `import { PluginManifestSchema } from "@k-nex/contracts";
+import manifestJson from "@k-nex/module-sales/manifest" with { type: "json" };
+import { salesCoreCollections, salesCoreCollectionSlugs, salesCrmPermissionDescriptors, salesCrmPermissionPolicyBindings, salesNavigationDescriptors, salesPermissionPolicyExecutors, salesReferenceMetadata, salesRegistration, salesRouteDescriptors } from "@k-nex/module-sales/server";
+import { salesMigrationReadiness, salesUpgradeMigrations } from "@k-nex/module-sales/migrations";
+import { createPlatformPluginLifecycleState, executeRegistration, reconcilePlatformPluginAvailability, scopePlatformPluginRegistration } from "@k-nex/runtime";
+import { ${themeExport} } from "@k-nex/theme-${theme}";
+
+const salesManifest = PluginManifestSchema.parse(manifestJson);
+const registration = executeRegistration({
+  graph: { resolverVersion: "1.0.0", plugins: [{ id: salesManifest.id, kind: salesManifest.kind, package: salesManifest.package, version: salesManifest.version, integrity: ${JSON.stringify(salesIntegrity)}, required: [], optional: [] }], capabilityProviders: [], registrationOrder: [salesManifest.id] },
+  installed: [{ package: { name: salesManifest.package, version: salesManifest.version, integrity: ${JSON.stringify(salesIntegrity)} }, manifest: salesManifest }],
+  registrations: [salesRegistration]
+});
+const lifecycle = createPlatformPluginLifecycleState({
+  pluginId: salesManifest.id, catalogStatus: "supported", package: { status: "installed", name: salesManifest.package, version: salesManifest.version, integrity: ${JSON.stringify(salesIntegrity)} },
+  enabled: true, configuration: { revision: 1, ready: true }, migration: { current: salesMigrationReadiness.currentRevision, required: salesMigrationReadiness.currentRevision, ready: true }, dataState: "active", releaseStatus: "supported"
+});
+const scopedRegistration = scopePlatformPluginRegistration(registration, [reconcilePlatformPluginAvailability(registration, lifecycle)]);
+
+export const kNexSalesRegistry = Object.freeze({
+  registration: salesRegistration,
+  scopedRegistration,
+  staticRelease: Object.freeze({ package: Object.freeze({ name: salesManifest.package, version: salesManifest.version, integrity: ${JSON.stringify(salesIntegrity)} }), release: ${JSON.stringify(release)}, runtimeGenerationId: "sales-generation-1", authorizationGeneration: 1 }),
+  authorizationGeneration: Object.freeze({ schemaVersion: 1 as const, applicationId: ${JSON.stringify(applicationId)}, owner: { kind: "extension" as const, deliveryClass: "platform-plugin" as const, extensionId: "module.sales", generation: 1 }, runtimeGenerationIds: ["sales-generation-1"], state: "current" as const, authorizationRevision: 2, lifecycleRevision: 1 }),
+  permissionDescriptors: salesCrmPermissionDescriptors, policyBindings: salesCrmPermissionPolicyBindings, policyExecutors: salesPermissionPolicyExecutors,
+  navigationSection: Object.freeze({ id: "sales.navigation.root", pluginId: "module.sales", label: "Sales", icon: "sales" as const, order: 100, active: true, acceptsCustomerChildren: true, routes: salesRouteDescriptors, navigation: salesNavigationDescriptors, messages: salesReferenceMetadata.localization.messages }),
+  collections: Object.freeze([...salesCoreCollections]), collectionSlugs: salesCoreCollectionSlugs, migrations: salesUpgradeMigrations, readiness: salesMigrationReadiness
+});
+
+const initialThemeTime = new Date(0).toISOString();
+export const kNexInitialThemeProfile = Object.freeze({ schemaVersion: 1, id: "workspace.default-theme", surface: "admin", themeId: "theme.${theme}", themeVersion: ${JSON.stringify(release)}, palette: "${theme === "minimal" ? "light" : "primary"}", mode: "system", values: {}, revision: { id: "workspace.theme.initial", number: 1, state: "published", createdAt: initialThemeTime, publishedAt: initialThemeTime } });
 export const kNexThemePresentation = ${themeExport}(kNexInitialThemeProfile);
 `;
 }
@@ -674,15 +727,15 @@ function validOptions(options: CreateKnexApplicationOptions): void {
   }
 }
 
-function applicationManifest(options: CreateKnexApplicationOptions, packageVersions: ReadonlyMap<string, string>): ApplicationManifest {
+function applicationManifest(options: CreateKnexApplicationOptions, packageVersions: ReadonlyMap<string, string>, includeRealtime = true): ApplicationManifest {
   return ApplicationManifestSchema.parse({
     schemaVersion: 1,
     application: { id: options.applicationId, name: options.applicationName, type: "customer-platform" },
-    runtime: { node: "24.19.0", packageManager: "pnpm", packageManagerVersion: "11.9.0", deploymentMode: "container", realtime: { adapter: "memory", webInstances: 1, worker: "separate", workerInvalidationPath: "postgres-outbox-relay", realtimeGateway: "embedded", rollingDeployment: "stop-before-start" } },
+    runtime: { node: "24.19.0", packageManager: "pnpm", packageManagerVersion: "11.9.0", deploymentMode: "container", ...(includeRealtime ? { realtime: { adapter: "memory", webInstances: 1, worker: "separate", workerInvalidationPath: "postgres-outbox-relay", realtimeGateway: "embedded", rollingDeployment: "stop-before-start" } } : {}) },
     framework: { payload: { database: { adapter: "postgres", package: "@payloadcms/db-postgres", connectionEnvironmentVariable: "DATABASE_URL" } } },
     plugins: [{ id: "module.sales", package: "@k-nex/module-sales", version: packageVersions.get("@k-nex/module-sales") ?? currentReleaseVersion, enabled: true },
-      { id: "provider.realtime.socketio", package: "@k-nex/provider-realtime-socketio", version: packageVersions.get("@k-nex/provider-realtime-socketio") ?? currentReleaseVersion, enabled: true }],
-    providers: { "realtime.gateway": { plugin: "provider.realtime.socketio", package: "@k-nex/provider-realtime-socketio", version: packageVersions.get("@k-nex/provider-realtime-socketio") ?? currentReleaseVersion } },
+      ...(includeRealtime ? [{ id: "provider.realtime.socketio", package: "@k-nex/provider-realtime-socketio", version: packageVersions.get("@k-nex/provider-realtime-socketio") ?? currentReleaseVersion, enabled: true }] : [])],
+    providers: includeRealtime ? { "realtime.gateway": { plugin: "provider.realtime.socketio", package: "@k-nex/provider-realtime-socketio", version: packageVersions.get("@k-nex/provider-realtime-socketio") ?? currentReleaseVersion } } : {},
     builder: { plugin: "builder.puck", package: "@k-nex/builder-puck", version: packageVersions.get("@k-nex/builder-puck") ?? currentReleaseVersion, profiles: { workspace: { enabled: true, drafts: true, surfaces: ["workspace"] } } },
     themes: { active: options.theme, package: `@k-nex/theme-${options.theme}`, version: packageVersions.get(`@k-nex/theme-${options.theme}`) ?? currentReleaseVersion },
     development: { database: options.database === "docker-postgres" ? { mode: "docker-postgres", serviceName: "postgres" } : { mode: "external" } },
@@ -691,7 +744,7 @@ function applicationManifest(options: CreateKnexApplicationOptions, packageVersi
   });
 }
 
-export function planCreateKnexApplication(options: CreateKnexApplicationOptions): ApplicationFactoryPlan {
+function planKnexApplication(options: CreateKnexApplicationOptions, includeRealtime: boolean, sourceManifest?: ApplicationManifest): ApplicationFactoryPlan {
   validOptions(options);
   const release = options.packageSource === undefined ? undefined : options.packageSource.authority.read(options.packageSource.release).manifest;
   const releaseManifest = release === undefined ? undefined : canonicalJson(release);
@@ -733,7 +786,15 @@ export function planCreateKnexApplication(options: CreateKnexApplicationOptions)
     if (releasedVersion === undefined) throw new Error(`Packed release does not contain ${name}.`);
     return [name, `file:.k-nex/packages/${artifactFilename(name, releasedVersion)}`];
   }));
-  const manifest = applicationManifest(options, releasedPackages);
+  const manifest = sourceManifest === undefined ? applicationManifest(options, releasedPackages, includeRealtime) : ApplicationManifestSchema.parse({
+    ...sourceManifest,
+    schemaVersion: 1,
+    runtime: { ...sourceManifest.runtime, node: supportedFrameworkTuple.node, packageManagerVersion: supportedFrameworkTuple.pnpm },
+    plugins: sourceManifest.plugins.map((plugin) => ({ ...plugin, version: releasedPackages.get(plugin.package) ?? currentReleaseVersion })),
+    providers: Object.fromEntries(Object.entries(sourceManifest.providers).map(([capability, provider]) => [capability, { ...provider, version: releasedPackages.get(provider.package) ?? currentReleaseVersion }])),
+    ...(sourceManifest.builder === undefined ? {} : { builder: { ...sourceManifest.builder, version: releasedPackages.get(sourceManifest.builder.package) ?? currentReleaseVersion } }),
+    themes: { ...sourceManifest.themes, version: releasedPackages.get(String(sourceManifest.themes.package)) ?? currentReleaseVersion }
+  });
   const files: Record<string, string> = {
     ...runnableApplicationFiles({ applicationId: options.applicationId, applicationName: options.applicationName, database: options.database, theme: options.theme }),
     ...applicationAuthFiles({ applicationId: options.applicationId, applicationName: options.applicationName, ...(options.primaryCurrency === undefined ? {} : { primaryCurrency: options.primaryCurrency }), theme: options.theme, themeReleaseVersion: release?.release.version ?? currentReleaseVersion }),
@@ -782,7 +843,7 @@ export function planCreateKnexApplication(options: CreateKnexApplicationOptions)
     }),
     "src/boot.ts": bootSource(),
     "src/k-nex-web.ts": webHostSource(),
-    "src/k-nex-registry.ts": registrySource(options.theme, options.applicationId, release?.packages.find(({ package: packageName }) => packageName === "@k-nex/module-sales")?.integrity ?? "sha512-d29ya3NwYWNl", release?.packages.find(({ package: packageName }) => packageName === "@k-nex/provider-realtime-socketio")?.integrity ?? "sha512-d29ya3NwYWNl", release?.release.version ?? currentReleaseVersion),
+    "src/k-nex-registry.ts": registrySource(options.theme, options.applicationId, release?.packages.find(({ package: packageName }) => packageName === "@k-nex/module-sales")?.integrity ?? "sha512-d29ya3NwYWNl", release?.packages.find(({ package: packageName }) => packageName === "@k-nex/provider-realtime-socketio")?.integrity ?? "sha512-d29ya3NwYWNl", release?.release.version ?? currentReleaseVersion, includeRealtime),
     "src/k-nex-sales-data-movement.ts": dataMovementHostSource(),
     "src/k-nex-sales-communications.ts": communicationsHostSource(),
     "src/k-nex-sales-workflows.ts": crmWorkflowsHostSource(),
@@ -838,6 +899,54 @@ export function planCreateKnexApplication(options: CreateKnexApplicationOptions)
     verifiedPlanArtifacts.set(plan, new Map([...artifacts].map(([name, bytes]) => [name, new Uint8Array(bytes)])));
   }
   return plan;
+}
+
+export function planCreateKnexApplication(options: CreateKnexApplicationOptions): ApplicationFactoryPlan {
+  return planKnexApplication(options, true);
+}
+
+function assertSupportedUpgradeSourceManifest(sourceManifest: ApplicationManifest): { options: CreateKnexApplicationOptions; includeRealtime: boolean } {
+  const selectedIds = sourceManifest.plugins.map(({ id }) => id).sort();
+  const includeRealtime = selectedIds.includes("provider.realtime.socketio");
+  const expectedIds = includeRealtime ? ["module.sales", "provider.realtime.socketio"] : ["module.sales"];
+  if (canonicalJson(selectedIds) !== canonicalJson(expectedIds) || includeRealtime !== (sourceManifest.providers["realtime.gateway"] !== undefined)) throw new Error("Upgrade target supports only the exact source Sales/realtime selected graph.");
+  const plugins = new Map(sourceManifest.plugins.map((plugin) => [plugin.id, plugin]));
+  if (plugins.get("module.sales")?.package !== "@k-nex/module-sales" || plugins.get("module.sales")?.enabled !== true || plugins.get("module.sales")?.options !== undefined ||
+    includeRealtime && (plugins.get("provider.realtime.socketio")?.package !== "@k-nex/provider-realtime-socketio" || plugins.get("provider.realtime.socketio")?.enabled !== true || plugins.get("provider.realtime.socketio")?.options !== undefined)) {
+    throw new Error("Upgrade target cannot preserve this compiled plugin state or configuration.");
+  }
+  const realtimeProvider = sourceManifest.providers["realtime.gateway"];
+  if (realtimeProvider !== undefined && (realtimeProvider.plugin !== "provider.realtime.socketio" || realtimeProvider.package !== "@k-nex/provider-realtime-socketio" || realtimeProvider.options !== undefined)) {
+    throw new Error("Upgrade target cannot preserve this provider configuration.");
+  }
+  const expectedRealtime = { adapter: "memory", webInstances: 1, worker: "separate", workerInvalidationPath: "postgres-outbox-relay", realtimeGateway: "embedded", rollingDeployment: "stop-before-start" };
+  if (sourceManifest.application.type !== "customer-platform" || sourceManifest.application.defaultLocale !== undefined || sourceManifest.application.locales !== undefined ||
+    sourceManifest.runtime.packageManager !== "pnpm" || sourceManifest.runtime.deploymentMode !== "container" || (includeRealtime ? canonicalJson(sourceManifest.runtime.realtime) !== canonicalJson(expectedRealtime) : sourceManifest.runtime.realtime !== undefined) ||
+    sourceManifest.framework.payload.database.adapter !== "postgres" || sourceManifest.framework.payload.database.package !== "@payloadcms/db-postgres" || sourceManifest.framework.payload.database.connectionEnvironmentVariable !== "DATABASE_URL") {
+    throw new Error("Upgrade target cannot preserve this application/runtime/framework configuration.");
+  }
+  if (sourceManifest.builder?.plugin !== "builder.puck" || sourceManifest.builder.package !== "@k-nex/builder-puck" || canonicalJson(sourceManifest.builder.profiles) !== canonicalJson({ workspace: { enabled: true, drafts: true, surfaces: ["workspace"] } })) {
+    throw new Error("Upgrade target cannot preserve this builder configuration.");
+  }
+  const theme = sourceManifest.themes.active;
+  if ((theme !== "minimal" && theme !== "neobrutalism") || sourceManifest.themes.package !== `@k-nex/theme-${theme}` || Object.keys(sourceManifest.themes).sort().join(",") !== "active,package,version") {
+    throw new Error("Upgrade target cannot preserve this theme configuration.");
+  }
+  const database = sourceManifest.development.database.mode;
+  if (database !== "external" && database !== "docker-postgres" || database === "docker-postgres" && sourceManifest.development.database.serviceName !== "postgres" ||
+    canonicalJson(sourceManifest.build) !== canonicalJson({ dockerfile: false, commitGeneratedRegistries: true, validateGeneratedFilesInCI: true })) {
+    throw new Error("Upgrade target cannot preserve this development/build configuration.");
+  }
+  return { options: { applicationId: sourceManifest.application.id, applicationName: sourceManifest.application.name, theme, database }, includeRealtime };
+}
+
+export function planUpgradeTargetKnexApplication(options: UpgradeTargetKnexApplicationOptions): ApplicationFactoryPlan {
+  const record = options.sourceManifestAuthority.read(options.sourceManifest);
+  const sourceManifest = ApplicationManifestSchema.parse(record.manifest);
+  const canonicalDigest = `sha256:${createHash("sha256").update(canonicalJson(sourceManifest)).digest("hex")}`;
+  if (record.digest !== options.sourceManifestDigest || canonicalDigest !== record.digest) throw new Error("Verified source application manifest digest is stale.");
+  const supported = assertSupportedUpgradeSourceManifest(sourceManifest);
+  return planKnexApplication({ ...supported.options, ...(options.primaryCurrency === undefined ? {} : { primaryCurrency: options.primaryCurrency }), ...(options.packageSource === undefined ? {} : { packageSource: options.packageSource }) }, supported.includeRealtime, sourceManifest);
 }
 
 export function applyCreateKnexApplication(plan: ApplicationFactoryPlan, targetDirectory: string): ApplicationFactoryApplyResult {

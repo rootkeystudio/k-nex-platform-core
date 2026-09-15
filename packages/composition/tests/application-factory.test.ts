@@ -12,7 +12,7 @@ import { executeRegistration } from "../../runtime/src/registration-runtime.js";
 import { socketIoRealtimeProviderRegistration } from "../../realtime-socketio/src/server.js";
 import { salesRegistration } from "../../../modules/sales/src/server.js";
 import { applicationAuthFiles } from "../src/application-auth-files.js";
-import { applyCreateKnexApplication, payloadPostgresPatchDigest, payloadPostgresPatchFilename, payloadPostgresPatchProvenance, payloadPostgresPatchSource, planCreateKnexApplication, salesReferenceCompilerBoundary, setSalesReferenceCompilerTestMutationForTests } from "../src/index.js";
+import { applyCreateKnexApplication, payloadPostgresPatchDigest, payloadPostgresPatchFilename, payloadPostgresPatchProvenance, payloadPostgresPatchSource, planCreateKnexApplication, planUpgradeTargetKnexApplication, salesReferenceCompilerBoundary, setSalesReferenceCompilerTestMutationForTests, type SourceApplicationManifestAuthority, type VerifiedSourceApplicationManifest } from "../src/index.js";
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -37,6 +37,16 @@ function bundledPackageSource() {
   const release = JSON.parse(readFileSync(new URL("../../../releases/1.0.0/package-release-manifest.json", import.meta.url), "utf8"));
   const mirror = fileURLToPath(new URL("../../../fixtures/customer-gate-1/packages", import.meta.url));
   return verifiedPackageSource(release, mirror);
+}
+
+function verifiedSourceManifest(manifestInput: unknown) {
+  const manifest = ApplicationManifestSchema.parse(manifestInput);
+  const digest = `sha256:${createHash("sha256").update(canonicalJson(manifest)).digest("hex")}`;
+  const values = new WeakMap<object, { manifest: typeof manifest; digest: string }>();
+  const authority: SourceApplicationManifestAuthority = { read(token) { const value = values.get(token); if (value === undefined) throw new Error("Source application manifest was not issued by this authority."); return value; } };
+  const token = Object.freeze({}) as VerifiedSourceApplicationManifest;
+  values.set(token, { manifest, digest });
+  return { authority, token, digest };
 }
 
 const realtimeManifestInput = JSON.parse(readFileSync(new URL("../../realtime-socketio/k-nex.plugin.json", import.meta.url), "utf8"));
@@ -96,6 +106,40 @@ function fakeGh(root: string, verification: unknown) {
 }
 
 describe("create-knex-app", () => {
+  it("keeps the exact source selected graph in upgrade target generation", () => {
+    const options = { applicationId: "sales-only-upgrade", applicationName: "Sales-only Upgrade", theme: "minimal", database: "external" } as const;
+    const creation = planCreateKnexApplication(options);
+    const source = JSON.parse(creation.files["k-nex.app.json"]!);
+    delete source.runtime.realtime; source.plugins = source.plugins.filter(({ id }: { id: string }) => id === "module.sales"); source.providers = {};
+    source.application.name = "Preserved source name";
+    const verified = verifiedSourceManifest(source);
+    const target = planUpgradeTargetKnexApplication({ sourceManifestAuthority: verified.authority, sourceManifest: verified.token, sourceManifestDigest: verified.digest });
+    const targetManifest = JSON.parse(target.files["k-nex.app.json"]!);
+    expect(targetManifest.plugins.map(({ id }: { id: string }) => id)).toEqual(["module.sales"]);
+    expect(targetManifest.application.name).toBe("Preserved source name");
+    expect(targetManifest).toEqual(source);
+    expect(target.files["src/k-nex-registry.ts"]).not.toMatch(/provider\.realtime|kNexRealtimeRegistry/u);
+    expect(JSON.parse(creation.files["k-nex.app.json"]!).plugins.map(({ id }: { id: string }) => id)).toContain("provider.realtime.socketio");
+    const unsupportedGraph = verifiedSourceManifest({ ...source, plugins: [...source.plugins, { id: "integration.unknown", package: "@k-nex/unknown", version: "1.0.0", enabled: true }] });
+    expect(() => planUpgradeTargetKnexApplication({ sourceManifestAuthority: unsupportedGraph.authority, sourceManifest: unsupportedGraph.token, sourceManifestDigest: unsupportedGraph.digest })).toThrow(/exact source Sales\/realtime selected graph/u);
+    const disabled = verifiedSourceManifest({ ...source, plugins: source.plugins.map((plugin: Record<string, unknown>) => ({ ...plugin, enabled: false })) });
+    expect(() => planUpgradeTargetKnexApplication({ sourceManifestAuthority: disabled.authority, sourceManifest: disabled.token, sourceManifestDigest: disabled.digest })).toThrow(/compiled plugin state/u);
+    const configured = verifiedSourceManifest({ ...source, plugins: source.plugins.map((plugin: Record<string, unknown>) => ({ ...plugin, options: { tenant: "customer" } })) });
+    expect(() => planUpgradeTargetKnexApplication({ sourceManifestAuthority: configured.authority, sourceManifest: configured.token, sourceManifestDigest: configured.digest })).toThrow(/compiled plugin state/u);
+    const realtimeSource = JSON.parse(creation.files["k-nex.app.json"]!);
+    const configuredProvider = verifiedSourceManifest({ ...realtimeSource, providers: { "realtime.gateway": { ...realtimeSource.providers["realtime.gateway"], options: { channel: "customer" } } } });
+    expect(() => planUpgradeTargetKnexApplication({ sourceManifestAuthority: configuredProvider.authority, sourceManifest: configuredProvider.token, sourceManifestDigest: configuredProvider.digest })).toThrow(/provider configuration/u);
+    const configuredBuilder = verifiedSourceManifest({ ...source, builder: { ...source.builder, profiles: { workspace: { enabled: true, drafts: false, surfaces: ["workspace"] } } } });
+    expect(() => planUpgradeTargetKnexApplication({ sourceManifestAuthority: configuredBuilder.authority, sourceManifest: configuredBuilder.token, sourceManifestDigest: configuredBuilder.digest })).toThrow(/builder configuration/u);
+    const nondefaultCreation = planCreateKnexApplication({ applicationId: "preserved-nondefault", applicationName: "Preserved Nondefault", theme: "neobrutalism", database: "docker-postgres" });
+    const nondefaultSource = JSON.parse(nondefaultCreation.files["k-nex.app.json"]!);
+    nondefaultSource.$schema = "https://customer.invalid/k-nex-application-schema.json";
+    nondefaultSource.environment.required.push("CUSTOMER_REQUIRED_SETTING");
+    const nondefaultVerified = verifiedSourceManifest(nondefaultSource);
+    expect(JSON.parse(planUpgradeTargetKnexApplication({ sourceManifestAuthority: nondefaultVerified.authority, sourceManifest: nondefaultVerified.token, sourceManifestDigest: nondefaultVerified.digest }).files["k-nex.app.json"]!)).toEqual(nondefaultSource);
+    expect(() => planUpgradeTargetKnexApplication({ sourceManifestAuthority: verified.authority, sourceManifest: verified.token, sourceManifestDigest: `sha256:${"0".repeat(64)}` })).toThrow(/digest is stale/u);
+    expect(() => planUpgradeTargetKnexApplication({ sourceManifestAuthority: verified.authority, sourceManifest: Object.freeze({}) as VerifiedSourceApplicationManifest, sourceManifestDigest: verified.digest })).toThrow(/not issued/u);
+  });
   it("freezes the temporary Sales-reference compiler boundary", () => {
     expect(salesReferenceCompilerBoundary).toMatchObject({
       name: "sales-reference-compiler",

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import {
   ApplicationReleaseLockSchema,
+  ApplicationManifestSchema,
   ApplicationUpgradePlanEnvelopeV1Schema,
   GeneratedFileOwnershipManifestSchema,
   PackageReleaseManifestSchema,
@@ -34,10 +35,15 @@ export interface TargetGeneratedApplication {
   readonly releaseLock: ApplicationReleaseLock;
   readonly controlFiles: Readonly<Record<string, Uint8Array>>;
 }
+export interface TargetGeneratedApplicationProvenance {
+  readonly sourceApplicationManifestDigest: string;
+  readonly sourceCommit: string;
+  readonly sourceTreeDigest: string;
+}
 declare const verifiedTargetGeneratedApplication: unique symbol;
 export interface VerifiedTargetGeneratedApplication { readonly [verifiedTargetGeneratedApplication]: true; }
 export interface TargetGeneratedApplicationAuthority {
-  read(token: VerifiedTargetGeneratedApplication): Readonly<{ generation: TargetGeneratedApplication; digest: string }>;
+  read(token: VerifiedTargetGeneratedApplication): Readonly<{ generation: TargetGeneratedApplication; digest: string; provenance: TargetGeneratedApplicationProvenance }>;
 }
 declare const verifiedSourceApplicationSnapshot: unique symbol;
 export interface VerifiedSourceApplicationSnapshot { readonly [verifiedSourceApplicationSnapshot]: true; }
@@ -94,7 +100,7 @@ export type ApplicationUpgradeCompilation =
 
 const digestPattern = /^sha256:[0-9a-f]{64}$/u;
 const commitPattern = /^[0-9a-f]{40}$/u;
-const requiredControlPaths = [".k-nex/generated-files.json", ".k-nex/release-lock.json", "k-nex.app.json", "package.json", "pnpm-lock.yaml"] as const;
+const requiredControlPaths = [".k-nex/application-plan.json", ".k-nex/generated-files.json", ".k-nex/package-release-manifest.json", ".k-nex/release-lock.json", "k-nex.app.json", "package.json", "pnpm-lock.yaml"] as const;
 const digestBytes = (bytes: Uint8Array) => `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
 const digestValue = (value: unknown) => `sha256:${createHash("sha256").update(canonicalJson(value)).digest("hex")}`;
 const compareCodeUnits = (left: string, right: string) => left < right ? -1 : left > right ? 1 : 0;
@@ -178,6 +184,18 @@ export function compileApplicationUpgrade(input: CompileApplicationUpgradeInput)
   const sourceTreeProjection = snapshotProjection(currentFiles);
   const sourceTreeDigest = digestValue(sourceTreeProjection);
   if (sourceSnapshotRecord.digest !== sourceTreeDigest) throw new TypeError("Verified source-snapshot authority returned a stale digest binding.");
+  const sourceApplicationManifestFile = currentFiles["k-nex.app.json"];
+  if (sourceApplicationManifestFile?.kind !== "file") throw new TypeError("Verified source snapshot omits the application manifest bytes.");
+  let sourceApplicationManifest: ReturnType<typeof ApplicationManifestSchema.parse>;
+  try { sourceApplicationManifest = ApplicationManifestSchema.parse(JSON.parse(new TextDecoder().decode(sourceApplicationManifestFile.bytes))); } catch { throw new TypeError("Verified source snapshot contains an invalid application manifest."); }
+  const sourceApplicationManifestDigest = digestValue(sourceApplicationManifest);
+  if (targetGenerationRecord.provenance.sourceApplicationManifestDigest !== sourceApplicationManifestDigest ||
+    targetGenerationRecord.provenance.sourceCommit !== sourceSnapshotRecord.binding.sourceCommit ||
+    targetGenerationRecord.provenance.sourceCommit !== input.actualSourceCommit ||
+    targetGenerationRecord.provenance.sourceTreeDigest !== sourceSnapshotRecord.digest ||
+    targetGenerationRecord.provenance.sourceTreeDigest !== sourceTreeDigest) {
+    throw new TypeError("Verified target generation does not bind the exact source manifest, commit, and repository snapshot.");
+  }
   const targetGenerationDigest = digestValue(generatedProjection(targetGeneration));
   if (targetGenerationRecord.digest !== targetGenerationDigest) throw new TypeError("Verified target-generation authority returned a stale digest binding.");
   assertDigest(sourceLockDigest, input.sourceReleaseLockDigest, "Source release-lock digest");
@@ -303,7 +321,7 @@ export function compileApplicationUpgrade(input: CompileApplicationUpgradeInput)
   const baseEvidence = { sourceTreeDigest, sourceReleaseLockDigest: sourceLockDigest, sourceOwnershipDigest, installedInventoryDigest: inventoryDigest, targetReleaseManifestDigest: targetReleaseDigest, targetGenerationDigest };
   if (normalizedOperations.some(({ kind }) => kind === "conflict" || kind === "blocked")) return Object.freeze({ outcome: "blocked", plan, evidence: Object.freeze(baseEvidence) });
 
-  const preparedFiles: Record<string, Uint8Array> = Object.fromEntries(Object.entries(currentFiles).map(([path, file]) => [path, new Uint8Array((file as { kind: "file"; bytes: Uint8Array }).bytes)]));
+  const preparedFiles: Record<string, Uint8Array> = Object.fromEntries(Object.entries(currentFiles).filter(([path]) => !path.startsWith(".k-nex/packages/")).map(([path, file]) => [path, new Uint8Array((file as { kind: "file"; bytes: Uint8Array }).bytes)]));
   for (const target of targetOwnership.files) {
     const source = sourceRecords.get(target.path);
     const current = currentFiles[target.path];

@@ -7,15 +7,15 @@
 
 ## Last completed
 
-PR #35 review requested immutable `1.0.0` restoration, a new `1.1.0` train, a real generated-repository upgrade/protection proof, ADR renumbering, focused-gate hermeticity, bounded upload cancellation/deadlines, and an explicit bounded Sales-reference compiler exception. The coordinated train and pure upgrade compiler are closed. A separate exact-head Phase 13 evidence workflow now pins accepted historical `1.0.0` trust, freezes the seven migration identities, attests the `1.1.0` manifest and canonical transition, supports idempotent equivalent retries, and uploads self-contained endpoint manifests, bundles, predicates, policy, transition, and verification output.
+PR #35 review requested immutable `1.0.0` restoration, a new `1.1.0` train, and a real generated-repository upgrade/protection proof. The coordinated train, transition attestation workflow, and pure upgrade compiler are closed. P13.9 now executes the accepted Phase 12 factory from its own frozen 1.0 closure, commits the exact Sales-only source repository, preserves its full source manifest/customer/template state, reconciles through authority-cross-bound source/target snapshots, materializes deterministic isolated 1.1 worktrees, and proves the exact byte-stable 26-migration prefix plus seven frozen additions.
 
 ## Validation
 
-Node 24.19/pnpm 11.9: hosted runs `35026508277` and `35026972976` correctly rejected, respectively, a stale local-tarball lock checksum and the corresponding stale generated Gate 1 integrity. Both now equal the final `module-sales` 1.1 archive/release manifest. Gate 1 freshness, release-train 2/2, packed closure 17/17, and `git diff --check` PASS. Hosted exact-head rerun remains pending; no full gate run.
+Node 24.19/pnpm 11.9: Contracts PASS (244 tests), Composition PASS (185 tests), both builds PASS, real frozen 1.0→1.1 repository journey PASS (~23s), generated/AJV/repository validation, syntax, and `git diff --check` PASS. Exact 17-package source/target closures, full source-manifest preservation, deterministic two-root materialization, 26+7 migration closure, stale/conflict/symlink/cross-token failure, and source nonmutation are observed. Hosted workflow `35027505574` PASS on `035fe17`; final-head rerun remains pending. No full gate run.
 
 ## Next
 
-Run and overlay exact-head hosted `1.0.0` to `1.1.0` transition evidence, then wire the compiler into the real generated-repository upgrade/protection proof before focused Gate 13 and PR rereview; do not merge or promote.
+Implement P13.9 pre-upgrade backup, post-migration/pre-promotion failure recovery, exact 1.0 restart, and target protection proof; then rerun/overlay final-head hosted transition evidence and focused Gate 13 before PR rereview. Do not merge or promote.
 
 ## Blockers
 
