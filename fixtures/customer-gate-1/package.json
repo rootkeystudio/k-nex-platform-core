@@ -9,7 +9,7 @@
     "pnpm": "11.9.0"
   },
   "scripts": {
-    "build": "esbuild tests/hot-application-fixed-route-browser-entry.ts --bundle --format=esm --platform=browser --outfile=dist/tests/hot-application-fixed-route-browser-entry.js && tsc -b",
+    "build": "tsc -b && esbuild tests/hot-application-fixed-route-browser-entry.ts --bundle --format=esm --platform=browser --outfile=dist/tests/hot-application-fixed-route-browser-entry.js",
     "test": "pnpm build && node --test --test-concurrency=1 tests/generated-browser-navigation.test.mjs tests/payload-config.test.mjs tests/static-deployment-artifact-wait-timeout.test.mjs",
     "test:p12:shell": "node --test --test-force-exit --test-concurrency=1 tests/generated-runnable-application-postgres.test.mjs",
     "test:p12:storage": "node --test --test-force-exit --test-concurrency=1 tests/workspace-page-storage-postgres.test.mjs",
