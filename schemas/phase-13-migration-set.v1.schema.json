@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://k-nex.dev/schemas/phase-13-migration-set.v1.schema.json",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "const": "../../schemas/phase-13-migration-set.v1.schema.json",
+      "type": "string"
+    },
+    "schemaVersion": {
+      "const": 1,
+      "type": "integer"
+    },
+    "sourceRelease": {
+      "const": "1.0.0",
+      "type": "string"
+    },
+    "targetRelease": {
+      "const": "1.1.0",
+      "type": "string"
+    },
+    "steps": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "pattern": "^[0-9]{8}_[0-9]{6}_[a-z0-9_]+$",
+            "type": "string"
+          },
+          "phase": {
+            "const": "offline-required",
+            "type": "string"
+          }
+        },
+        "required": ["id", "phase"],
+        "type": "object"
+      },
+      "minItems": 1,
+      "type": "array"
+    }
+  },
+  "required": ["$schema", "schemaVersion", "sourceRelease", "targetRelease", "steps"],
+  "title": "Phase 13 migration set v1",
+  "type": "object"
+}
