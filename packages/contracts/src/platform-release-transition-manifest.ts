@@ -1,9 +1,9 @@
 import * as z from "zod";
 
-import { canonicalJson } from "./canonical-json.js";
+import { canonicalJson, sha256CanonicalJson } from "./canonical-json.js";
 import { FrameworkTupleSchema } from "./framework-tuple.js";
 import { compareExactSemverPrecedence, ExactSemverSchema, PluginIdSchema } from "./identity.js";
-import { PackageReleaseManifestSchema, type PackageReleaseManifest } from "./package-release-manifest.js";
+import { PackageReleaseManifestSchema, type PackageReleaseManifest, type ReleasePackage } from "./package-release-manifest.js";
 import { uniqueArray } from "./schema-helpers.js";
 
 const packageNamePattern = /^@?[a-z0-9][a-z0-9._-]*(?:\/[a-z0-9][a-z0-9._-]*)?$/u;
@@ -177,6 +177,23 @@ export const PlatformReleaseTransitionManifestSchema = z.strictObject({
 });
 
 export type PlatformReleaseTransitionManifest = z.infer<typeof PlatformReleaseTransitionManifestSchema>;
+
+declare const verifiedPlatformReleaseTransitionManifest: unique symbol;
+export interface VerifiedPlatformReleaseTransitionManifest { readonly [verifiedPlatformReleaseTransitionManifest]: true; }
+export interface PlatformReleaseTransitionManifestAuthority<Attestation = unknown> {
+  read(token: VerifiedPlatformReleaseTransitionManifest): Readonly<{ manifest: PlatformReleaseTransitionManifest; digest: string; attestation: Attestation }>;
+}
+
+export function platformReleaseGeneratorContractDigest(source: Pick<ReleasePackage, "package" | "version" | "integrity">, target: Pick<ReleasePackage, "package" | "version" | "integrity">): `sha256:${string}` {
+  if (source.package !== target.package) throw new TypeError("Generator contract endpoints must name the same package.");
+  return sha256CanonicalJson({
+    package: target.package,
+    sourceVersion: source.version,
+    targetVersion: target.version,
+    sourceIntegrity: source.integrity,
+    targetIntegrity: target.integrity
+  });
+}
 
 export interface PlatformReleaseTransitionEndpoint {
   manifest: PackageReleaseManifest;

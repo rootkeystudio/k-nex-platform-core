@@ -49,6 +49,7 @@ import { registerAuthorizationOwnershipKeyword } from "./authorization-ownership
 import { registerHotApplicationAuthorizationKeyword } from "./hot-application-authorization.js";
 import { registerSystemAdministrationInvariantsKeyword } from "./system-administration-invariants.js";
 import { registerPlatformReleaseTransitionInvariantsKeyword } from "./platform-release-transition-invariants.js";
+import { registerApplicationUpgradeInvariantsKeyword } from "./application-upgrade-invariants.js";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const ajv = new Ajv2020({ allErrors: true, strict: true });
@@ -59,6 +60,7 @@ registerAuthorizationOwnershipKeyword(ajv);
 registerHotApplicationAuthorizationKeyword(ajv);
 registerSystemAdministrationInvariantsKeyword(ajv);
 registerPlatformReleaseTransitionInvariantsKeyword(ajv);
+registerApplicationUpgradeInvariantsKeyword(ajv);
 ajv.addKeyword({
   keyword: "kNexMaxCanonicalBytes",
   type: "object",
@@ -151,6 +153,10 @@ for (const relativePath of [
   "schemas/migration-compatibility-plan.v1.schema.json",
   "schemas/worker-generation-fence.v1.schema.json",
   "schemas/platform-release-transition-manifest.v1.schema.json",
+  "schemas/application-release-lock.v1.schema.json",
+  "schemas/generated-file-ownership-manifest.v1.schema.json",
+  "schemas/application-upgrade-plan-envelope.v1.schema.json",
+  "schemas/application-upgrade-preparation-result.v1.schema.json",
   "schemas/application-manifest.v1.schema.json",
   "schemas/event.v1.schema.json",
   "schemas/metric-scalar.v1.schema.json",
@@ -249,6 +255,12 @@ const validateCmsPageMetadata = ajv.compile(cmsPageMetadataSchema);
 const validateAuthorization = ajv.compile(authorizationSchema);
 const validateSystemAdministration = ajv.compile(systemAdministrationSchema);
 ajv.compile(platformReleaseTransitionSchema);
+for (const path of [
+  "schemas/application-release-lock.v1.schema.json",
+  "schemas/generated-file-ownership-manifest.v1.schema.json",
+  "schemas/application-upgrade-plan-envelope.v1.schema.json",
+  "schemas/application-upgrade-preparation-result.v1.schema.json"
+]) ajv.compile(await load<AnySchema>(path));
 
 const extensionSchemas = {
   "extension-bundle-manifest": { authoring: ExtensionBundleManifestSchema, generated: "schemas/extension-bundle-manifest.v1.schema.json" },
@@ -310,6 +322,9 @@ if (!generatedContracts.artifacts.includes("schemas/system-administration.v1.sch
 }
 if (!generatedContracts.artifacts.includes("schemas/platform-release-transition-manifest.v1.schema.json")) {
   throw new Error("Generated artifact inventory is missing schemas/platform-release-transition-manifest.v1.schema.json.");
+}
+for (const path of ["schemas/application-release-lock.v1.schema.json", "schemas/generated-file-ownership-manifest.v1.schema.json", "schemas/application-upgrade-plan-envelope.v1.schema.json", "schemas/application-upgrade-preparation-result.v1.schema.json"]) {
+  if (!generatedContracts.artifacts.includes(path)) throw new Error(`Generated artifact inventory is missing ${path}.`);
 }
 
 for (const fixture of authorizationFixtures) {

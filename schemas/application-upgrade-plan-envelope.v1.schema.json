@@ -1,0 +1,112 @@
+{
+  "$defs": {
+    "__schema0": {
+      "const": 1,
+      "type": "number"
+    },
+    "__schema1": {
+      "maxLength": 160,
+      "minLength": 3,
+      "pattern": "^[a-z0-9][a-z0-9._:-]*$",
+      "type": "string"
+    },
+    "__schema2": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "__schema3": {
+      "items": {
+        "$ref": "#/$defs/__schema4"
+      },
+      "maxItems": 20000,
+      "type": "array"
+    },
+    "__schema4": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "add",
+                "replace",
+                "append",
+                "conflict"
+              ],
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/$defs/__schema5"
+            }
+          },
+          "required": [
+            "path",
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "blocked",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/$defs/__schema5"
+            },
+            "reason": {
+              "const": "managed-delete-reference-proof-required",
+              "type": "string"
+            }
+          },
+          "required": [
+            "path",
+            "kind",
+            "reason"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "__schema5": {
+      "maxLength": 512,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "$id": "https://schemas.k-nex.dev/application-upgrade-plan-envelope/v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "kNexApplicationUpgradeInvariant": "plan",
+  "properties": {
+    "digest": {
+      "$ref": "#/$defs/__schema2"
+    },
+    "inputSnapshotDigest": {
+      "$ref": "#/$defs/__schema2"
+    },
+    "operations": {
+      "$ref": "#/$defs/__schema3"
+    },
+    "planId": {
+      "$ref": "#/$defs/__schema1"
+    },
+    "schemaVersion": {
+      "$ref": "#/$defs/__schema0"
+    },
+    "targetTransitionManifestDigest": {
+      "$ref": "#/$defs/__schema2"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "planId",
+    "inputSnapshotDigest",
+    "targetTransitionManifestDigest",
+    "operations",
+    "digest"
+  ],
+  "title": "K-Nex Application Upgrade Plan Envelope v1",
+  "type": "object"
+}

@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url";
 
 import {
   ActionDescriptorSchema,
+  ApplicationReleaseLockSchema,
+  ApplicationUpgradePlanEnvelopeV1Schema,
   AdministrationOperatorAuthenticatedCommandSchema,
   AgentToolDescriptorSchema,
   ApplicationManifestSchema,
@@ -16,6 +18,7 @@ import {
   ExtensionBundleManifestSchema,
   ExtensionCapabilityRequestSchema,
   ExtensionGenerationSchema,
+  GeneratedFileOwnershipManifestSchema,
   ExtensionInstallPlanSchema,
   ExtensionInstallReceiptSchema,
   ExtensionLifecycleEventSchema,
@@ -27,6 +30,7 @@ import {
   MetricScalarV2Schema,
   PackageReleaseManifestSchema,
   PlatformReleaseTransitionManifestSchema,
+  PreparationResultV1Schema,
   RuntimeInventorySchema,
   RuntimeExtensionInventorySchema,
   ThemeSkinManifestSchema,
@@ -216,6 +220,12 @@ function platformReleaseTransitionManifestJsonSchema(): unknown {
   return generated;
 }
 
+function applicationUpgradeJsonSchema(schema: z.core.$ZodType, kind: "release-lock" | "ownership" | "plan" | "preparation"): unknown {
+  const generated = jsonSchema(schema) as Record<string, unknown>;
+  generated.kNexApplicationUpgradeInvariant = kind;
+  return generated;
+}
+
 function staticCompositionChangePlanJsonSchema(): unknown {
   const generated = jsonSchema(StaticCompositionChangePlanSchema) as Record<string, any>;
   referencedDefinition(generated, "migration").kNexMigrationRevisionChangeRequiresSteps = true;
@@ -274,6 +284,10 @@ const primaryArtifacts = [
   { path: "schemas/runtime-extension-inventory.v1.schema.json", value: jsonSchema(RuntimeExtensionInventorySchema) },
   { path: "schemas/deployment-receipt.v1.schema.json", value: jsonSchema(DeploymentReceiptSchema) },
   { path: "schemas/application-manifest.v1.schema.json", value: applicationJsonSchema() },
+  { path: "schemas/application-release-lock.v1.schema.json", value: applicationUpgradeJsonSchema(ApplicationReleaseLockSchema, "release-lock") },
+  { path: "schemas/generated-file-ownership-manifest.v1.schema.json", value: applicationUpgradeJsonSchema(GeneratedFileOwnershipManifestSchema, "ownership") },
+  { path: "schemas/application-upgrade-plan-envelope.v1.schema.json", value: applicationUpgradeJsonSchema(ApplicationUpgradePlanEnvelopeV1Schema, "plan") },
+  { path: "schemas/application-upgrade-preparation-result.v1.schema.json", value: applicationUpgradeJsonSchema(PreparationResultV1Schema, "preparation") },
   { path: "schemas/event.v1.schema.json", value: eventJsonSchema() },
   { path: "schemas/metric-scalar.v1.schema.json", value: jsonSchema(MetricScalarSchema) },
   { path: "schemas/metric-scalar.v2.schema.json", value: jsonSchema(MetricScalarV2Schema) },

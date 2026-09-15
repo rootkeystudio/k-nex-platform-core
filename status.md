@@ -7,15 +7,15 @@
 
 ## Last completed
 
-PR #35 review requested immutable `1.0.0` restoration, a new `1.1.0` train, a real generated-repository upgrade/protection proof, ADR renumbering, focused-gate hermeticity, bounded upload cancellation/deadlines, and an explicit bounded Sales-reference compiler exception. Independent issues, immutable-base restoration, and upgrade ownership design are closed. The coordinated `1.1.0` train now contains all 17 first-party packages, exact current framework/peer tuples, a regenerated Sales source, target fixture graph, and content-addressed factory locks while explicit historical `1.0.0` remains immutable.
+PR #35 review requested immutable `1.0.0` restoration, a new `1.1.0` train, a real generated-repository upgrade/protection proof, ADR renumbering, focused-gate hermeticity, bounded upload cancellation/deadlines, and an explicit bounded Sales-reference compiler exception. Independent issues and the coordinated `1.1.0` train are closed. The pure application-upgrade compiler now binds authority-verified source and target snapshots, exact commits/releases/transitions/generators/selected package archives/control semantics, preserves customer/template/append-only bytes, blocks unproved managed deletion, and returns no prepared tree on stale/conflicting input.
 
 ## Validation
 
-Node 24.19/pnpm 11.9: Contracts PASS (238 tests), Composition PASS (177 tests), Gate 1 generate/check, Sales source 25-file check, packed 17-package closures and both factory locks for explicit 1.0/1.1, neutral history, release-train tests, create-app current/historical execution, and `git diff --check` PASS. Historical manifest SHA remains `1d8b40e0073fb24d42f47bc3a0fd763db0a0fb5baf706120f7fe3a2768c13eea`. No full gate run.
+Node 24.19/pnpm 11.9: Contracts PASS (244 tests), Composition PASS (184 tests), architecture/AJV/repository PASS (37 tests), Contracts/Composition builds, generated schema freshness, AJV parity, repository validation, and `git diff --check` PASS. Two-customer determinism, source-commit fencing, archive closure, digest, lineage, generator, Unicode ordering, and source/target authority mutations fail closed. No full gate run.
 
 ## Next
 
-Review/commit the upgrade compiler, then generate and attest the `1.0.0` to `1.1.0` transition and implement real generated-repository upgrade/protection evidence before focused Gate 13 and PR rereview; do not merge or promote.
+Complete hosted `1.0.0` to `1.1.0` transition evidence, then wire the compiler into the real generated-repository upgrade/protection proof before focused Gate 13 and PR rereview; do not merge or promote.
 
 ## Blockers
 

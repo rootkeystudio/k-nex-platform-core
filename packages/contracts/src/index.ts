@@ -1,4 +1,5 @@
 export * from "./application-manifest.js";
+export * from "./application-upgrade.js";
 export * from "./architecture-registry.js";
 export * from "./action.js";
 export * from "./agent-tool.js";
