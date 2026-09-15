@@ -16,6 +16,7 @@ export * from "./lifecycle.js";
 export * from "./metric-scalar.js";
 export * from "./output-contracts.js";
 export * from "./package-release-manifest.js";
+export * from "./platform-release-transition-manifest.js";
 export * from "./phase-12-attack-map.js";
 export * from "./deployment-evidence.js";
 export * from "./extension-runtime.js";

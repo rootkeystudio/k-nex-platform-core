@@ -26,6 +26,7 @@ import {
   MetricScalarSchema,
   MetricScalarV2Schema,
   PackageReleaseManifestSchema,
+  PlatformReleaseTransitionManifestSchema,
   RuntimeInventorySchema,
   RuntimeExtensionInventorySchema,
   ThemeSkinManifestSchema,
@@ -209,6 +210,12 @@ function migrationCompatibilityPlanJsonSchema(): unknown {
   return generated;
 }
 
+function platformReleaseTransitionManifestJsonSchema(): unknown {
+  const generated = jsonSchema(PlatformReleaseTransitionManifestSchema) as Record<string, unknown>;
+  generated.kNexPlatformReleaseTransitionInvariants = true;
+  return generated;
+}
+
 function staticCompositionChangePlanJsonSchema(): unknown {
   const generated = jsonSchema(StaticCompositionChangePlanSchema) as Record<string, any>;
   referencedDefinition(generated, "migration").kNexMigrationRevisionChangeRequiresSteps = true;
@@ -262,6 +269,7 @@ const primaryArtifacts = [
   { path: "schemas/migration-compatibility-plan.v1.schema.json", value: migrationCompatibilityPlanJsonSchema() },
   { path: "schemas/worker-generation-fence.v1.schema.json", value: jsonSchema(WorkerGenerationFenceSchema) },
   { path: "schemas/package-release-manifest.v1.schema.json", value: jsonSchema(PackageReleaseManifestSchema) },
+  { path: "schemas/platform-release-transition-manifest.v1.schema.json", value: platformReleaseTransitionManifestJsonSchema() },
   { path: "schemas/runtime-inventory.v1.schema.json", value: jsonSchema(RuntimeInventorySchema) },
   { path: "schemas/runtime-extension-inventory.v1.schema.json", value: jsonSchema(RuntimeExtensionInventorySchema) },
   { path: "schemas/deployment-receipt.v1.schema.json", value: jsonSchema(DeploymentReceiptSchema) },

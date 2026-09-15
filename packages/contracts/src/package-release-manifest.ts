@@ -1,6 +1,6 @@
 import * as z from "zod";
 
-import { SupportedFrameworkTupleSchema } from "./framework-tuple.js";
+import { FrameworkTupleSchema } from "./framework-tuple.js";
 import { ExactSemverSchema } from "./identity.js";
 import { uniqueArray } from "./schema-helpers.js";
 
@@ -13,7 +13,7 @@ export const ReleasePackageSchema = z.strictObject({
   version: ExactSemverSchema,
   role: z.enum(["core", "plugin", "provider", "builder", "theme", "tooling"]),
   integrity: z.string().regex(sha512IntegrityPattern),
-  peerCompatibility: SupportedFrameworkTupleSchema
+  peerCompatibility: FrameworkTupleSchema
 });
 
 const factoryLockTemplate = <Theme extends "minimal" | "neobrutalism">(theme: Theme) => z.strictObject({
@@ -31,7 +31,7 @@ export const PackageReleaseManifestSchema = z.strictObject({
     versioningPolicy: z.literal("semver-v1"),
     compatibilityPolicy: z.literal("exact-framework-tuple")
   }),
-  framework: SupportedFrameworkTupleSchema,
+  framework: FrameworkTupleSchema,
   packages: z.array(ReleasePackageSchema).min(1),
   factoryLockTemplates: z.strictObject({
     minimal: factoryLockTemplate("minimal"),

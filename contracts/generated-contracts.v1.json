@@ -24,6 +24,7 @@
     "schemas/migration-compatibility-plan.v1.schema.json",
     "schemas/worker-generation-fence.v1.schema.json",
     "schemas/package-release-manifest.v1.schema.json",
+    "schemas/platform-release-transition-manifest.v1.schema.json",
     "schemas/runtime-inventory.v1.schema.json",
     "schemas/runtime-extension-inventory.v1.schema.json",
     "schemas/deployment-receipt.v1.schema.json",
