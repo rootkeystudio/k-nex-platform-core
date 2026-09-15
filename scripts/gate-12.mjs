@@ -174,6 +174,10 @@ const processTap = run("Phase 12 PostgreSQL/HTTP/Chromium proofs", process.execP
   "tests/workspace-page-storage-postgres.test.mjs", "tests/generated-runnable-application-postgres.test.mjs", "tests/generated-runnable-theme-profiles-postgres.test.mjs"
 ], fixture);
 assert.equal(Number(/^# pass (\d+)$/mu.exec(processTap)?.[1]), 3, "Phase 12 process proofs must pass exactly three tests.");
+const workerFenceHeartbeatTap = run("Phase 12 administration operator worker-fence heartbeat proofs", process.execPath, [
+  "--test", "--test-reporter=tap", "tests/administration-operator-worker-fence.test.mjs"
+], fixture);
+assert.equal(Number(/^# pass (\d+)$/mu.exec(workerFenceHeartbeatTap)?.[1]), 4, "Administration operator worker-fence heartbeat must pass exactly four focused tests.");
 const processMarkers = [
   "P12_5_WORKSPACE_STORAGE_POSTGRES_EVIDENCE=PASS",
   "P12_9_GENERATED_APP_POSTGRES_HTTP_CHROMIUM_EVIDENCE=PASS",
@@ -185,6 +189,8 @@ const processMarkers = [
   "P12_ADMINISTRATION_OPERATOR_PRE_MUTATION_CRASH_RESTART_POSTGRES_MTLS_HTTP=PASS",
   "P12_ADMINISTRATION_OPERATOR_POST_COMMIT_CRASH_EXACT_REPLAY_POSTGRES_MTLS_HTTP=PASS",
   "P12_ADMINISTRATION_OPERATOR_RESPONSE_LOSS_POSTGRES_MTLS_HTTP=PASS",
+  "P12_ADMINISTRATION_OPERATOR_WORKER_FENCE_HEARTBEAT_POSTGRES=PASS",
+  "P12_ADMINISTRATION_OPERATOR_STALE_WORKER_FENCE_POSTGRES_MTLS_HTTP_DENIED=PASS",
   "P12_SYSTEM_SUBNAVIGATION_CURRENT_AUTHORITY_POSTGRES_HTTP=PASS",
   "P12_ATK_02_CROSS_CUSTOMER_READ_POSTGRES_DENIED=PASS",
   "P12_ATK_05_UNAUTHORIZED_DIRECT_URL_AND_ENUMERATION_HTTP_DENIED=PASS",
@@ -274,5 +280,5 @@ for (const marker of ["# Phase 12 Result", "**Decision:** **READY FOR PHASE REVI
 }
 for (let task = 1; task <= 10; task += 1) assert.ok(result.includes(`P12.${task}`), `Phase 12 result is missing task P12.${task}.`);
 
-console.log(JSON.stringify({ gate: "Gate 12", unitProofs, processProofs: 3, attacks: attackProofs, referenceModules: ["sales"] }, null, 2));
+console.log(JSON.stringify({ gate: "Gate 12", unitProofs, workerFenceHeartbeatProofs: 4, processProofs: 3, attacks: attackProofs, referenceModules: ["sales"] }, null, 2));
 console.log("GATE_12_PASS");

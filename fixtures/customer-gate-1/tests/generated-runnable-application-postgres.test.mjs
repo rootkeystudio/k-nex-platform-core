@@ -595,6 +595,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
       P12_OPERATOR_IDENTITY: operatorIdentity,
       P12_OPERATOR_SOURCE_COMMIT: "a".repeat(40),
       P12_OPERATOR_HOST_INVENTORY_DIGEST: `sha256:${createHash("sha256").update(canonicalJson({ applicationId, environment: environmentName, platformPlugins: [{ id: "module.sales", package: kNexSalesRegistry.staticRelease.package, runtimeGenerationId: kNexSalesRegistry.staticRelease.runtimeGenerationId }] })).digest("hex")}`,
+      P12_OPERATOR_WORKER_FENCE_HEARTBEAT_INTERVAL_MS: "5000",
       P12_OPERATOR_PORT: String(operatorPort),
       P12_OPERATOR_REGISTRY_PATH: join(application, "dist/k-nex-registry.js"),
       P12_OPERATOR_SERVER_CERT: operatorCertificates.serverCert,
@@ -2106,6 +2107,19 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     assert.equal((await fetch(`${applicationProcess.origin}/system/operations/${encodeURIComponent(disabledSalesOperationId)}`, { headers: { cookie: manager.cookie.header } })).status, 200);
     assert.equal((await fetch(`${applicationProcess.origin}/system/operations/${encodeURIComponent(restoredSalesOperationId)}`, { headers: { cookie: manager.cookie.header } })).status, 200);
     assert.match(operatorProcess.output(), new RegExp(`P12_ADMINISTRATION_OPERATOR_READY=${operatorPort}`, "u"));
+    const renewedOperatorFence = (await pool.query(
+      "select active_execution_generation,fencing_token::int,lease_owner,promotion_revision,lease_expires_at>now() live,lease_expires_at>$3::timestamptz renewed from runtime_worker_generation_fences where application_id=$1 and environment=$2",
+      [applicationId, environmentName, new Date(Date.now() + 120_000).toISOString()]
+    )).rows[0];
+    assert.deepEqual(renewedOperatorFence, {
+      active_execution_generation: "generated-application-generation-1",
+      fencing_token: 1,
+      lease_owner: "worker:phase-12-generated-application",
+      promotion_revision: 0,
+      live: true,
+      renewed: true
+    }, "A long-running administration operator must renew only its exact active worker fence before restart proofs.");
+    console.log("P12_ADMINISTRATION_OPERATOR_WORKER_FENCE_HEARTBEAT_POSTGRES=PASS");
     await retiredRoutePage.getByRole("form", { name: "Create task" }).waitFor({ timeout: 10_000 });
     await retiredRouteContext.close();
     console.log("P12_LATER_SALES_GENERATION_RECOVERS_NAVIGATION_ROUTE_AND_ACTION_POSTGRES_HTTP=PASS");
@@ -2229,6 +2243,17 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     assert.equal((await fetch(`${applicationProcess.origin}/sales/tasks`, { headers: { cookie: manager.cookie.header }, redirect: "manual" })).status, 404, "A stale Sales replacement must not revive compiled static routes.");
     assert.equal(staleReplacementState.lifecycleRevision, unrelatedLifecycleState.lifecycleRevision + 1);
     console.log("P12_WORKSPACE_PAGE_EXECUTABLE_DEPENDENCY_LIFECYCLE_POSTGRES_HTTP=PASS");
+    await pool.query(
+      "update runtime_worker_generation_fences set lease_owner='worker:stale-operator' where application_id=$1 and environment=$2",
+      [applicationId, environmentName]
+    );
+    await until(async () => operatorProcess.child.exitCode === 1, () => `Administration operator did not fail closed after worker-fence replacement.\n${operatorProcess.output()}`);
+    assert.match(operatorProcess.output(), /P12_ADMINISTRATION_OPERATOR_WORKER_FENCE_RENEWAL_FAILED=/u);
+    assert.equal((await pool.query(
+      "select lease_owner from runtime_worker_generation_fences where application_id=$1 and environment=$2",
+      [applicationId, environmentName]
+    )).rows[0]?.lease_owner, "worker:stale-operator", "A stale operator must not reclaim a replaced worker fence.");
+    console.log("P12_ADMINISTRATION_OPERATOR_STALE_WORKER_FENCE_POSTGRES_MTLS_HTTP_DENIED=PASS");
     console.log("P12_9_GENERATED_APP_POSTGRES_HTTP_CHROMIUM_EVIDENCE=PASS");
   } catch (error) {
     primaryError = error;
