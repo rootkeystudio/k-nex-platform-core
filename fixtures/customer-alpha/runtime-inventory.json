@@ -5,16 +5,16 @@
   "environment": "production",
   "platformRelease": "1.0.0",
   "observedAt": "2026-09-01T12:00:00.000Z",
-  "artifactDigest": "sha256:f86a4b8d0f359c30367775fe003e7dd34b4243dbd8e903fb01685202878353d3",
+  "artifactDigest": "sha256:0d1787ed9726b00c5be2a6ce413798a28036dc1fb4cd4240624dafd3cbd43315",
   "releaseEvidence": {
-    "sourceCommit": "d6c488e4371f43003245c2857d43e935f404e0cd",
-    "workflowIdentity": "rootkeystudio/k-nex-platform-core/.github/workflows/release-evidence.yml@d6c488e4371f43003245c2857d43e935f404e0cd",
+    "sourceCommit": "e98d3d99552da78d27e6ec6f7a2147b4f4ea1d54",
+    "workflowIdentity": "rootkeystudio/k-nex-platform-core/.github/workflows/release-evidence.yml@e98d3d99552da78d27e6ec6f7a2147b4f4ea1d54",
     "manifestDigest": "sha256:d8eb979956a4d54cf655f3aa0d1886d0a5f0fdee006a8b6f14a4bf3acb6fb23d",
-    "lockfileDigest": "sha256:b6eb25cf5d415093969190c3919d843379ec4b98159b09d394403565e9381ab7",
+    "lockfileDigest": "sha256:4d5603622964cbdc516d6d9facf409949590ea8849c185f5f45901d3d8b73df5",
     "resolvedGraphDigest": "sha256:99bad9d5c498e83c02cc35b47fed0a5602f9e648a8f5948133c19aace8c0fba4",
     "frameworkDigest": "sha256:4e1cd64b546eb33d433cda29c18999d34d811086b4897b02d2401d62348af1f9",
-    "sbomDigest": "sha256:783aff6b1c859676a2a64f72b879876a6ef358a188c4e8beda4098e4657ee4c1",
-    "provenanceDigest": "sha256:7c419921aeddf56c4ea19fe5e4af69b11cc00fd11e2dae22b4f8ae87aff2ad02"
+    "sbomDigest": "sha256:55158dc259c86ffe7b22e30fe3eb13717124bcf58a48e5f1d820e9f6c957ea54",
+    "provenanceDigest": "sha256:04f1f5346f82c11160101fa648a0f7a6bbb4a5c817066531b6c1d11ddfa8d48e"
   },
   "packages": [
     {
@@ -835,7 +835,7 @@
     {
       "package": "@k-nex/module-sales",
       "version": "1.0.0",
-      "integrity": "sha512-GPM9I8ofUD21+Qtp73fI18ma2+g82+XcPf3c7h1Iz4AX334L1MTwSsVDl3G/kP4dLdcm0HfTVEzn5fv5A7NqhA=="
+      "integrity": "sha512-WL8HCy3sbyuyF6lOgCvNg6e/Ov3VUN+U8OnL3VspWNZpVWvJKWPDNAfbPRx1c+/inspGgvqoF97VdmGq7N9B6A=="
     },
     {
       "package": "@k-nex/payload-adapter",

@@ -2,12 +2,12 @@
   "$schema": "../../schemas/package-release-manifest.v1.schema.json",
   "factoryLockTemplates": {
     "minimal": {
-      "digest": "sha256:6550eb5761ec806ea2339a33116a5907ca61cf467720583024e8ebd2af1cc247",
+      "digest": "sha256:7c59fc01a86fb6d65e10b7502eb8563a33a4889070ea9785376ec58530230f88",
       "preset": "sales-reference",
       "theme": "minimal"
     },
     "neobrutalism": {
-      "digest": "sha256:01c2df1f076cf2e5fd63d2dc29358fd533704cacb7504724a42217bd3ce639a2",
+      "digest": "sha256:0d73a29f1a569ba8bb2b08551e63cb38e79a6952cdf8c839ad3ac964abdcce75",
       "preset": "sales-reference",
       "theme": "neobrutalism"
     }
@@ -73,7 +73,7 @@
       "version": "1.0.0"
     },
     {
-      "integrity": "sha512-GPM9I8ofUD21+Qtp73fI18ma2+g82+XcPf3c7h1Iz4AX334L1MTwSsVDl3G/kP4dLdcm0HfTVEzn5fv5A7NqhA==",
+      "integrity": "sha512-WL8HCy3sbyuyF6lOgCvNg6e/Ov3VUN+U8OnL3VspWNZpVWvJKWPDNAfbPRx1c+/inspGgvqoF97VdmGq7N9B6A==",
       "package": "@k-nex/module-sales",
       "peerCompatibility": {
         "core": "1.0.0",

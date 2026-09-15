@@ -2125,7 +2125,7 @@
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "18f33d23ca1f503db5f90b69ef77c8d7c99adbe83cdbe5dc3dfddcee1d48cf8017df7e0bd4c4f04ac5439771bf90fe1d2dd726d077d3544ce7e5fbf903b36a84"
+          "content": "58bf070b2dec6f2bb217a94e802bcd83a7bf3afdd550df94f0e9cbdd5b2958d669556bc92963c33407db3d1c7573efe29eca4682faa817ded57661aaecdf41e8"
         }
       ],
       "name": "@k-nex/module-sales",
@@ -11603,7 +11603,7 @@
       "type": "application"
     }
   },
-  "serialNumber": "urn:uuid:00000000-0000-4000-8000-61d99e9f38fd",
+  "serialNumber": "urn:uuid:00000000-0000-4000-8000-d1042f6fd65f",
   "specVersion": "1.6",
   "version": 1
 }

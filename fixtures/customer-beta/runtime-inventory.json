@@ -5,16 +5,16 @@
   "environment": "staging",
   "platformRelease": "1.0.0",
   "observedAt": "2026-09-01T12:10:00.000Z",
-  "artifactDigest": "sha256:88f21339c26b12567fd959a719d856d6d4a2accada543f82dd11f5caaccff82f",
+  "artifactDigest": "sha256:0c3f2f959d88a849fd210f5cf7c78e43cdb3818977f78d75806b42ba64dabd4b",
   "releaseEvidence": {
-    "sourceCommit": "d6c488e4371f43003245c2857d43e935f404e0cd",
-    "workflowIdentity": "rootkeystudio/k-nex-platform-core/.github/workflows/release-evidence.yml@d6c488e4371f43003245c2857d43e935f404e0cd",
+    "sourceCommit": "e98d3d99552da78d27e6ec6f7a2147b4f4ea1d54",
+    "workflowIdentity": "rootkeystudio/k-nex-platform-core/.github/workflows/release-evidence.yml@e98d3d99552da78d27e6ec6f7a2147b4f4ea1d54",
     "manifestDigest": "sha256:a0a2f7e2c9d046727804c805422dc4e9a135ff9de181bc06cdd68ccdf830ba72",
-    "lockfileDigest": "sha256:373e110ff7565475cb3c1c945e9b6bae46677b5ce3b31285fc7d3f43c60230e2",
+    "lockfileDigest": "sha256:4236366cd232be51e601c118a0d5f12aef467fbf116eaec7571635c1d1867a63",
     "resolvedGraphDigest": "sha256:190375405cf3d6af64d4edf8002bc76b6565f75afff772c0e334e9937df82203",
     "frameworkDigest": "sha256:4e1cd64b546eb33d433cda29c18999d34d811086b4897b02d2401d62348af1f9",
-    "sbomDigest": "sha256:75b861758e0f95fffacedceb0e62d681a298a58dbe8ff4a1852b4400f5a28775",
-    "provenanceDigest": "sha256:adc15d6bd1ecd563edbf3c60d85d9df156bc37dc1544cc43833d51e19b2f2f7e"
+    "sbomDigest": "sha256:0b51626c37fad835cddb47699aef0b9d8c601dcdd8683b088e620d437f2065a0",
+    "provenanceDigest": "sha256:570df6b00247c81a96c871a928109b3ed083722eafeb02bdb4c51920d61ab684"
   },
   "packages": [
     {
@@ -835,7 +835,7 @@
     {
       "package": "@k-nex/module-sales",
       "version": "1.0.0",
-      "integrity": "sha512-GPM9I8ofUD21+Qtp73fI18ma2+g82+XcPf3c7h1Iz4AX334L1MTwSsVDl3G/kP4dLdcm0HfTVEzn5fv5A7NqhA=="
+      "integrity": "sha512-WL8HCy3sbyuyF6lOgCvNg6e/Ov3VUN+U8OnL3VspWNZpVWvJKWPDNAfbPRx1c+/inspGgvqoF97VdmGq7N9B6A=="
     },
     {
       "package": "@k-nex/payload-adapter",
