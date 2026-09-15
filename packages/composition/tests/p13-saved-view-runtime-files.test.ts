@@ -339,6 +339,31 @@ describe("generated P13.4 Saved View runtime closure", () => {
     await expect(invoke(load({ settings_revision: 5 }, { ...exact, values_json: { reportingTimezone: "Mars/Olympus" } }))).rejects.toThrow();
   });
 
+  it("admits a current canonical reporting document behind unrelated settings and rejects stale or forged authority", async () => {
+    const sales = workspacePageApplicationFiles({ applicationId: "customer-alpha" })["src/k-nex-sales-workspace.ts"]!;
+    const start = sales.indexOf("async function readSalesReportingAuthority");
+    const body = sales.slice(start, sales.indexOf("function dataMovementFieldGrants", start));
+    expect(body).toContain("!positiveSafeInteger(row.state_revision)");
+    expect(body).toContain("row.settings_revision > row.state_revision");
+    expect(body).not.toContain("row.settings_revision !== row.state_revision");
+    const executable = ts.transpileModule(`${body}\nreturn readSalesReportingAuthority;`, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText;
+    class TestActionGatewayError extends Error { constructor(readonly code: string, readonly status: number, detail: string) { super(detail); } }
+    const authority = (row: unknown) => new Function("kNexIdentity", "positiveSafeInteger", "isIso4217CurrencyCode", "canonicalIana", "ActionGatewayError", executable)(
+      { applicationId: "app", environment: "production" },
+      (value: unknown) => typeof value === "number" && Number.isSafeInteger(value) && value > 0,
+      (value: unknown) => value === "USD",
+      (value: unknown) => value === "UTC",
+      TestActionGatewayError,
+    ) as (payload: unknown) => Promise<unknown>;
+    const invoke = (row: unknown) => authority(row)({ db: { pool: { query: async () => ({ rows: [row] }) } } });
+    const canonical = { descriptor_schema_version: 3, document_revision: 3, settings_revision: 3, state_revision: 5, values_json: { reportingCurrency: "USD", reportingTimezone: "UTC" } };
+    await expect(invoke(canonical)).resolves.toEqual({ settingsRevision: 3, reportingTimezone: "UTC", reportingCurrency: "USD" });
+    await expect(invoke({ ...canonical, settings_revision: 6 })).rejects.toMatchObject({ code: "ACTION_FORBIDDEN", status: 403 });
+    await expect(invoke({ ...canonical, state_revision: 0 })).rejects.toMatchObject({ code: "ACTION_FORBIDDEN", status: 403 });
+    await expect(invoke({ ...canonical, descriptor_schema_version: 2 })).rejects.toMatchObject({ code: "ACTION_FORBIDDEN", status: 403 });
+    await expect(invoke({ ...canonical, values_json: { reportingCurrency: "USD", reportingTimezone: "Mars/Olympus" } })).rejects.toMatchObject({ code: "ACTION_FORBIDDEN", status: 403 });
+  });
+
   it("extracts raw embedded props into one request-local document before load and render", () => {
     const files = workspacePageApplicationFiles({ applicationId: "customer-alpha" });
     const sales = files["src/k-nex-sales-workspace.ts"]!;

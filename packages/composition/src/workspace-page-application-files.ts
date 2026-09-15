@@ -592,9 +592,9 @@ async function readSalesReportingAuthority(payload: Payload): Promise<WorkspaceS
     [kNexIdentity.applicationId, kNexIdentity.environment]
   );
   const row = result.rows[0]; const values = row?.values_json;
-  if (result.rows.length !== 1 || row?.descriptor_schema_version !== 3 || !positiveSafeInteger(row.document_revision) || !positiveSafeInteger(row.settings_revision) || row.settings_revision !== row.state_revision || values === null || typeof values !== "object" || Array.isArray(values)) throw new TypeError("Sales reporting settings are unavailable.");
+  if (result.rows.length !== 1 || row?.descriptor_schema_version !== 3 || !positiveSafeInteger(row.document_revision) || !positiveSafeInteger(row.settings_revision) || !positiveSafeInteger(row.state_revision) || row.settings_revision > row.state_revision || values === null || typeof values !== "object" || Array.isArray(values)) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales reporting settings are unavailable.");
   const settings = values as Record<string, unknown>;
-  if (!isIso4217CurrencyCode(settings.reportingCurrency) || !canonicalIana(settings.reportingTimezone)) throw new TypeError("Sales reporting settings are unavailable.");
+  if (!isIso4217CurrencyCode(settings.reportingCurrency) || !canonicalIana(settings.reportingTimezone)) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Sales reporting settings are unavailable.");
   return Object.freeze({ settingsRevision: row.settings_revision as number, reportingTimezone: settings.reportingTimezone as string, reportingCurrency: settings.reportingCurrency });
 }
 
