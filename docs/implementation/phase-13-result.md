@@ -139,13 +139,15 @@ Focused Gate 13 on clean head `0da4820a7223f813db9d65093048d738594f03e0` passed 
 
 Targeted continuation on clean `406218b1ced5e56b7a18699fb54e0ecd9a1ab786` passes P13.7 workflows 8/8 in 152 seconds. P13.8's generated reports browser proof then exposed only a fixture cwd import: the test resolved `modules/sales/dist/contracts.js` beneath `fixtures/customer-gate-1`, while the authoritative node-proof intentionally runs there. The fixture now statically imports `salesWeightedForecastDescriptor` from its declared `@k-nex/module-sales-current/contracts` dev dependency, retaining the descriptor's exact id, version, and structural compatibility hash in the custom-page binding; its exact generated HTTP/Chromium proof passes 1/1 in 147 seconds. No product, generated artifact, or hosted evidence changes. The preceding P13.6 spawned-worker-restart failure was a transient Testcontainers host-port bind probe (independent 10-second port-binding timeout); its exact retry passes 1/1 in 7 seconds.
 
+Targeted completion on clean `9f7bc8cc0d7eb7a0e1b58d351c0a7006da54c26c` passes P13.9 upgrade/restore 2/2 in 180 seconds and P13.10 fixture readiness 2/2 in 357 seconds. P13.10 emitted `P13_10_BROWSER_PROFILE`, `P13_10_SERVER_DISTRIBUTION`, and `P13_10_BROWSER_READINESS`: browser p95 `1318.96ms`; server-observed p95 list/detail/action `688.783/976.397/566.361ms`; all generated fixture cleanup markers completed. Together with the prior clean focused and exact re-run evidence, every individual Gate 13 proof group has been observed across targeted runs. This does not constitute `GATE_13_PASS`, a single aggregate exact-head attack-corpus result, or full cumulative acceptance. The phase remains **In progress** and **REWORK**; the acceptance blocker is either an explicit project-manager amendment to the gate plan or the final exact-head cumulative run required by that plan.
+
 ```text
 OBSERVED: P13.10 focused PostgreSQL and generated-host proofs
 PASS: focused CRM browser after canonical-system-settings repair, 2/2 in 237.76s
 PASS: cumulative run 34928556067 Gates 0–12; Gate 13 exposed duplicate fixture settings seed
 PASS: hosted current-v1 attestation refresh, run 34957451166, source d6c488e4371f43003245c2857d43e935f404e0cd, artifact 10392083302, exact 33-file overlay
 PASS: remediated exact static deployment PostgreSQL proof, 1/1, 358.92s
-PENDING: persistent review, commit/push, and exact-head Gate 0–13 result
+PENDING: project-manager plan amendment or aggregate exact-head Gate 0–13 result
 OBSERVED: representative dataset/import ledger, seven-metric reconciliation,
           controlled performance profile, representative/manager accessibility, physical fixture restore
 NOT OBSERVED: human-operation RTO/RPO drill and limited-beta sign-offs
