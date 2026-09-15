@@ -5,7 +5,7 @@
 - Decision owners: K-Nex product and Sales module maintainers
 - Evidence: design-only
 - Entry: Gate 12 runnable customer workspace and dashboard builder PASS
-- Related: [Phase 13 plan](../implementation/phase-13-crm-first-productization.md), [ADR-0020](./0020-reference-sales-and-headless-component-system.md), [ADR-0022](./0022-rbac-authorization-and-extension-role-templates.md), [ADR-0025](./0025-runnable-workspace-shell-pages-and-builder.md)
+- Related: [Phase 13 plan](../implementation/phase-13-crm-first-productization.md), [ADR-0020](./0020-reference-sales-and-headless-component-system.md), [ADR-0022](./0022-rbac-authorization-and-extension-role-templates.md), [ADR-0025](./0025-runnable-workspace-shell-pages-and-builder.md), [ADR-0028](./0028-coordinated-platform-release-train-and-customer-application-upgrades.md)
 
 ## Context
 

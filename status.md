@@ -7,11 +7,11 @@
 
 ## Last completed
 
-PR #35 review requested immutable `1.0.0` restoration, a new `1.1.0` train, a real generated-repository upgrade/protection proof, ADR renumbering, focused-gate hermeticity, bounded upload cancellation/deadlines, and an explicit bounded Sales-reference compiler exception. Independent issues are closed and accepted `1.0.0` bytes are restored. The strict transition contract now has deterministic publication/check tooling that independently verifies both hosted endpoint manifests, computes the complete mapping/migration graph, and requires a trusted hosted transition attestation without a bypass.
+PR #35 review requested immutable `1.0.0` restoration, a new `1.1.0` train, a real generated-repository upgrade/protection proof, ADR renumbering, focused-gate hermeticity, bounded upload cancellation/deadlines, and an explicit bounded Sales-reference compiler exception. Independent issues and immutable-base restoration are closed. ADR-0028's accepted release-train design is integrated with a normative Phase 13 amendment freezing ownership modes, fail-closed managed deletion, minimal plan/preparation envelopes, private reconciliation evidence, and a non-recursive digest graph; ADR-0029 remains CRM-specific.
 
 ## Validation
 
-Node 24.19/pnpm 11.9: transition publication tests 4/4 PASS; focused contract tests 9/9 PASS; AJV parity PASS; direct Contracts/architecture builds, generated-schema freshness, AJV invariants, repository validation, syntax, and `git diff --check` PASS. No full gate run.
+ADR evidence registry JSON, canonical transition-schema link, repository-contract validation, scoped reference checks, and `git diff --check` PASS. Persistent reviewer approved the exact transition-schema reference, closed plan-operation union, blocked deletion contract, one-way ownership digest graph, and P13.9 source-to-target requirement. No full gate run.
 
 ## Next
 

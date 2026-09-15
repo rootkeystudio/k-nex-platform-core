@@ -2,6 +2,7 @@
 
 - **Status:** selected following-phase plan; implementation is frozen until Gate 12 is accepted
 - **Entry:** Phase 12 runnable customer application, workspace shell, custom-page builder, page ACL, and Sales Kanban proof accepted
+- **P13.9 release/upgrade authority:** [ADR-0028](../adr/0028-coordinated-platform-release-train-and-customer-application-upgrades.md) and its [implementation plan](./platform-release-train-and-customer-application-upgrades.md)
 - **Purpose:** turn `module.sales` from a platform reference into a coherent daily-use CRM product without opening multiple verticals
 - **Product strategy:** CRM first; prove one usable product on the accepted platform before public CMS breadth, logistics, restaurant, inventory, budgeting, commerce, or marketplace expansion
 - **Persisted identity:** keep `module.sales`; do not rename the installed domain merely to signal productization
@@ -446,9 +447,10 @@ Build a representative prior Sales dataset, upgrade it to the Phase 13 model, an
 
 Acceptance:
 
-- exact predecessor migrations;
+- exact `1.0.0 → 1.1.0` release-transition and predecessor migrations under ADR-0028;
 - no data loss or silent coercion;
-- current-v1 package closure and attestation;
+- immutable source/target package closures, ownership/release-lock/input-snapshot digest chain, and attestation;
+- managed deletion blocks `managed-delete-reference-proof-required`; successful managed deletion is not a P13.9 claim;
 - rollback/maintenance decision;
 - post-restore login, dashboard, pipeline, activities, permissions, and audit.
 
