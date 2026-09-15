@@ -955,7 +955,7 @@ packages:
     version: 1.0.0
 
   '@k-nex/module-sales@file:../customer-gate-1/packages/k-nex-module-sales-1.0.0.tgz':
-    resolution: {integrity: sha512-GPM9I8ofUD21+Qtp73fI18ma2+g82+XcPf3c7h1Iz4AX334L1MTwSsVDl3G/kP4dLdcm0HfTVEzn5fv5A7NqhA==, tarball: file:../customer-gate-1/packages/k-nex-module-sales-1.0.0.tgz}
+    resolution: {integrity: sha512-WL8HCy3sbyuyF6lOgCvNg6e/Ov3VUN+U8OnL3VspWNZpVWvJKWPDNAfbPRx1c+/inspGgvqoF97VdmGq7N9B6A==, tarball: file:../customer-gate-1/packages/k-nex-module-sales-1.0.0.tgz}
     version: 1.0.0
     peerDependencies:
       '@k-nex/contracts': 1.0.0
