@@ -19,7 +19,13 @@ async function ownerSession(origin, persona) {
 async function link(origin, cookie, input, idempotencyKey) {
   return fetch(`${origin}/api/k-nex/sales/actions/sales.attachment.link`, {
     method: "POST", headers: { "content-type": "application/json", cookie, origin },
-    body: JSON.stringify({ input, idempotencyKey })
+    body: JSON.stringify({
+      routeId: "sales.route.account-detail",
+      nodeId: "sales-page-account-detail-main-action-5",
+      input,
+      selection: {},
+      idempotencyKey
+    })
   });
 }
 

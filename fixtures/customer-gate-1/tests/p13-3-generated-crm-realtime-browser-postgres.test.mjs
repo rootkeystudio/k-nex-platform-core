@@ -32,7 +32,13 @@ async function directAccountUpdate(page, id, expectedRevision, name, key) {
   return page.evaluate(async ({ expectedRevision: revision, id: recordId, key: idempotencyKey, nextName }) => {
     const response = await fetch("/api/k-nex/sales/actions/sales.account.update", {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ input: { id: recordId, expectedRevision: revision, name: nextName }, idempotencyKey })
+      body: JSON.stringify({
+        routeId: "sales.route.account-detail",
+        nodeId: "sales-page-account-detail-main",
+        input: { id: recordId, expectedRevision: revision, name: nextName },
+        selection: {},
+        idempotencyKey
+      })
     });
     return { status: response.status, body: await response.text() };
   }, { id, expectedRevision, nextName: name, key });
