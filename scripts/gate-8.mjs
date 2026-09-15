@@ -23,7 +23,7 @@ const assertNoSecretKeys = (value, path = "$") => {
 };
 
 if (process.versions.node !== "24.19.0") throw new Error(`Gate 8 requires Node 24.19.0; found ${process.versions.node}.`);
-execFileSync(process.execPath, ["scripts/check-phase-8-packed-packages.mjs"], { cwd: root, stdio: "inherit" });
+execFileSync(process.execPath, ["scripts/check-phase-8-packed-packages.mjs", "--version", "1.0.0"], { cwd: root, stdio: "inherit" });
 execFileSync(process.execPath, ["scripts/check-phase-8-neutral-history.mjs"], { cwd: root, stdio: "inherit" });
 execFileSync(process.execPath, ["scripts/check-phase-8-generated-evidence.mjs"], { cwd: root, stdio: "inherit" });
 

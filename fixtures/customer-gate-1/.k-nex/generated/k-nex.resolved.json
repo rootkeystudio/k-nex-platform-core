@@ -1,7 +1,7 @@
 {
   "application": {
     "id": "customer-gate-1",
-    "manifestDigest": "sha256:474447597887192457f6eb22c3e512e3a27294a060798fae58b9f9e6e53a3f2f"
+    "manifestDigest": "sha256:a3fa5bcc4ce9b46d91682f23c18789784e43008e5e8ac9612f4fce0be13878bf"
   },
   "capabilityProviders": [
     {
@@ -18,7 +18,7 @@
     ]
   },
   "framework": {
-    "core": "1.0.0",
+    "core": "1.1.0",
     "node": "24.19.0",
     "payload": "3.88.0",
     "payloadDatabaseAdapter": "postgres",
@@ -396,7 +396,7 @@
         "names": []
       },
       "id": "module.sales",
-      "integrity": "sha512-WL8HCy3sbyuyF6lOgCvNg6e/Ov3VUN+U8OnL3VspWNZpVWvJKWPDNAfbPRx1c+/inspGgvqoF97VdmGq7N9B6A==",
+      "integrity": "sha512-0/lQTJnMyN7QCmzrq7cRyOI/J6ew/Uma/b+R6rAvlQWLid2jkXlHdGpuIyx6l5wNzAFqjO/xImUNxqqDTq7rGQ==",
       "kind": "module",
       "lifecycle": {
         "disable": "supported",
@@ -405,11 +405,11 @@
         "purge": "supported",
         "uninstall": "unsupported"
       },
-      "manifestDigest": "sha256:ef1177cd1515973e8d834a367599d8e8abad99eea475a9edc3f6b81712a21a6f",
+      "manifestDigest": "sha256:f9a16fcd8b9789be97d1b719668491955e5e52420c0d0fc3a89071e626dd719e",
       "optional": [],
       "package": "@k-nex/module-sales",
       "required": [],
-      "version": "1.0.0"
+      "version": "1.1.0"
     },
     {
       "contributions": {},
@@ -417,7 +417,7 @@
         "names": []
       },
       "id": "provider.realtime.socketio",
-      "integrity": "sha512-9BwNnJ7/mWZahTylWd6LZR1ciDSVanOqPMt/dQS07cIZ9050ZOso2aNjARiLmxhqjUd4FY6tSE9wcgsxgZrWkw==",
+      "integrity": "sha512-QCc2S36rEnEZ1vKZ6BNu9LVEtrDoBQ1n/k9CgxAEClpDV9tL4Iwe+B1Xd+1i7ODqIn5PDigti+9kEyZhRlr/hw==",
       "kind": "provider",
       "lifecycle": {
         "disable": "supported",
@@ -426,11 +426,11 @@
         "purge": "unsupported",
         "uninstall": "supported"
       },
-      "manifestDigest": "sha256:2c5704e41c38ae969bbd91ae1c43f18ae1ae1eedb5de2cce6fcf15e8aa549bf7",
+      "manifestDigest": "sha256:22574bf2ed92e563248923d75aa46537d377655ff23e13f21681ba9b5083f6c3",
       "optional": [],
       "package": "@k-nex/provider-realtime-socketio",
       "required": [],
-      "version": "1.0.0"
+      "version": "1.1.0"
     }
   ],
   "registrationOrder": [

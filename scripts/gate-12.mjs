@@ -28,8 +28,8 @@ const builds = [
 ];
 for (const workspace of builds) run(`${workspace} build`, "pnpm", ["--filter", workspace, "build"]);
 run("customer fixture build", "pnpm", ["--filter", "@k-nex/customer-gate-1", "build"]);
-run("packed v1 closure", process.execPath, ["scripts/check-phase-8-packed-packages.mjs"]);
-run("factory lock generation check", process.execPath, ["scripts/generate-phase-12-factory-locks.mjs", "--check"]);
+run("current 1.1 closure", process.execPath, ["scripts/check-phase-8-packed-packages.mjs", "--version", "1.1.0"]);
+run("current 1.1 factory lock generation check", process.execPath, ["scripts/generate-phase-12-factory-locks.mjs", "--check", "--version", "1.1.0"]);
 
 const passedProofs = new Set();
 function vitest(id, workspace, files, selected) {
@@ -143,7 +143,7 @@ const unitProofs = [
     "plans deterministic exact Sales applications for local or external Postgres",
     "binds a generated application to every exact artifact in a packed release mirror",
     "rejects tampered mirrors and installs immutable bytes captured by the verified plan",
-    "uses workspace only for side-effect-free planning and defaults to the verified bundled release",
+    "uses workspace only for side-effect-free planning and selects current or historical bundled releases explicitly",
     "rejects a coherently forged manifest, tarball, and lock before target write",
     "rejects nonofficial hosted workflow and source identities before target write",
     "applies idempotently and refuses to overwrite customer files",
@@ -265,7 +265,7 @@ const attackProofs = {
   "P12-ATK-19": ["process:P12_BOOTSTRAP_CRASH_PROTECTED_OWNER_RECOVERY=PASS", "process:P12_BOOTSTRAP_CRASH_SALES_AUTHORITY_RECOVERY=PASS", "process:P12_BOOTSTRAP_CRASH_TOKEN_CONSUMPTION_RECOVERY=PASS", "process:P12_ATK_19_BOOTSTRAP_SCOPE_AND_REPLAY_POSTGRES_DENIED=PASS"],
   "P12-ATK-20": ["unit:page-service:cancels pending editor work after page-access invalidation", "process:P12_ATK_20_REVOKED_AUTOSAVE_POSTGRES_DENIED=PASS", "process:P12_ATK_20_OPEN_PAGE_AND_EDITOR_SALES_AUTHORITY_REVOCATION_POSTGRES_HTTP_CHROMIUM_DENIED=PASS", "process:P12_ATK_20_REVOKED_STALE_PUBLISH_AND_LOST_INVALIDATION_DENIED=PASS"],
   "P12-ATK-21": ["unit:generator:writes byte-identical controlled source to different clean targets"],
-  "P12-ATK-22": ["unit:generator:uses workspace only for side-effect-free planning and defaults to the verified bundled release", "unit:generator:rejects a coherently forged manifest, tarball, and lock before target write", "unit:generator:binds a generated application to every exact artifact in a packed release mirror", "unit:generator:rejects tampered mirrors and installs immutable bytes captured by the verified plan"]
+  "P12-ATK-22": ["unit:generator:uses workspace only for side-effect-free planning and selects current or historical bundled releases explicitly", "unit:generator:rejects a coherently forged manifest, tarball, and lock before target write", "unit:generator:binds a generated application to every exact artifact in a packed release mirror", "unit:generator:rejects tampered mirrors and installs immutable bytes captured by the verified plan"]
 };
 assert.deepEqual(Object.keys(attackProofs), phase12AttackMap.map(({ id }) => id), "Gate 12 attack proof IDs must match the contract exactly.");
 for (const attack of phase12AttackMap) {

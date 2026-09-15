@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { canonicalJson, type ApplicationManifest } from "@k-nex/contracts";
+import { canonicalJson, supportedFrameworkTuple, type ApplicationManifest } from "@k-nex/contracts";
 import { describe, expect, it } from "vitest";
 
 import type { InstalledPlatformPluginManifest } from "../src/installed-plugin-loader.js";
@@ -16,11 +16,7 @@ import {
 } from "../src/static-artifact-generator.js";
 
 const framework = {
-  core: "1.0.0",
-  payload: "3.88.0",
-  node: "24.19.0",
-  pnpm: "11.9.0",
-  payloadDatabaseAdapter: "postgres" as const
+  ...supportedFrameworkTuple
 };
 
 const applicationManifest = {

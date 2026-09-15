@@ -3,10 +3,24 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, wr
 import { resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, "..");
-const live = resolve(root, "modules/sales");
-const release = resolve(root, "releases/sources/sales-1.0.0");
-const check = process.argv.includes("--check");
-const version = "1.0.0";
+const args = process.argv.slice(2);
+const check = args.includes("--check");
+const value = (name, fallback) => {
+  const index = args.indexOf(name);
+  if (index < 0) return fallback;
+  const result = args[index + 1];
+  if (result === undefined || result.startsWith("--")) throw new Error(`${name} requires a value.`);
+  return result;
+};
+const version = value("--version", "1.0.0");
+const sourceDirectory = value("--source", "modules/sales");
+const live = resolve(root, sourceDirectory);
+const release = resolve(root, `releases/sources/sales-${version}`);
+if (!/^\d+\.\d+\.\d+$/u.test(version)) throw new Error(`Invalid release version: ${version}`);
+if (!/^modules\/sales$|^releases\/sources\/sales-\d+\.\d+\.\d+$/u.test(sourceDirectory)) throw new Error(`Invalid Sales source directory: ${sourceDirectory}`);
+const unknown = args.filter((arg, index) => arg.startsWith("--") && !["--check", "--version", "--source"].includes(arg) ||
+  ["--version", "--source"].includes(arg) && (index === args.length - 1 || args[index + 1]?.startsWith("--")));
+if (unknown.length > 0) throw new Error(`Usage: generate-current-v1-sales-release-source.mjs [--check] [--version <semver>] [--source <modules/sales|releases/sources/sales-X.Y.Z>]`);
 
 function files(directory, accept) {
   return readdirSync(directory, { withFileTypes: true })

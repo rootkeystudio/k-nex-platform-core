@@ -3,7 +3,7 @@ import * as z from "zod";
 import { ExactSemverSchema } from "./identity.js";
 
 export const supportedFrameworkTuple = Object.freeze({
-  core: "1.0.0",
+  core: "1.1.0",
   payload: "3.88.0",
   node: "24.19.0",
   pnpm: "11.9.0",

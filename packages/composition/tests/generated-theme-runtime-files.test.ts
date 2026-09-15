@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { supportedFrameworkTuple } from "@k-nex/contracts";
 import { applicationAuthFiles } from "../src/application-auth-files.js";
 import { planCreateKnexApplication } from "../src/application-factory.js";
 import { workspacePageApplicationFiles } from "../src/workspace-page-application-files.js";
@@ -16,11 +17,20 @@ describe("generated durable Theme Profile runtime", () => {
     expect(runtime).not.toMatch(/import\s*\(/u);
     expect(runtime).not.toContain('import "server-only"');
     expect(runtime).not.toContain("active_profile->>'css'");
-    expect(runtime).toContain('profile.themeId !== "theme.' + theme + '" || profile.themeVersion !== "1.0.0"');
+    expect(runtime).toContain(`profile.themeId !== "theme.${theme}" || profile.themeVersion !== "${supportedFrameworkTuple.core}"`);
     expect(runtime).toContain("const presentation = resolveInstalledThemeProfile(profile);");
     expect(runtime).toContain("profile.skin !== undefined");
 
     expect(files["src/k-nex-readiness.ts"]).toContain("await resolveApplicationTheme(payload);");
+  });
+
+  it("binds an explicitly verified historical release without inheriting the current version", () => {
+    const runtime = applicationAuthFiles({
+      applicationId: "customer-alpha", applicationName: "Customer Alpha", theme: "minimal", themeReleaseVersion: "1.0.0"
+    })["src/k-nex-theme-runtime.ts"]!;
+
+    expect(runtime).toContain('profile.themeId !== "theme.minimal" || profile.themeVersion !== "1.0.0"');
+    expect(runtime).not.toContain(`profile.themeId !== "theme.minimal" || profile.themeVersion !== "${supportedFrameworkTuple.core}"`);
   });
 
   it("seeds one exact default without overwriting later admin publication", () => {

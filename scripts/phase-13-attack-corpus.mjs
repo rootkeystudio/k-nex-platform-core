@@ -68,9 +68,9 @@ function nodeProof(id, files, names) {
 }
 
 run("customer fixture build", "pnpm", ["--filter", "@k-nex/customer-gate-1", "build"]);
-run("current-v1 Sales release source", process.execPath, ["scripts/generate-current-v1-sales-release-source.mjs", "--check"]);
-run("packed v1 closure", process.execPath, ["scripts/check-phase-8-packed-packages.mjs"]);
-run("factory lock generation check", process.execPath, ["scripts/generate-phase-12-factory-locks.mjs", "--check"]);
+run("current 1.1 Sales release source", process.execPath, ["scripts/generate-current-v1-sales-release-source.mjs", "--check", "--version", "1.1.0"]);
+run("current 1.1 closure", process.execPath, ["scripts/check-phase-8-packed-packages.mjs", "--version", "1.1.0"]);
+run("current 1.1 factory lock generation check", process.execPath, ["scripts/generate-phase-12-factory-locks.mjs", "--check", "--version", "1.1.0"]);
 
 const proofs = [
   nodeProof("core-migration", [
@@ -372,7 +372,7 @@ console.log(JSON.stringify({
   evidenceClasses,
   evidenceClass: {
     classification: "controlled-fixture",
-    applicationRelease: "1.0.0",
+    applicationRelease: "1.1.0",
     operators: ["fixture-persona:sales-representative", "fixture-persona:sales-manager"],
     humanOperators: [],
     dates: { startedOn: "2026-09-09", endedOn: "2026-09-09", consecutiveBusinessDays: 0 },

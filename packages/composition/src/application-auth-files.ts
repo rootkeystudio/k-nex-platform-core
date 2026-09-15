@@ -1,8 +1,12 @@
+import { supportedFrameworkTuple } from "@k-nex/contracts";
+
 export interface ApplicationAuthFilesOptions {
   readonly applicationId: string;
   readonly applicationName: string;
   readonly primaryCurrency?: string;
   readonly theme: "minimal" | "neobrutalism";
+  /** Verified package release selected by the factory; defaults to the canonical current tuple. */
+  readonly themeReleaseVersion?: string;
 }
 
 function jsxStringExpression(value: string): string {
@@ -667,7 +671,7 @@ export default async function WorkspaceHome() {
 `;
 }
 
-function themeRuntimeSource(theme: ApplicationAuthFilesOptions["theme"]): string {
+function themeRuntimeSource(theme: ApplicationAuthFilesOptions["theme"], themeReleaseVersion: string): string {
   const resolver = theme === "minimal" ? "resolveMinimalThemeProfile" : "resolveNeobrutalismThemeProfile";
   return `import { createHash } from "node:crypto";
 
@@ -717,7 +721,7 @@ function resolved(row: ThemeRow | undefined, profileId: string, revisionId?: str
   }
   const profile: ThemeProfile = ThemeProfileSchema.parse(row.active_profile);
   if (profile.id !== profileId || profile.revision.state !== "published" || profile.revision.id !== row.active_revision_id || (revisionId !== undefined && revisionId !== row.active_revision_id) ||
-    profile.surface !== "admin" || profile.themeId !== "theme.${theme}" || profile.themeVersion !== "1.0.0" || profile.skin !== undefined) {
+    profile.surface !== "admin" || profile.themeId !== "theme.${theme}" || profile.themeVersion !== ${JSON.stringify(themeReleaseVersion)} || profile.skin !== undefined) {
     throw new TypeError("Published admin Theme Profile is incompatible with installed theme authority.");
   }
   const presentation = resolveInstalledThemeProfile(profile);
@@ -2718,6 +2722,7 @@ process.exit(0);
 }
 
 export function applicationAuthFiles(options: ApplicationAuthFilesOptions): Readonly<Record<string, string>> {
+  const themeReleaseVersion = options.themeReleaseVersion ?? supportedFrameworkTuple.core;
   return {
     "src/app/(auth)/forbidden/page.tsx": `import { LogoutButton } from "../../components/logout-button.js";\n\nexport default function ForbiddenPage() { return <main className="workspace-home"><h1>Access denied</h1><LogoutButton /></main>; }\n`,
     "src/app/(auth)/login/page.tsx": loginPageSource(),
@@ -2766,7 +2771,7 @@ export function applicationAuthFiles(options: ApplicationAuthFilesOptions): Read
     "src/k-nex-issue-bootstrap-token.ts": issueTokenSource(),
     "src/k-nex-readiness.ts": readinessSource(options.theme),
     "src/k-nex-realtime.ts": realtimeSource(),
-    "src/k-nex-theme-runtime.ts": themeRuntimeSource(options.theme),
+    "src/k-nex-theme-runtime.ts": themeRuntimeSource(options.theme, themeReleaseVersion),
     "src/k-nex-sales-routes.ts": salesRouteRuntimeSource(),
     "src/k-nex-sales-scope-administration.ts": salesScopeAdministrationSource(),
     "src/k-nex-worker.ts": workerSource(),

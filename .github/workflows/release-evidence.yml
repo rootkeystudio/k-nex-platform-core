@@ -24,12 +24,9 @@ jobs:
       - run: pnpm build
       - name: Verify packed package and factory lock release inputs
         run: |
-          node scripts/generate-phase-8-packed-packages.mjs
-          node scripts/generate-phase-12-factory-locks.mjs
-          node scripts/generate-phase-8-release-manifests.mjs
-          node scripts/generate-phase-12-factory-locks.mjs --check
-          node scripts/check-phase-8-packed-packages.mjs
-          git diff --exit-code -- releases/1.0.0/package-release-manifest.json fixtures/customer-gate-1/packages
+          node scripts/generate-phase-12-factory-locks.mjs --check --version 1.0.0
+          node scripts/check-phase-8-packed-packages.mjs --version 1.0.0
+          git diff --exit-code -- releases/1.0.0/package-release-manifest.json 'fixtures/customer-gate-1/packages/*-1.0.0.tgz' fixtures/customer-gate-1/packages/factory-lock-sales-reference-minimal-2016a99b6e0c342345b02e262f6554d91c134a46793aa0bea7e1f8f1d94e9db5.yaml fixtures/customer-gate-1/packages/factory-lock-sales-reference-neobrutalism-b09a7daf157e9a6d8698bd06de30e69bf8b55fa972ef8734a6d4c4c496c4b5f9.yaml
       - name: Build both current customer bundles
         run: |
           pnpm --dir fixtures/customer-alpha install --frozen-lockfile

@@ -5,9 +5,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { ApplicationManifestSchema, PackageReleaseManifestSchema, canonicalJson, type PackageReleaseManifest, type PackageReleaseManifestAuthority, type VerifiedPackageReleaseManifest } from "@k-nex/contracts";
+import { ApplicationManifestSchema, PackageReleaseManifestSchema, PluginManifestSchema, canonicalJson, supportedFrameworkTuple, type PackageReleaseManifest, type PackageReleaseManifestAuthority, type VerifiedPackageReleaseManifest } from "@k-nex/contracts";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { executeRegistration } from "../../runtime/src/registration-runtime.js";
+import { socketIoRealtimeProviderRegistration } from "../../realtime-socketio/src/server.js";
+import { salesRegistration } from "../../../modules/sales/src/server.js";
 import { applicationAuthFiles } from "../src/application-auth-files.js";
 import { applyCreateKnexApplication, payloadPostgresPatchDigest, payloadPostgresPatchFilename, payloadPostgresPatchProvenance, payloadPostgresPatchSource, planCreateKnexApplication, salesReferenceCompilerBoundary, setSalesReferenceCompilerTestMutationForTests } from "../src/index.js";
 
@@ -34,6 +37,34 @@ function bundledPackageSource() {
   const release = JSON.parse(readFileSync(new URL("../../../releases/1.0.0/package-release-manifest.json", import.meta.url), "utf8"));
   const mirror = fileURLToPath(new URL("../../../fixtures/customer-gate-1/packages", import.meta.url));
   return verifiedPackageSource(release, mirror);
+}
+
+const realtimeManifestInput = JSON.parse(readFileSync(new URL("../../realtime-socketio/k-nex.plugin.json", import.meta.url), "utf8"));
+const salesManifestInput = JSON.parse(readFileSync(new URL("../../../modules/sales/k-nex.plugin.json", import.meta.url), "utf8"));
+
+function executeEmittedRegistry(releaseVersion: "1.0.0" | "1.1.0") {
+  const realtimeManifest = PluginManifestSchema.parse({ ...realtimeManifestInput, version: releaseVersion });
+  const salesManifest = PluginManifestSchema.parse({ ...salesManifestInput, version: releaseVersion });
+  const realtimeGateway = realtimeManifest.provides.find(({ capability }) => capability === "realtime.gateway");
+  if (realtimeGateway === undefined) throw new Error("Realtime gateway capability fixture is unavailable.");
+  const salesIntegrity = `sha512-${"a".repeat(86)}==`;
+  const realtimeIntegrity = `sha512-${"b".repeat(86)}==`;
+  return executeRegistration({
+    graph: {
+      resolverVersion: "1.0.0",
+      plugins: [
+        { id: realtimeManifest.id, kind: realtimeManifest.kind, package: realtimeManifest.package, version: realtimeManifest.version, integrity: realtimeIntegrity, required: [], optional: [] },
+        { id: salesManifest.id, kind: salesManifest.kind, package: salesManifest.package, version: salesManifest.version, integrity: salesIntegrity, required: [], optional: [] }
+      ],
+      capabilityProviders: [{ capability: realtimeGateway.capability, plugin: realtimeManifest.id, version: realtimeGateway.version }],
+      registrationOrder: [realtimeManifest.id, salesManifest.id]
+    },
+    installed: [
+      { package: { name: realtimeManifest.package, version: realtimeManifest.version, integrity: realtimeIntegrity }, manifest: realtimeManifest },
+      { package: { name: salesManifest.package, version: salesManifest.version, integrity: salesIntegrity }, manifest: salesManifest }
+    ],
+    registrations: [socketIoRealtimeProviderRegistration, salesRegistration]
+  });
 }
 
 function hostedVerification(manifestInput: unknown) {
@@ -162,13 +193,20 @@ describe("create-knex-app", () => {
     expect(first.files["compose.yaml"]).toContain("postgres:17.6-alpine@sha256:");
     const manifest = ApplicationManifestSchema.parse(JSON.parse(first.files["k-nex.app.json"]!));
     expect(manifest.plugins).toEqual([
-      { id: "module.sales", package: "@k-nex/module-sales", version: "1.0.0", enabled: true },
-      { id: "provider.realtime.socketio", package: "@k-nex/provider-realtime-socketio", version: "1.0.0", enabled: true }
+      { id: "module.sales", package: "@k-nex/module-sales", version: "1.1.0", enabled: true },
+      { id: "provider.realtime.socketio", package: "@k-nex/provider-realtime-socketio", version: "1.1.0", enabled: true }
     ]);
-    expect(manifest.providers).toEqual({ "realtime.gateway": { plugin: "provider.realtime.socketio", package: "@k-nex/provider-realtime-socketio", version: "1.0.0" } });
-    expect(manifest.builder).toEqual({ plugin: "builder.puck", package: "@k-nex/builder-puck", version: "1.0.0", profiles: { workspace: { enabled: true, drafts: true, surfaces: ["workspace"] } } });
+    expect(manifest.providers).toEqual({ "realtime.gateway": { plugin: "provider.realtime.socketio", package: "@k-nex/provider-realtime-socketio", version: "1.1.0" } });
+    expect(manifest.builder).toEqual({ plugin: "builder.puck", package: "@k-nex/builder-puck", version: "1.1.0", profiles: { workspace: { enabled: true, drafts: true, surfaces: ["workspace"] } } });
     expect(manifest.environment.required).toEqual(["DATABASE_URL", "K_NEX_ADMINISTRATION_OPERATOR_CA_CERT", "K_NEX_ADMINISTRATION_OPERATOR_CLIENT_CERT", "K_NEX_ADMINISTRATION_OPERATOR_CLIENT_KEY", "K_NEX_ADMINISTRATION_OPERATOR_HOST", "K_NEX_ADMINISTRATION_OPERATOR_IDENTITY", "K_NEX_ADMINISTRATION_OPERATOR_PORT", "K_NEX_ADMINISTRATION_OPERATOR_URI_SAN", "K_NEX_ENVIRONMENT", "K_NEX_GENERATION", "K_NEX_PUBLIC_ORIGIN", "PAYLOAD_SECRET"]);
-    expect(JSON.parse(first.files["package.json"]!).dependencies).toMatchObject({ payload: "3.88.0", "@k-nex/builder-puck": "1.0.0", "@k-nex/module-sales": "1.0.0", "@k-nex/provider-realtime-socketio": "1.0.0", "@k-nex/theme-minimal": "1.0.0" });
+    expect(supportedFrameworkTuple.core).toBe("1.1.0");
+    expect(manifest.plugins.every((plugin) => plugin.version === supportedFrameworkTuple.core)).toBe(true);
+    expect(manifest.providers["realtime.gateway"]?.version).toBe(supportedFrameworkTuple.core);
+    expect(manifest.builder?.version).toBe(supportedFrameworkTuple.core);
+    expect(manifest.themes.version).toBe(supportedFrameworkTuple.core);
+    const generatedPackageJson = JSON.parse(first.files["package.json"]!);
+    expect(Object.entries(generatedPackageJson.dependencies).filter(([name]) => name.startsWith("@k-nex/")).every(([, version]) => version === supportedFrameworkTuple.core)).toBe(true);
+    expect(generatedPackageJson.dependencies).toMatchObject({ payload: "3.88.0", "@k-nex/builder-puck": "1.1.0", "@k-nex/module-sales": "1.1.0", "@k-nex/provider-realtime-socketio": "1.1.0", "@k-nex/theme-minimal": "1.1.0" });
     expect(first.files["src/payload.config.ts"]).toContain("kNexSalesRegistry.collections");
     expect(first.files["src/app/(workspace)/system/access/roles/page.tsx"]).toContain("SystemRolesPage");
     expect(first.files["src/app/(workspace)/system/access/permissions/page.tsx"]).toContain("SystemPermissionsPage");
@@ -219,7 +257,10 @@ describe("create-knex-app", () => {
     expect(first.files["tsconfig.scripts.json"]).toContain('"module": "NodeNext"');
     expect(first.files["src/k-nex-registry.ts"]).toContain("salesRegistration");
     expect(first.files["src/k-nex-registry.ts"]).toContain("socketIoRealtimeProviderRegistration");
-    expect(first.files["src/k-nex-registry.ts"]).toContain('capability: "realtime.gateway", plugin: realtimeManifest.id');
+    expect(first.files["src/k-nex-registry.ts"]).toContain('const realtimeGateway = realtimeManifest.provides.find(({ capability }) => capability === "realtime.gateway");');
+    expect(first.files["src/k-nex-registry.ts"]).toContain('capability: "realtime.gateway", plugin: realtimeManifest.id, version: realtimeGateway.version');
+    expect(first.files["src/k-nex-theme-runtime.ts"]).toContain(`profile.themeId !== "theme.minimal" || profile.themeVersion !== "${supportedFrameworkTuple.core}"`);
+    expect(first.files["src/migrations/20260827_000002_knex_bootstrap.ts"]).toContain("platform-1.1.0-bootstrap");
     expect(first.files["src/k-nex-realtime.ts"]).toContain("createSocketIoMemoryGateway");
     expect(first.files["src/k-nex-realtime.ts"]).toContain("currentPayloadAuthentication");
     expect(first.files["src/k-nex-realtime.ts"]).toContain('channel = "k_nex_runtime_invalidation"');
@@ -499,7 +540,7 @@ describe("create-knex-app", () => {
     expect(first.files[payloadPostgresPatchFilename]).toBe(payloadPostgresPatchSource());
     expect(`sha256:${createHash("sha256").update(first.files[payloadPostgresPatchFilename]!).digest("hex")}`).toBe(payloadPostgresPatchDigest);
     expect(first.files["pnpm-workspace.yaml"]).toContain(`"@payloadcms/db-postgres@3.88.0": "${payloadPostgresPatchFilename}"`);
-    expect(applicationPlan.composition).toMatchObject({ plugins: ["module.sales@1.0.0", "provider.realtime.socketio@1.0.0"], builder: "builder.puck@1.0.0" });
+    expect(applicationPlan.composition).toMatchObject({ plugins: ["module.sales@1.1.0", "provider.realtime.socketio@1.1.0"], builder: "builder.puck@1.1.0" });
     expect(first.files[".k-nex/default-pages.json"]).toBeUndefined();
     expect(first.files[".k-nex/package-release-manifest.json"]).toBeUndefined();
     expect(Object.values(first.files).every((source) => !source.includes("defaultPages") && !source.includes("default-pages") && !source.includes("salesPageTemplates"))).toBe(true);
@@ -509,6 +550,23 @@ describe("create-knex-app", () => {
     expect(Object.values(first.files).every((source) => !source.includes("K_NEX_OWNER_PASSWORD=secret"))).toBe(true);
     expect(first.files["pnpm-lock.yaml"]).toBeUndefined();
     expect(first.installCommands).toEqual([]);
+  });
+
+  it("executes emitted registry capability selection for current and historical package releases", () => {
+    const current = planCreateKnexApplication({ applicationId: "registry-current", applicationName: "Registry Current", theme: "minimal", database: "external" });
+    const historical = planCreateKnexApplication({
+      applicationId: "registry-historical", applicationName: "Registry Historical", theme: "minimal", database: "external", packageSource: bundledPackageSource()
+    });
+
+    for (const [releaseVersion, plan] of [["1.1.0", current], ["1.0.0", historical]] as const) {
+      const source = plan.files["src/k-nex-registry.ts"]!;
+      expect(source).toContain('const realtimeGateway = realtimeManifest.provides.find(({ capability }) => capability === "realtime.gateway");');
+      expect(source).toContain('capability: "realtime.gateway", plugin: realtimeManifest.id, version: realtimeGateway.version');
+      expect(source).not.toContain(`capability: "realtime.gateway", plugin: realtimeManifest.id, version: "${releaseVersion}"`);
+      const registration = executeEmittedRegistry(releaseVersion);
+      expect(registration.phases).toContain("providers");
+      expect(registration.inventory.map(({ id }) => id)).toEqual(["module.sales", "provider.realtime.socketio"]);
+    }
   });
 
   it("binds a generated application to every exact artifact in a packed release mirror", () => {
@@ -533,6 +591,10 @@ describe("create-knex-app", () => {
     expect(plan.files["README.md"]).toContain("K_NEX_ADMINISTRATION_OPERATOR_CLIENT_CERT");
     expect(plan.files["README.md"]).toContain("/v1/commands");
     expect(JSON.parse(plan.files["k-nex.app.json"]!).plugins[0].version).toBe(sales.version);
+    expect(plan.files["src/k-nex-registry.ts"]).toContain('capability: "realtime.gateway", plugin: realtimeManifest.id, version: realtimeGateway.version');
+    expect(plan.files["src/k-nex-registry.ts"]).toContain('themeVersion: "1.0.0"');
+    expect(plan.files["src/k-nex-theme-runtime.ts"]).toContain('profile.themeId !== "theme.minimal" || profile.themeVersion !== "1.0.0"');
+    expect(plan.files["src/migrations/20260827_000002_knex_bootstrap.ts"]).toContain("platform-1.0.0-bootstrap");
     expect(Object.keys(plan.artifactDigests)).toHaveLength(release.packages.length);
     const packageReleaseManifest = plan.files[".k-nex/package-release-manifest.json"]!;
     expect(packageReleaseManifest).toBe(canonicalJson(PackageReleaseManifestSchema.parse(release)));
@@ -608,7 +670,7 @@ describe("create-knex-app", () => {
     for (const path of Object.keys(plan.files)) expect(readFileSync(join(first, path))).toEqual(readFileSync(join(second, path)));
   }, 60_000);
 
-  it("uses workspace only for side-effect-free planning and defaults to the verified bundled release", () => {
+  it("uses workspace only for side-effect-free planning and selects current or historical bundled releases explicitly", () => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), "create-knex-app-cli-"))); roots.push(root);
     const script = fileURLToPath(new URL("../../../scripts/create-knex-app.mjs", import.meta.url));
     const planned = join(root, "planned");
@@ -616,7 +678,7 @@ describe("create-knex-app", () => {
     expect(JSON.parse(output).applicationId).toBe("cli-planned");
     expect(JSON.parse(output).installCommands).toEqual([]);
     expect(existsSync(planned)).toBe(false);
-    const manifestPath = fileURLToPath(new URL("../../../releases/1.0.0/package-release-manifest.json", import.meta.url));
+    const manifestPath = fileURLToPath(new URL("../../../releases/1.1.0/package-release-manifest.json", import.meta.url));
     const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
     const argsLog = join(root, "gh-args.json");
     const bin = fakeGh(root, hostedVerification(manifest));
@@ -630,11 +692,19 @@ describe("create-knex-app", () => {
       "attestation", "verify", manifestPath, "--repo", "rootkeystudio/k-nex-platform-core",
       "--predicate-type", "https://k-nex.dev/release-manifest/v1", "--format", "json"
     ]);
+    const historicalRoot = join(root, "historical-gh"); mkdirSync(historicalRoot);
+    const historicalManifestPath = fileURLToPath(new URL("../../../releases/1.0.0/package-release-manifest.json", import.meta.url));
+    const historicalBin = fakeGh(historicalRoot, hostedVerification(JSON.parse(readFileSync(historicalManifestPath, "utf8"))));
     const explicit = join(root, "explicit");
-    execFileSync(process.execPath, [script, "--target", explicit, "--id", "cli-explicit", "--name", "CLI Explicit", "--database", "external", "--release-manifest", manifestPath, "--package-mirror", fileURLToPath(new URL("../../../fixtures/customer-gate-1/packages", import.meta.url)), "--no-install"], {
-      encoding: "utf8", env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, GH_ARGS_LOG: join(root, "explicit-gh-args.json") }
+    const historicalArgsLog = join(root, "historical-gh-args.json");
+    execFileSync(process.execPath, [script, "--target", explicit, "--id", "cli-explicit", "--name", "CLI Explicit", "--database", "external", "--release-version", "1.0.0", "--no-install"], {
+      encoding: "utf8", env: { ...process.env, PATH: `${historicalBin}:${process.env.PATH}`, GH_ARGS_LOG: historicalArgsLog }
     });
     expect(existsSync(join(explicit, "pnpm-lock.yaml"))).toBe(true);
+    expect(JSON.parse(readFileSync(historicalArgsLog, "utf8"))).toEqual([
+      "attestation", "verify", historicalManifestPath, "--repo", "rootkeystudio/k-nex-platform-core",
+      "--predicate-type", "https://k-nex.dev/release-manifest/v1", "--format", "json"
+    ]);
   }, 15_000);
 
   it("rejects workspace apply or no-install before target write", () => {

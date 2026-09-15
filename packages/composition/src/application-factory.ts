@@ -3,7 +3,7 @@ import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSyn
 import { dirname, join, relative, resolve } from "node:path";
 import { gunzipSync } from "node:zlib";
 
-import { ApplicationManifestSchema, canonicalJson, type ApplicationManifest, type PackageReleaseManifestAuthority, type VerifiedPackageReleaseManifest } from "@k-nex/contracts";
+import { ApplicationManifestSchema, canonicalJson, supportedFrameworkTuple, type ApplicationManifest, type PackageReleaseManifestAuthority, type VerifiedPackageReleaseManifest } from "@k-nex/contracts";
 import { applicationAuthFiles } from "./application-auth-files.js";
 import { crmCoreMigrationSource as canonicalCrmCoreMigrationSource } from "./crm-core-migration-template.js";
 import { dataMovementMigrationSource } from "./data-movement-migration-template.js";
@@ -25,6 +25,9 @@ import { workspacePageApplicationFiles } from "./workspace-page-application-file
 
 export type SalesPresetTheme = "minimal" | "neobrutalism";
 export type ApplicationDatabaseMode = "docker-postgres" | "external";
+
+/** The release-less factory path always plans against the one signed current tuple. */
+export const currentReleaseVersion = supportedFrameworkTuple.core;
 
 /**
  * Phase 13 ships one intentionally non-generic compiler: the Sales reference
@@ -126,20 +129,20 @@ export interface ApplicationFactoryApplyResult {
 }
 
 const exactDependencies = Object.freeze({
-  "@k-nex/builder-puck": "1.0.0",
-  "@k-nex/composition": "1.0.0",
-  "@k-nex/contracts": "1.0.0",
-  "@k-nex/module-sales": "1.0.0",
-  "@k-nex/payload-adapter": "1.0.0",
-  "@k-nex/provider-realtime-socketio": "1.0.0",
-  "@k-nex/runtime": "1.0.0",
-  "@k-nex/ui-builder-blocks": "1.0.0",
-  "@k-nex/ui-components": "1.0.0",
-  "@k-nex/ui-data": "1.0.0",
-  "@k-nex/ui-design-system-contracts": "1.0.0",
-  "@k-nex/ui-forms": "1.0.0",
-  "@k-nex/ui-pages": "1.0.0",
-  "@k-nex/ui-runtime": "1.0.0",
+  "@k-nex/builder-puck": currentReleaseVersion,
+  "@k-nex/composition": currentReleaseVersion,
+  "@k-nex/contracts": currentReleaseVersion,
+  "@k-nex/module-sales": currentReleaseVersion,
+  "@k-nex/payload-adapter": currentReleaseVersion,
+  "@k-nex/provider-realtime-socketio": currentReleaseVersion,
+  "@k-nex/runtime": currentReleaseVersion,
+  "@k-nex/ui-builder-blocks": currentReleaseVersion,
+  "@k-nex/ui-components": currentReleaseVersion,
+  "@k-nex/ui-data": currentReleaseVersion,
+  "@k-nex/ui-design-system-contracts": currentReleaseVersion,
+  "@k-nex/ui-forms": currentReleaseVersion,
+  "@k-nex/ui-pages": currentReleaseVersion,
+  "@k-nex/ui-runtime": currentReleaseVersion,
   "@payloadcms/db-postgres": "3.88.0",
   "@payloadcms/next": "3.88.0",
   "graphql": "16.14.2",
@@ -285,11 +288,13 @@ import { ${themeExport} } from "@k-nex/theme-${theme}";
 
 const salesManifest = PluginManifestSchema.parse(manifestJson);
 const realtimeManifest = PluginManifestSchema.parse(realtimeManifestJson);
+const realtimeGateway = realtimeManifest.provides.find(({ capability }) => capability === "realtime.gateway");
+if (realtimeGateway === undefined) throw new Error("Realtime gateway capability is unavailable.");
 const registration = executeRegistration({
   graph: { resolverVersion: "1.0.0", plugins: [
     { id: realtimeManifest.id, kind: realtimeManifest.kind, package: realtimeManifest.package, version: realtimeManifest.version, integrity: ${JSON.stringify(realtimeIntegrity)}, required: [], optional: [] },
     { id: salesManifest.id, kind: salesManifest.kind, package: salesManifest.package, version: salesManifest.version, integrity: ${JSON.stringify(salesIntegrity)}, required: [], optional: [] }
-  ], capabilityProviders: [{ capability: "realtime.gateway", plugin: realtimeManifest.id, version: "1.0.0" }], registrationOrder: [realtimeManifest.id, salesManifest.id] },
+  ], capabilityProviders: [{ capability: "realtime.gateway", plugin: realtimeManifest.id, version: realtimeGateway.version }], registrationOrder: [realtimeManifest.id, salesManifest.id] },
   installed: [
     { package: { name: salesManifest.package, version: salesManifest.version, integrity: ${JSON.stringify(salesIntegrity)} }, manifest: salesManifest },
     { package: { name: realtimeManifest.package, version: realtimeManifest.version, integrity: ${JSON.stringify(realtimeIntegrity)} }, manifest: realtimeManifest }
@@ -327,7 +332,7 @@ export const kNexInitialThemeProfile = Object.freeze({
   id: "workspace.default-theme",
   surface: "admin",
   themeId: "theme.${theme}",
-  themeVersion: "1.0.0",
+  themeVersion: ${JSON.stringify(release)},
   palette: "${theme === "minimal" ? "light" : "primary"}",
   mode: "system",
   values: {},
@@ -675,11 +680,11 @@ function applicationManifest(options: CreateKnexApplicationOptions, packageVersi
     application: { id: options.applicationId, name: options.applicationName, type: "customer-platform" },
     runtime: { node: "24.19.0", packageManager: "pnpm", packageManagerVersion: "11.9.0", deploymentMode: "container", realtime: { adapter: "memory", webInstances: 1, worker: "separate", workerInvalidationPath: "postgres-outbox-relay", realtimeGateway: "embedded", rollingDeployment: "stop-before-start" } },
     framework: { payload: { database: { adapter: "postgres", package: "@payloadcms/db-postgres", connectionEnvironmentVariable: "DATABASE_URL" } } },
-    plugins: [{ id: "module.sales", package: "@k-nex/module-sales", version: packageVersions.get("@k-nex/module-sales") ?? "1.0.0", enabled: true },
-      { id: "provider.realtime.socketio", package: "@k-nex/provider-realtime-socketio", version: packageVersions.get("@k-nex/provider-realtime-socketio") ?? "1.0.0", enabled: true }],
-    providers: { "realtime.gateway": { plugin: "provider.realtime.socketio", package: "@k-nex/provider-realtime-socketio", version: packageVersions.get("@k-nex/provider-realtime-socketio") ?? "1.0.0" } },
-    builder: { plugin: "builder.puck", package: "@k-nex/builder-puck", version: packageVersions.get("@k-nex/builder-puck") ?? "1.0.0", profiles: { workspace: { enabled: true, drafts: true, surfaces: ["workspace"] } } },
-    themes: { active: options.theme, package: `@k-nex/theme-${options.theme}`, version: packageVersions.get(`@k-nex/theme-${options.theme}`) ?? "1.0.0" },
+    plugins: [{ id: "module.sales", package: "@k-nex/module-sales", version: packageVersions.get("@k-nex/module-sales") ?? currentReleaseVersion, enabled: true },
+      { id: "provider.realtime.socketio", package: "@k-nex/provider-realtime-socketio", version: packageVersions.get("@k-nex/provider-realtime-socketio") ?? currentReleaseVersion, enabled: true }],
+    providers: { "realtime.gateway": { plugin: "provider.realtime.socketio", package: "@k-nex/provider-realtime-socketio", version: packageVersions.get("@k-nex/provider-realtime-socketio") ?? currentReleaseVersion } },
+    builder: { plugin: "builder.puck", package: "@k-nex/builder-puck", version: packageVersions.get("@k-nex/builder-puck") ?? currentReleaseVersion, profiles: { workspace: { enabled: true, drafts: true, surfaces: ["workspace"] } } },
+    themes: { active: options.theme, package: `@k-nex/theme-${options.theme}`, version: packageVersions.get(`@k-nex/theme-${options.theme}`) ?? currentReleaseVersion },
     development: { database: options.database === "docker-postgres" ? { mode: "docker-postgres", serviceName: "postgres" } : { mode: "external" } },
     build: { dockerfile: false, commitGeneratedRegistries: true, validateGeneratedFilesInCI: true },
     environment: { required: ["DATABASE_URL", "K_NEX_ADMINISTRATION_OPERATOR_CA_CERT", "K_NEX_ADMINISTRATION_OPERATOR_CLIENT_CERT", "K_NEX_ADMINISTRATION_OPERATOR_CLIENT_KEY", "K_NEX_ADMINISTRATION_OPERATOR_HOST", "K_NEX_ADMINISTRATION_OPERATOR_IDENTITY", "K_NEX_ADMINISTRATION_OPERATOR_PORT", "K_NEX_ADMINISTRATION_OPERATOR_URI_SAN", "K_NEX_ENVIRONMENT", "K_NEX_GENERATION", "K_NEX_PUBLIC_ORIGIN", "PAYLOAD_SECRET"] }
@@ -692,7 +697,7 @@ export function planCreateKnexApplication(options: CreateKnexApplicationOptions)
   const releaseManifest = release === undefined ? undefined : canonicalJson(release);
   const releaseManifestDigest = releaseManifest === undefined ? undefined : `sha256:${createHash("sha256").update(releaseManifest).digest("hex")}`;
   const releasedPackages = new Map(release?.packages.map((entry) => [entry.package, entry.version]) ?? []);
-  const dependencyVersions = { ...exactDependencies, [`@k-nex/theme-${options.theme}`]: "1.0.0" };
+  const dependencyVersions = { ...exactDependencies, [`@k-nex/theme-${options.theme}`]: currentReleaseVersion };
   const artifacts = new Map<string, Uint8Array>();
   const artifactDigests: Record<string, string> = {};
   let factoryLock: string | undefined;
@@ -731,7 +736,7 @@ export function planCreateKnexApplication(options: CreateKnexApplicationOptions)
   const manifest = applicationManifest(options, releasedPackages);
   const files: Record<string, string> = {
     ...runnableApplicationFiles({ applicationId: options.applicationId, applicationName: options.applicationName, database: options.database, theme: options.theme }),
-    ...applicationAuthFiles({ applicationId: options.applicationId, applicationName: options.applicationName, ...(options.primaryCurrency === undefined ? {} : { primaryCurrency: options.primaryCurrency }), theme: options.theme }),
+    ...applicationAuthFiles({ applicationId: options.applicationId, applicationName: options.applicationName, ...(options.primaryCurrency === undefined ? {} : { primaryCurrency: options.primaryCurrency }), theme: options.theme, themeReleaseVersion: release?.release.version ?? currentReleaseVersion }),
     ...systemAccessApplicationFiles({ applicationId: options.applicationId }),
     ...systemExtensionApplicationFiles({ applicationId: options.applicationId }),
     ...systemThemeSettingsApplicationFiles({ applicationId: options.applicationId }),
@@ -777,13 +782,13 @@ export function planCreateKnexApplication(options: CreateKnexApplicationOptions)
     }),
     "src/boot.ts": bootSource(),
     "src/k-nex-web.ts": webHostSource(),
-    "src/k-nex-registry.ts": registrySource(options.theme, options.applicationId, release?.packages.find(({ package: packageName }) => packageName === "@k-nex/module-sales")?.integrity ?? "sha512-d29ya3NwYWNl", release?.packages.find(({ package: packageName }) => packageName === "@k-nex/provider-realtime-socketio")?.integrity ?? "sha512-d29ya3NwYWNl", release?.release.version ?? "1.0.0"),
+    "src/k-nex-registry.ts": registrySource(options.theme, options.applicationId, release?.packages.find(({ package: packageName }) => packageName === "@k-nex/module-sales")?.integrity ?? "sha512-d29ya3NwYWNl", release?.packages.find(({ package: packageName }) => packageName === "@k-nex/provider-realtime-socketio")?.integrity ?? "sha512-d29ya3NwYWNl", release?.release.version ?? currentReleaseVersion),
     "src/k-nex-sales-data-movement.ts": dataMovementHostSource(),
     "src/k-nex-sales-communications.ts": communicationsHostSource(),
     "src/k-nex-sales-workflows.ts": crmWorkflowsHostSource(),
     "src/k-nex-sales-reports.ts": reportsHostSource(),
     "src/migrations/20260827_000001_sales_baseline.ts": payloadBaselineMigrationSource(),
-    "src/migrations/20260827_000002_knex_bootstrap.ts": bootstrapMigrationSource(options.applicationId, release?.release.version ?? "1.0.0"),
+    "src/migrations/20260827_000002_knex_bootstrap.ts": bootstrapMigrationSource(options.applicationId, release?.release.version ?? currentReleaseVersion),
     "src/migrations/20260829_000007_runtime_extensions.ts": `import { kNexRuntimeExtensionSchemaMigrations, type CustomerPayloadMigration } from "@k-nex/payload-adapter";\n\nexport async function up(args: Parameters<CustomerPayloadMigration["up"]>[0]): Promise<void> {\n  for (const migration of kNexRuntimeExtensionSchemaMigrations) await migration.up(args);\n}\n\nexport async function down(args: Parameters<CustomerPayloadMigration["down"]>[0]): Promise<void> {\n  for (const migration of [...kNexRuntimeExtensionSchemaMigrations].reverse()) await migration.down(args);\n}\n`,
     "src/migrations/20260901_000019_authorization.ts": `import { kNexAuthorizationSchemaMigration } from "@k-nex/payload-adapter";\n\nexport const up = kNexAuthorizationSchemaMigration.up;\nexport const down = kNexAuthorizationSchemaMigration.down;\n`,
     "src/migrations/20260901_000022_static_lifecycle_admission.ts": `import { kNexStaticLifecycleAdmissionSchemaMigration } from "@k-nex/payload-adapter";\n\nexport const up = kNexStaticLifecycleAdmissionSchemaMigration.up;\nexport const down = kNexStaticLifecycleAdmissionSchemaMigration.down;\n`,

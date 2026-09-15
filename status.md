@@ -7,15 +7,15 @@
 
 ## Last completed
 
-PR #35 review requested immutable `1.0.0` restoration, a new `1.1.0` train, a real generated-repository upgrade/protection proof, ADR renumbering, focused-gate hermeticity, bounded upload cancellation/deadlines, and an explicit bounded Sales-reference compiler exception. Independent issues and immutable-base restoration are closed. ADR-0028's accepted release-train design is integrated with a normative Phase 13 amendment freezing ownership modes, fail-closed managed deletion, minimal plan/preparation envelopes, private reconciliation evidence, and a non-recursive digest graph; ADR-0029 remains CRM-specific.
+PR #35 review requested immutable `1.0.0` restoration, a new `1.1.0` train, a real generated-repository upgrade/protection proof, ADR renumbering, focused-gate hermeticity, bounded upload cancellation/deadlines, and an explicit bounded Sales-reference compiler exception. Independent issues, immutable-base restoration, and upgrade ownership design are closed. The coordinated `1.1.0` train now contains all 17 first-party packages, exact current framework/peer tuples, a regenerated Sales source, target fixture graph, and content-addressed factory locks while explicit historical `1.0.0` remains immutable.
 
 ## Validation
 
-ADR evidence registry JSON, canonical transition-schema link, repository-contract validation, scoped reference checks, and `git diff --check` PASS. Persistent reviewer approved the exact transition-schema reference, closed plan-operation union, blocked deletion contract, one-way ownership digest graph, and P13.9 source-to-target requirement. No full gate run.
+Node 24.19/pnpm 11.9: Contracts PASS (238 tests), Composition PASS (177 tests), Gate 1 generate/check, Sales source 25-file check, packed 17-package closures and both factory locks for explicit 1.0/1.1, neutral history, release-train tests, create-app current/historical execution, and `git diff --check` PASS. Historical manifest SHA remains `1d8b40e0073fb24d42f47bc3a0fd763db0a0fb5baf706120f7fe3a2768c13eea`. No full gate run.
 
 ## Next
 
-Publish the immutable coordinated `1.1.0` train, generate and attest its `1.0.0` to `1.1.0` transition, then implement generated-repository upgrade and protection evidence before focused Gate 13 and PR rereview; do not merge or promote.
+Review/commit the upgrade compiler, then generate and attest the `1.0.0` to `1.1.0` transition and implement real generated-repository upgrade/protection evidence before focused Gate 13 and PR rereview; do not merge or promote.
 
 ## Blockers
 

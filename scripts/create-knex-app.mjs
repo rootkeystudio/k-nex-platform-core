@@ -10,14 +10,19 @@ const releaseRepository = "rootkeystudio/k-nex-platform-core";
 const releasePredicateType = "https://k-nex.dev/release-manifest/v1";
 const releaseWorkflow = "release-evidence.yml";
 const repositoryRoot = resolve(import.meta.dirname, "..");
-const bundledReleaseManifestPath = join(repositoryRoot, "releases/1.0.0/package-release-manifest.json");
 const bundledPackageMirror = join(repositoryRoot, "fixtures/customer-gate-1/packages");
 
 const args = process.argv.slice(2);
 const value = (name) => {
   const index = args.indexOf(name);
-  return index < 0 ? undefined : args[index + 1];
+  if (index < 0) return undefined;
+  const result = args[index + 1];
+  if (result === undefined || result.startsWith("--")) throw new Error(`${name} requires a value.`);
+  return result;
 };
+const bundledReleaseVersion = value("--release-version") ?? "1.1.0";
+if (!/^\d+\.\d+\.\d+$/u.test(bundledReleaseVersion)) throw new Error("--release-version must be a semantic release version.");
+const bundledReleaseManifestPath = join(repositoryRoot, `releases/${bundledReleaseVersion}/package-release-manifest.json`);
 const target = value("--target");
 const applicationId = value("--id");
 const applicationName = value("--name");
@@ -28,7 +33,7 @@ const packageMirror = value("--package-mirror");
 const workspace = args.includes("--workspace");
 const planOnly = args.includes("--plan-only");
 if (!target || !applicationId || !applicationName) {
-  throw new Error("Usage: create-knex-app --target <dir> --id <id> --name <name> [--theme minimal|neobrutalism] [--database docker-postgres|external] [--release-manifest <json> --package-mirror <dir>] [--plan-only|--no-install]\nDefaults to the verified bundled v1 release. --workspace is deterministic developer planning only and requires --plan-only.");
+  throw new Error("Usage: create-knex-app --target <dir> --id <id> --name <name> [--theme minimal|neobrutalism] [--database docker-postgres|external] [--release-version <semver>] [--release-manifest <json> --package-mirror <dir>] [--plan-only|--no-install]\nDefaults to the verified bundled current release. --workspace is deterministic developer planning only and requires --plan-only.");
 }
 if ((releaseManifestPath === undefined) !== (packageMirror === undefined)) throw new Error("Packed installation requires both --release-manifest and --package-mirror.");
 if (workspace && (releaseManifestPath !== undefined || packageMirror !== undefined)) throw new Error("--workspace cannot be combined with release arguments.");

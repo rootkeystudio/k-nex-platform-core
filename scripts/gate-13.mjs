@@ -84,7 +84,7 @@ for (const collection of [evidence.attacks, evidence.requiredAttackClasses, evid
 }
 assert.deepEqual(evidence.evidenceClass, {
   classification: "controlled-fixture",
-  applicationRelease: "1.0.0",
+  applicationRelease: "1.1.0",
   operators: ["fixture-persona:sales-representative", "fixture-persona:sales-manager"],
   humanOperators: [],
   dates: { startedOn: "2026-09-09", endedOn: "2026-09-09", consecutiveBusinessDays: 0 },

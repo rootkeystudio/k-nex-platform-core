@@ -1,16 +1,19 @@
 import assert from "node:assert/strict";
 import { createHash, generateKeyPairSync } from "node:crypto";
+import { readFileSync } from "node:fs";
 
-import { canonicalJson, supportedFrameworkTuple } from "../packages/contracts/dist/index.js";
+import { canonicalJson } from "../packages/contracts/dist/index.js";
 import { FleetRegistry, createApplicationBundleAuthority, createDeploymentEvidenceAuthority, createDeploymentReceipt, createPackageReleaseManifestAuthority, observeRuntimeInventory, planPluginUpgrade, signDeploymentReceipt } from "../packages/runtime/dist/index.js";
 
+const historicalReleaseManifest = JSON.parse(readFileSync(new URL("../releases/1.0.0/package-release-manifest.json", import.meta.url), "utf8"));
+const historicalFrameworkTuple = historicalReleaseManifest.framework;
 const sha = "a".repeat(40);
 const sri = (value) => `sha512-${createHash("sha512").update(value).digest("base64")}`;
 const digest = (value) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
 const fixturePackage = "@fixture/module-upgrade";
 const release = (version, integrity) => ({ schemaVersion: 1,
-  release: { version: "1.0.0", channel: "current", versioningPolicy: "semver-v1", compatibilityPolicy: "exact-framework-tuple" }, framework: supportedFrameworkTuple,
-  packages: [{ package: fixturePackage, version, role: "plugin", integrity, peerCompatibility: supportedFrameworkTuple }],
+  release: { version: "1.0.0", channel: "current", versioningPolicy: "semver-v1", compatibilityPolicy: "exact-framework-tuple" }, framework: historicalFrameworkTuple,
+  packages: [{ package: fixturePackage, version, role: "plugin", integrity, peerCompatibility: historicalFrameworkTuple }],
   factoryLockTemplates: {
     minimal: { preset: "sales-reference", theme: "minimal", digest: `sha256:${"1".repeat(64)}` },
     neobrutalism: { preset: "sales-reference", theme: "neobrutalism", digest: `sha256:${"2".repeat(64)}` }
@@ -41,7 +44,7 @@ const deployment = async (applicationId, manifest, packageRelease, version, inte
   const byPath = new Map(files.map((file) => [file.path, file]));
   const releaseManifestDigest = digest(canonicalJson(manifest));
   const bundle = { schemaVersion: 1, format: "k-nex-deployable-application-bundle/v1", applicationId, sourceCommit: sha, release: "1.0.0", releaseManifestDigest,
-    closureDigest: digest(closure), frameworkDigest: digest(canonicalJson(supportedFrameworkTuple)), migrationPlanDigest: digest(`fixture:${version}`), targetMigrationRevision: revision, installedPackages, files };
+    closureDigest: digest(closure), frameworkDigest: digest(canonicalJson(historicalFrameworkTuple)), migrationPlanDigest: digest(`fixture:${version}`), targetMigrationRevision: revision, installedPackages, files };
   const attestation = { subjectDigest: digest(canonicalJson(bundle)), sourceCommit: sha, workflowIdentity: `fixture/release@${sha}`, materials: [
     ["application-manifest", "application/k-nex.app.json"], ["lockfile", "application/pnpm-lock.yaml"], ["lock-runtime-closure"], ["resolved-graph-or-plan"], ["sbom", "evidence/sbom.cdx.json"], ["package-release-manifest"], ["release-closure"]
   ].map(([name, path]) => ({ name, digest: path ? byPath.get(path).digest : name === "package-release-manifest" ? releaseManifestDigest : name === "resolved-graph-or-plan" ? bundle.migrationPlanDigest : bundle.closureDigest })) };

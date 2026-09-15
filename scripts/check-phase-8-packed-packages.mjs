@@ -8,12 +8,26 @@ import { canonicalJson } from "../packages/contracts/dist/index.js";
 
 const root = resolve(import.meta.dirname, "..");
 const artifactDirectory = resolve(root, "fixtures/customer-gate-1/packages");
-const releases = ["1.0.0"].map((version) => {
+const args = process.argv.slice(2);
+const value = (name, fallback) => {
+  const index = args.indexOf(name);
+  if (index < 0) return fallback;
+  const result = args[index + 1];
+  if (result === undefined || result.startsWith("--")) throw new Error(`${name} requires a value.`);
+  return result;
+};
+const releaseVersion = value("--version", "1.0.0");
+if (!/^\d+\.\d+\.\d+$/u.test(releaseVersion) || args.some((arg, index) => arg.startsWith("--") && !["--version"].includes(arg) || arg === "--version" && (index === args.length - 1 || args[index + 1]?.startsWith("--")))) {
+  throw new Error("Usage: check-phase-8-packed-packages.mjs [--version <semver>]");
+}
+const releases = [releaseVersion].map((version) => {
   const content = readFileSync(resolve(root, `releases/${version}/package-release-manifest.json`), "utf8");
   const manifest = JSON.parse(content);
   assert.equal(content, canonicalJson(manifest), `Release ${version} manifest must be canonical so its hosted subject digest equals its authority digest.`);
   return manifest;
 });
+const immutableManifest = readFileSync(resolve(root, "releases/1.0.0/package-release-manifest.json"));
+assert.equal(createHash("sha256").update(immutableManifest).digest("hex"), "1d8b40e0073fb24d42f47bc3a0fd763db0a0fb5baf706120f7fe3a2768c13eea", "Accepted 1.0.0 release manifest was modified.");
 const workspaceSpecifier = /^(?:workspace:|link:|file:)/u;
 
 function entries(archive) {
@@ -63,10 +77,11 @@ for (const filename of readdirSync(artifactDirectory).filter((name) => name.ends
 }
 
 const releasedIdentities = new Set();
+const releaseArchives = new Map([...archives].filter(([identity]) => identity.endsWith(`@${releaseVersion}`)));
 for (const release of releases) for (const expected of release.packages) {
   const expectedIdentity = `${expected.package}@${expected.version}`;
   releasedIdentities.add(expectedIdentity);
-  const actual = archives.get(expectedIdentity);
+  const actual = releaseArchives.get(expectedIdentity);
   assert.ok(actual, `Release artifact for ${expected.package}@${expected.version} is missing.`);
   assert.equal(actual.metadata.version, expected.version, `Packed artifact version differs for ${expected.package}.`);
   assert.equal(`sha512-${createHash("sha512").update(actual.archive).digest("base64")}`, expected.integrity, `Packed artifact digest differs for ${expected.package}.`);
@@ -76,7 +91,7 @@ for (const release of releases) for (const expected of release.packages) {
       assert.equal(typeof specifier, "string", `${expected.package} ${section}.${dependency} must be a string.`);
       assert.ok(!workspaceSpecifier.test(specifier), `${expected.package} has a non-release ${section} specifier for ${dependency}.`);
       if (dependency.startsWith("@k-nex/")) {
-        const dependencyArtifact = archives.get(`${dependency}@${specifier}`);
+        const dependencyArtifact = releaseArchives.get(`${dependency}@${specifier}`);
         assert.ok(dependencyArtifact, `${expected.package} depends on ${dependency}, but no packed release artifact exists.`);
         assert.equal(specifier, dependencyArtifact.metadata.version, `${expected.package} must depend on the exact packed ${dependency} version.`);
       }
@@ -84,18 +99,18 @@ for (const release of releases) for (const expected of release.packages) {
   }
 }
 
-assert.deepEqual([...archives.keys()].filter((identity) => identity.startsWith("@k-nex/")).sort(), [...releasedIdentities].sort(), "Packed release closure and manifest package sets differ.");
-for (const identity of releasedIdentities) assert.match(identity, /@1\.0\.0$/u, `First-party packed identity must remain v1.0.0: ${identity}`);
+assert.deepEqual([...releaseArchives.keys()].filter((identity) => identity.startsWith("@k-nex/")).sort(), [...releasedIdentities].sort(), `Packed release ${releaseVersion} closure and manifest package sets differ.`);
+for (const identity of releasedIdentities) assert.match(identity, new RegExp(`@${releaseVersion.replaceAll(".", "\\.")}$`, "u"), `First-party packed identity must remain v${releaseVersion}: ${identity}`);
 for (const release of releases) for (const lock of Object.values(release.factoryLockTemplates)) {
   const filename = `factory-lock-sales-reference-${lock.theme}-${lock.digest.slice(7)}.yaml`;
   const content = readFileSync(resolve(artifactDirectory, filename));
   assert.equal(`sha256:${createHash("sha256").update(content).digest("hex")}`, lock.digest, `Factory lock digest differs for ${lock.theme}.`);
 }
-const salesServer = archives.get("@k-nex/module-sales@1.0.0").packed.get("package/dist/server.js")?.toString("utf8");
+const salesServer = releaseArchives.get(`@k-nex/module-sales@${releaseVersion}`)?.packed.get("package/dist/server.js")?.toString("utf8");
 assert.ok(salesServer, "Packed Sales server entrypoint is missing.");
 const runtimeImports = [...salesServer.matchAll(/import\s*\{([^}]+)\}\s*from\s*["']@k-nex\/runtime["']/gu)]
   .flatMap((match) => match[1].split(",").map((binding) => binding.trim().split(/\s+as\s+/u)[0]));
-const runtimeExports = exportedNames(archives.get("@k-nex/runtime@1.0.0").packed, "package/dist/index.js");
+const runtimeExports = exportedNames(releaseArchives.get(`@k-nex/runtime@${releaseVersion}`).packed, "package/dist/index.js");
 assert.ok(runtimeImports.length > 0, "Packed Sales server must import its runtime ABI explicitly.");
 for (const name of runtimeImports) assert.ok(runtimeExports.has(name), `Packed @k-nex/runtime does not export ${name} required by packed Sales.`);
 process.stdout.write("P8_PACKED_ABI_EXPORT_PASS\n");
