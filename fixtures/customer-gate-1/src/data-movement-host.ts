@@ -87,12 +87,49 @@ function importValueCode(target: Target, mapping: readonly SalesImportMapping[],
   }
 }
 const importUploadRequestByteLimit = 22_369_920;
+const importUploadReadIdleTimeoutMs = 1_000;
+const importUploadReadDeadlineMs = 30_000;
+async function readUploadChunk(reader: ReadableStreamDefaultReader<Uint8Array>, deadline: number): Promise<ReadableStreamReadResult<Uint8Array>> {
+  const remaining = deadline - performance.now();
+  if (remaining <= 0) throw new RangeError("upload body read timed out");
+  const timeoutMs = Math.min(importUploadReadIdleTimeoutMs, remaining);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await new Promise<ReadableStreamReadResult<Uint8Array>>((resolve, reject) => {
+      let settled = false;
+      const finish = (callback: () => void) => {
+        if (settled) return;
+        settled = true;
+        callback();
+      };
+      timer = setTimeout(() => finish(() => reject(new RangeError("upload body read timed out"))), timeoutMs);
+      void reader.read().then(
+        (value) => finish(() => resolve(value)),
+        (error) => finish(() => reject(error))
+      );
+    });
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
 async function boundedUploadBody(request: Request): Promise<Row> {
   const declaredLength = request.headers.get("content-length");
   if (declaredLength !== null && (!/^[0-9]+$/u.test(declaredLength) || Number(declaredLength) > importUploadRequestByteLimit) || request.body === null) throw new RangeError("upload body is invalid");
-  const reader = request.body.getReader(); const chunks: Uint8Array[] = []; let total = 0;
-  try { while (true) { const next = await reader.read(); if (next.done) break; total += next.value.byteLength; if (total <= importUploadRequestByteLimit) chunks.push(next.value); } }
-  finally { reader.releaseLock(); }
+  const reader = request.body.getReader(); const chunks: Uint8Array[] = []; let total = 0; let cancelled = false;
+  const cancelReader = () => { if (cancelled) return; cancelled = true; try { void reader.cancel().catch(() => undefined); } catch {} };
+  try {
+    const deadline = performance.now() + importUploadReadDeadlineMs;
+    while (true) {
+      const next = await readUploadChunk(reader, deadline);
+      if (next.done) break;
+      total += next.value.byteLength;
+      if (total > importUploadRequestByteLimit) { cancelReader(); throw new RangeError("upload body is too large"); }
+      chunks.push(next.value);
+    }
+  } catch (error) {
+    cancelReader();
+    throw error;
+  } finally { reader.releaseLock(); }
   if (total > importUploadRequestByteLimit) throw new RangeError("upload body is too large");
   const bytes = new Uint8Array(total); let offset = 0; for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
   const value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) as unknown;

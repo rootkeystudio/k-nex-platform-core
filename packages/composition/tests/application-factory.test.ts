@@ -362,7 +362,13 @@ describe("create-knex-app", () => {
     expect(importUploadRoute).toContain("inactive-extension-disabled','inactive-extension-not-ready");
     expect(importUploadRoute).toContain("FOR SHARE OF a,s,r,g,x");
     expect(first.files["src/app/api/k-nex/sales/export-artifact/route.ts"]).toContain("readGeneratedSalesExportArtifact");
-    expect(first.files["src/k-nex-sales-data-movement.ts"]).toContain("sales_export_artifacts");
+    const dataMovementHost = first.files["src/k-nex-sales-data-movement.ts"]!;
+    expect(dataMovementHost).toContain("sales_export_artifacts");
+    expect(dataMovementHost).toContain("const importUploadReadIdleTimeoutMs = 1_000");
+    expect(dataMovementHost).toContain("const importUploadReadDeadlineMs = 30_000");
+    expect(dataMovementHost).toContain("await readUploadChunk(reader, deadline)");
+    expect(dataMovementHost).toContain("void reader.cancel().catch(() => undefined)");
+    expect(dataMovementHost).toContain("let settled = false");
     expect(first.files["src/k-nex-sales-data-movement.ts"]).toContain("parseSalesImportCsv");
     expect(first.files["src/k-nex-sales-data-movement.ts"]).toContain("buildSalesExportCsv");
     expect(first.files["src/k-nex-sales-data-movement.ts"]).toContain("salesDedupeMatch");

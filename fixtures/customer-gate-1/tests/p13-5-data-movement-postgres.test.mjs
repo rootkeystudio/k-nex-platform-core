@@ -44,12 +44,59 @@ test("P13.5 parser rejects malformed, oversized, formula, and protected-field in
   ]) assert.throws(() => parseSalesImportCsv(bytes, "sales.object.lead", selected), (error) => error?.code === code);
 });
 
-test("P13.5 fixture upload bounds chunked requests before authorization or database work", async () => {
-  const { createSalesDataMovementEndpoints } = await import("../dist/src/data-movement-host.js"); let chunks = 0; let authorized = false;
-  const body = new ReadableStream({ pull(controller) { if (chunks++ < 23) controller.enqueue(new Uint8Array(1_000_000)); else controller.close(); } });
+test("P13.5 fixture upload cancels chunked requests at the byte bound before authorization or database work", async () => {
+  const { createSalesDataMovementEndpoints } = await import("../dist/src/data-movement-host.js"); let chunks = 0; let cancelled = false; let authorized = false;
+  const body = new ReadableStream({
+    pull(controller) { chunks += 1; controller.enqueue(new Uint8Array(1_000_000)); },
+    cancel() { cancelled = true; }
+  }, { highWaterMark: 0, size() { return 1; } });
   const request = new Request("http://localhost/k-nex/sales/import-upload", { method: "POST", body, duplex: "half", headers: { "content-type": "application/json" } });
   const upload = createSalesDataMovementEndpoints({ resolveDurableSalesAuthority() { authorized = true; throw new Error("must not authorize"); } }).find(({ path }) => path === "/k-nex/sales/import-upload");
-  const response = await upload.handler(request); assert.equal(response.status, 400); assert.deepEqual(await response.json(), { code: "IMPORT_LIMIT_EXCEEDED", status: 400 }); assert.equal(authorized, false);
+  const response = await upload.handler(request); assert.equal(response.status, 400); assert.deepEqual(await response.json(), { code: "IMPORT_LIMIT_EXCEEDED", status: 400 }); assert.equal(cancelled, true); assert.equal(chunks, 23); assert.equal(authorized, false);
+});
+
+test("P13.5 fixture upload times out stalled requests before authorization or database work", async () => {
+  const { createSalesDataMovementEndpoints } = await import("../dist/src/data-movement-host.js"); let pulls = 0; let cancelled = false; let authorized = false;
+  const body = new ReadableStream({
+    pull() { pulls += 1; return new Promise(() => {}); },
+    cancel() { cancelled = true; }
+  });
+  const request = new Request("http://localhost/k-nex/sales/import-upload", { method: "POST", body, duplex: "half", headers: { "content-type": "application/json" } });
+  const upload = createSalesDataMovementEndpoints({ resolveDurableSalesAuthority() { authorized = true; throw new Error("must not authorize"); } }).find(({ path }) => path === "/k-nex/sales/import-upload");
+  const startedAt = Date.now(); const response = await upload.handler(request); const elapsedMs = Date.now() - startedAt;
+  assert.equal(response.status, 400); assert.deepEqual(await response.json(), { code: "IMPORT_LIMIT_EXCEEDED", status: 400 }); assert.equal(cancelled, true); assert.equal(pulls, 1); assert.ok(elapsedMs >= 900 && elapsedMs < 5_000, `stalled upload took ${elapsedMs}ms`); assert.equal(authorized, false);
+});
+
+test("P13.5 fixture upload enforces the overall read deadline when chunks keep arriving", async () => {
+  const { createSalesDataMovementEndpoints } = await import("../dist/src/data-movement-host.js"); let pulls = 0; let cancelled = false; let authorized = false; let clock = 0;
+  const body = new ReadableStream({
+    pull(controller) { pulls += 1; clock += 2_000; controller.enqueue(new Uint8Array(1)); },
+    cancel() { cancelled = true; }
+  }, { highWaterMark: 0, size() { return 1; } });
+  const request = new Request("http://localhost/k-nex/sales/import-upload", { method: "POST", body, duplex: "half", headers: { "content-type": "application/json" } });
+  const upload = createSalesDataMovementEndpoints({ resolveDurableSalesAuthority() { authorized = true; throw new Error("must not authorize"); } }).find(({ path }) => path === "/k-nex/sales/import-upload");
+  const originalNow = performance.now.bind(performance); performance.now = () => clock;
+  let response;
+  try { response = await upload.handler(request); } finally { performance.now = originalNow; }
+  assert.equal(response.status, 400); assert.deepEqual(await response.json(), { code: "IMPORT_LIMIT_EXCEEDED", status: 400 }); assert.equal(cancelled, true); assert.equal(pulls, 15); assert.equal(authorized, false);
+});
+
+test("P13.5 fixture upload ignores a late read settlement after timeout", async () => {
+  const { createSalesDataMovementEndpoints } = await import("../dist/src/data-movement-host.js"); let pulls = 0; let cancelCalls = 0; let authorized = false; let settleLateRead;
+  const lateError = new Error("late upload read");
+  const body = new ReadableStream({
+    pull() { pulls += 1; return new Promise((_resolve, reject) => { settleLateRead = () => reject(lateError); }); },
+    cancel() { cancelCalls += 1; }
+  });
+  const request = new Request("http://localhost/k-nex/sales/import-upload", { method: "POST", body, duplex: "half", headers: { "content-type": "application/json" } });
+  const upload = createSalesDataMovementEndpoints({ resolveDurableSalesAuthority() { authorized = true; throw new Error("must not authorize"); } }).find(({ path }) => path === "/k-nex/sales/import-upload");
+  const originalSetTimeout = globalThis.setTimeout; const unhandled = []; const onUnhandled = (reason) => unhandled.push(reason); process.on("unhandledRejection", onUnhandled);
+  globalThis.setTimeout = (callback, _delay, ...args) => originalSetTimeout(callback, 0, ...args);
+  let response;
+  try { response = await upload.handler(request); } finally { globalThis.setTimeout = originalSetTimeout; }
+  assert.equal(response.status, 400); assert.deepEqual(await response.json(), { code: "IMPORT_LIMIT_EXCEEDED", status: 400 }); assert.equal(cancelCalls, 1); assert.equal(pulls, 1); assert.equal(authorized, false);
+  assert.equal(typeof settleLateRead, "function"); settleLateRead(); await new Promise((resolve) => originalSetTimeout(resolve, 10)); process.off("unhandledRejection", onUnhandled);
+  assert.deepEqual(unhandled, []);
 });
 
 test("P13.5 fixture upload admission CAS denies stale, revoked, disabled, raced, and promoted-away authority with zero rows", { timeout: 180_000 }, async () => {
