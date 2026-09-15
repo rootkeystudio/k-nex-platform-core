@@ -159,11 +159,20 @@
             "source-restore-required"
           ],
           "type": "string"
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/__schema18"
+          },
+          "maxItems": 256,
+          "minItems": 1,
+          "type": "array"
         }
       },
       "required": [
         "graphDigest",
         "phases",
+        "steps",
         "deliveryClassification",
         "rollbackClassification"
       ],
@@ -179,6 +188,25 @@
       "type": "string"
     },
     "__schema18": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 160,
+          "minLength": 3,
+          "pattern": "^[a-z0-9][a-z0-9._:-]*$",
+          "type": "string"
+        },
+        "phase": {
+          "$ref": "#/$defs/__schema17"
+        }
+      },
+      "required": [
+        "id",
+        "phase"
+      ],
+      "type": "object"
+    },
+    "__schema19": {
       "additionalProperties": false,
       "properties": {
         "catalogDigest": {
@@ -233,7 +261,12 @@
       ],
       "type": "object"
     },
-    "__schema19": {
+    "__schema2": {
+      "maxLength": 160,
+      "pattern": "^[a-z0-9][a-z0-9._:-]{2,159}$",
+      "type": "string"
+    },
+    "__schema20": {
       "additionalProperties": false,
       "properties": {
         "cleanRestoreDrill": {
@@ -279,12 +312,7 @@
       ],
       "type": "object"
     },
-    "__schema2": {
-      "maxLength": 160,
-      "pattern": "^[a-z0-9][a-z0-9._:-]{2,159}$",
-      "type": "string"
-    },
-    "__schema20": {
+    "__schema21": {
       "additionalProperties": false,
       "properties": {
         "expiresAt": {
@@ -560,7 +588,7 @@
       "$ref": "#/$defs/__schema13"
     },
     "compatibility": {
-      "$ref": "#/$defs/__schema18"
+      "$ref": "#/$defs/__schema19"
     },
     "directPredecessors": {
       "$ref": "#/$defs/__schema6"
@@ -572,7 +600,7 @@
       "$ref": "#/$defs/__schema12"
     },
     "lifecycle": {
-      "$ref": "#/$defs/__schema20"
+      "$ref": "#/$defs/__schema21"
     },
     "migrations": {
       "$ref": "#/$defs/__schema16"
@@ -581,7 +609,7 @@
       "$ref": "#/$defs/__schema7"
     },
     "protection": {
-      "$ref": "#/$defs/__schema19"
+      "$ref": "#/$defs/__schema20"
     },
     "schemaVersion": {
       "$ref": "#/$defs/__schema1"

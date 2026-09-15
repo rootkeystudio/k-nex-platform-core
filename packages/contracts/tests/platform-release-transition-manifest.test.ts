@@ -50,7 +50,7 @@ const valid = {
   generator: { package: "@k-nex/runtime", sourceVersion: "1.0.0", targetVersion: "1.1.0", sourceSchemaVersion: 1, targetSchemaVersion: 2, managedOutputContractDigest: digest("c") },
   applicationManifest: { sourceSchemaVersion: 1, targetSchemaVersion: 1 },
   framework: { source: sourceFramework, target: targetFramework },
-  migrations: { graphDigest: digest("d"), phases: ["offline-required"], deliveryClassification: "maintenance-required", rollbackClassification: "source-restore-required" },
+  migrations: { graphDigest: digest("d"), phases: ["offline-required"], steps: [{ id: "sales.000029.crm", phase: "offline-required" }], deliveryClassification: "maintenance-required", rollbackClassification: "source-restore-required" },
   compatibility: {
     storedDocuments: "migration-required", settings: "migration-required", themeProfiles: "compatible",
     hotApplicationHostAbiFrom: "1.0.0", hotApplicationHostAbiTo: "1.1.0",

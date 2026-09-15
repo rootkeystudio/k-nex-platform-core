@@ -48,6 +48,7 @@ import { registerMigrationRevisionKeyword } from "./migration-compatibility-plan
 import { registerAuthorizationOwnershipKeyword } from "./authorization-ownership.js";
 import { registerHotApplicationAuthorizationKeyword } from "./hot-application-authorization.js";
 import { registerSystemAdministrationInvariantsKeyword } from "./system-administration-invariants.js";
+import { registerPlatformReleaseTransitionInvariantsKeyword } from "./platform-release-transition-invariants.js";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const ajv = new Ajv2020({ allErrors: true, strict: true });
@@ -57,6 +58,7 @@ registerMigrationRevisionKeyword(ajv);
 registerAuthorizationOwnershipKeyword(ajv);
 registerHotApplicationAuthorizationKeyword(ajv);
 registerSystemAdministrationInvariantsKeyword(ajv);
+registerPlatformReleaseTransitionInvariantsKeyword(ajv);
 ajv.addKeyword({
   keyword: "kNexMaxCanonicalBytes",
   type: "object",
@@ -148,6 +150,7 @@ for (const relativePath of [
   "schemas/trusted-application-build-evidence.v1.schema.json",
   "schemas/migration-compatibility-plan.v1.schema.json",
   "schemas/worker-generation-fence.v1.schema.json",
+  "schemas/platform-release-transition-manifest.v1.schema.json",
   "schemas/application-manifest.v1.schema.json",
   "schemas/event.v1.schema.json",
   "schemas/metric-scalar.v1.schema.json",
@@ -230,6 +233,7 @@ const uiDocumentSchema = await load<AnySchema>("schemas/ui-document.v1.schema.js
 const cmsPageMetadataSchema = await load<AnySchema>("schemas/cms-page-metadata.v1.schema.json");
 const authorizationSchema = await load<AnySchema>("schemas/authorization.v1.schema.json");
 const systemAdministrationSchema = await load<AnySchema>("schemas/system-administration.v1.schema.json");
+const platformReleaseTransitionSchema = await load<AnySchema>("schemas/platform-release-transition-manifest.v1.schema.json");
 const validatePlugin = ajv.compile(pluginSchema);
 const validateAction = ajv.compile(actionSchema);
 const validateAgentTool = ajv.compile(agentToolSchema);
@@ -244,6 +248,7 @@ const validateUiDocument = ajv.compile(uiDocumentSchema);
 const validateCmsPageMetadata = ajv.compile(cmsPageMetadataSchema);
 const validateAuthorization = ajv.compile(authorizationSchema);
 const validateSystemAdministration = ajv.compile(systemAdministrationSchema);
+ajv.compile(platformReleaseTransitionSchema);
 
 const extensionSchemas = {
   "extension-bundle-manifest": { authoring: ExtensionBundleManifestSchema, generated: "schemas/extension-bundle-manifest.v1.schema.json" },
@@ -302,6 +307,9 @@ if (!generatedContracts.artifacts.includes("schemas/authorization.v1.schema.json
 }
 if (!generatedContracts.artifacts.includes("schemas/system-administration.v1.schema.json")) {
   throw new Error("Generated artifact inventory is missing schemas/system-administration.v1.schema.json.");
+}
+if (!generatedContracts.artifacts.includes("schemas/platform-release-transition-manifest.v1.schema.json")) {
+  throw new Error("Generated artifact inventory is missing schemas/platform-release-transition-manifest.v1.schema.json.");
 }
 
 for (const fixture of authorizationFixtures) {

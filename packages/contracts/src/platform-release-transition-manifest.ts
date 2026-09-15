@@ -9,6 +9,7 @@ import { uniqueArray } from "./schema-helpers.js";
 const packageNamePattern = /^@?[a-z0-9][a-z0-9._-]*(?:\/[a-z0-9][a-z0-9._-]*)?$/u;
 const transitionIdPattern = /^[a-z0-9][a-z0-9._:-]{2,159}$/u;
 const reasonCodePattern = /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*$/u;
+const migrationIdSchema = z.string().min(3).max(160).regex(/^[a-z0-9][a-z0-9._:-]*$/u);
 const sha256DigestSchema = z.string().regex(/^sha256:[0-9a-f]{64}$/u);
 const sha512IntegritySchema = z.string().regex(/^sha512-[A-Za-z0-9+/]{86}==$/u);
 const packageNameSchema = z.string().max(214).regex(packageNamePattern);
@@ -75,6 +76,7 @@ export const PlatformReleaseTransitionManifestSchema = z.strictObject({
   migrations: z.strictObject({
     graphDigest: sha256DigestSchema,
     phases: uniqueArray(migrationPhaseSchema).min(1).max(4),
+    steps: z.array(z.strictObject({ id: migrationIdSchema, phase: migrationPhaseSchema })).min(1).max(256),
     deliveryClassification: z.enum(["zero-downtime-eligible", "maintenance-required"]),
     rollbackClassification: z.enum(["source-generation", "source-restore-required"])
   }),
@@ -142,6 +144,15 @@ export const PlatformReleaseTransitionManifestSchema = z.strictObject({
     if (phaseOrder.indexOf(manifest.migrations.phases[index]!) <= phaseOrder.indexOf(manifest.migrations.phases[index - 1]!)) {
       context.addIssue({ code: "custom", path: ["migrations", "phases", index], message: "Migration phases must use canonical execution order." });
     }
+  }
+  const migrationIds = new Set<string>();
+  for (const [index, step] of manifest.migrations.steps.entries()) {
+    if (migrationIds.has(step.id)) context.addIssue({ code: "custom", path: ["migrations", "steps", index, "id"], message: `Migration step is duplicated: ${step.id}.` });
+    migrationIds.add(step.id);
+  }
+  const declaredPhases = [...new Set(manifest.migrations.steps.map(({ phase }) => phase))];
+  if (canonicalJson(declaredPhases) !== canonicalJson(manifest.migrations.phases)) {
+    context.addIssue({ code: "custom", path: ["migrations", "phases"], message: "Migration phases must equal the ordered phases used by migration steps." });
   }
   if (manifest.migrations.rollbackClassification === "source-restore-required" && manifest.protection.cleanRestoreDrill !== "required") {
     context.addIssue({ code: "custom", path: ["protection", "cleanRestoreDrill"], message: "Restore-required rollback requires a clean restore drill." });
