@@ -7,11 +7,11 @@
 
 ## Last completed
 
-PR #35 review requested immutable `1.0.0` restoration, a new `1.1.0` train, a real generated-repository upgrade/protection proof, ADR renumbering, focused-gate hermeticity, bounded upload cancellation/deadlines, and an explicit bounded Sales-reference compiler exception. The independent build/ADR/upload issues are closed. The temporary Sales-reference compiler now has an exact structural path inventory, sole-domain and pre-1.2.0 guards, and a documented extraction deadline.
+PR #35 review requested immutable `1.0.0` restoration, a new `1.1.0` train, a real generated-repository upgrade/protection proof, ADR renumbering, focused-gate hermeticity, bounded upload cancellation/deadlines, and an explicit bounded Sales-reference compiler exception. Independent build/ADR/upload/compiler-boundary issues are closed. The accepted `1.0.0` release, package archives, Sales source, customer/fleet evidence, and content-addressed factory locks are restored byte-for-byte; Phase 13 CRM bytes no longer rewrite that release identity.
 
 ## Validation
 
-Node 24.19/pnpm 11.9: Composition PASS (19 files/176 tests) and build PASS; added/removed Sales path, second-domain, and 1.2.0 mutations all reject through `planCreateKnexApplication`; repository-contract validation and `git diff --check` PASS. No full gate run.
+Immutable-base audit: all 63 existing accepted paths and both historical factory locks equal `origin/main`; six Phase 13-only paths under the old identity are absent; manifest SHA256 is `1d8b40e0073fb24d42f47bc3a0fd763db0a0fb5baf706120f7fe3a2768c13eea`; all 17 archive integrities and hosted/customer bindings match; `git diff --check` PASS. No full gate run.
 
 ## Next
 

@@ -1,11 +1,11 @@
 export declare const salesTaskFixture: Readonly<{
     title: string;
+    status: "open";
 }>;
 export declare const salesOpportunityFixture: Readonly<{
     name: "Platform rollout";
-    stage: "discovery";
-    amount: "1200.50";
-    revision: 1;
+    stage: "qualified";
+    value: "1200.50";
 }>;
 export declare const salesConformanceMetadata: {
     id: string;
