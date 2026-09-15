@@ -269,6 +269,12 @@ The Phase 13 attack list is mandatory. Delivery ownership is closed so no class 
 | P13.9 | prior-release upgrade, backup, restore, rollback, application restart, worker recovery, inventory, or attestation mismatch |
 | P13.10 | verify every prior denial proof, required journey, operational threshold, and pilot/dogfood statement at exact head |
 
+## Temporary Sales-reference compiler boundary
+
+The current generated-host compiler is named `sales-reference-compiler`; it is not a generic application compiler and it admits no second domain. Its executable preconditions require product release `< 1.2.0` and exactly one first-party domain, `module.sales`, derived from the generated package manifest and plugin registration graph. `salesReferenceCompilerBoundary` freezes a disjoint complete generated-path inventory: exact Sales-specific runtime/migration paths plus exact platform paths. The Composition architecture test rejects any missing, added, ambiguous, or unclassified generated path. The Sales side is limited to the present `module.sales` routes, route runtime, Sales host adapters, attachment-receipt command, Sales baseline, and P13.2–P13.8 Sales migrations; platform-owned runtime files remain outside this exception.
+
+Sales module maintainers own this temporary boundary. They must remove or extract it into an accepted multi-domain design before `1.2.0`, Phase 14, admitting any second domain, or making any generic compiler claim—whichever occurs first. Changing the allowlist is not routine product work: it requires the same accepted design, owner, migration, release, and architecture-test update as a new domain boundary.
+
 ## Consequences
 
 - P13.2 has one vocabulary and migration target before schema code begins.

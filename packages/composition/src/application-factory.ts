@@ -26,6 +26,75 @@ import { workspacePageApplicationFiles } from "./workspace-page-application-file
 export type SalesPresetTheme = "minimal" | "neobrutalism";
 export type ApplicationDatabaseMode = "docker-postgres" | "external";
 
+/**
+ * Phase 13 ships one intentionally non-generic compiler: the Sales reference
+ * application. Its domain-specific output is closed here so a second domain or
+ * an unreviewed Sales surface cannot enter the generated host by accretion.
+ */
+export const salesReferenceCompilerBoundary = Object.freeze({
+  name: "sales-reference-compiler",
+  owner: "Sales module maintainers",
+  exitBefore: "1.2.0, Phase 14, a second domain, or any generic compiler claim (whichever comes first)",
+  firstPartyDomains: Object.freeze(["module.sales"]),
+  platformPaths: Object.freeze([
+    ".env.example", ".gitignore", ".k-nex/application-plan.json", ".k-nex/package-release-manifest.json", ".npmrc", "README.md", "compose.yaml", "k-nex.app.json", "next-env.d.ts", "next.config.ts", "package.json", "patches/@payloadcms__db-postgres@3.88.0.patch", "pnpm-lock.yaml", "pnpm-workspace.yaml",
+    "src/app/(auth)/forbidden/page.tsx", "src/app/(auth)/login/page.tsx", "src/app/(payload)/api/[...slug]/route.ts", "src/app/(payload)/api/graphql-playground/route.ts", "src/app/(payload)/api/graphql/route.ts", "src/app/(workspace)/layout.tsx", "src/app/(workspace)/page.tsx",
+    "src/app/(workspace)/system/access/assignments/page.tsx", "src/app/(workspace)/system/access/audit/page.tsx", "src/app/(workspace)/system/access/permissions/page.tsx", "src/app/(workspace)/system/access/roles/[roleId]/page.tsx", "src/app/(workspace)/system/access/roles/page.tsx", "src/app/(workspace)/system/extensions/[extensionId]/page.tsx", "src/app/(workspace)/system/extensions/page.tsx", "src/app/(workspace)/system/operations/[operationId]/page.tsx", "src/app/(workspace)/system/operations/page.tsx", "src/app/(workspace)/system/settings/[settingsId]/page.tsx", "src/app/(workspace)/system/settings/page.tsx", "src/app/(workspace)/system/themes/page.tsx", "src/app/(workspace)/system/themes/profiles/[profileId]/page.tsx", "src/app/(workspace)/system/workspace-pages/[pageId]/page.tsx", "src/app/(workspace)/system/workspace-pages/page.tsx", "src/app/(workspace)/workspace/pages/[pageId]/edit/page.tsx", "src/app/(workspace)/workspace/pages/[pageId]/page.tsx",
+    "src/app/api/health/route.ts", "src/app/api/k-nex/inventory/route.ts", "src/app/api/k-nex/navigation/revision/route.ts", "src/app/api/k-nex/navigation/sidebar/route.ts", "src/app/api/k-nex/workspace-folders/[folderId]/route.ts", "src/app/api/k-nex/workspace-folders/route.ts", "src/app/api/k-nex/workspace-pages/[pageId]/[operation]/route.ts", "src/app/api/k-nex/workspace-pages/[pageId]/actions/[actionId]/route.ts", "src/app/api/k-nex/workspace-pages/[pageId]/session/route.ts", "src/app/api/k-nex/workspace-pages/route.ts", "src/app/api/readiness/route.ts",
+    "src/app/api/system/access/assignments/[assignmentId]/revoke/route.ts", "src/app/api/system/access/assignments/route.ts", "src/app/api/system/access/grants/[grantId]/remove/route.ts", "src/app/api/system/access/roles/[roleId]/permissions/route.ts", "src/app/api/system/access/roles/route.ts", "src/app/api/system/extensions/[extensionId]/operations/[operationId]/execute/route.ts", "src/app/api/system/extensions/[extensionId]/plan/route.ts", "src/app/api/system/settings/[settingsId]/route.ts", "src/app/api/system/themes/profiles/[profileId]/preview/route.ts", "src/app/api/system/themes/profiles/[profileId]/publish/route.ts", "src/app/api/system/themes/profiles/[profileId]/rollback/route.ts", "src/app/api/system/themes/profiles/[profileId]/stage/route.ts",
+    "src/app/components/k-nex-workspace-page-editor.tsx", "src/app/components/k-nex-workspace-page-runtime.tsx", "src/app/components/k-nex-workspace-shell.tsx", "src/app/components/login-form.tsx", "src/app/components/logout-button.tsx", "src/app/layout.tsx", "src/app/styles.css",
+    "src/boot.ts", "src/k-nex-authority.ts", "src/k-nex-bootstrap-owner.ts", "src/k-nex-bootstrap-token.ts", "src/k-nex-doctor.ts", "src/k-nex-identity.ts", "src/k-nex-issue-bootstrap-token.ts", "src/k-nex-readiness.ts", "src/k-nex-realtime.ts", "src/k-nex-registry.ts", "src/k-nex-system-access.ts", "src/k-nex-system-extensions.ts", "src/k-nex-system-operations.ts", "src/k-nex-system-theme-settings.ts", "src/k-nex-theme-runtime.ts", "src/k-nex-users.ts", "src/k-nex-web.ts", "src/k-nex-worker.ts", "src/k-nex-workspace-navigation.ts", "src/k-nex-workspace-page-http.ts", "src/k-nex-workspace-pages.ts",
+    "src/migrations/20260827_000002_knex_bootstrap.ts", "src/migrations/20260829_000007_runtime_extensions.ts", "src/migrations/20260901_000019_authorization.ts", "src/migrations/20260901_000022_static_lifecycle_admission.ts", "src/migrations/20260902_000023_system_administration.ts", "src/migrations/20260903_000026_workspace_pages.ts", "src/migrations/20260903_000027_event_outbox.ts", "src/migrations/20260904_000028_workspace_sidebar_preferences.ts", "src/migrations/20260909_000035_static_rebind_lock_protocol.ts", "src/migrations/index.ts", "src/payload.config.ts", "src/tests/generated-application.test.ts", "tsconfig.json", "tsconfig.scripts.json"
+  ]),
+  runtimePaths: Object.freeze([
+    "src/app/(workspace)/sales/accounts/[id]/page.tsx",
+    "src/app/(workspace)/sales/accounts/page.tsx",
+    "src/app/(workspace)/sales/calendar/page.tsx",
+    "src/app/(workspace)/sales/contacts/[id]/page.tsx",
+    "src/app/(workspace)/sales/contacts/page.tsx",
+    "src/app/(workspace)/sales/exports/page.tsx",
+    "src/app/(workspace)/sales/imports/page.tsx",
+    "src/app/(workspace)/sales/leads/[id]/page.tsx",
+    "src/app/(workspace)/sales/leads/page.tsx",
+    "src/app/(workspace)/sales/notifications/page.tsx",
+    "src/app/(workspace)/sales/opportunities/[id]/page.tsx",
+    "src/app/(workspace)/sales/opportunities/page.tsx",
+    "src/app/(workspace)/sales/page.tsx",
+    "src/app/(workspace)/sales/reports/page.tsx",
+    "src/app/(workspace)/sales/settings/page.tsx",
+    "src/app/(workspace)/sales/settings/pipeline/page.tsx",
+    "src/app/(workspace)/sales/tasks/page.tsx",
+    "src/app/(workspace)/sales/views/page.tsx",
+    "src/app/api/k-nex/sales/actions/[actionId]/route.ts",
+    "src/app/api/k-nex/sales/authority-scopes/route.ts",
+    "src/app/api/k-nex/sales/export-artifact/route.ts",
+    "src/app/api/k-nex/sales/import-upload/route.ts",
+    "src/app/api/k-nex/sales/providers/calendar-reference/webhook/route.ts",
+    "src/app/api/k-nex/sales/providers/email-reference/webhook/route.ts",
+    "src/app/api/k-nex/sales/report-artifact/route.ts",
+    "src/app/api/k-nex/sales/routes/[routeId]/route.ts",
+    "src/app/components/k-nex-sales-route-runtime.tsx",
+    "src/k-nex-issue-attachment-upload-receipt.ts",
+    "src/k-nex-sales-communications.ts",
+    "src/k-nex-sales-data-movement.ts",
+    "src/k-nex-sales-reports.ts",
+    "src/k-nex-sales-routes.ts",
+    "src/k-nex-sales-scope-administration.ts",
+    "src/k-nex-sales-workflows.ts",
+    "src/k-nex-sales-workspace.ts"
+  ]),
+  migrationPaths: Object.freeze([
+    "src/migrations/20260827_000001_sales_baseline.ts",
+    "src/migrations/20260905_000027_crm_core.ts",
+    "src/migrations/20260906_000029_attachment_upload_admissions.ts",
+    "src/migrations/20260907_000030_pipeline_saved_views.ts",
+    "src/migrations/20260907_000031_data_movement.ts",
+    "src/migrations/20260908_000032_communications.ts",
+    "src/migrations/20260908_000033_crm_workflows.ts",
+    "src/migrations/20260908_000034_reports.ts"
+  ])
+});
+
 export interface CreateKnexApplicationOptions {
   readonly applicationId: string;
   readonly applicationName: string;
@@ -111,6 +180,71 @@ export function generatedPnpmWorkspace(providedOverrides: Readonly<Record<string
 }
 
 const verifiedPlanArtifacts = new WeakMap<ApplicationFactoryPlan, ReadonlyMap<string, Uint8Array>>();
+
+const salesReferenceCompilerPaths = new Set([
+  ...salesReferenceCompilerBoundary.runtimePaths,
+  ...salesReferenceCompilerBoundary.migrationPaths
+]);
+const platformCompilerPaths = new Set(salesReferenceCompilerBoundary.platformPaths);
+
+if ([...salesReferenceCompilerPaths].some((path) => platformCompilerPaths.has(path))) {
+  throw new Error("Sales-reference compiler inventory overlaps platform paths.");
+}
+
+function isReleaseBeforeSalesReferenceExit(version: string): boolean {
+  const match = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?$/u.exec(version);
+  if (match === null) return false;
+  const major = Number(match[1]);
+  const minor = Number(match[2]);
+  return major < 1 || major === 1 && minor < 2;
+}
+
+type SalesReferenceCompilerTestMutation = "add-sales-output" | "remove-sales-output" | "second-domain" | "release-1.2.0" | undefined;
+let salesReferenceCompilerTestMutation: SalesReferenceCompilerTestMutation;
+
+/** @internal Test-only negative-path seam. It is unavailable in production. */
+export function setSalesReferenceCompilerTestMutationForTests(mutation: SalesReferenceCompilerTestMutation): void {
+  if (process.env.NODE_ENV !== "test") throw new Error("Sales-reference compiler test mutation is unavailable outside tests.");
+  salesReferenceCompilerTestMutation = mutation;
+}
+
+function applySalesReferenceCompilerTestMutation(files: Record<string, string>): void {
+  switch (salesReferenceCompilerTestMutation) {
+    case undefined: return;
+    case "add-sales-output": files["src/k-nex-sales-unreviewed.ts"] = "export {};\n"; return;
+    case "remove-sales-output": delete files[salesReferenceCompilerBoundary.runtimePaths[0]!]; return;
+    case "second-domain": {
+      const manifest = JSON.parse(files["k-nex.app.json"]!) as { plugins: Array<Record<string, unknown>> };
+      manifest.plugins.push({ id: "module.inventory", package: "@k-nex/module-inventory", version: "1.0.0", enabled: true });
+      files["k-nex.app.json"] = json(manifest);
+      return;
+    }
+    case "release-1.2.0": {
+      const packageJson = JSON.parse(files["package.json"]!) as Record<string, unknown>;
+      files["package.json"] = json({ ...packageJson, version: "1.2.0" });
+      return;
+    }
+  }
+}
+
+function assertSalesReferenceCompilerInventory(files: Readonly<Record<string, string>>, salesFiles: Readonly<Record<string, string>>, platformFiles: Readonly<Record<string, string>>): void {
+  const productRelease = JSON.parse(files["package.json"]!) as { version?: unknown };
+  if (typeof productRelease.version !== "string" || !isReleaseBeforeSalesReferenceExit(productRelease.version)) {
+    throw new Error(`Sales-reference compiler expires before product release ${String(productRelease.version)}.`);
+  }
+  const generatedManifest = ApplicationManifestSchema.parse(JSON.parse(files["k-nex.app.json"]!));
+  const firstPartyDomains = generatedManifest.plugins.filter((plugin) => plugin.id.startsWith("module.")).map((plugin) => plugin.id).sort();
+  if (firstPartyDomains.length !== 1 || firstPartyDomains[0] !== "module.sales") {
+    throw new Error("Sales-reference compiler requires module.sales as its sole first-party domain.");
+  }
+  const unknown = Object.keys(files).filter((path) => !salesReferenceCompilerPaths.has(path) && !platformCompilerPaths.has(path));
+  const unclassifiedSales = Object.keys(salesFiles).filter((path) => !salesReferenceCompilerPaths.has(path));
+  const missingSales = [...salesReferenceCompilerPaths].filter((path) => salesFiles[path] === undefined);
+  const misclassifiedPlatform = Object.keys(platformFiles).filter((path) => !platformCompilerPaths.has(path));
+  if (unknown.length > 0 || unclassifiedSales.length > 0 || missingSales.length > 0 || misclassifiedPlatform.length > 0) {
+    throw new Error(`Sales-reference compiler inventory is invalid: unknown=${unknown.sort().join(",") || "none"}; unclassifiedSales=${unclassifiedSales.sort().join(",") || "none"}; missingSales=${missingSales.sort().join(",") || "none"}; misclassifiedPlatform=${misclassifiedPlatform.sort().join(",") || "none"}.`);
+  }
+}
 
 function artifactFilename(packageName: string, version: string): string {
   return `${packageName.slice(1).replace("/", "-")}-${version}.tgz`;
@@ -679,7 +813,11 @@ export function planCreateKnexApplication(options: CreateKnexApplicationOptions)
   if (options.database === "docker-postgres") {
     files["compose.yaml"] = "services:\n  postgres:\n    image: postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94\n    environment:\n      POSTGRES_DB: knex\n      POSTGRES_PASSWORD: knex\n      POSTGRES_USER: knex\n    ports:\n      - \"5432:5432\"\n    volumes:\n      - postgres-data:/var/lib/postgresql/data\nvolumes:\n  postgres-data:\n";
   }
-  const orderedFiles = Object.freeze(Object.fromEntries(Object.entries(files).sort(([left], [right]) => left.localeCompare(right))));
+  applySalesReferenceCompilerTestMutation(files);
+  const salesFiles = Object.fromEntries([...salesReferenceCompilerPaths].flatMap((path) => files[path] === undefined ? [] : [[path, files[path]]]));
+  const platformFiles = Object.fromEntries(Object.entries(files).filter(([path]) => !salesReferenceCompilerPaths.has(path)));
+  assertSalesReferenceCompilerInventory(files, salesFiles, platformFiles);
+  const orderedFiles = Object.freeze(Object.fromEntries(Object.entries({ ...platformFiles, ...salesFiles }).sort(([left], [right]) => left.localeCompare(right))));
   const orderedArtifactDigests = Object.freeze(Object.fromEntries(Object.entries(artifactDigests).sort(([left], [right]) => left.localeCompare(right))));
   const digest = `sha256:${createHash("sha256").update(canonicalJson({ files: orderedFiles, artifactDigests: orderedArtifactDigests })).digest("hex")}`;
   const plan = Object.freeze({

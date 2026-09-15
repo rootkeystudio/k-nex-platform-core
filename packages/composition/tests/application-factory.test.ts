@@ -9,7 +9,7 @@ import { ApplicationManifestSchema, PackageReleaseManifestSchema, canonicalJson,
 import { afterEach, describe, expect, it } from "vitest";
 
 import { applicationAuthFiles } from "../src/application-auth-files.js";
-import { applyCreateKnexApplication, payloadPostgresPatchDigest, payloadPostgresPatchFilename, payloadPostgresPatchProvenance, payloadPostgresPatchSource, planCreateKnexApplication } from "../src/index.js";
+import { applyCreateKnexApplication, payloadPostgresPatchDigest, payloadPostgresPatchFilename, payloadPostgresPatchProvenance, payloadPostgresPatchSource, planCreateKnexApplication, salesReferenceCompilerBoundary, setSalesReferenceCompilerTestMutationForTests } from "../src/index.js";
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -65,6 +65,74 @@ function fakeGh(root: string, verification: unknown) {
 }
 
 describe("create-knex-app", () => {
+  it("freezes the temporary Sales-reference compiler boundary", () => {
+    expect(salesReferenceCompilerBoundary).toMatchObject({
+      name: "sales-reference-compiler",
+      owner: "Sales module maintainers",
+      exitBefore: "1.2.0, Phase 14, a second domain, or any generic compiler claim (whichever comes first)",
+      firstPartyDomains: ["module.sales"],
+      runtimePaths: [
+        "src/app/(workspace)/sales/accounts/[id]/page.tsx",
+        "src/app/(workspace)/sales/accounts/page.tsx",
+        "src/app/(workspace)/sales/calendar/page.tsx",
+        "src/app/(workspace)/sales/contacts/[id]/page.tsx",
+        "src/app/(workspace)/sales/contacts/page.tsx",
+        "src/app/(workspace)/sales/exports/page.tsx",
+        "src/app/(workspace)/sales/imports/page.tsx",
+        "src/app/(workspace)/sales/leads/[id]/page.tsx",
+        "src/app/(workspace)/sales/leads/page.tsx",
+        "src/app/(workspace)/sales/notifications/page.tsx",
+        "src/app/(workspace)/sales/opportunities/[id]/page.tsx",
+        "src/app/(workspace)/sales/opportunities/page.tsx",
+        "src/app/(workspace)/sales/page.tsx",
+        "src/app/(workspace)/sales/reports/page.tsx",
+        "src/app/(workspace)/sales/settings/page.tsx",
+        "src/app/(workspace)/sales/settings/pipeline/page.tsx",
+        "src/app/(workspace)/sales/tasks/page.tsx",
+        "src/app/(workspace)/sales/views/page.tsx",
+        "src/app/api/k-nex/sales/actions/[actionId]/route.ts",
+        "src/app/api/k-nex/sales/authority-scopes/route.ts",
+        "src/app/api/k-nex/sales/export-artifact/route.ts",
+        "src/app/api/k-nex/sales/import-upload/route.ts",
+        "src/app/api/k-nex/sales/providers/calendar-reference/webhook/route.ts",
+        "src/app/api/k-nex/sales/providers/email-reference/webhook/route.ts",
+        "src/app/api/k-nex/sales/report-artifact/route.ts",
+        "src/app/api/k-nex/sales/routes/[routeId]/route.ts",
+        "src/app/components/k-nex-sales-route-runtime.tsx",
+        "src/k-nex-issue-attachment-upload-receipt.ts",
+        "src/k-nex-sales-communications.ts",
+        "src/k-nex-sales-data-movement.ts",
+        "src/k-nex-sales-reports.ts",
+        "src/k-nex-sales-routes.ts",
+        "src/k-nex-sales-scope-administration.ts",
+        "src/k-nex-sales-workflows.ts",
+        "src/k-nex-sales-workspace.ts"
+      ],
+      migrationPaths: [
+        "src/migrations/20260827_000001_sales_baseline.ts",
+        "src/migrations/20260905_000027_crm_core.ts",
+        "src/migrations/20260906_000029_attachment_upload_admissions.ts",
+        "src/migrations/20260907_000030_pipeline_saved_views.ts",
+        "src/migrations/20260907_000031_data_movement.ts",
+        "src/migrations/20260908_000032_communications.ts",
+        "src/migrations/20260908_000033_crm_workflows.ts",
+        "src/migrations/20260908_000034_reports.ts"
+      ]
+    });
+
+    expect(salesReferenceCompilerBoundary.platformPaths).toHaveLength(103);
+    const options = { applicationId: "sales-boundary", applicationName: "Sales Boundary", theme: "minimal", database: "external", primaryCurrency: "USD" } as const;
+    expect(() => planCreateKnexApplication(options)).not.toThrow();
+    const expectRejectedPlan = (mutation: "add-sales-output" | "remove-sales-output" | "second-domain" | "release-1.2.0", error: RegExp): void => {
+      setSalesReferenceCompilerTestMutationForTests(mutation);
+      try { expect(() => planCreateKnexApplication(options)).toThrow(error); } finally { setSalesReferenceCompilerTestMutationForTests(undefined); }
+    };
+    expectRejectedPlan("add-sales-output", /unknown=src\/k-nex-sales-unreviewed\.ts/u);
+    expectRejectedPlan("remove-sales-output", /missingSales=src\/app\/\(workspace\)\/sales\/accounts\/\[id\]\/page\.tsx/u);
+    expectRejectedPlan("second-domain", /sole first-party domain/u);
+    expectRejectedPlan("release-1.2.0", /expires before product release 1\.2\.0/u);
+  });
+
   it("serializes generated JSX application names", () => {
     for (const applicationName of ["Workspace {alpha}", 'Workspace "alpha"', "Workspace\nalpha", "Workspace\u0000\u001f\talpha"]) {
       const files = applicationAuthFiles({ applicationId: "customer-alpha", applicationName, theme: "minimal" });
