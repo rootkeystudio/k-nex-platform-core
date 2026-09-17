@@ -72,7 +72,8 @@ async function hostedRelease(path, content) {
   const bundle = path === sourcePath ? sourceAttestationBundle : targetAttestationBundle;
   const verifyArgs = ["attestation", "verify", absolute(path)];
   if (bundle !== undefined) verifyArgs.push("--bundle", absolute(bundle));
-  verifyArgs.push("--repo", repository, "--predicate-type", "https://k-nex.dev/release-manifest/v1", "--format", "json");
+  verifyArgs.push("--repo", repository, "--signer-workflow", `${repository}/.github/workflows/${workflow}`, "--deny-self-hosted-runners",
+    "--predicate-type", "https://k-nex.dev/release-manifest/v1", "--format", "json");
   const output = execFileSync("gh", verifyArgs, { encoding: "utf8" });
   const entries = JSON.parse(output);
   if (!Array.isArray(entries) || entries.length === 0) throw new Error(`${path} has no trusted hosted release attestation.`);
@@ -107,7 +108,8 @@ if (!check) {
   const verified = verifyPlatformReleaseTransitionArtifact(content, input);
   const verifyArgs = ["attestation", "verify", output];
   if (transitionAttestationBundle !== undefined) verifyArgs.push("--bundle", absolute(transitionAttestationBundle));
-  verifyArgs.push("--repo", repository, "--predicate-type", "https://k-nex.dev/platform-release-transition/v1", "--format", "json");
+  verifyArgs.push("--repo", repository, "--signer-workflow", `${repository}/.github/workflows/${workflow}`, "--deny-self-hosted-runners",
+    "--predicate-type", "https://k-nex.dev/platform-release-transition/v1", "--format", "json");
   const hostedOutput = execFileSync("gh", verifyArgs, { encoding: "utf8" });
   const entries = JSON.parse(hostedOutput);
   if (!Array.isArray(entries) || entries.length === 0) throw new Error("Transition artifact has no trusted hosted attestation.");
