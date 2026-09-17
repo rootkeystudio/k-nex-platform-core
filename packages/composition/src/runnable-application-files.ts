@@ -55,16 +55,23 @@ Before starting this application, deploy the K-Nex administration operator as a 
 
 ## Local development
 
-Copy \`.env.example\` to \`.env\`, set every value, then run:
+Copy \`.env.example\` to \`.env\`, set every value, then run the steps in this order. \`knex:doctor\` reports readiness, which requires the schema, the owner, and a reachable administration operator, so it runs after those exist rather than before them:
 
 \`\`\`bash
 pnpm install --frozen-lockfile
-pnpm knex:doctor
+pnpm build
 ${options.database === "docker-postgres" ? "pnpm knex:db:up\n" : ""}pnpm knex:migrate
 pnpm knex:issue-bootstrap-token -- --output .k-nex-bootstrap-token
 pnpm knex:bootstrap-owner -- --token-file .k-nex-bootstrap-token
+pnpm knex:doctor
 pnpm dev
 \`\`\`
+
+Run \`pnpm knex:worker\` alongside \`pnpm dev\`: reminders, notifications, exports, and provider delivery are processed by that worker, not by the web process.
+
+## Communication providers
+
+This release ships one bounded reference provider for email and calendar. \`K_NEX_REFERENCE_PROVIDER_ENDPOINT\` accepts only \`http://127.0.0.1/k-nex/reference-provider\`, and that endpoint is something you run: no SMTP, calendar, or third-party integration is included. Until a provider configuration is activated, the email and calendar actions fail closed with \`PROVIDER_UNAVAILABLE\` rather than accepting messages that cannot be delivered.
 
 ## Attachment upload receipts
 

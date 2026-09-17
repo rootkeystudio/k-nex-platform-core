@@ -838,15 +838,18 @@ function planKnexApplication(options: CreateKnexApplicationOptions, includeRealt
         build: "pnpm build:scripts && next build --webpack",
         "build:scripts": "tsc -p tsconfig.scripts.json",
         dev: "next dev --webpack",
-        "knex:bootstrap-owner": "node dist/k-nex-bootstrap-owner.js",
+        // next and payload load .env themselves; these plain node entrypoints
+        // do not, so without this an operator who configured .env would watch
+        // knex:migrate succeed and knex:doctor report missing configuration.
+        "knex:bootstrap-owner": "node --env-file-if-exists=.env dist/k-nex-bootstrap-owner.js",
         ...(options.database === "docker-postgres" ? { "knex:db:up": "docker compose up -d postgres" } : {}),
-        "knex:doctor": "node dist/k-nex-doctor.js",
-        "knex:issue-attachment-upload-receipt": "node dist/k-nex-issue-attachment-upload-receipt.js",
-        "knex:issue-bootstrap-token": "node dist/k-nex-issue-bootstrap-token.js",
+        "knex:doctor": "node --env-file-if-exists=.env dist/k-nex-doctor.js",
+        "knex:issue-attachment-upload-receipt": "node --env-file-if-exists=.env dist/k-nex-issue-attachment-upload-receipt.js",
+        "knex:issue-bootstrap-token": "node --env-file-if-exists=.env dist/k-nex-issue-bootstrap-token.js",
         "knex:migrate": "payload migrate",
-        start: "node dist/k-nex-web.js",
+        start: "node --env-file-if-exists=.env dist/k-nex-web.js",
         test: "node --test dist/tests/*.test.js",
-        "knex:worker": "node dist/k-nex-worker.js"
+        "knex:worker": "node --env-file-if-exists=.env dist/k-nex-worker.js"
       },
       dependencies,
       devDependencies: { "@types/node": "24.13.3", "@types/react": "19.2.18", "@types/react-dom": "19.2.4", typescript: "6.0.3" }

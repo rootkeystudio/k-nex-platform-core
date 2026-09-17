@@ -569,13 +569,13 @@ describe("create-knex-app", () => {
     expect(packageJson.scripts).toMatchObject({
       build: "pnpm build:scripts && next build --webpack",
       dev: "next dev --webpack",
-      "knex:bootstrap-owner": "node dist/k-nex-bootstrap-owner.js",
-      "knex:issue-bootstrap-token": "node dist/k-nex-issue-bootstrap-token.js",
+      "knex:bootstrap-owner": "node --env-file-if-exists=.env dist/k-nex-bootstrap-owner.js",
+      "knex:issue-bootstrap-token": "node --env-file-if-exists=.env dist/k-nex-issue-bootstrap-token.js",
       "knex:db:up": "docker compose up -d postgres",
-      "knex:doctor": "node dist/k-nex-doctor.js",
+      "knex:doctor": "node --env-file-if-exists=.env dist/k-nex-doctor.js",
       "knex:migrate": "payload migrate",
-      "knex:worker": "node dist/k-nex-worker.js",
-      start: "node dist/k-nex-web.js"
+      "knex:worker": "node --env-file-if-exists=.env dist/k-nex-worker.js",
+      start: "node --env-file-if-exists=.env dist/k-nex-web.js"
     });
     expect(packageJson.scripts).not.toHaveProperty("knex:readiness");
     const applicationPlan = JSON.parse(first.files[".k-nex/application-plan.json"]!);
