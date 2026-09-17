@@ -86,7 +86,7 @@ for (const [index, step] of migrationSet.steps.entries()) {
   assert.match(step.id, /^[0-9]{8}_[0-9]{6}_[a-z0-9_]+$/u, `Accepted Phase13 migration-set step ${index} ID is invalid.`);
   assert.equal(step.phase, "offline-required", `Accepted Phase13 migration-set step ${index} phase changed.`);
 }
-assert.equal(migrationSet.steps.length, 8, "Accepted Phase13 migration-set length changed; stop for explicit migration review.");
+assert.equal(migrationSet.steps.length, 9, "Accepted Phase13 migration-set length changed; stop for explicit migration review.");
 assert.deepEqual(migrationSet.steps.map(({ id }) => id), appendedMigrations,
   "Accepted Phase13 migration set differs from the migrations the target factory appends to the attested 1.0.0 registry.");
 

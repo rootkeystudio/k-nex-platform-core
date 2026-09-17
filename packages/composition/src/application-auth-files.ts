@@ -1,5 +1,7 @@
 import { supportedFrameworkTuple } from "@k-nex/contracts";
 
+import { platformReleaseIdentity, platformReleaseRevision } from "./platform-release-revision.js";
+
 export interface ApplicationAuthFilesOptions {
   readonly applicationId: string;
   readonly applicationName: string;
@@ -1997,7 +1999,7 @@ export async function GET() {
 `;
 }
 
-function readinessSource(theme: ApplicationAuthFilesOptions["theme"]): string {
+function readinessSource(theme: ApplicationAuthFilesOptions["theme"], platformRelease: string): string {
   const themeResolver = theme === "minimal" ? "resolveMinimalThemeProfile" : "resolveNeobrutalismThemeProfile";
   return `import { createHash } from "node:crypto";
 import { lstatSync, readFileSync, readdirSync } from "node:fs";
@@ -2037,7 +2039,8 @@ const expectedMigrationNames = Object.freeze([
   "20260908_000032_communications",
   "20260908_000033_crm_workflows",
   "20260908_000034_reports",
-  "20260909_000035_static_rebind_lock_protocol"
+  "20260909_000035_static_rebind_lock_protocol",
+  "20260909_000036_release_revision"
 ]);
 const expectedRouteSources = Object.freeze([
   "src/app/(auth)/forbidden/page.tsx",
@@ -2337,7 +2340,14 @@ export async function reconcileKnexReadiness(payload: Payload) {
   const root = resolve(process.cwd());
   const { release } = reconcileSource(root);
   const pool = payload.db.pool as RuntimeExtensionPool;
-  await assertMigrationReadiness({ pool, applicationId: kNexIdentity.applicationId, artifactRevision: 1, releaseRevision: "platform-" + release.release.version + "-bootstrap" });
+  // The database reaches this release either through the bootstrap migration
+  // on a fresh install or through this release's release-revision migration on
+  // an upgrade, and both arrive at the same recorded identity. Expecting the
+  // bootstrap identity instead left every upgraded database permanently
+  // not-ready, because its bootstrap still names the predecessor release.
+  if (release.release.version !== ${JSON.stringify(platformRelease)}) fail("Application release manifest does not match the generated release.");
+  await assertMigrationReadiness({ pool, applicationId: kNexIdentity.applicationId,
+    artifactRevision: ${platformReleaseRevision(platformRelease)}, releaseRevision: ${JSON.stringify(platformReleaseIdentity(platformRelease))} });
   await assertSalesSchema(pool);
   await assertReportingTimezone(pool);
   await bootstrapApplicationTheme(payload);
@@ -2783,7 +2793,7 @@ export function applicationAuthFiles(options: ApplicationAuthFilesOptions): Read
     "src/k-nex-identity.ts": identitySource(options.applicationId),
     "src/k-nex-issue-attachment-upload-receipt.ts": issueAttachmentUploadReceiptSource(),
     "src/k-nex-issue-bootstrap-token.ts": issueTokenSource(),
-    "src/k-nex-readiness.ts": readinessSource(options.theme),
+    "src/k-nex-readiness.ts": readinessSource(options.theme, options.themeReleaseVersion ?? supportedFrameworkTuple.core),
     "src/k-nex-realtime.ts": realtimeSource(),
     "src/k-nex-theme-runtime.ts": themeRuntimeSource(options.theme, themeReleaseVersion),
     "src/k-nex-sales-routes.ts": salesRouteRuntimeSource(),

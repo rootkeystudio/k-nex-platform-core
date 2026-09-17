@@ -5,6 +5,7 @@ import { gunzipSync } from "node:zlib";
 
 import { ApplicationManifestSchema, canonicalJson, supportedFrameworkTuple, type ApplicationManifest, type PackageReleaseManifestAuthority, type VerifiedPackageReleaseManifest } from "@k-nex/contracts";
 import { applicationAuthFiles } from "./application-auth-files.js";
+import { platformReleaseIdentity, platformReleaseRevision } from "./platform-release-revision.js";
 import { crmCoreMigrationSource as canonicalCrmCoreMigrationSource } from "./crm-core-migration-template.js";
 import { dataMovementMigrationSource } from "./data-movement-migration-template.js";
 import { dataMovementHostSource } from "./data-movement-host-template.js";
@@ -47,7 +48,7 @@ export const salesReferenceCompilerBoundary = Object.freeze({
     "src/app/api/system/access/assignments/[assignmentId]/revoke/route.ts", "src/app/api/system/access/assignments/route.ts", "src/app/api/system/access/grants/[grantId]/remove/route.ts", "src/app/api/system/access/roles/[roleId]/permissions/route.ts", "src/app/api/system/access/roles/route.ts", "src/app/api/system/extensions/[extensionId]/operations/[operationId]/execute/route.ts", "src/app/api/system/extensions/[extensionId]/plan/route.ts", "src/app/api/system/settings/[settingsId]/route.ts", "src/app/api/system/themes/profiles/[profileId]/preview/route.ts", "src/app/api/system/themes/profiles/[profileId]/publish/route.ts", "src/app/api/system/themes/profiles/[profileId]/rollback/route.ts", "src/app/api/system/themes/profiles/[profileId]/stage/route.ts",
     "src/app/components/k-nex-workspace-page-editor.tsx", "src/app/components/k-nex-workspace-page-runtime.tsx", "src/app/components/k-nex-workspace-shell.tsx", "src/app/components/login-form.tsx", "src/app/components/logout-button.tsx", "src/app/layout.tsx", "src/app/styles.css",
     "src/boot.ts", "src/k-nex-authority.ts", "src/k-nex-bootstrap-owner.ts", "src/k-nex-bootstrap-token.ts", "src/k-nex-doctor.ts", "src/k-nex-identity.ts", "src/k-nex-issue-bootstrap-token.ts", "src/k-nex-readiness.ts", "src/k-nex-realtime.ts", "src/k-nex-registry.ts", "src/k-nex-system-access.ts", "src/k-nex-system-extensions.ts", "src/k-nex-system-operations.ts", "src/k-nex-system-theme-settings.ts", "src/k-nex-theme-runtime.ts", "src/k-nex-users.ts", "src/k-nex-web.ts", "src/k-nex-worker.ts", "src/k-nex-workspace-navigation.ts", "src/k-nex-workspace-page-http.ts", "src/k-nex-workspace-pages.ts",
-    "src/migrations/20260827_000002_knex_bootstrap.ts", "src/migrations/20260829_000007_runtime_extensions.ts", "src/migrations/20260901_000019_authorization.ts", "src/migrations/20260901_000022_static_lifecycle_admission.ts", "src/migrations/20260902_000023_system_administration.ts", "src/migrations/20260903_000026_workspace_pages.ts", "src/migrations/20260903_000027_event_outbox.ts", "src/migrations/20260904_000028_workspace_sidebar_preferences.ts", "src/migrations/20260909_000035_static_rebind_lock_protocol.ts", "src/migrations/index.ts", "src/payload.config.ts", "src/tests/generated-application.test.ts", "tsconfig.json", "tsconfig.scripts.json"
+    "src/migrations/20260827_000002_knex_bootstrap.ts", "src/migrations/20260829_000007_runtime_extensions.ts", "src/migrations/20260901_000019_authorization.ts", "src/migrations/20260901_000022_static_lifecycle_admission.ts", "src/migrations/20260902_000023_system_administration.ts", "src/migrations/20260903_000026_workspace_pages.ts", "src/migrations/20260903_000027_event_outbox.ts", "src/migrations/20260904_000028_workspace_sidebar_preferences.ts", "src/migrations/20260909_000035_static_rebind_lock_protocol.ts", "src/migrations/20260909_000036_release_revision.ts", "src/migrations/index.ts", "src/payload.config.ts", "src/tests/generated-application.test.ts", "tsconfig.json", "tsconfig.scripts.json"
   ]),
   runtimePaths: Object.freeze([
     "src/app/(workspace)/sales/accounts/[id]/page.tsx",
@@ -693,6 +694,40 @@ export async function down({ db }: MigrateDownArgs): Promise<void> {
 `;
 }
 
+/**
+ * A fresh install reaches this release through the bootstrap migration, which
+ * an upgraded install cannot re-run: its bytes are append-only and still name
+ * the release that generated them. This step advances the database to the
+ * release it is now running, so both arrive at the same identity, and it fails
+ * closed rather than leaving readiness to discover a stale one. Rollback is by
+ * source restore, so there is no reverse step to write.
+ */
+function releaseRevisionMigrationSource(applicationId: string, platformRelease: string): string {
+  const revision = platformReleaseRevision(platformRelease);
+  return `import { sql, type MigrateDownArgs, type MigrateUpArgs } from "@payloadcms/db-postgres";
+
+export async function up({ db }: MigrateUpArgs): Promise<void> {
+  await db.execute(sql.raw(\`DO $$
+DECLARE advanced integer;
+BEGIN
+  UPDATE "k_nex_release_revision"
+     SET "predecessor_revision" = "revision", "revision" = ${revision},
+         "release_revision" = '${platformReleaseIdentity(platformRelease)}'
+   WHERE "application_id" = '${applicationId}' AND "revision" < ${revision};
+  GET DIAGNOSTICS advanced = ROW_COUNT;
+  IF advanced <> 1 THEN
+    RAISE EXCEPTION 'k_nex_release_revision did not advance to ${platformReleaseIdentity(platformRelease)} for ${applicationId}';
+  END IF;
+END $$;\`));
+}
+
+export async function down({ db }: MigrateDownArgs): Promise<void> {
+  void db;
+  throw new Error("Platform release revision ${revision} is forward-only; recover the predecessor release by restoring its protected source and database.");
+}
+`;
+}
+
 function bootstrapMigrationSource(applicationId: string, platformRelease: string): string {
   return `import { sql, type MigrateDownArgs, type MigrateUpArgs } from "@payloadcms/db-postgres";
 
@@ -878,7 +913,8 @@ function planKnexApplication(options: CreateKnexApplicationOptions, includeRealt
     "src/migrations/20260908_000033_crm_workflows.ts": crmWorkflowsMigrationSource(),
     "src/migrations/20260908_000034_reports.ts": reportsMigrationSource(options.primaryCurrency === undefined ? {} : { primaryCurrency: options.primaryCurrency }),
     "src/migrations/20260909_000035_static_rebind_lock_protocol.ts": `import { kNexStaticRebindLockProtocolSchemaMigration } from "@k-nex/payload-adapter";\n\nexport const up = kNexStaticRebindLockProtocolSchemaMigration.up;\nexport const down = kNexStaticRebindLockProtocolSchemaMigration.down;\n`,
-    "src/migrations/index.ts": `import * as baseline from "./20260827_000001_sales_baseline.js";\nimport * as bootstrap from "./20260827_000002_knex_bootstrap.js";\nimport * as runtimeExtensions from "./20260829_000007_runtime_extensions.js";\nimport * as authorization from "./20260901_000019_authorization.js";\nimport * as staticLifecycleAdmission from "./20260901_000022_static_lifecycle_admission.js";\nimport * as systemAdministration from "./20260902_000023_system_administration.js";\nimport * as workspacePages from "./20260903_000026_workspace_pages.js";\nimport * as eventOutbox from "./20260903_000027_event_outbox.js";\nimport * as workspaceSidebarPreferences from "./20260904_000028_workspace_sidebar_preferences.js";\nimport * as crmCore from "./20260905_000027_crm_core.js";\nimport * as attachmentUploadAdmissions from "./20260906_000029_attachment_upload_admissions.js";\nimport * as pipelineSavedViews from "./20260907_000030_pipeline_saved_views.js";\nimport * as dataMovement from "./20260907_000031_data_movement.js";\nimport * as communications from "./20260908_000032_communications.js";\nimport * as crmWorkflows from "./20260908_000033_crm_workflows.js";\nimport * as reports from "./20260908_000034_reports.js";\nimport * as staticRebindLockProtocol from "./20260909_000035_static_rebind_lock_protocol.js";\n\nexport const migrations = [\n  { name: "20260827_000001_sales_baseline", up: baseline.up, down: baseline.down },\n  { name: "20260827_000002_knex_bootstrap", up: bootstrap.up, down: bootstrap.down },\n  { name: "20260829_000007_runtime_extensions", up: runtimeExtensions.up, down: runtimeExtensions.down },\n  { name: "20260901_000019_authorization", up: authorization.up, down: authorization.down },\n  { name: "20260901_000022_static_lifecycle_admission", up: staticLifecycleAdmission.up, down: staticLifecycleAdmission.down },\n  { name: "20260902_000023_system_administration", up: systemAdministration.up, down: systemAdministration.down },\n  { name: "20260903_000026_workspace_pages", up: workspacePages.up, down: workspacePages.down },\n  { name: "20260903_000027_event_outbox", up: eventOutbox.up, down: eventOutbox.down },\n  { name: "20260904_000028_workspace_sidebar_preferences", up: workspaceSidebarPreferences.up, down: workspaceSidebarPreferences.down },\n  { name: "20260905_000027_crm_core", up: crmCore.up, down: crmCore.down },\n  { name: "20260906_000029_attachment_upload_admissions", up: attachmentUploadAdmissions.up, down: attachmentUploadAdmissions.down },\n  { name: "20260907_000030_pipeline_saved_views", up: pipelineSavedViews.up, down: pipelineSavedViews.down },\n  { name: "20260907_000031_data_movement", up: dataMovement.up, down: dataMovement.down },\n  { name: "20260908_000032_communications", up: communications.up, down: communications.down },\n  { name: "20260908_000033_crm_workflows", up: crmWorkflows.up, down: crmWorkflows.down },\n  { name: "20260908_000034_reports", up: reports.up, down: reports.down },\n  { name: "20260909_000035_static_rebind_lock_protocol", up: staticRebindLockProtocol.up, down: staticRebindLockProtocol.down }\n];\n`,
+    "src/migrations/20260909_000036_release_revision.ts": releaseRevisionMigrationSource(options.applicationId, release?.release.version ?? currentReleaseVersion),
+    "src/migrations/index.ts": `import * as baseline from "./20260827_000001_sales_baseline.js";\nimport * as bootstrap from "./20260827_000002_knex_bootstrap.js";\nimport * as runtimeExtensions from "./20260829_000007_runtime_extensions.js";\nimport * as authorization from "./20260901_000019_authorization.js";\nimport * as staticLifecycleAdmission from "./20260901_000022_static_lifecycle_admission.js";\nimport * as systemAdministration from "./20260902_000023_system_administration.js";\nimport * as workspacePages from "./20260903_000026_workspace_pages.js";\nimport * as eventOutbox from "./20260903_000027_event_outbox.js";\nimport * as workspaceSidebarPreferences from "./20260904_000028_workspace_sidebar_preferences.js";\nimport * as crmCore from "./20260905_000027_crm_core.js";\nimport * as attachmentUploadAdmissions from "./20260906_000029_attachment_upload_admissions.js";\nimport * as pipelineSavedViews from "./20260907_000030_pipeline_saved_views.js";\nimport * as dataMovement from "./20260907_000031_data_movement.js";\nimport * as communications from "./20260908_000032_communications.js";\nimport * as crmWorkflows from "./20260908_000033_crm_workflows.js";\nimport * as reports from "./20260908_000034_reports.js";\nimport * as staticRebindLockProtocol from "./20260909_000035_static_rebind_lock_protocol.js";\nimport * as releaseRevision from "./20260909_000036_release_revision.js";\n\nexport const migrations = [\n  { name: "20260827_000001_sales_baseline", up: baseline.up, down: baseline.down },\n  { name: "20260827_000002_knex_bootstrap", up: bootstrap.up, down: bootstrap.down },\n  { name: "20260829_000007_runtime_extensions", up: runtimeExtensions.up, down: runtimeExtensions.down },\n  { name: "20260901_000019_authorization", up: authorization.up, down: authorization.down },\n  { name: "20260901_000022_static_lifecycle_admission", up: staticLifecycleAdmission.up, down: staticLifecycleAdmission.down },\n  { name: "20260902_000023_system_administration", up: systemAdministration.up, down: systemAdministration.down },\n  { name: "20260903_000026_workspace_pages", up: workspacePages.up, down: workspacePages.down },\n  { name: "20260903_000027_event_outbox", up: eventOutbox.up, down: eventOutbox.down },\n  { name: "20260904_000028_workspace_sidebar_preferences", up: workspaceSidebarPreferences.up, down: workspaceSidebarPreferences.down },\n  { name: "20260905_000027_crm_core", up: crmCore.up, down: crmCore.down },\n  { name: "20260906_000029_attachment_upload_admissions", up: attachmentUploadAdmissions.up, down: attachmentUploadAdmissions.down },\n  { name: "20260907_000030_pipeline_saved_views", up: pipelineSavedViews.up, down: pipelineSavedViews.down },\n  { name: "20260907_000031_data_movement", up: dataMovement.up, down: dataMovement.down },\n  { name: "20260908_000032_communications", up: communications.up, down: communications.down },\n  { name: "20260908_000033_crm_workflows", up: crmWorkflows.up, down: crmWorkflows.down },\n  { name: "20260908_000034_reports", up: reports.up, down: reports.down },\n  { name: "20260909_000035_static_rebind_lock_protocol", up: staticRebindLockProtocol.up, down: staticRebindLockProtocol.down },\n  { name: "20260909_000036_release_revision", up: releaseRevision.up, down: releaseRevision.down }\n];\n`,
     "src/payload.config.ts": payloadConfigSource(options.applicationId),
   };
   if (releaseManifest !== undefined) files[".k-nex/package-release-manifest.json"] = releaseManifest;

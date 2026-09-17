@@ -34,6 +34,10 @@
     {
       "id": "20260909_000035_static_rebind_lock_protocol",
       "phase": "offline-required"
+    },
+    {
+      "id": "20260909_000036_release_revision",
+      "phase": "offline-required"
     }
   ],
   "targetRelease": "1.1.0"

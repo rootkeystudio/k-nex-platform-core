@@ -195,7 +195,7 @@ describe("create-knex-app", () => {
       ]
     });
 
-    expect(salesReferenceCompilerBoundary.platformPaths).toHaveLength(103);
+    expect(salesReferenceCompilerBoundary.platformPaths).toHaveLength(104);
     const options = { applicationId: "sales-boundary", applicationName: "Sales Boundary", theme: "minimal", database: "external", primaryCurrency: "USD" } as const;
     expect(() => planCreateKnexApplication(options)).not.toThrow();
     const expectRejectedPlan = (mutation: "add-sales-output" | "remove-sales-output" | "second-domain", error: RegExp): void => {
@@ -298,7 +298,8 @@ describe("create-knex-app", () => {
       "20260908_000032_communications",
       "20260908_000033_crm_workflows",
       "20260908_000034_reports",
-      "20260909_000035_static_rebind_lock_protocol"
+      "20260909_000035_static_rebind_lock_protocol",
+      "20260909_000036_release_revision"
     ]);
     const attachmentAdmissions = first.files["src/migrations/20260906_000029_attachment_upload_admissions.ts"]!;
     expect(attachmentAdmissions).toContain('CREATE TABLE "k_nex_sales_attachment_upload_admissions"');
