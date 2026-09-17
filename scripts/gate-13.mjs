@@ -3,6 +3,8 @@ import { spawnSync } from "node:child_process";
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 
+import { assertEvidenceLinkage } from "./lib/phase-13-evidence-linkage.mjs";
+
 const root = resolve(import.meta.dirname, "..");
 const read = (path) => readFileSync(resolve(root, path), "utf8");
 
@@ -28,7 +30,8 @@ assert.match(releaseAuthorityInputs.stdout, /^RELEASE_AUTHORITY_INPUTS_PASS \d+$
 const releaseAuthorityTests = spawnSync(process.execPath, [
   "--test",
   "scripts/check-release-authority-inputs.test.mjs",
-  "scripts/generate-phase-13-transition-policy.test.mjs"
+  "scripts/generate-phase-13-transition-policy.test.mjs",
+  "scripts/lib/phase-13-evidence-linkage.test.mjs"
 ], { cwd: root, encoding: "utf8" });
 assert.equal(releaseAuthorityTests.status, 0,
   `Gate 13 requires the attested release-input guards to hold:\n${releaseAuthorityTests.stdout}${releaseAuthorityTests.stderr}`);
@@ -89,12 +92,7 @@ assert.equal(evidence.attacks.length, 15, "Gate 13 must execute all 15 frozen co
 assert.equal(evidence.requiredAttackClasses.length, 19, "Gate 13 must cover all 19 plan attack classes.");
 assert.equal(evidence.journeys.length, 9, "Gate 13 must execute all nine frozen CRM journeys.");
 assert.ok(evidence.evidenceClasses.length >= 20, "Gate 13 fixture-readiness evidence matrix is incomplete.");
-for (const collection of [evidence.attacks, evidence.requiredAttackClasses, evidence.journeys, evidence.evidenceClasses]) {
-  for (const item of collection) {
-    assert.equal(item.outcome, "observed", `Gate 13 evidence was not observed: ${item.id || item.scenario}`);
-    assert.ok(Array.isArray(item.evidence) && item.evidence.length > 0, `Gate 13 evidence has no executed proof: ${item.id || item.scenario}`);
-  }
-}
+assertEvidenceLinkage(evidence);
 assert.deepEqual(evidence.evidenceClass, {
   classification: "controlled-fixture",
   applicationRelease: "1.1.0",

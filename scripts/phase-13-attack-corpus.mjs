@@ -180,6 +180,18 @@ const proofs = [
 const proofKey = (id, name) => `node:${id}:${name}`;
 const evidence = (id, name) => proofKey(id, name);
 
+/**
+ * An outcome is a function of the proofs this run actually executed, never a
+ * literal: a claim that reports "observed" without naming proofs that passed
+ * here is indistinguishable from a claim that was simply typed that way.
+ */
+const observedOutcome = (evidenceNames, label) => {
+  assert.ok(Array.isArray(evidenceNames) && evidenceNames.length > 0, `${label} has no executable proof mapping.`);
+  const unexecuted = evidenceNames.filter((proof) => !passedProofs.has(proof));
+  assert.deepEqual(unexecuted, [], `${label} references proofs this run did not execute: ${unexecuted.join(", ")}`);
+  return "observed";
+};
+
 const attackProofs = {
   "P13-ATK-01": [
     evidence("core-migration", "P13.3 CRM HTTP/PG actions preserve replay, target scope, and protected-input boundaries"),
@@ -283,7 +295,7 @@ const requiredAttackClasses = [
   ["lost outbox/realtime invalidation preserving stale authority", "P13-ATK-14"],
   ["prior-release migration or restore mismatch", "P13-ATK-15"],
   ["custom dashboard used to expand CRM data authority", "P13-ATK-07"]
-].map(([scenario, contractAttack]) => ({ scenario, contractAttack, outcome: "observed", evidence: attackProofs[contractAttack] }));
+].map(([scenario, contractAttack]) => ({ scenario, contractAttack, outcome: observedOutcome(attackProofs[contractAttack], scenario), evidence: attackProofs[contractAttack] }));
 assert.equal(requiredAttackClasses.length, 19, "Phase 13 plan attack corpus must cover all 19 required attack classes.");
 for (const scenario of requiredAttackClasses) {
   assert.ok(attackProofs[scenario.contractAttack].every((proof) => passedProofs.has(proof)), `${scenario.scenario} has unexecuted evidence.`);
@@ -316,38 +328,31 @@ const journeys = [
     evidence("crm-browser", "P13.3 generated Payload and Next CRM routes pass real persona, keyboard, hidden-data, and accessibility journeys"),
     evidence("fixture-readiness", "P13.10 generated fixture proves controlled browser readiness before and after restore")
   ]]
-].map(([id, proofNames]) => {
-  for (const proof of proofNames) assert.ok(passedProofs.has(proof), `${id} references unexecuted journey evidence.`);
-  return { id, outcome: "observed", evidence: proofNames };
-});
+].map(([id, proofNames]) => ({ id, outcome: observedOutcome(proofNames, id), evidence: proofNames }));
 assert.deepEqual(journeys.map(({ id }) => id), contract.journeys.map(({ id }) => id), "Phase 13 journey evidence must match the frozen journey inventory.");
 
 const evidenceClasses = [
-  { id: "generated-application", outcome: "observed", evidence: [evidence("fixture-readiness", "P13.10 generated fixture proves controlled browser readiness before and after restore")] },
-  { id: "real-postgresql", outcome: "observed", evidence: [evidence("fixture-readiness", "P13.10 fixture-only real PostgreSQL evidence proves representative data, bounded import/report replay, independent metrics, reminders, and controlled DB timings")] },
-  { id: "real-next-payload-http", outcome: "observed", evidence: [evidence("fixture-readiness", "P13.10 generated fixture proves controlled browser readiness before and after restore")] },
-  { id: "real-chromium", outcome: "observed", evidence: [evidence("fixture-readiness", "P13.10 generated fixture proves controlled browser readiness before and after restore")] },
-  { id: "at-least-two-roles", outcome: "observed", evidence: [evidence("fixture-readiness", "P13.10 generated fixture proves controlled browser readiness before and after restore")] },
-  { id: "account-contact-lead-opportunity", outcome: "observed", evidence: [evidence("crm-browser", "P13.3 generated Payload and Next CRM routes pass real persona, keyboard, hidden-data, and accessibility journeys")] },
-  { id: "configured-pipeline-kanban", outcome: "observed", evidence: [evidence("pipeline", "P13.4 generated Chromium renders the native sales configuration surfaces with accessible controls")] },
-  { id: "activity-task-reminder", outcome: "observed", evidence: [evidence("communications", "P13.6 reminder delivery stays atomic and generation-fenced"), evidence("workflows", "P13.7 exact rules produce one task, fixed notice, and clamped reminder")] },
-  { id: "custom-dashboard", outcome: "observed", evidence: [evidence("reports", "P13.8 generated HTTP/Chromium reports route queues one artifact and keeps unrelated CRM healthy")] },
-  { id: "import-export", outcome: "observed", evidence: [evidence("data-movement", "P13.5 generated Chromium completes accessible imports, request-local merge, and export download journeys")] },
-  { id: "communication-adapter", outcome: "observed", evidence: [evidence("communications", "P13.6 generated HTTP and Chromium prove webhook bounds and recipient-only notification journeys")] },
-  { id: "reports", outcome: "observed", evidence: [evidence("reports", "P13.8 real PG processes exact closed seven-report catalog with one fenced artifact/audit/outbox chain")] },
-  { id: "backup-restore-upgrade", outcome: "observed", evidence: [evidence("upgrade-restore", "P13.9 upgrades the exact Phase-12 Sales predecessor and restores its current-v1 truth into a clean PostgreSQL database"), evidence("upgrade-restore", "P13.9 protects source with an exact 1.0 process, fences target promotion, and emits immutable recovery evidence"), evidence("upgrade-restore", "P13.9 generated Chromium proves physical Postgres restore preserves current CRM product")] },
-  { id: "worker-realtime-recovery", outcome: "observed", evidence: [evidence("crm-recovery", "P13.3 generated browser receives opaque Socket.IO invalidations, resyncs after a host loss, and drops revoked current authority"), evidence("workflows", "P13.7 generated HTTP action and restarted worker preserve one durable workflow effect"), evidence("fixture-readiness", "P13.10 fixture-only real PostgreSQL evidence proves representative data, bounded import/report replay, independent metrics, reminders, and controlled DB timings")] },
-  { id: "representative-six-stage-dataset", outcome: "observed", evidence: [evidence("fixture-readiness", "P13.10 fixture-only real PostgreSQL evidence proves representative data, bounded import/report replay, independent metrics, reminders, and controlled DB timings")] },
-  { id: "ten-thousand-row-import-replay", outcome: "observed", evidence: [evidence("fixture-readiness", "P13.10 fixture-only real PostgreSQL evidence proves representative data, bounded import/report replay, independent metrics, reminders, and controlled DB timings")] },
-  { id: "independent-seven-metric-ledger", outcome: "observed", evidence: [evidence("fixture-readiness", "P13.10 fixture-only real PostgreSQL evidence proves representative data, bounded import/report replay, independent metrics, reminders, and controlled DB timings")] },
-  { id: "controlled-http-browser-performance", outcome: "observed", evidence: [evidence("fixture-readiness", "P13.10 generated fixture proves controlled browser readiness before and after restore")] },
-  { id: "representative-role-accessibility", outcome: "observed", evidence: [evidence("fixture-readiness", "P13.10 generated fixture proves controlled browser readiness before and after restore")] },
-  { id: "reminder-delivery-recovery", outcome: "observed", evidence: [evidence("fixture-readiness", "P13.10 fixture-only real PostgreSQL evidence proves representative data, bounded import/report replay, independent metrics, reminders, and controlled DB timings")] }
-];
-for (const item of evidenceClasses) {
-  assert.ok(item.evidence.length > 0, `${item.id} has no evidence.`);
-  for (const proof of item.evidence) assert.ok(passedProofs.has(proof), `${item.id} references unexecuted proof ${proof}.`);
-}
+  { id: "generated-application", evidence: [evidence("fixture-readiness", "P13.10 generated fixture proves controlled browser readiness before and after restore")] },
+  { id: "real-postgresql", evidence: [evidence("fixture-readiness", "P13.10 fixture-only real PostgreSQL evidence proves representative data, bounded import/report replay, independent metrics, reminders, and controlled DB timings")] },
+  { id: "real-next-payload-http", evidence: [evidence("fixture-readiness", "P13.10 generated fixture proves controlled browser readiness before and after restore")] },
+  { id: "real-chromium", evidence: [evidence("fixture-readiness", "P13.10 generated fixture proves controlled browser readiness before and after restore")] },
+  { id: "at-least-two-roles", evidence: [evidence("fixture-readiness", "P13.10 generated fixture proves controlled browser readiness before and after restore")] },
+  { id: "account-contact-lead-opportunity", evidence: [evidence("crm-browser", "P13.3 generated Payload and Next CRM routes pass real persona, keyboard, hidden-data, and accessibility journeys")] },
+  { id: "configured-pipeline-kanban", evidence: [evidence("pipeline", "P13.4 generated Chromium renders the native sales configuration surfaces with accessible controls")] },
+  { id: "activity-task-reminder", evidence: [evidence("communications", "P13.6 reminder delivery stays atomic and generation-fenced"), evidence("workflows", "P13.7 exact rules produce one task, fixed notice, and clamped reminder")] },
+  { id: "custom-dashboard", evidence: [evidence("reports", "P13.8 generated HTTP/Chromium reports route queues one artifact and keeps unrelated CRM healthy")] },
+  { id: "import-export", evidence: [evidence("data-movement", "P13.5 generated Chromium completes accessible imports, request-local merge, and export download journeys")] },
+  { id: "communication-adapter", evidence: [evidence("communications", "P13.6 generated HTTP and Chromium prove webhook bounds and recipient-only notification journeys")] },
+  { id: "reports", evidence: [evidence("reports", "P13.8 real PG processes exact closed seven-report catalog with one fenced artifact/audit/outbox chain")] },
+  { id: "backup-restore-upgrade", evidence: [evidence("upgrade-restore", "P13.9 upgrades the exact Phase-12 Sales predecessor and restores its current-v1 truth into a clean PostgreSQL database"), evidence("upgrade-restore", "P13.9 protects source with an exact 1.0 process, fences target promotion, and emits immutable recovery evidence"), evidence("upgrade-restore", "P13.9 generated Chromium proves physical Postgres restore preserves current CRM product")] },
+  { id: "worker-realtime-recovery", evidence: [evidence("crm-recovery", "P13.3 generated browser receives opaque Socket.IO invalidations, resyncs after a host loss, and drops revoked current authority"), evidence("workflows", "P13.7 generated HTTP action and restarted worker preserve one durable workflow effect"), evidence("fixture-readiness", "P13.10 fixture-only real PostgreSQL evidence proves representative data, bounded import/report replay, independent metrics, reminders, and controlled DB timings")] },
+  { id: "representative-six-stage-dataset", evidence: [evidence("fixture-readiness", "P13.10 fixture-only real PostgreSQL evidence proves representative data, bounded import/report replay, independent metrics, reminders, and controlled DB timings")] },
+  { id: "ten-thousand-row-import-replay", evidence: [evidence("fixture-readiness", "P13.10 fixture-only real PostgreSQL evidence proves representative data, bounded import/report replay, independent metrics, reminders, and controlled DB timings")] },
+  { id: "independent-seven-metric-ledger", evidence: [evidence("fixture-readiness", "P13.10 fixture-only real PostgreSQL evidence proves representative data, bounded import/report replay, independent metrics, reminders, and controlled DB timings")] },
+  { id: "controlled-http-browser-performance", evidence: [evidence("fixture-readiness", "P13.10 generated fixture proves controlled browser readiness before and after restore")] },
+  { id: "representative-role-accessibility", evidence: [evidence("fixture-readiness", "P13.10 generated fixture proves controlled browser readiness before and after restore")] },
+  { id: "reminder-delivery-recovery", evidence: [evidence("fixture-readiness", "P13.10 fixture-only real PostgreSQL evidence proves representative data, bounded import/report replay, independent metrics, reminders, and controlled DB timings")] }
+].map((item) => ({ ...item, outcome: observedOutcome(item.evidence, item.id) }));
 
 const unmetLimitedBetaCriteria = Object.freeze([
   "five-consecutive-business-days",
@@ -369,8 +374,9 @@ console.log(JSON.stringify({
   exactHead,
   proofCount: proofs.length,
   proofs,
+  executedProofs: [...passedProofs].sort(),
   attacks: contract.attacks.map(({ id, scenario, denial, deliveryTasks }) => ({
-    id, scenario, denial, deliveryTasks, outcome: "observed", evidence: attackProofs[id]
+    id, scenario, denial, deliveryTasks, outcome: observedOutcome(attackProofs[id], id), evidence: attackProofs[id]
   })),
   requiredAttackClasses,
   journeys,
