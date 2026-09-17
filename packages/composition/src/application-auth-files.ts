@@ -54,6 +54,20 @@ export const usersCollection: CollectionConfig = {
     read: ({ req }) => req.user ? { id: { equals: req.user.id } } : false,
     update: ({ id, req }) => req.user?.collection === "users" && String(req.user.id) === String(id)
   },
+  hooks: {
+    // Self-update is the only update path, and this application ships no
+    // credential-change journey: no current-password challenge, no verified
+    // reset, no administrative recovery. Allowing the sign-in identity to be
+    // rewritten through it would turn one stolen session into permanent
+    // account takeover that the owner cannot undo, so credentials may only be
+    // established by owner bootstrap until that journey exists.
+    beforeChange: [({ data, operation }) => {
+      if (operation === "update" && (data.email !== undefined || data.password !== undefined)) {
+        throw new Error("Sign-in credentials cannot be changed through a record update.");
+      }
+      return data;
+    }]
+  },
   admin: { useAsTitle: "email" },
   fields: []
 };
