@@ -136,7 +136,7 @@ test("P12.10 generated applications resolve durable shell and page Theme Profile
   const browser = await chromium.launch();
   let primaryError;
   try {
-    const releaseManifest = JSON.parse(readFileSync(resolve(repositoryRoot, "releases/1.0.0/package-release-manifest.json"), "utf8"));
+    const releaseManifest = JSON.parse(readFileSync(resolve(repositoryRoot, "releases/1.1.0/package-release-manifest.json"), "utf8"));
     const packageSource = verifiedPackageSource(releaseManifest, resolve(repositoryRoot, "fixtures/customer-gate-1/packages"));
     const cases = [
       { theme: "minimal", applicationId: "p12-theme-minimal", expected: { shellBackground: "rgb(255, 255, 255)", shellColor: "rgb(21, 23, 26)", sidebarBackground: "rgb(255, 255, 255)", sidebarBorder: "rgb(214, 217, 224)", headerBackground: "rgb(255, 255, 255)", headerBorder: "rgb(214, 217, 224)", navigationColor: "rgb(21, 23, 26)", focusColor: "rgb(36, 87, 255)" } },
@@ -175,8 +175,13 @@ test("P12.10 generated applications resolve durable shell and page Theme Profile
         const shellBefore = await assertShellTheme(page, current.expected);
 
         if (current.theme === "minimal") {
+          // The generated theme runtime accepts only profiles declaring the
+          // theme version it ships, so bind this override to the release under
+          // test instead of a literal that goes stale on the next release.
+          const minimalThemeVersion = releaseManifest.packages.find(({ package: packageName }) => packageName === "@k-nex/theme-minimal")?.version;
+          assert.match(minimalThemeVersion ?? "", /^\d+\.\d+\.\d+$/u, "Release manifest does not declare the minimal theme version.");
           const override = {
-            schemaVersion: 1, id: "workspace.theme.override", surface: "admin", themeId: "theme.minimal", themeVersion: "1.0.0", palette: "light", mode: "light",
+            schemaVersion: 1, id: "workspace.theme.override", surface: "admin", themeId: "theme.minimal", themeVersion: minimalThemeVersion, palette: "light", mode: "light",
             values: { "color.background": "#ffe0e0", "color.border": "#cc0000", "color.accent": "#007a00" },
             revision: { id: "workspace.theme.override.one", number: 1, state: "published", createdAt: "2026-09-04T00:00:00.000Z", publishedAt: "2026-09-04T00:00:00.000Z" }
           };

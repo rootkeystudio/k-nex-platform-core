@@ -74,7 +74,7 @@ function neutralUpgradeManifest(currentManifest, version, label) {
 }
 
 test("boots the current Sales package and applies a neutral fixture upgrade history in the same PostgreSQL database", { timeout: 300_000 }, async () => {
-  const currentManifest = PackageReleaseManifestSchema.parse(JSON.parse(readFileSync(resolve(repositoryRoot, "releases/1.0.0/package-release-manifest.json"), "utf8")));
+  const currentManifest = PackageReleaseManifestSchema.parse(JSON.parse(readFileSync(resolve(repositoryRoot, "releases/1.1.0/package-release-manifest.json"), "utf8")));
   const priorManifest = neutralUpgradeManifest(currentManifest, "0.9.0", "fixture-prior");
   const targetManifest = neutralUpgradeManifest(currentManifest, "1.0.1", "fixture-target");
   const container = await new PostgreSqlContainer(POSTGRES_IMAGE).withDatabase("customer_beta_upgrade").withStartupTimeout(120_000).start();
@@ -108,7 +108,7 @@ test("boots the current Sales package and applies a neutral fixture upgrade hist
     const targetMigrations = await import(pathToFileURL(requireFromTarget.resolve("@k-nex/module-sales/migrations")));
     const plan = planPluginUpgrade({
       pluginId: "module.fixture.upgrade", packageName: "@fixture/upgrade-module", currentVersion: "0.9.0", targetVersion: "1.0.1",
-      currentPlatformRelease: "1.0.0", targetPlatformRelease: "1.0.0", currentReleaseManifest: priorManifest, targetReleaseManifest: targetManifest,
+      currentPlatformRelease: "1.1.0", targetPlatformRelease: "1.1.0", currentReleaseManifest: priorManifest, targetReleaseManifest: targetManifest,
       targets: targetMigrations.salesUpgradeTargets, migrations: targetMigrations.salesUpgradeMigrations
     });
     assert.equal(plan.ready, true);

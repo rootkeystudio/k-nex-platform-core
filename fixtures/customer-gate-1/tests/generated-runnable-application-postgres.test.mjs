@@ -396,16 +396,22 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
   let browser;
   let primaryError;
   try {
-    const releaseManifest = JSON.parse(readFileSync(resolve(repositoryRoot, "releases/1.0.0/package-release-manifest.json"), "utf8"));
+    const releaseManifest = JSON.parse(readFileSync(resolve(repositoryRoot, "releases/1.1.0/package-release-manifest.json"), "utf8"));
     const acceptedMirror = resolve(repositoryRoot, "fixtures/customer-gate-1/packages");
     const currentMirror = join(root, "current-head-packages");
     mkdirSync(currentMirror);
     for (const filename of readdirSync(acceptedMirror)) copyFileSync(join(acceptedMirror, filename), join(currentMirror, filename));
-    run("pnpm", ["build"], { cwd: resolve(repositoryRoot, "modules/sales"), stdio: "pipe" });
-    run("pnpm", ["pack", "--pack-destination", currentMirror], { cwd: resolve(repositoryRoot, "modules/sales"), stdio: "pipe" });
-    const currentSalesArchive = readFileSync(join(currentMirror, "k-nex-module-sales-1.0.0.tgz"));
+    const salesDirectory = resolve(repositoryRoot, "modules/sales");
+    const salesPackage = JSON.parse(readFileSync(resolve(salesDirectory, "package.json"), "utf8"));
+    run("pnpm", ["build"], { cwd: salesDirectory, stdio: "pipe" });
+    run("pnpm", ["pack", "--pack-destination", currentMirror], { cwd: salesDirectory, stdio: "pipe" });
+    // Bind the packed archive to the version the source actually declares:
+    // reading a fixed filename would silently keep the previous release's
+    // archive and generate an application against package exports it lacks.
+    const currentSalesArchive = readFileSync(join(currentMirror, `k-nex-module-sales-${salesPackage.version}.tgz`));
     const currentSales = releaseManifest.packages.find(({ package: packageName }) => packageName === "@k-nex/module-sales");
     assert.ok(currentSales);
+    assert.equal(currentSales.version, salesPackage.version, "Packed Sales source is outside the generated release.");
     currentSales.integrity = `sha512-${createHash("sha512").update(currentSalesArchive).digest("base64")}`;
     const lockTemplateApplication = join(root, "lock-template");
     const provisionalSource = verifiedPackageSource(releaseManifest, currentMirror);
