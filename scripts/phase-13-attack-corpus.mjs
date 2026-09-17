@@ -49,8 +49,18 @@ const proofResults = [];
 const passedProofs = new Set();
 
 function nodeProof(id, files, names) {
-  for (const file of files) assert.ok(read(`fixtures/customer-gate-1/${file}`), `${id} proof file is missing: ${file}`);
+  const sources = files.map((file) => {
+    const source = read(`fixtures/customer-gate-1/${file}`);
+    assert.ok(source, `${id} proof file is missing: ${file}`);
+    return source;
+  });
   assert.ok(names.length > 0, `${id} has no exact named evidence.`);
+  // Evidence is mapped by test name, so a rename turns a proof into a silent
+  // omission that only surfaces hours into a full run. Refuse up front.
+  for (const name of names) {
+    assert.ok(sources.some((source) => source.includes(`test(${JSON.stringify(name)}`)),
+      `${id} declares evidence no proof file defines: ${name}`);
+  }
   const pattern = `^(?:${names.map(escapeRegExp).join("|")})$`;
   const output = run(id, process.execPath, [
     "--test", "--test-force-exit", "--test-concurrency=1", "--test-reporter=tap",
@@ -116,7 +126,10 @@ const proofs = [
     "tests/p13-5-generated-data-movement-browser-postgres.test.mjs"
   ], [
     "P13.5 parser rejects malformed, oversized, formula, and protected-field input",
-    "P13.5 fixture upload bounds chunked requests before authorization or database work",
+    "P13.5 fixture upload cancels chunked requests at the byte bound before authorization or database work",
+    "P13.5 fixture upload times out stalled requests before authorization or database work",
+    "P13.5 fixture upload enforces the overall read deadline when chunks keep arriving",
+    "P13.5 fixture upload ignores a late read settlement after timeout",
     "P13.5 fixture upload admission CAS denies stale, revoked, disabled, raced, and promoted-away authority with zero rows",
     "P13.5 worker restarts exactly once, emits a partial artifact, fences revocation, purges payloads, and publishes snapshot-only CSV",
     "P13.5 generated Chromium completes accessible imports, request-local merge, and export download journeys"
@@ -213,7 +226,10 @@ const attackProofs = {
   ],
   "P13-ATK-05": [
     evidence("data-movement", "P13.5 parser rejects malformed, oversized, formula, and protected-field input"),
-    evidence("data-movement", "P13.5 fixture upload bounds chunked requests before authorization or database work")
+    evidence("data-movement", "P13.5 fixture upload cancels chunked requests at the byte bound before authorization or database work"),
+    evidence("data-movement", "P13.5 fixture upload times out stalled requests before authorization or database work"),
+    evidence("data-movement", "P13.5 fixture upload enforces the overall read deadline when chunks keep arriving"),
+    evidence("data-movement", "P13.5 fixture upload ignores a late read settlement after timeout")
   ],
   "P13-ATK-06": [
     evidence("data-movement", "P13.5 worker restarts exactly once, emits a partial artifact, fences revocation, purges payloads, and publishes snapshot-only CSV"),
