@@ -704,7 +704,8 @@ export async function down({ db }: MigrateDownArgs): Promise<void> {
  */
 function acceptedPredecessorPredicate(platformRelease: string): string {
   return platformAcceptedPredecessors(platformRelease)
-    .map(({ revision, identity }) => `("revision" = ${revision} AND "release_revision" = '${identity}')`)
+    .map(({ predecessorRevision, revision, identity }) =>
+      `("predecessor_revision" = ${predecessorRevision} AND "revision" = ${revision} AND "release_revision" = '${identity}')`)
     .join(" OR ");
 }
 

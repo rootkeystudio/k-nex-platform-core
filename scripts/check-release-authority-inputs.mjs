@@ -16,7 +16,7 @@
  * directory stays readable; everything else under fixtures/ does not.
  */
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
 import { acceptedSourceMigrationRegistry, factoryMigrationRegistry } from "./lib/platform-release-transition.mjs";
@@ -75,6 +75,30 @@ function assertNoComputedReferences(source, path, entrypoint) {
   }
   assert.doesNotMatch(source, /["'`]fixtures\/[^"'`]*\$\{/u,
     `${entrypoint} interpolates a fixture path in ${path}; a release-authority input must name what it reads.`);
+  // `resolve(root, "fixtures", "customer-gate-1", ...)` carries no literal
+  // `fixtures/` token, so a bare segment is refused too.
+  assert.doesNotMatch(source, /["'`]fixtures["'`]/u,
+    `${entrypoint} builds a fixture path from segments in ${path}; a release-authority input must name what it reads.`);
+}
+
+/**
+ * The walk stops at package and module sources, so the boundary they sit
+ * behind has to be asserted rather than assumed: product code a
+ * release-authority script imports must not reach the fixture lineage either.
+ * The exceptions are the repository's own fixture tooling, which exists to
+ * generate and validate fixtures and is never a release input.
+ */
+export const fixtureReadingProductSources = Object.freeze([
+  "packages/architecture-contract-tools/src/repository-validation.ts",
+  "packages/architecture-contract-tools/src/validate-generated.ts",
+  "packages/composition/src/generate-gate-1-fixture.ts"
+]);
+
+export function assertProductSourcesAvoidFixtures({ root, sources }) {
+  const allowed = new Set(fixtureReadingProductSources);
+  const offenders = sources.filter((path) => !allowed.has(path) && /fixtures[/"'`]/u.test(readFileSync(resolve(root, path), "utf8")));
+  assert.deepEqual(offenders, [],
+    `Product sources reachable from a release-authority script read the customer fixture lineage: ${offenders.join(", ")}.`);
 }
 
 /**
@@ -118,6 +142,22 @@ if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).
   const { salesReferenceCompilerBoundary } = await import("../packages/composition/dist/index.js");
   const policySource = readFileSync(resolve(root, "scripts/generate-phase-13-transition-policy.mjs"), "utf8");
   assertReleaseAuthorityInputs({ root });
+  const productSources = [];
+  const collect = (directory) => {
+    for (const entry of readdirSync(resolve(root, directory))) {
+      const relative = `${directory}/${entry}`;
+      if (entry === "node_modules" || entry === "dist") continue;
+      if (statSync(resolve(root, relative)).isDirectory()) collect(relative);
+      else if (/\.(?:ts|tsx|mjs|js)$/u.test(entry)) productSources.push(relative);
+    }
+  };
+  for (const workspace of ["packages", "modules"]) {
+    for (const entry of readdirSync(resolve(root, workspace))) {
+      const source = `${workspace}/${entry}/src`;
+      try { if (statSync(resolve(root, source)).isDirectory()) collect(source); } catch { /* package without sources */ }
+    }
+  }
+  assertProductSourcesAvoidFixtures({ root, sources: productSources });
   assert.match(policySource, /salesReferenceCompilerBoundary/u,
     "The transition policy must derive its target migration registry from the shipped compiler boundary.");
   assertAcceptedMigrationSetMatchesFactory({

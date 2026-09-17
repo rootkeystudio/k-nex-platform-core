@@ -43,10 +43,18 @@ export function platformPredecessorRelease(version: string): string | undefined 
  * not a supported predecessor, and must be refused before the target
  * transition mutates anything rather than normalized after it.
  */
-export function platformAcceptedPredecessors(version: string): readonly { readonly revision: number; readonly identity: string }[] {
+export function platformAcceptedPredecessors(version: string): readonly {
+  readonly predecessorRevision: number;
+  readonly revision: number;
+  readonly identity: string;
+}[] {
   const predecessor = platformPredecessorRelease(version);
-  const fresh = { revision: 1, identity: `platform-${version}-bootstrap` };
+  // A bootstrap migration writes predecessor revision 0, and no release has yet
+  // advanced past its own first step, so every accepted entry state carries 0.
+  // Binding it matters: a row whose chain field is impossible is not the
+  // attested source, and overwriting it would erase that evidence.
+  const fresh = { predecessorRevision: 0, revision: 1, identity: `platform-${version}-bootstrap` };
   return Object.freeze(predecessor === undefined
     ? [fresh]
-    : [fresh, { revision: platformReleaseRevision(predecessor), identity: platformReleaseIdentity(predecessor) }]);
+    : [fresh, { predecessorRevision: 0, revision: platformReleaseRevision(predecessor), identity: platformReleaseIdentity(predecessor) }]);
 }

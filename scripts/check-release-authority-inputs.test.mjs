@@ -5,7 +5,7 @@ import { resolve } from "node:path";
 import { test } from "node:test";
 
 import { salesReferenceCompilerBoundary } from "../packages/composition/dist/index.js";
-import { assertAcceptedMigrationSetMatchesFactory, assertReleaseAuthorityInputs, releaseAuthorityScripts } from "./check-release-authority-inputs.mjs";
+import { assertAcceptedMigrationSetMatchesFactory, assertProductSourcesAvoidFixtures, assertReleaseAuthorityInputs, fixtureReadingProductSources, releaseAuthorityScripts } from "./check-release-authority-inputs.mjs";
 import { acceptedSourceMigrationRegistry, factoryMigrationRegistry, generatorPackage } from "./lib/platform-release-transition.mjs";
 
 const root = resolve(import.meta.dirname, "..");
@@ -104,6 +104,36 @@ test("a reference a release-authority input builds at runtime is refused outrigh
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
+  }
+});
+
+test("a fixture path built from segments is refused", () => {
+  for (const [name, source] of [
+    ["resolve segments", 'const p = resolve(root, "fixtures", "customer-gate-1", "src");\n'],
+    ["join segments", "const p = join(root, 'fixtures', customer);\n"],
+    ["array segments", 'const parts = ["fixtures", "customer-gate-1"];\n']
+  ]) {
+    const directory = withScript(source);
+    try {
+      assert.throws(() => assertReleaseAuthorityInputs({ root: directory, scripts: ["scripts/candidate.mjs"] }),
+        /builds a fixture path from segments/u, `${name} bypassed the release-authority guard.`);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  }
+});
+
+test("product sources reachable from a release script may not read the fixture lineage", () => {
+  assert.ok(fixtureReadingProductSources.length > 0, "The fixture tooling exceptions must be declared.");
+  const directory = mkdtempSync(resolve(tmpdir(), "k-nex-product-boundary-"));
+  mkdirSync(resolve(directory, "packages/example/src"), { recursive: true });
+  writeFileSync(resolve(directory, "packages/example/src/reads.ts"), 'const registry = "fixtures/customer-gate-1/src/migrations/index.ts";\n');
+  try {
+    assert.throws(() => assertProductSourcesAvoidFixtures({ root: directory, sources: ["packages/example/src/reads.ts"] }),
+      /read the customer fixture lineage/u, "Product code reading the fixture lineage was accepted.");
+    assertProductSourcesAvoidFixtures({ root: directory, sources: [] });
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
   }
 });
 

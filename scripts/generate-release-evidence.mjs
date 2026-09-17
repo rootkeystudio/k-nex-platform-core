@@ -14,7 +14,14 @@ const sourceCommit = value("--source-sha");
 const workflowIdentity = value("--workflow-identity");
 const output = resolve(value("--output"));
 const customer = value("--customer");
-const applicationRoot = resolve(value("--application-root") ?? resolve("fixtures", customer));
+// The application root is named by the caller: deriving it from a customer
+// identifier would let this release-authority input read a tree it never
+// declares.
+const applicationRootArgument = value("--application-root");
+if (typeof applicationRootArgument !== "string" || applicationRootArgument.length === 0) {
+  throw new Error("Release evidence requires an explicit --application-root.");
+}
+const applicationRoot = resolve(applicationRootArgument);
 const releaseVersion = value("--release");
 const migrationRevision = value("--migration-revision");
 if (!/^[0-9a-f]{40}$/u.test(sourceCommit ?? "") || !workflowIdentity || !output || !customer ||
