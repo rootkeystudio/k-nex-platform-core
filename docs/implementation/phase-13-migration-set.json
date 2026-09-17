@@ -8,6 +8,10 @@
       "phase": "offline-required"
     },
     {
+      "id": "20260906_000029_attachment_upload_admissions",
+      "phase": "offline-required"
+    },
+    {
       "id": "20260907_000030_pipeline_saved_views",
       "phase": "offline-required"
     },

@@ -5,6 +5,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
 import { canonicalJson, platformReleaseGeneratorContractDigest } from "../packages/contracts/dist/index.js";
+import { salesReferenceCompilerBoundary } from "../packages/composition/dist/index.js";
 
 const root = resolve(import.meta.dirname, "..");
 const args = process.argv.slice(2);
@@ -17,16 +18,14 @@ const option = (name, fallback) => {
 };
 const sourcePath = option("--source", "releases/1.0.0/package-release-manifest.json");
 const targetPath = option("--target", "releases/1.1.0/package-release-manifest.json");
-const fixturePath = option("--fixture", "fixtures/customer-gate-1/src/migrations/index.ts");
-const migrationTestPath = option("--migration-test", "fixtures/customer-gate-1/tests/p13-9-upgrade-backup-restore-postgres.test.mjs");
 const migrationSetPath = option("--migration-set", "docs/implementation/phase-13-migration-set.json");
 const phase8VerificationPath = option("--phase8-verification", "release-evidence/phase-8-v1/hosted/package-manifest-verification.json");
 const sourceTrustOutput = option("--source-trust-output");
 const outputPath = option("--output");
-const options = ["--source", "--target", "--fixture", "--migration-test", "--migration-set", "--phase8-verification", "--source-trust-output", "--output"];
+const options = ["--source", "--target", "--migration-set", "--phase8-verification", "--source-trust-output", "--output"];
 if (outputPath === undefined || args.some((arg, index) => arg.startsWith("--") &&
   !options.includes(arg) || options.includes(arg) && (index === args.length - 1 || args[index + 1]?.startsWith("--")))) {
-  throw new TypeError("Usage: generate-phase-13-transition-policy.mjs --output <policy.json> [--source <manifest>] [--target <manifest>] [--fixture <migration-index>] [--migration-test <p13.9-test>] [--migration-set <manifest>] [--phase8-verification <verification.json>] [--source-trust-output <trust.json>]");
+  throw new TypeError("Usage: generate-phase-13-transition-policy.mjs --output <policy.json> [--source <manifest>] [--target <manifest>] [--migration-set <manifest>] [--phase8-verification <verification.json>] [--source-trust-output <trust.json>]");
 }
 
 const digest = (value) => `sha256:${createHash("sha256").update(canonicalJson(value)).digest("hex")}`;
@@ -64,20 +63,39 @@ if (sourceTrustOutput !== undefined) {
   writeFileSync(trustOutput, canonicalJson({ schemaVersion: 1, ...acceptedSource, verificationPath: phase8VerificationPath, equivalentStatementCount: sourceStatements.length }), "utf8");
 }
 
-function namedArray(sourceText, name) {
-  const start = sourceText.indexOf(`const ${name} = [`);
-  assert.ok(start >= 0, `Migration source does not declare ${name}.`);
-  const end = sourceText.indexOf("];", start);
-  assert.ok(end > start, `Migration source has an unterminated ${name}.`);
-  return [...sourceText.slice(start, end).matchAll(/"([^"\n]+)"/gu)].map(([, value]) => value);
-}
+/**
+ * The attested 1.0.0 composition archive ships exactly this ordered migration
+ * registry. It is a frozen historical fact rather than a live derivation: the
+ * 1.0 factory cannot change. The P13.9 preparation proof reproduces that
+ * factory from its accepted commit and re-proves this list against it.
+ */
+const acceptedSourceMigrations = Object.freeze([
+  "20260827_000001_sales_baseline",
+  "20260827_000002_knex_bootstrap",
+  "20260829_000007_runtime_extensions",
+  "20260901_000019_authorization",
+  "20260901_000022_static_lifecycle_admission",
+  "20260902_000023_system_administration",
+  "20260903_000026_workspace_pages",
+  "20260903_000027_event_outbox",
+  "20260904_000028_workspace_sidebar_preferences"
+]);
 
-const fixtureSource = readFileSync(resolve(root, fixturePath), "utf8");
-const fixtureNames = [...fixtureSource.matchAll(/name: "([^"\n]+)"/gu)].map(([, value]) => value);
-assert.equal(fixtureNames.length, 33, "Phase13 fixture migration registry must contain the complete ordered chain.");
-const migrationTest = readFileSync(resolve(root, migrationTestPath), "utf8");
-const predecessorNames = namedArray(migrationTest, "predecessorNames");
-const phase13MigrationNames = namedArray(migrationTest, "phase13MigrationNames");
+/**
+ * The upgrade policy must describe the application the factory actually ships,
+ * so the target registry is read from the shipped compiler boundary and never
+ * from a hand-maintained fixture. Registry order is the migration identifier
+ * order; the P13.9 preparation proof asserts this derivation against the exact
+ * `src/migrations/index.ts` the target factory emits.
+ */
+const targetMigrations = [...salesReferenceCompilerBoundary.platformPaths, ...salesReferenceCompilerBoundary.migrationPaths]
+  .filter((path) => /^src\/migrations\/(?!index\.ts$)[^/]+\.ts$/u.test(path))
+  .map((path) => path.slice("src/migrations/".length, -".ts".length))
+  .sort();
+assert.equal(new Set(targetMigrations).size, targetMigrations.length, "Target factory declares a duplicate migration identity.");
+assert.deepEqual(targetMigrations.slice(0, acceptedSourceMigrations.length), [...acceptedSourceMigrations],
+  "Target factory no longer retains the attested 1.0.0 migration registry as its exact prefix.");
+const appendedMigrations = targetMigrations.slice(acceptedSourceMigrations.length);
 const migrationSet = readJson(migrationSetPath);
 assert.equal(canonicalJson(migrationSet), readFileSync(resolve(root, migrationSetPath), "utf8"), "Accepted Phase13 migration-set manifest must be canonical JSON.");
 assert.deepEqual(Object.keys(migrationSet).sort(), ["$schema", "schemaVersion", "sourceRelease", "targetRelease", "steps"].sort(), "Accepted Phase13 migration-set manifest fields changed.");
@@ -90,10 +108,9 @@ for (const [index, step] of migrationSet.steps.entries()) {
   assert.match(step.id, /^[0-9]{8}_[0-9]{6}_[a-z0-9_]+$/u, `Accepted Phase13 migration-set step ${index} ID is invalid.`);
   assert.equal(step.phase, "offline-required", `Accepted Phase13 migration-set step ${index} phase changed.`);
 }
-assert.equal(migrationSet.steps.length, 7, "Accepted Phase13 migration-set length changed; stop for explicit migration review.");
-assert.deepEqual(phase13MigrationNames, migrationSet.steps.map(({ id }) => id), "Executable P13.9 migration split differs from the accepted migration-set manifest.");
-assert.deepEqual(fixtureNames, [...predecessorNames, ...migrationSet.steps.map(({ id }) => id)], "Phase13 migration policy must use the exact current fixture order and executable predecessor split.");
-assert.equal(predecessorNames.length, 26, "Accepted predecessor migration prefix changed; stop for an explicit migration review.");
+assert.equal(migrationSet.steps.length, 8, "Accepted Phase13 migration-set length changed; stop for explicit migration review.");
+assert.deepEqual(migrationSet.steps.map(({ id }) => id), appendedMigrations,
+  "Accepted Phase13 migration set differs from the migrations the target factory appends to the attested 1.0.0 registry.");
 
 const sourcePackages = new Map(source.packages.map((entry) => [entry.package, entry]));
 const targetPackages = new Map(target.packages.map((entry) => [entry.package, entry]));
@@ -154,4 +171,4 @@ const policy = {
 const output = resolve(root, outputPath);
 mkdirSync(dirname(output), { recursive: true });
 writeFileSync(output, canonicalJson(policy), "utf8");
-process.stdout.write(`PHASE13_TRANSITION_POLICY_GENERATED ${policy.transitionId} ${phase13MigrationNames.length}\n`);
+process.stdout.write(`PHASE13_TRANSITION_POLICY_GENERATED ${policy.transitionId} ${appendedMigrations.length}\n`);

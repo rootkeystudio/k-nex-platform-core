@@ -8,7 +8,7 @@ import test from "node:test";
 import { pathToFileURL } from "node:url";
 
 import { canonicalApplicationReleaseLock, canonicalGeneratedFileOwnershipManifest, canonicalJson } from "../../../packages/contracts/dist/index.js";
-import { applicationUpgradeCompilerDigests, compileApplicationUpgrade, planUpgradeTargetKnexApplication } from "../../../packages/composition/dist/index.js";
+import { applicationUpgradeCompilerDigests, compileApplicationUpgrade, planUpgradeTargetKnexApplication, salesReferenceCompilerBoundary } from "../../../packages/composition/dist/index.js";
 import { buildPlatformReleaseTransition, parseCanonicalPackageReleaseManifest } from "../../../scripts/lib/platform-release-transition.mjs";
 import { materializePreparedTreeAtomic, ownershipFromFactoryPlan, phase13UpgradePreparationDigests, readRepositorySnapshot, releaseLockFromFactoryPlan, targetGenerationFromFactoryPlan } from "../../../scripts/lib/phase-13-upgrade-preparation.mjs";
 
@@ -29,15 +29,6 @@ const frozenPredecessorMigrationNames = [
 const frozenPhase13MigrationNames = [
   "20260905_000027_crm_core",
   "20260906_000029_attachment_upload_admissions",
-  "20260907_000030_pipeline_saved_views",
-  "20260907_000031_data_movement",
-  "20260908_000032_communications",
-  "20260908_000033_crm_workflows",
-  "20260908_000034_reports",
-  "20260909_000035_static_rebind_lock_protocol"
-];
-const frozenTransitionMigrationNames = [
-  "20260905_000027_crm_core",
   "20260907_000030_pipeline_saved_views",
   "20260907_000031_data_movement",
   "20260908_000032_communications",
@@ -136,7 +127,17 @@ test("P13.9 prepares an exact generated 1.0.0 repository for deterministic 1.1.0
   const policyPath = join(root, "transition-policy.json");
   execFileSync(process.execPath, [resolve(repositoryRoot, "scripts/generate-phase-13-transition-policy.mjs"), "--output", policyPath], { cwd: repositoryRoot, env: { ...process.env, PATH: `${nodePath}:${process.env.PATH}` }, stdio: "ignore" });
   const policy = JSON.parse(readFileSync(policyPath, "utf8")); const transition = buildPlatformReleaseTransition({ source: sourceEndpoint, target: targetEndpoint, policy });
-  assert.deepEqual(transition.migrations.steps.map(({ id }) => id), frozenTransitionMigrationNames); assert.equal(transition.migrations.graphDigest, digest(transition.migrations.steps));
+  assert.deepEqual(transition.migrations.steps.map(({ id }) => id), additionNames,
+    "The attested transition must declare every migration the target factory appends, in registry order.");
+  assert.equal(transition.migrations.graphDigest, digest(transition.migrations.steps));
+  // The policy generator derives the target registry from the shipped compiler
+  // boundary and orders it by migration identity. Prove that derivation against
+  // the registry the target factory actually emits, so the attested migration
+  // set can never describe a different application than the one it upgrades.
+  assert.deepEqual([...salesReferenceCompilerBoundary.platformPaths, ...salesReferenceCompilerBoundary.migrationPaths]
+    .filter((path) => /^src\/migrations\/(?!index\.ts$)[^/]+\.ts$/u.test(path))
+    .map((path) => path.slice("src/migrations/".length, -".ts".length))
+    .sort(), targetNames, "Compiler boundary migration derivation differs from the emitted target registry.");
   // The target factory may regenerate a predecessor source with target release
   // metadata (bootstrap is intentionally such a case). Append-only retention
   // is proved on the prepared tree below, where the compiler carries the

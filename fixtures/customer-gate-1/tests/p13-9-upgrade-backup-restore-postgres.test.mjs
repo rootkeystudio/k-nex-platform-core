@@ -47,7 +47,12 @@ function opaqueStageId(semantic) {
   const hex = bytes.toString("hex");
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
-const predecessorNames = [
+// This is the hand-maintained fixture migration lineage, not the registry the
+// shipped factory emits: the two have different identities and lengths. It
+// exercises the physical backup/restore journey only. Nothing that describes a
+// customer upgrade may be derived from it — the attested transition policy
+// reads the shipped compiler boundary instead.
+const fixturePredecessorNames = [
   "20260826_000001_gate1", "20260826_000002_sales_sources", "20260826_000003_payload_mcp", "20260826_000004_event_outbox",
   "20260826_000005_outbox_processor", "20260827_000006_sales_opportunities", "20260829_000007_runtime_extensions",
   "20260829_000008_app_storage", "20260829_000009_extension_activation", "20260829_000010_theme_skin_profiles",
@@ -58,7 +63,7 @@ const predecessorNames = [
   "20260901_000022_static_lifecycle_admission", "20260902_000023_system_settings", "20260902_000024_catalog_mirror",
   "20260902_000025_system_operations", "20260903_000026_workspace_pages"
 ];
-const phase13MigrationNames = [
+const fixturePhase13MigrationNames = [
   "20260905_000027_crm_core",
   "20260907_000030_pipeline_saved_views",
   "20260907_000031_data_movement",
@@ -88,9 +93,9 @@ const viewerBaseline = [
 ].sort();
 
 async function installRegisteredPhase12Predecessor(db, client) {
-  const predecessor = migrations.slice(0, predecessorNames.length);
-  assert.deepEqual(predecessor.map(({ name }) => name), predecessorNames, "Phase 12 predecessor migration registry/order changed.");
-  assert.equal(migrations[predecessor.length]?.name, phase13MigrationNames[0], "Phase 13 cutover must immediately follow the accepted predecessor sequence.");
+  const predecessor = migrations.slice(0, fixturePredecessorNames.length);
+  assert.deepEqual(predecessor.map(({ name }) => name), fixturePredecessorNames, "Phase 12 predecessor migration registry/order changed.");
+  assert.equal(migrations[predecessor.length]?.name, fixturePhase13MigrationNames[0], "Phase 13 cutover must immediately follow the accepted predecessor sequence.");
   for (const migration of predecessor) await migration.up({ db });
   assert.deepEqual((await client.query("select predecessor_revision,revision from k_nex_migration_revision where id=1")).rows,
     [{ predecessor_revision: 23, revision: 24 }], "The complete registered predecessor must end at accepted revision 24.");
@@ -244,8 +249,8 @@ async function bindMigration(client) {
 }
 
 async function applyPhase13(db) {
-  assert.deepEqual(migrations.slice(-phase13MigrationNames.length).map(({ name }) => name), phase13MigrationNames,
-    "The generated fixture must expose the exact Phase 13 migration sequence.");
+  assert.deepEqual(migrations.slice(-fixturePhase13MigrationNames.length).map(({ name }) => name), fixturePhase13MigrationNames,
+    "This fixture registry must expose the exact Phase 13 fixture migration sequence; the shipped factory registry is proved separately by the P13.9 preparation proof.");
   for (const migrate of [crmUp, pipelineUp, movementUp, communicationsUp, workflowsUp, reportsUp, staticRebindLockProtocolUp]) await migrate({ db });
 }
 
@@ -695,7 +700,7 @@ function p139TrustedBuild(identity, targetCommit) {
     migration: { ...fixture.migration, applicationId, environment, baseRevision: 24, targetRevision: 25,
       planId: "p139-exact-seven-migrations", sourceCommit: identity.sourceCommit, targetSourceCommit: targetCommit,
       rollbackWindow: { state: "open", windowId: "p139-source-protection", closesAt: new Date(Date.now() + 60 * 60_000).toISOString(), contractCleanup: "blocked", previousApplicationDigest: identity.sourceTreeDigest },
-      steps: phase13MigrationNames.map((migrationName) => ({ stepId: `migration-${migrationName.replaceAll("_", "-")}`, phase: "online-expand", migrationDigest: canonicalDigest({ migrationName }), overlapSafe: true })) },
+      steps: fixturePhase13MigrationNames.map((migrationName) => ({ stepId: `migration-${migrationName.replaceAll("_", "-")}`, phase: "online-expand", migrationDigest: canonicalDigest({ migrationName }), overlapSafe: true })) },
     target: { applicationSubjectDigest: targetApplicationDigest, imageSubjectDigest: targetImageDigest, composition: targetComposition, sourceCommit: targetCommit }
   });
   const keys = generateKeyPairSync("ed25519");
@@ -764,7 +769,7 @@ async function p139InstallSourceRuntime(client, identity, deploymentStore, build
       (event_id,event_type,schema_version,message_class,occurred_at,application_id,plugin_id,actor_id,actor_type,correlation_id,causation_id,idempotency_key,payload,status,attempt_count,retention_until)
       values ('p139-source-event','sales.upgrade.source-marker',1,'durable-integration','2026-09-16T00:00:00Z',$1,'module.sales','p139-owner','service','p139-upgrade','p139-upgrade','p139-source-idempotency','{"source":"1.0.0"}'::jsonb,'pending',0,'2026-10-16T00:00:00Z')
       on conflict do nothing`, [applicationId]);
-  await client.query("insert into payload_migrations(name,batch) select name,12 from unnest($1::text[]) as names(name)", [predecessorNames]);
+  await client.query("insert into payload_migrations(name,batch) select name,12 from unnest($1::text[]) as names(name)", [fixturePredecessorNames]);
   return p139Freeze({ operationId, expectedRevision: 0, extensionId: "module.sales", quarantineRecovery: false });
 }
 
@@ -915,7 +920,7 @@ async function p139ApplyTargetWithFailpoint(db, client, failAfter) {
     await migrate({ db });
     if (failAfter !== undefined && index + 1 === failAfter) throw new Error("P13_9_MIGRATION_FAILPOINT");
   }
-  await client.query("insert into payload_migrations(name,batch) select name,13 from unnest($1::text[]) as names(name)", [phase13MigrationNames]);
+  await client.query("insert into payload_migrations(name,batch) select name,13 from unnest($1::text[]) as names(name)", [fixturePhase13MigrationNames]);
 }
 
 function p139DeploymentSupervisor({ client, db, store, build, failBeforeReadiness = false }) {
@@ -923,12 +928,12 @@ function p139DeploymentSupervisor({ client, db, store, build, failBeforeReadines
   let workerHealthy = false;
   const migrationsAdapter = {
     async runOnline() {
-      const existing = (await client.query("select name from payload_migrations where name=any($1::text[]) order by id", [phase13MigrationNames])).rows.map(({ name }) => name);
+      const existing = (await client.query("select name from payload_migrations where name=any($1::text[]) order by id", [fixturePhase13MigrationNames])).rows.map(({ name }) => name);
       if (existing.length === 0) {
         await client.query("begin");
         try { await p139ApplyTargetWithFailpoint(db, client); await client.query("commit"); }
         catch (error) { await client.query("rollback"); throw error; }
-      } else assert.deepEqual(existing, phase13MigrationNames, "Deployment may acknowledge only the exact already-applied seven-migration set.");
+      } else assert.deepEqual(existing, fixturePhase13MigrationNames, "Deployment may acknowledge only the exact already-applied seven-migration set.");
       events.push("exact-seven-migrations");
       return build.verifiedChange.change.migration.steps.map(({ stepId }) => stepId);
     },

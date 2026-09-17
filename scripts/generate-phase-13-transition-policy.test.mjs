@@ -5,16 +5,25 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { test } from "node:test";
 
+import { canonicalJson } from "../packages/contracts/dist/index.js";
+
 const root = resolve(import.meta.dirname, "..");
 const generator = resolve(root, "scripts/generate-phase-13-transition-policy.mjs");
-const fixture = resolve(root, "fixtures/customer-gate-1/src/migrations/index.ts");
 const migrationSet = resolve(root, "docs/implementation/phase-13-migration-set.json");
 
-function runGenerator(directory, fixturePath = fixture, migrationSetPath = migrationSet) {
-  return spawnSync(process.execPath, [generator, "--output", resolve(directory, "policy.json"), "--fixture", fixturePath, "--migration-set", migrationSetPath], {
+function runGenerator(directory, migrationSetPath = migrationSet) {
+  return spawnSync(process.execPath, [generator, "--output", resolve(directory, "policy.json"), "--migration-set", migrationSetPath], {
     cwd: root,
     encoding: "utf8"
   });
+}
+
+function withMutatedMigrationSet(directory, name, mutate) {
+  const mutated = JSON.parse(readFileSync(migrationSet, "utf8"));
+  mutate(mutated);
+  const path = resolve(directory, `${name}.json`);
+  writeFileSync(path, canonicalJson(mutated));
+  return path;
 }
 
 test("transition policy accepts only the frozen migration set", () => {
@@ -29,37 +38,33 @@ test("transition policy accepts only the frozen migration set", () => {
   }
 });
 
-test("transition policy rejects migration substitution, reorder, and comment injection", () => {
+test("transition policy rejects migration substitution, reorder, omission, and addition", () => {
   const directory = mkdtempSync(resolve(tmpdir(), "k-nex-p13-policy-mutation-test-"));
-  const source = readFileSync(fixture, "utf8");
-  const first = "20260905_000027_crm_core";
-  const second = "20260907_000030_pipeline_saved_views";
   const mutations = [
-    source.replace("name: \"" + first + "\"", "name: \"" + first + "-substituted\""),
-    source.replace("name: \"" + first + "\"", "name: \"__temporary_migration_name__\"").replace("name: \"" + second + "\"", "name: \"" + first + "\"").replace("name: \"__temporary_migration_name__\"", "name: \"" + second + "\""),
-    source + "\n// name: \"20260909_999999_comment_injection\"\n"
+    ["substitution", (set) => { set.steps[0].id = "20260905_000027_substituted"; }],
+    ["reorder", (set) => { set.steps = [set.steps[1], set.steps[0], ...set.steps.slice(2)]; }],
+    ["omission", (set) => { set.steps = set.steps.filter(({ id }) => id !== "20260906_000029_attachment_upload_admissions"); }],
+    ["addition", (set) => { set.steps = [...set.steps, { id: "20260909_999999_unshipped_migration", phase: "offline-required" }]; }],
+    ["predecessor_promotion", (set) => { set.steps = [{ id: "20260904_000028_workspace_sidebar_preferences", phase: "offline-required" }, ...set.steps]; }]
   ];
   try {
-    for (const [index, mutated] of mutations.entries()) {
-      const path = resolve(directory, "mutated-" + index + ".ts");
-      writeFileSync(path, mutated);
-      const result = runGenerator(directory, path);
-      assert.notEqual(result.status, 0, "Mutation " + index + " unexpectedly passed.");
+    for (const [name, mutate] of mutations) {
+      const result = runGenerator(directory, withMutatedMigrationSet(directory, name, mutate));
+      assert.notEqual(result.status, 0, `Mutation ${name} unexpectedly passed.`);
     }
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
 });
 
-test("transition policy rejects a substituted frozen migration-set entry", () => {
-  const directory = mkdtempSync(resolve(tmpdir(), "k-nex-p13-policy-set-test-"));
+test("transition policy rejects a non-canonical or malformed migration set", () => {
+  const directory = mkdtempSync(resolve(tmpdir(), "k-nex-p13-policy-shape-test-"));
   try {
-    const mutatedPath = resolve(directory, "migration-set.json");
-    const mutated = JSON.parse(readFileSync(migrationSet, "utf8"));
-    mutated.steps[0].id = "20260905_000027_substituted";
-    writeFileSync(mutatedPath, JSON.stringify(mutated, null, 2) + "\n");
-    const result = runGenerator(directory, fixture, mutatedPath);
-    assert.notEqual(result.status, 0);
+    const nonCanonical = resolve(directory, "non-canonical.json");
+    writeFileSync(nonCanonical, `${JSON.stringify(JSON.parse(readFileSync(migrationSet, "utf8")), null, 4)}\n`);
+    assert.notEqual(runGenerator(directory, nonCanonical).status, 0, "Non-canonical migration set unexpectedly passed.");
+    const onlineStep = withMutatedMigrationSet(directory, "online-step", (set) => { set.steps[0].phase = "online-expand"; });
+    assert.notEqual(runGenerator(directory, onlineStep).status, 0, "Unreviewed migration phase unexpectedly passed.");
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
