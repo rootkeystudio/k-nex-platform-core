@@ -27,6 +27,7 @@ const frozenPredecessorMigrationNames = [
   "20260903_000026_workspace_pages", "20260903_000027_event_outbox", "20260904_000028_workspace_sidebar_preferences"
 ];
 const frozenPhase13MigrationNames = [
+  "20260905_000026_release_preflight",
   "20260905_000027_crm_core",
   "20260906_000029_attachment_upload_admissions",
   "20260907_000030_pipeline_saved_views",
@@ -123,7 +124,7 @@ test("P13.9 prepares an exact generated 1.0.0 repository for deterministic 1.1.0
   // The prepared target factory output owns its complete registry as well.
   const targetPlan = rawTargetPlan;
   const targetNames = migrationNames(targetPlan.files["src/migrations/index.ts"]); const additionNames = targetNames.slice(predecessorNames.length);
-  assert.equal(targetNames.length, 18); assert.deepEqual(targetNames.slice(0, predecessorNames.length), predecessorNames); assert.deepEqual(additionNames, frozenPhase13MigrationNames, "Factory target append identities/order changed.");
+  assert.equal(targetNames.length, 19); assert.deepEqual(targetNames.slice(0, predecessorNames.length), predecessorNames); assert.deepEqual(additionNames, frozenPhase13MigrationNames, "Factory target append identities/order changed.");
   assert.deepEqual(JSON.parse(targetPlan.files["k-nex.app.json"]).plugins.map(({ id }) => id), ["module.sales"]); assert.doesNotMatch(targetPlan.files["src/k-nex-registry.ts"], /provider\.realtime|kNexRealtimeRegistry/u);
   const policyPath = join(root, "transition-policy.json");
   execFileSync(process.execPath, [resolve(repositoryRoot, "scripts/generate-phase-13-transition-policy.mjs"), "--output", policyPath], { cwd: repositoryRoot, env: { ...process.env, PATH: `${nodePath}:${process.env.PATH}` }, stdio: "ignore" });

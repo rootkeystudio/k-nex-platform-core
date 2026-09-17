@@ -83,15 +83,32 @@ test("proves advisory-lock concurrency, rollback, release receipt, and stale rea
  * that it refuses to run twice.
  */
 test("the release-revision migration converges upgraded and fresh databases onto the release the application runs", { timeout: 180_000 }, async () => {
-  const { planCreateKnexApplication, platformReleaseIdentity, platformReleaseRevision } = await import("@k-nex/composition");
+  const { planCreateKnexApplication, platformAcceptedPredecessors, platformReleaseIdentity, platformReleaseRevision } = await import("@k-nex/composition");
   const applicationId = "release-revision-proof";
   const plan = planCreateKnexApplication({ applicationId, applicationName: "Release Revision Proof", theme: "minimal", database: "external", primaryCurrency: "USD" });
-  const source = plan.files["src/migrations/20260909_000036_release_revision.ts"];
-  assert.ok(source, "The factory must emit a release-revision migration.");
-  const [, statement] = /sql\.raw\(`([\s\S]+?)`\)\);/u.exec(source) ?? [];
-  assert.ok(statement, "The release-revision migration must carry one raw statement.");
+  const rawStatement = (path, label) => {
+    const source = plan.files[path];
+    assert.ok(source, `The factory must emit ${label}.`);
+    const [, statement] = /sql\.raw\(`([\s\S]+?)`\)\);/u.exec(source) ?? [];
+    assert.ok(statement, `${label} must carry one raw statement.`);
+    return statement;
+  };
+  const statement = rawStatement("src/migrations/20260909_000036_release_revision.ts", "a release-revision migration");
+  const preflight = rawStatement("src/migrations/20260905_000026_release_preflight.ts", "a release preflight migration");
   const targetRevision = platformReleaseRevision("1.1.0");
   const targetIdentity = platformReleaseIdentity("1.1.0");
+
+  // The transition mutates customer schema before its final step, so the
+  // preflight must run before the first target migration; otherwise an
+  // unsupported source database is mutated and only then inspected.
+  const registry = [...plan.files["src/migrations/index.ts"].matchAll(/name: "([^"\n]+)"/gu)].map(([, name]) => name);
+  const preflightIndex = registry.indexOf("20260905_000026_release_preflight");
+  const revisionIndex = registry.indexOf("20260909_000036_release_revision");
+  assert.ok(preflightIndex > 0, "The generated registry must contain the release preflight.");
+  assert.equal(revisionIndex, registry.length - 1, "The release-revision step must be the last migration.");
+  for (const target of ["20260905_000027_crm_core", "20260906_000029_attachment_upload_admissions", "20260908_000034_reports"]) {
+    assert.ok(registry.indexOf(target) > preflightIndex, `The preflight must precede the target migration ${target}.`);
+  }
 
   const container = await new PostgreSqlContainer(POSTGRES_IMAGE).withDatabase("release_revision").withStartupTimeout(120_000).start();
   const pool = new pg.Pool({ connectionString: container.getConnectionUri() });
@@ -122,8 +139,44 @@ test("the release-revision migration converges upgraded and fresh databases onto
 
     // Fresh install of this release must land on the identical row.
     await bootstrap("1.1.0");
+    await pool.query(preflight);
     await pool.query(statement);
     assert.deepEqual(await row(), upgraded, "A fresh install and an upgraded database must record the same release.");
+
+    // Only the declared predecessors are admitted. Everything else must be
+    // refused by the preflight, before any target migration runs, and must
+    // also be refused by the final step so a mutated database cannot have an
+    // invalid release identity normalized into a ready-looking one.
+    const accepted = platformAcceptedPredecessors("1.1.0").map(({ revision, identity }) => `${revision}:${identity}`);
+    assert.deepEqual([...accepted].sort(), ["1:platform-1.0.0-bootstrap", "1:platform-1.1.0-bootstrap"].sort());
+    for (const [name, seed] of [
+      ["zero revision", { predecessor: 0, revision: 0, identity: "platform-1.0.0-bootstrap" }],
+      ["unknown identity", { predecessor: 0, revision: 1, identity: "platform-0.9.0-bootstrap" }],
+      ["corrupt identity", { predecessor: 0, revision: 1, identity: "" }],
+      ["already advanced", { predecessor: 1, revision: targetRevision, identity: targetIdentity }],
+      ["skipped release", { predecessor: 2, revision: 3, identity: "platform-1.2.0-release" }]
+    ]) {
+      await pool.query("delete from k_nex_release_revision where application_id = $1", [applicationId]);
+      await pool.query("insert into k_nex_release_revision values ($1, $2, $3, $4)", [applicationId, seed.predecessor, seed.revision, seed.identity]);
+      const before = await row();
+      await assert.rejects(pool.query(preflight), /does not record an accepted predecessor release/u, `The preflight admitted a ${name} source.`);
+      await assert.rejects(pool.query(statement), /from an accepted predecessor/u, `The release-revision step advanced a ${name} source.`);
+      assert.deepEqual(await row(), before, `A refused ${name} source must be left exactly as it was.`);
+    }
+
+    // A missing row is not a predecessor either.
+    await pool.query("delete from k_nex_release_revision where application_id = $1", [applicationId]);
+    await assert.rejects(pool.query(preflight), /does not record an accepted predecessor release/u, "The preflight admitted a database with no release record.");
+    await assert.rejects(pool.query(statement), /from an accepted predecessor/u, "The release-revision step advanced a database with no release record.");
+    assert.deepEqual(await row(), [], "A refused database must not gain a release record.");
+
+    // Two runners racing the final step: the advisory lock plus the exact CAS
+    // must let exactly one advance and refuse the other.
+    await bootstrap("1.0.0");
+    const racers = await Promise.allSettled([pool.query(statement), pool.query(statement)]);
+    assert.equal(racers.filter(({ status }) => status === "fulfilled").length, 1, "Exactly one concurrent runner may advance the release.");
+    assert.equal(racers.filter(({ status }) => status === "rejected").length, 1, "The losing concurrent runner must be refused.");
+    assert.deepEqual(await row(), upgraded, "A contested advance must still record exactly the target release.");
   } finally {
     await pool.end();
     await container.stop();

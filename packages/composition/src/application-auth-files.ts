@@ -2032,6 +2032,7 @@ const expectedMigrationNames = Object.freeze([
   "20260903_000026_workspace_pages",
   "20260903_000027_event_outbox",
   "20260904_000028_workspace_sidebar_preferences",
+  "20260905_000026_release_preflight",
   "20260905_000027_crm_core",
   "20260906_000029_attachment_upload_admissions",
   "20260907_000030_pipeline_saved_views",

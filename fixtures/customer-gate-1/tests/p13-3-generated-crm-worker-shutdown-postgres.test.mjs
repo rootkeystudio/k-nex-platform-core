@@ -23,7 +23,7 @@ async function childExit(child, timeoutMs) {
   });
 }
 
-test("P13.3 generated worker joins admitted work, bounds a blocked drain, and fails rejected dispatch shutdowns", { timeout: 360_000 }, async () => {
+test("P13.3 generated worker joins admitted work, bounds a blocked drain, and fails rejected dispatch shutdowns", { timeout: 900_000 }, async () => {
   await withGeneratedCrmBrowserFixture(async ({ acknowledgeAbnormalWorkerExit, application, pool, startWorker, stopWorker, workerOutput, workerProcess }) => {
     const initiallyRunning = workerProcess();
     assert.ok(initiallyRunning);

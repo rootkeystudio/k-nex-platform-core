@@ -4,6 +4,10 @@
   "sourceRelease": "1.0.0",
   "steps": [
     {
+      "id": "20260905_000026_release_preflight",
+      "phase": "offline-required"
+    },
+    {
       "id": "20260905_000027_crm_core",
       "phase": "offline-required"
     },

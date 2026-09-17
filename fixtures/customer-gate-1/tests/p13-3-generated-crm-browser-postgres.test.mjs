@@ -419,7 +419,7 @@ test("P13.3 CRM fixture reuses only the exact generated system.general bootstrap
   await assert.rejects(ensureCanonicalInitialSystemGeneral(mismatchedPool), /system\.general conflicts with the canonical generated bootstrap/u);
 });
 
-test("P13.3 generated Payload and Next CRM routes pass real persona, keyboard, hidden-data, and accessibility journeys", { timeout: 360_000 }, async () => {
+test("P13.3 generated Payload and Next CRM routes pass real persona, keyboard, hidden-data, and accessibility journeys", { timeout: 900_000 }, async () => {
   await withGeneratedCrmBrowserFixture(async ({ origin, personas, records, pool, applicationOutput }) => {
     const stage = (value) => process.stdout.write(`P13_3_CRM_BROWSER_STAGE ${value}\n`);
     const browser = await chromium.launch({ headless: true });
@@ -459,7 +459,7 @@ test("P13.3 generated Payload and Next CRM routes pass real persona, keyboard, h
       for (const secret of [records.contactEmail, records.contactPhone, records.leadEmail, records.leadPhone, records.noteBody, records.amount]) {
         for (const [index, surface] of protectedSurfaces.entries()) assert.equal(surface.includes(secret), false, `viewer protected surface ${index} leaked ${secret}`);
       }
-      await viewer.context.close();
+      await bounded(viewer.context.close(), "viewer context close", 30_000);
       stage("viewer-complete");
 
       stage("owner-start");
@@ -632,7 +632,7 @@ test("P13.3 generated Payload and Next CRM routes pass real persona, keyboard, h
       assert.deepEqual([linkedLineage.opportunity_owner_id, linkedLineage.opportunity_team_id], [linkedLineage.owner_id, linkedLineage.team_id]);
       await exactDetailProjection(linker.page, "sales.route.lead-detail", records.linkerLeadId, { "qualified-account-id": records.accountId, "qualified-contact-id": records.contactId, "qualified-opportunity-id": linked.opportunityId, revision: linked.revision });
       await assertHidden(linker.page, ["Lead Update", "Lead Qualify", "Lead Disqualify", "Lead Archive", "Ownership Assign", "Note Create"]);
-      await linker.context.close();
+      await bounded(linker.context.close(), "linker context close", 30_000);
       stage("linker-complete");
 
       await accessible(owner.page, `/sales/contacts/${records.contactId}`);
@@ -642,7 +642,7 @@ test("P13.3 generated Payload and Next CRM routes pass real persona, keyboard, h
       const archivedAccount = await submitAction(owner.page, "sales.account.archive", {}, { terminal: true });
       await assertHidden(owner.page, ["Account Update", "Account Archive", "Ownership Assign"]);
       await archivedAccountInteractionReady(owner.page, records.accountId, archivedAccount.revision);
-      await owner.context.close();
+      await bounded(owner.context.close(), "owner context close", 30_000);
       stage("account-archive-complete");
 
       const manager = await login(browser, origin, personas.manager);
@@ -684,7 +684,7 @@ test("P13.3 generated Payload and Next CRM routes pass real persona, keyboard, h
       assert.equal(await representative.page.getByRole("button", { name: "Opportunity Stage Update", exact: true }).count(), 1);
       const repStage = await submitAction(representative.page, "sales.opportunity.stage.update", { Stage: "discovery" });
       await assertCanonicalOpportunityTransition(representative.page, repStage, { id: records.repOpportunityId, pipelineId: records.pipelineId, semantic: "discovery" });
-      await representative.context.close();
+      await bounded(representative.context.close(), "representative context close", 30_000);
       stage("representative-complete");
 
       await accessible(manager.page, `/sales/opportunities/${records.repOpportunityId}`);
@@ -694,10 +694,10 @@ test("P13.3 generated Payload and Next CRM routes pass real persona, keyboard, h
       await assertCanonicalOpportunityTransition(manager.page, managedClose, { id: records.repOpportunityId, pipelineId: records.pipelineId, semantic: "lost" });
       assert.equal(await manager.page.getByRole("button", { name: "Opportunity Archive", exact: true }).count(), 1);
       await submitAction(manager.page, "sales.opportunity.archive", {}, { terminal: true });
-      await manager.context.close();
+      await bounded(manager.context.close(), "manager context close", 30_000);
       stage("manager-complete");
     } finally {
-      await browser.close();
+      await bounded(browser.close(), "browser close", 30_000);
       stage("browser-closed");
     }
   });

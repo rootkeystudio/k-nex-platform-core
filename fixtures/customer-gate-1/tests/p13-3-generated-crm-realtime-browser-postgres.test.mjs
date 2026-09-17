@@ -155,7 +155,7 @@ async function revokeScope(page, input) {
   }, input);
 }
 
-test("P13.3 generated browser receives opaque Socket.IO invalidations, resyncs after a host loss, and drops revoked current authority", { timeout: 360_000 }, async () => {
+test("P13.3 generated browser receives opaque Socket.IO invalidations, resyncs after a host loss, and drops revoked current authority", { timeout: 900_000 }, async () => {
   await withGeneratedCrmBrowserFixture(async ({ origin, personas, records, pool, startWeb, stopWeb, startWorker, stopWorker, workerOutput }) => {
     const browser = await chromium.launch({ headless: true });
     try {

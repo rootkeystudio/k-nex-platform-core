@@ -454,6 +454,37 @@ Acceptance:
 - rollback/maintenance decision;
 - post-restore login, dashboard, pipeline, activities, permissions, and audit.
 
+Not in P13.9, deferred to the following phase. P13.9 claims the compiled,
+attested upgrade preparation and a physical backup/restore/restart fixture. It
+does not claim a supervised production upgrade, and no P13.9 proof may be read
+as one:
+
+- **a shipped upgrade/deployment coordinator.** DeploymentSupervisor, the
+  trusted build authority, backup orchestration, the migration adapter, gateway
+  convergence, and the administration operator server are constructed only
+  under `fixtures/customer-gate-1/static-deployment/`. There is no
+  `k-nex app upgrade apply/status/rollback` and no System Updates flow.
+- **a maintenance-window promotion path.** Every accepted `1.0.0 → 1.1.0` step
+  is `offline-required`, and `DeploymentSupervisor.deploy` refuses any such
+  plan, so the shipped supervisor cannot promote this transition. The P13.9
+  promotion/fencing/recovery journey exercises a hypothetical online
+  transition and is labelled as such.
+- **a generated-database transition journey.** The protection journey runs the
+  hand-maintained fixture migration lineage, not a database created by the
+  generated 1.0 application and migrated by the generated 1.1 one.
+- **restartable, application-bound backup receipts.** `executeDatabaseBackup`
+  and `executeCleanRestore` authorize through process-local `WeakMap`s and the
+  proof binds a separate `backup.customer-gate-1` resource identity, so a
+  receipt cannot be re-authorized after an operator restart.
+- **effect-level worker fencing.** Generated worker lanes carry a fence
+  snapshot rather than claiming each durable effect through
+  `PostgresStaticDeploymentStore.claimEffect`.
+
+The release transition is admitted by an exact source-release preflight before
+its first mutation and finalized by an exact CAS onto the target release
+identity. Holding one lock across all ten offline-required steps requires the
+coordinator above, so it is deferred with it.
+
 ### P13.10 — Gate 13 limited-beta closeout
 
 Create the Phase 13 result and cumulative gate.

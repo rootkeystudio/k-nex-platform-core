@@ -44,10 +44,46 @@ export const permittedFixturePrefix = "fixtures/customer-gate-1/packages";
  */
 function relativeImports(source) {
   const specifiers = [
+    // import/export ... from "x"
     ...source.matchAll(/(?:^|[\s{;])(?:import|export)[^'"`;]*?from\s*["']([^"']+)["']/gmu),
-    ...source.matchAll(/\bimport\s*\(\s*["']([^"']+)["']\s*\)/gu)
+    // side-effect import "x"
+    ...source.matchAll(/(?:^|[\s;])import\s*["']([^"']+)["']/gmu),
+    // dynamic import("x")
+    ...source.matchAll(/\bimport\s*\(\s*["']([^"']+)["']\s*\)/gu),
+    // require("x") and createRequire(...)("x")
+    ...source.matchAll(/\brequire\s*\(\s*["']([^"']+)["']\s*\)/gu),
+    // new URL("x", import.meta.url)
+    ...source.matchAll(/new\s+URL\s*\(\s*["']([^"']+)["']\s*,/gu)
   ].map(([, specifier]) => specifier);
   return specifiers.filter((specifier) => specifier.startsWith("./") || specifier.startsWith("../"));
+}
+
+/**
+ * A specifier this walk cannot resolve statically is not a specifier it may
+ * ignore: a release-authority input that builds a module path or a fixture
+ * path at runtime escapes the check entirely, so it has to be refused until
+ * the reference is written plainly.
+ */
+function assertNoComputedReferences(source, path, entrypoint) {
+  for (const pattern of [
+    /\bimport\s*\(\s*(?!["'])/u,
+    /\brequire\s*\(\s*(?!["'])/u,
+    /new\s+URL\s*\(\s*(?!["'])/u
+  ]) {
+    assert.doesNotMatch(source, pattern,
+      `${entrypoint} builds a module or file reference at runtime in ${path}; a release-authority input must name what it reads.`);
+  }
+  assert.doesNotMatch(source, /["'`]fixtures\/[^"'`]*\$\{/u,
+    `${entrypoint} interpolates a fixture path in ${path}; a release-authority input must name what it reads.`);
+}
+
+/**
+ * `startsWith` alone would also accept a sibling such as
+ * `fixtures/customer-gate-1/packages-old`, so the permitted prefix has to end
+ * at a path boundary.
+ */
+function permitsFixtureReference(reference) {
+  return reference === permittedFixturePrefix || reference.startsWith(`${permittedFixturePrefix}/`);
 }
 
 export function assertReleaseAuthorityInputs({ root, scripts = releaseAuthorityScripts }) {
@@ -58,8 +94,9 @@ export function assertReleaseAuthorityInputs({ root, scripts = releaseAuthorityS
     visited.add(absolute);
     if (/[/\\](?:packages|modules|node_modules)[/\\]/u.test(absolute)) return;
     const source = readFileSync(absolute, "utf8");
+    assertNoComputedReferences(source, path, entrypoint);
     for (const [reference] of source.matchAll(/fixtures\/[^"'`\s)]*/gu)) {
-      assert.ok(reference.startsWith(permittedFixturePrefix),
+      assert.ok(permitsFixtureReference(reference),
         `${entrypoint} reads the customer fixture lineage through ${path} (${reference}); a release-authority input may only read ${permittedFixturePrefix}.`);
     }
     for (const specifier of relativeImports(source)) walk(resolve(dirname(absolute), specifier), entrypoint);

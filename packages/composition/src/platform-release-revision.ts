@@ -25,3 +25,28 @@ export function platformReleaseIdentity(version: string): string {
   platformReleaseRevision(version);
   return version === "1.0.0" ? "platform-1.0.0-bootstrap" : `platform-${version}-release`;
 }
+
+/** Declared release order, so a release can name the one it upgrades from. */
+const platformReleaseChain = Object.freeze(["1.0.0", "1.1.0"] as const);
+
+export function platformPredecessorRelease(version: string): string | undefined {
+  const index = platformReleaseChain.indexOf(version as (typeof platformReleaseChain)[number]);
+  if (index < 0) throw new Error(`Platform release ${version} is outside the declared release chain.`);
+  return index === 0 ? undefined : platformReleaseChain[index - 1];
+}
+
+/**
+ * The exact database states from which this release may be reached: a fresh
+ * install of this release, which its own bootstrap migration wrote, or a
+ * database still recording the release immediately before it. Anything else -
+ * a zero revision, an unknown identity, a skipped release, a missing row - is
+ * not a supported predecessor, and must be refused before the target
+ * transition mutates anything rather than normalized after it.
+ */
+export function platformAcceptedPredecessors(version: string): readonly { readonly revision: number; readonly identity: string }[] {
+  const predecessor = platformPredecessorRelease(version);
+  const fresh = { revision: 1, identity: `platform-${version}-bootstrap` };
+  return Object.freeze(predecessor === undefined
+    ? [fresh]
+    : [fresh, { revision: platformReleaseRevision(predecessor), identity: platformReleaseIdentity(predecessor) }]);
+}

@@ -72,6 +72,53 @@ test("a release-authority script may not reach the fixture lineage through a hel
   }
 });
 
+test("the walk follows every static reference form, not just from-imports", () => {
+  const leak = 'export const path = "fixtures/customer-gate-1/src/migrations/index.ts";\n';
+  for (const [name, source] of [
+    ["side-effect import", 'import "./lib/registry.mjs";\n'],
+    ["require", 'const { path } = require("./lib/registry.mjs");\nexport default path;\n'],
+    ["new URL", 'const href = new URL("./lib/registry.mjs", import.meta.url);\nexport default href;\n'],
+    ["export from", 'export { path } from "./lib/registry.mjs";\n']
+  ]) {
+    const directory = withScript(source, { "scripts/lib/registry.mjs": leak });
+    try {
+      assert.throws(() => assertReleaseAuthorityInputs({ root: directory, scripts: ["scripts/candidate.mjs"] }),
+        /reads the customer fixture lineage through/u, `${name} bypassed the release-authority walk.`);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  }
+});
+
+test("a reference a release-authority input builds at runtime is refused outright", () => {
+  for (const [name, source] of [
+    ["computed import", 'const helper = await import(process.env.HELPER);\nexport default helper;\n'],
+    ["computed require", 'const helper = require(helperPath);\nexport default helper;\n'],
+    ["computed URL", 'const href = new URL(relativePath, import.meta.url);\nexport default href;\n'],
+    ["interpolated fixture path", 'export const path = `fixtures/customer-gate-1/${directory}/index.ts`;\n']
+  ]) {
+    const directory = withScript(source);
+    try {
+      assert.throws(() => assertReleaseAuthorityInputs({ root: directory, scripts: ["scripts/candidate.mjs"] }),
+        /must name what it reads/u, `${name} was accepted as a release-authority input.`);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  }
+});
+
+test("the permitted fixture prefix ends at a path boundary", () => {
+  for (const reference of ["fixtures/customer-gate-1/packages-old/manifest.json", "fixtures/customer-gate-1/packages.bak/x.tgz"]) {
+    const directory = withScript(`const mirror = resolve(root, "${reference}");\n`);
+    try {
+      assert.throws(() => assertReleaseAuthorityInputs({ root: directory, scripts: ["scripts/candidate.mjs"] }),
+        /may only read fixtures\/customer-gate-1\/packages/u, `${reference} was accepted as the packed artifact mirror.`);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  }
+});
+
 test("the walk reaches the helper modules the shipped release scripts import", () => {
   const visited = assertReleaseAuthorityInputs({ root });
   for (const helper of ["scripts/lib/platform-release-transition.mjs", "scripts/lib/release-train.mjs"]) {

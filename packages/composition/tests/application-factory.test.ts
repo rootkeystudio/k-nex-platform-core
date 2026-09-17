@@ -195,7 +195,7 @@ describe("create-knex-app", () => {
       ]
     });
 
-    expect(salesReferenceCompilerBoundary.platformPaths).toHaveLength(104);
+    expect(salesReferenceCompilerBoundary.platformPaths).toHaveLength(105);
     const options = { applicationId: "sales-boundary", applicationName: "Sales Boundary", theme: "minimal", database: "external", primaryCurrency: "USD" } as const;
     expect(() => planCreateKnexApplication(options)).not.toThrow();
     const expectRejectedPlan = (mutation: "add-sales-output" | "remove-sales-output" | "second-domain", error: RegExp): void => {
@@ -291,6 +291,7 @@ describe("create-knex-app", () => {
       "20260903_000026_workspace_pages",
       "20260903_000027_event_outbox",
       "20260904_000028_workspace_sidebar_preferences",
+      "20260905_000026_release_preflight",
       "20260905_000027_crm_core",
       "20260906_000029_attachment_upload_admissions",
       "20260907_000030_pipeline_saved_views",
