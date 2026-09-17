@@ -17,7 +17,7 @@
  */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 
 import { acceptedSourceMigrationRegistry, factoryMigrationRegistry } from "./lib/platform-release-transition.mjs";
 
@@ -31,14 +31,41 @@ export const releaseAuthorityScripts = Object.freeze([
 
 export const permittedFixturePrefix = "fixtures/customer-gate-1/packages";
 
+/**
+ * Scanning only the entrypoints would miss the obvious workaround: a helper it
+ * imports reads the fixture lineage instead. So the check follows every
+ * relative import transitively.
+ *
+ * Package imports (`../packages/<name>/dist/...`) stop the walk. Those are
+ * built library artifacts that take release manifests and plans as arguments;
+ * they are governed by their own package boundary checks, and no package
+ * source under `packages/` or `modules/` may reach fixture paths on a release
+ * path without a script here handing them one, which this walk would catch.
+ */
+function relativeImports(source) {
+  const specifiers = [
+    ...source.matchAll(/(?:^|[\s{;])(?:import|export)[^'"`;]*?from\s*["']([^"']+)["']/gmu),
+    ...source.matchAll(/\bimport\s*\(\s*["']([^"']+)["']\s*\)/gu)
+  ].map(([, specifier]) => specifier);
+  return specifiers.filter((specifier) => specifier.startsWith("./") || specifier.startsWith("../"));
+}
+
 export function assertReleaseAuthorityInputs({ root, scripts = releaseAuthorityScripts }) {
-  for (const script of scripts) {
-    const source = readFileSync(resolve(root, script), "utf8");
+  const visited = new Set();
+  const walk = (path, entrypoint) => {
+    const absolute = resolve(root, path);
+    if (visited.has(absolute)) return;
+    visited.add(absolute);
+    if (/[/\\](?:packages|modules|node_modules)[/\\]/u.test(absolute)) return;
+    const source = readFileSync(absolute, "utf8");
     for (const [reference] of source.matchAll(/fixtures\/[^"'`\s)]*/gu)) {
       assert.ok(reference.startsWith(permittedFixturePrefix),
-        `${script} reads the customer fixture lineage (${reference}); a release-authority script may only read ${permittedFixturePrefix}.`);
+        `${entrypoint} reads the customer fixture lineage through ${path} (${reference}); a release-authority input may only read ${permittedFixturePrefix}.`);
     }
-  }
+    for (const specifier of relativeImports(source)) walk(resolve(dirname(absolute), specifier), entrypoint);
+  };
+  for (const script of scripts) walk(script, script);
+  return visited;
 }
 
 export function assertAcceptedMigrationSetMatchesFactory({ boundary, migrationSet }) {

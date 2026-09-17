@@ -12,7 +12,7 @@ import { executeRegistration } from "../../runtime/src/registration-runtime.js";
 import { socketIoRealtimeProviderRegistration } from "../../realtime-socketio/src/server.js";
 import { salesRegistration } from "../../../modules/sales/src/server.js";
 import { applicationAuthFiles } from "../src/application-auth-files.js";
-import { applyCreateKnexApplication, payloadPostgresPatchDigest, payloadPostgresPatchFilename, payloadPostgresPatchProvenance, payloadPostgresPatchSource, planCreateKnexApplication, planUpgradeTargetKnexApplication, salesReferenceCompilerBoundary, setSalesReferenceCompilerTestMutationForTests, type SourceApplicationManifestAuthority, type VerifiedSourceApplicationManifest } from "../src/index.js";
+import { applyCreateKnexApplication, isReleaseBeforeSalesReferenceExit, payloadPostgresPatchDigest, payloadPostgresPatchFilename, payloadPostgresPatchProvenance, payloadPostgresPatchSource, planCreateKnexApplication, planUpgradeTargetKnexApplication, salesReferenceCompilerBoundary, setSalesReferenceCompilerTestMutationForTests, type SourceApplicationManifestAuthority, type VerifiedSourceApplicationManifest } from "../src/index.js";
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -198,14 +198,26 @@ describe("create-knex-app", () => {
     expect(salesReferenceCompilerBoundary.platformPaths).toHaveLength(103);
     const options = { applicationId: "sales-boundary", applicationName: "Sales Boundary", theme: "minimal", database: "external", primaryCurrency: "USD" } as const;
     expect(() => planCreateKnexApplication(options)).not.toThrow();
-    const expectRejectedPlan = (mutation: "add-sales-output" | "remove-sales-output" | "second-domain" | "release-1.2.0", error: RegExp): void => {
+    const expectRejectedPlan = (mutation: "add-sales-output" | "remove-sales-output" | "second-domain", error: RegExp): void => {
       setSalesReferenceCompilerTestMutationForTests(mutation);
       try { expect(() => planCreateKnexApplication(options)).toThrow(error); } finally { setSalesReferenceCompilerTestMutationForTests(undefined); }
     };
     expectRejectedPlan("add-sales-output", /unknown=src\/k-nex-sales-unreviewed\.ts/u);
     expectRejectedPlan("remove-sales-output", /missingSales=src\/app\/\(workspace\)\/sales\/accounts\/\[id\]\/page\.tsx/u);
     expectRejectedPlan("second-domain", /sole first-party domain/u);
-    expectRejectedPlan("release-1.2.0", /expires before product release 1\.2\.0/u);
+  });
+
+  it("expires the Sales-reference compiler on the platform release, not the generated package version", () => {
+    // The generated package.json carries a fixed version, so a guard reading it
+    // could never fire. These are the releases the boundary must refuse.
+    for (const release of ["1.2.0", "1.2.0-rc.1", "1.3.4", "2.0.0"]) {
+      expect(isReleaseBeforeSalesReferenceExit(release)).toBe(false);
+    }
+    for (const release of ["1.0.0", "1.1.0", "1.1.9", "0.9.0"]) {
+      expect(isReleaseBeforeSalesReferenceExit(release)).toBe(true);
+    }
+    expect(isReleaseBeforeSalesReferenceExit(supportedFrameworkTuple.core)).toBe(true);
+    expect(isReleaseBeforeSalesReferenceExit("not-a-release")).toBe(false);
   });
 
   it("serializes generated JSX application names", () => {

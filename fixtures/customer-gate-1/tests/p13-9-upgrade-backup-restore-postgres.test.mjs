@@ -47,6 +47,15 @@ function opaqueStageId(semantic) {
   const hex = bytes.toString("hex");
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
+// The accepted migration set is the signed description of the 1.0->1.1
+// upgrade. Its delivery phase is read from that document rather than chosen
+// here, so this deployment proof cannot classify the transition more
+// permissively than the policy customers receive.
+const acceptedMigrationSteps = Object.freeze(JSON.parse(readFileSync(resolve(repositoryRoot, "docs/implementation/phase-13-migration-set.json"), "utf8")).steps);
+const acceptedMigrationPhases = Object.freeze([...new Set(acceptedMigrationSteps.map(({ phase }) => phase))]);
+assert.deepEqual(acceptedMigrationPhases, ["offline-required"], "Accepted Phase 13 migration phases changed; the deployment proof classifies the transition from them.");
+const acceptedMigrationPhase = acceptedMigrationPhases[0];
+
 // This is the hand-maintained fixture migration lineage, not the registry the
 // shipped factory emits: the two have different identities and lengths. It
 // exercises the physical backup/restore journey only. Nothing that describes a
@@ -687,6 +696,45 @@ async function p139CompleteOperation(store, operation, referenceReceiptId) {
   return completed;
 }
 
+/**
+ * The accepted migration set classifies every 1.0->1.1 step offline-required.
+ * A customer must therefore never see this transition promoted as a live
+ * blue/green swap: the supervisor has to refuse it and demand a maintenance
+ * window. This rebuilds the same verified build with the accepted step phases
+ * and proves that refusal, so a fixture cannot obtain a promotion by
+ * reclassifying the migrations it ships.
+ */
+async function p139AssertAcceptedTransitionRefusesPromotion({ deployment, build, identity, lifecycleAdmission }) {
+  const acceptedChange = StaticCompositionChangePlanSchema.parse({
+    ...build.verifiedChange.change,
+    planId: "p139-accepted-migration-set",
+    migration: {
+      ...build.verifiedChange.change.migration,
+      planId: "p139-accepted-offline-set",
+      steps: acceptedMigrationSteps.map(({ id, phase }) => ({
+        stepId: `migration-${id.replaceAll("_", "-")}`, phase, migrationDigest: canonicalDigest({ migrationName: id }), availability: "maintenance-required"
+      }))
+    }
+  });
+  const keys = generateKeyPairSync("ed25519");
+  const buildAuthority = { kind: "self-hosted-trusted", builderIdentity: "builder:p139-accepted", trustPolicyDigest: canonicalDigest({ policy: "p139-accepted" }), ref: "source-commit" };
+  const statement = { ...build.evidence, authority: buildAuthority, sourceCommit: acceptedChange.target.sourceCommit };
+  delete statement.signature;
+  const evidence = { ...statement, signature: { algorithm: "ed25519", keyId: buildAuthority.builderIdentity,
+    value: sign(null, Buffer.from(canonicalJson(statement)), keys.privateKey).toString("base64") } };
+  const authority = new TrustedStaticApplicationBuildAuthority({ [buildAuthority.builderIdentity]: {
+    publicKey: keys.publicKey.export({ type: "spki", format: "pem" }).toString(), authority: buildAuthority
+  } });
+  const verifiedChange = { status: "source-change-ready", planDigest: canonicalDigest(acceptedChange), targetSourceCommit: acceptedChange.target.sourceCommit, change: acceptedChange };
+  const token = authority.verify(verifiedChange, evidence);
+  const offlineSupervisor = deployment.supervisorFor(authority);
+  const outcome = await offlineSupervisor.deploy({ build: token, generationId: p139TargetGeneration,
+    workerOwner: p139TargetFenceOwner, workerLeaseExpiresAt: new Date(Date.now() + 240_000).toISOString(), lifecycleAdmission });
+  assert.deepEqual(outcome, { outcome: "maintenance-required", reasons: ["offline-migration"] },
+    "The accepted offline-required transition must be refused promotion rather than swapped live.");
+  assert.equal(identity.sourceCommit, build.verifiedChange.change.base.sourceCommit);
+}
+
 function p139TrustedBuild(identity, targetCommit) {
   const fixture = JSON.parse(readFileSync(resolve(repositoryRoot, "fixtures/extensions/valid/static-composition-change-plan.json"), "utf8"));
   const targetManifest = PackageReleaseManifestSchema.parse(JSON.parse(readFileSync(resolve(repositoryRoot, "releases/1.1.0/package-release-manifest.json"), "utf8")));
@@ -704,8 +752,16 @@ function p139TrustedBuild(identity, targetCommit) {
     base: { composition: baseComposition, sourceCommit: identity.sourceCommit },
     plugin: { ...fixture.plugin, id: "module.sales", version: "1.1.0", releaseManifestDigest: canonicalDigest(targetManifest) },
     migration: { ...fixture.migration, applicationId, environment, baseRevision: 24, targetRevision: 25,
-      planId: "p139-exact-seven-migrations", sourceCommit: identity.sourceCommit, targetSourceCommit: targetCommit,
+      planId: "p139-accepted-migration-set", sourceCommit: identity.sourceCommit, targetSourceCommit: targetCommit,
       rollbackWindow: { state: "open", windowId: "p139-source-protection", closesAt: new Date(Date.now() + 60 * 60_000).toISOString(), contractCleanup: "blocked", previousApplicationDigest: identity.sourceTreeDigest },
+      // These steps are deliberately an online-expand transition, and this
+      // plan is NOT the accepted 1.0->1.1 migration set: that set classifies
+      // every step offline-required, and DeploymentSupervisor.deploy refuses
+      // any such plan outright with maintenance-required/offline-migration,
+      // which p139AssertAcceptedTransitionRefusesPromotion proves below. This
+      // journey therefore exercises promotion, fencing, and failpoint recovery
+      // for a hypothetical online transition; the shipped supervisor has no
+      // maintenance-window promotion path for the real one.
       steps: fixturePhase13MigrationNames.map((migrationName) => ({ stepId: `migration-${migrationName.replaceAll("_", "-")}`, phase: "online-expand", migrationDigest: canonicalDigest({ migrationName }), overlapSafe: true })) },
     target: { applicationSubjectDigest: targetApplicationDigest, imageSubjectDigest: targetImageDigest, composition: targetComposition, sourceCommit: targetCommit }
   });
@@ -939,8 +995,8 @@ function p139DeploymentSupervisor({ client, db, store, build, failBeforeReadines
         await client.query("begin");
         try { await p139ApplyTargetWithFailpoint(db, client); await client.query("commit"); }
         catch (error) { await client.query("rollback"); throw error; }
-      } else assert.deepEqual(existing, fixturePhase13MigrationNames, "Deployment may acknowledge only the exact already-applied seven-migration set.");
-      events.push("exact-seven-migrations");
+      } else assert.deepEqual(existing, fixturePhase13MigrationNames, "Deployment may acknowledge only the exact already-applied fixture migration set.");
+      events.push("exact-fixture-migration-set");
       return build.verifiedChange.change.migration.steps.map(({ stepId }) => stepId);
     },
     async runPostRetirement() { return []; }
@@ -967,7 +1023,8 @@ function p139DeploymentSupervisor({ client, db, store, build, failBeforeReadines
   };
   const gateway = { async converge(ticket) { await store.assertTransitionTicket(ticket); events.push("converge-gateway"); } };
   const realtime = { async reconnectAndResync(ticket) { await store.assertTransitionTicket(ticket); events.push("reconnect-realtime"); } };
-  return { events, supervisor: new DeploymentSupervisor(build.authority, artifacts, migrationsAdapter, generations, store, gateway, realtime, { now: () => new Date() }) };
+  const supervisorFor = (authority) => new DeploymentSupervisor(authority, artifacts, migrationsAdapter, generations, store, gateway, realtime, { now: () => new Date() });
+  return { events, supervisor: supervisorFor(build.authority), supervisorFor };
 }
 
 async function p139RunUpgradeOperation({ client, db, sourceBackup, container, user, restoreDatabase, restorePath, sourceInventory, beforeBoundary, store, build, lifecycleAdmission, workerLeaseExpiresAt }) {
@@ -979,7 +1036,7 @@ async function p139RunUpgradeOperation({ client, db, sourceBackup, container, us
   assert.equal(afterMigrationBoundary.fence.active_execution_generation, beforeBoundary.fence.active_execution_generation);
   assert.equal(afterMigrationBoundary.fence.fencing_token, beforeBoundary.fence.fencing_token);
   assert.equal(afterMigrationBoundary.fence.lease_owner, p139SourceFenceOwner);
-  assert.deepEqual(deployment.events.slice(0, 2), ["exact-seven-migrations", "start-passive"]);
+  assert.deepEqual(deployment.events.slice(0, 2), ["exact-fixture-migration-set", "start-passive"]);
   await p139AssertNoTargetWrites(client);
   const clean = await p139CleanRestore(container, user, sourceBackup.backup, restoreDatabase, restorePath, sourceInventory);
   return { afterMigrationBoundary, events: deployment.events, ...clean };
@@ -1114,11 +1171,12 @@ test("P13.9 protects source with an exact 1.0 process, fences target promotion, 
           const deployed = await successDeployment.supervisor.deploy({ build: build.token, generationId: p139TargetGeneration,
             workerOwner: p139TargetFenceOwner, workerLeaseExpiresAt: new Date(Date.now() + 240_000).toISOString(), lifecycleAdmission });
           assert.equal(deployed.outcome, "promoted");
+          await p139AssertAcceptedTransitionRefusesPromotion({ deployment: successDeployment, build, identity, lifecycleAdmission });
           const committedBeforeRecovery = await p139ReadBoundary(successClient);
           assert.equal(committedBeforeRecovery.deployment.active_generation_id, p139TargetGeneration);
           assert.equal(committedBeforeRecovery.fence.active_execution_generation, p139TargetGeneration);
           assert.equal(committedBeforeRecovery.fence.fencing_token, "2");
-          assert.deepEqual(successDeployment.events.slice(0, 3), ["exact-seven-migrations", "start-passive", "passive-readiness"]);
+          assert.deepEqual(successDeployment.events.slice(0, 3), ["exact-fixture-migration-set", "start-passive", "passive-readiness"]);
           const trustedSalesRegistration = p139ScopedSalesRegistration();
           const lifecycleStore = new PostgresRuntimeExtensionStore(success, { now: () => new Date() }, canonicalDigest({ fixture: "p139-runtime-inventory" }), {
             authorizationLifecycleProjector: new AuthorizationLifecycleProjector(createStaticPlatformPluginAuthorizationDescriptorResolver({

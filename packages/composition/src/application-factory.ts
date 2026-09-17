@@ -209,7 +209,13 @@ if ([...salesReferenceCompilerPaths].some((path) => platformCompilerPaths.has(pa
   throw new Error("Sales-reference compiler inventory overlaps platform paths.");
 }
 
-function isReleaseBeforeSalesReferenceExit(version: string): boolean {
+/**
+ * The exit criterion is a platform release, so it must be read from the
+ * platform release. Reading the generated customer `package.json` could never
+ * fire it: the factory writes a fixed version there, so the guard was only ever
+ * reachable from a test that rewrote that file.
+ */
+export function isReleaseBeforeSalesReferenceExit(version: string): boolean {
   const match = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?$/u.exec(version);
   if (match === null) return false;
   const major = Number(match[1]);
@@ -217,7 +223,7 @@ function isReleaseBeforeSalesReferenceExit(version: string): boolean {
   return major < 1 || major === 1 && minor < 2;
 }
 
-type SalesReferenceCompilerTestMutation = "add-sales-output" | "remove-sales-output" | "second-domain" | "release-1.2.0" | undefined;
+type SalesReferenceCompilerTestMutation = "add-sales-output" | "remove-sales-output" | "second-domain" | undefined;
 let salesReferenceCompilerTestMutation: SalesReferenceCompilerTestMutation;
 
 /** @internal Test-only negative-path seam. It is unavailable in production. */
@@ -237,18 +243,12 @@ function applySalesReferenceCompilerTestMutation(files: Record<string, string>):
       files["k-nex.app.json"] = json(manifest);
       return;
     }
-    case "release-1.2.0": {
-      const packageJson = JSON.parse(files["package.json"]!) as Record<string, unknown>;
-      files["package.json"] = json({ ...packageJson, version: "1.2.0" });
-      return;
-    }
   }
 }
 
-function assertSalesReferenceCompilerInventory(files: Readonly<Record<string, string>>, salesFiles: Readonly<Record<string, string>>, platformFiles: Readonly<Record<string, string>>): void {
-  const productRelease = JSON.parse(files["package.json"]!) as { version?: unknown };
-  if (typeof productRelease.version !== "string" || !isReleaseBeforeSalesReferenceExit(productRelease.version)) {
-    throw new Error(`Sales-reference compiler expires before product release ${String(productRelease.version)}.`);
+function assertSalesReferenceCompilerInventory(files: Readonly<Record<string, string>>, salesFiles: Readonly<Record<string, string>>, platformFiles: Readonly<Record<string, string>>, platformRelease: string): void {
+  if (!isReleaseBeforeSalesReferenceExit(platformRelease)) {
+    throw new Error(`Sales-reference compiler expires before product release ${platformRelease}.`);
   }
   const generatedManifest = ApplicationManifestSchema.parse(JSON.parse(files["k-nex.app.json"]!));
   const firstPartyDomains = generatedManifest.plugins.filter((plugin) => plugin.id.startsWith("module.")).map((plugin) => plugin.id).sort();
@@ -895,7 +895,7 @@ function planKnexApplication(options: CreateKnexApplicationOptions, includeRealt
   applySalesReferenceCompilerTestMutation(files);
   const salesFiles = Object.fromEntries([...salesReferenceCompilerPaths].flatMap((path) => files[path] === undefined ? [] : [[path, files[path]]]));
   const platformFiles = Object.fromEntries(Object.entries(files).filter(([path]) => !salesReferenceCompilerPaths.has(path)));
-  assertSalesReferenceCompilerInventory(files, salesFiles, platformFiles);
+  assertSalesReferenceCompilerInventory(files, salesFiles, platformFiles, release?.release.version ?? currentReleaseVersion);
   const orderedFiles = Object.freeze(Object.fromEntries(Object.entries({ ...platformFiles, ...salesFiles }).sort(([left], [right]) => left.localeCompare(right))));
   const orderedArtifactDigests = Object.freeze(Object.fromEntries(Object.entries(artifactDigests).sort(([left], [right]) => left.localeCompare(right))));
   const digest = `sha256:${createHash("sha256").update(canonicalJson({ files: orderedFiles, artifactDigests: orderedArtifactDigests })).digest("hex")}`;

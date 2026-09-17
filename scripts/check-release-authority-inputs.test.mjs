@@ -1,22 +1,23 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { test } from "node:test";
 
 import { salesReferenceCompilerBoundary } from "../packages/composition/dist/index.js";
 import { assertAcceptedMigrationSetMatchesFactory, assertReleaseAuthorityInputs, releaseAuthorityScripts } from "./check-release-authority-inputs.mjs";
-import { acceptedSourceMigrationRegistry, factoryMigrationRegistry } from "./lib/platform-release-transition.mjs";
+import { acceptedSourceMigrationRegistry, factoryMigrationRegistry, generatorPackage } from "./lib/platform-release-transition.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const shippedSteps = factoryMigrationRegistry(salesReferenceCompilerBoundary)
   .slice(acceptedSourceMigrationRegistry.length)
   .map((id) => ({ id, phase: "offline-required" }));
 
-function withScript(source) {
+function withScript(source, helpers = {}) {
   const directory = mkdtempSync(resolve(tmpdir(), "k-nex-release-authority-"));
-  mkdirSync(resolve(directory, "scripts"));
+  mkdirSync(resolve(directory, "scripts/lib"), { recursive: true });
   writeFileSync(resolve(directory, "scripts/candidate.mjs"), source);
+  for (const [path, contents] of Object.entries(helpers)) writeFileSync(resolve(directory, path), contents);
   return directory;
 }
 
@@ -50,6 +51,34 @@ test("a release-authority script may not read the customer fixture lineage", () 
   }
 });
 
+test("a release-authority script may not reach the fixture lineage through a helper", () => {
+  for (const [name, helpers, source] of [
+    ["direct import", { "scripts/lib/registry.mjs": 'export const path = "fixtures/customer-gate-1/src/migrations/index.ts";\n' },
+      'import { path } from "./lib/registry.mjs";\nexport default path;\n'],
+    ["transitive import", {
+      "scripts/lib/registry.mjs": 'export { path } from "./inner.mjs";\n',
+      "scripts/lib/inner.mjs": 'export const path = "fixtures/customer-gate-1/tests/p13-9-upgrade-backup-restore-postgres.test.mjs";\n'
+    }, 'import { path } from "./lib/registry.mjs";\nexport default path;\n'],
+    ["dynamic import", { "scripts/lib/registry.mjs": 'export const path = "fixtures/customer-gate-1/k-nex.app.json";\n' },
+      'const { path } = await import("./lib/registry.mjs");\nexport default path;\n']
+  ]) {
+    const directory = withScript(source, helpers);
+    try {
+      assert.throws(() => assertReleaseAuthorityInputs({ root: directory, scripts: ["scripts/candidate.mjs"] }),
+        /reads the customer fixture lineage through/u, `${name} was accepted as a release-authority input.`);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  }
+});
+
+test("the walk reaches the helper modules the shipped release scripts import", () => {
+  const visited = assertReleaseAuthorityInputs({ root });
+  for (const helper of ["scripts/lib/platform-release-transition.mjs", "scripts/lib/release-train.mjs"]) {
+    assert.ok([...visited].some((path) => path.endsWith(helper)), `Release-authority walk never reached ${helper}.`);
+  }
+});
+
 test("the accepted migration set must equal what the shipped factory appends", () => {
   const boundary = salesReferenceCompilerBoundary;
   assertAcceptedMigrationSetMatchesFactory({ boundary, migrationSet: { steps: shippedSteps } });
@@ -62,6 +91,26 @@ test("the accepted migration set must equal what the shipped factory appends", (
     assert.throws(() => assertAcceptedMigrationSetMatchesFactory({ boundary, migrationSet: { steps } }),
       /Accepted migration set differs/u, `Migration set ${name} was accepted.`);
   }
+});
+
+test("the managed-output contract digest tracks the package that generates the tree", async () => {
+  const { platformReleaseGeneratorContractDigest } = await import("../packages/contracts/dist/index.js");
+  const sourceManifest = JSON.parse(readFileSync(resolve(root, "releases/1.0.0/package-release-manifest.json"), "utf8"));
+  const targetManifest = JSON.parse(readFileSync(resolve(root, "releases/1.1.0/package-release-manifest.json"), "utf8"));
+  const entry = (manifest, name) => {
+    const found = manifest.packages.find(({ package: packageName }) => packageName === name);
+    assert.ok(found, `Release manifest does not contain ${name}.`);
+    return found;
+  };
+  assert.equal(generatorPackage, "@k-nex/composition", "The generator must be the package that emits the application tree.");
+  const baseline = platformReleaseGeneratorContractDigest(entry(sourceManifest, generatorPackage), entry(targetManifest, generatorPackage));
+  // Changing only the generator's own bytes must move the contract digest;
+  // naming a package that generates nothing left it unmoved.
+  const drifted = { ...entry(targetManifest, generatorPackage), integrity: `sha512-${"A".repeat(86)}==` };
+  assert.notEqual(platformReleaseGeneratorContractDigest(entry(sourceManifest, generatorPackage), drifted), baseline,
+    "A Composition integrity change must move the managed-output contract digest.");
+  const runtimeDigest = platformReleaseGeneratorContractDigest(entry(sourceManifest, "@k-nex/runtime"), entry(targetManifest, "@k-nex/runtime"));
+  assert.notEqual(runtimeDigest, baseline, "The generator contract must not resolve to the Runtime package bytes.");
 });
 
 test("the attested source registry must remain the shipped factory's exact prefix", () => {

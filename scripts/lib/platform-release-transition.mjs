@@ -15,6 +15,15 @@ const sourceDisposition = new Set(["remove", "replacement-required"]);
 export const sha256Canonical = (value) => `sha256:${createHash("sha256").update(canonicalJson(value)).digest("hex")}`;
 
 /**
+ * The generator is the package that emits the application tree. The factory
+ * and the upgrade compiler both live in Composition, and create-knex-app
+ * imports them from there, so ownership records and the managed-output
+ * contract digest must name it: binding them to Runtime meant a Composition
+ * change could rewrite every generated file without moving either.
+ */
+export const generatorPackage = "@k-nex/composition";
+
+/**
  * The attested 1.0.0 composition archive ships exactly this ordered migration
  * registry. It is a frozen historical fact rather than a live derivation: the
  * 1.0 factory cannot change. Every release-authority input derives the 1.0

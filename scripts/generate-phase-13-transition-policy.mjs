@@ -6,7 +6,7 @@ import { dirname, resolve } from "node:path";
 
 import { canonicalJson, platformReleaseGeneratorContractDigest } from "../packages/contracts/dist/index.js";
 import { salesReferenceCompilerBoundary } from "../packages/composition/dist/index.js";
-import { acceptedSourceMigrationRegistry, factoryMigrationRegistry } from "./lib/platform-release-transition.mjs";
+import { acceptedSourceMigrationRegistry, factoryMigrationRegistry, generatorPackage } from "./lib/platform-release-transition.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const args = process.argv.slice(2);
@@ -98,8 +98,8 @@ for (const [packageName, sourcePackage] of sourcePackages) {
   assert.equal(sourcePackage.version, source.release.version, `Source package ${packageName} is outside source release.`);
   assert.equal(targetPackage?.version, target.release.version, `Target package ${packageName} is outside target release.`);
 }
-const sourceGenerator = sourcePackages.get("@k-nex/runtime");
-const targetGenerator = targetPackages.get("@k-nex/runtime");
+const sourceGenerator = sourcePackages.get(generatorPackage);
+const targetGenerator = targetPackages.get(generatorPackage);
 assert.ok(sourceGenerator && targetGenerator, "Release transition generator package is missing.");
 
 const policy = {
@@ -108,7 +108,7 @@ const policy = {
   generatorAdditions: [],
   pluginIds: [{ package: "@k-nex/module-sales", pluginId: "module.sales" }],
   generator: {
-    package: "@k-nex/runtime",
+    package: generatorPackage,
     sourceSchemaVersion: 1,
     targetSchemaVersion: 2,
     managedOutputContractDigest: platformReleaseGeneratorContractDigest(sourceGenerator, targetGenerator)

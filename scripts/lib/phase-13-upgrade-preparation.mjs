@@ -10,6 +10,7 @@ import {
   canonicalJson
 } from "../../packages/contracts/dist/index.js";
 import { applicationUpgradeCompilerDigests } from "../../packages/composition/dist/index.js";
+import { generatorPackage } from "./platform-release-transition.mjs";
 
 export const phase13ReleaseControlPaths = Object.freeze([
   ".k-nex/application-plan.json", ".k-nex/generated-files.json", ".k-nex/package-release-manifest.json", ".k-nex/release-lock.json",
@@ -33,7 +34,9 @@ export function ownershipFromFactoryPlan({ plan, release, previousOwnership }) {
       if (historical.mode !== mode) throw new TypeError(`Target generator changed predecessor migration ownership ${path}.`);
       return historical;
     }
-    return { path, mode, producer: { package: "@k-nex/runtime", version: release.release.version, generatorId: "sales-reference" }, digest: digestBytes(bytes) };
+    // Ownership records name the package that produced the file, and the
+    // factory that produced it is Composition, not Runtime.
+    return { path, mode, producer: { package: generatorPackage, version: release.release.version, generatorId: "sales-reference" }, digest: digestBytes(bytes) };
   });
   return GeneratedFileOwnershipManifestSchema.parse({ schemaVersion: 1, applicationId: plan.applicationId, files });
 }
@@ -55,13 +58,13 @@ function selectedPlugins(plan, release) {
 }
 
 export function releaseLockFromFactoryPlan({ plan, release, releaseManifestDigest, ownership, migrationSetDigest, transitionChain = [] }) {
-  const runtime = release.packages.find((entry) => entry.package === "@k-nex/runtime");
-  if (runtime === undefined) throw new TypeError("Release generator package is absent.");
+  const generator = release.packages.find((entry) => entry.package === generatorPackage);
+  if (generator === undefined) throw new TypeError("Release generator package is absent.");
   return ApplicationReleaseLockSchema.parse({
     schemaVersion: 1, applicationId: plan.applicationId, platformRelease: release.release.version, releaseManifestDigest,
     frameworkTupleDigest: digestValue(release.framework),
     packages: release.packages.map(({ package: packageName, version, role, integrity }) => ({ package: packageName, version, role, integrity })).sort((left, right) => compareCodeUnits(left.package, right.package)),
-    plugins: selectedPlugins(plan, release), generator: { package: runtime.package, version: runtime.version, schemaVersion: release.release.version === "1.0.0" ? 1 : 2, generatorId: "sales-reference" },
+    plugins: selectedPlugins(plan, release), generator: { package: generator.package, version: generator.version, schemaVersion: release.release.version === "1.0.0" ? 1 : 2, generatorId: "sales-reference" },
     sourceOwnershipDigest: digestValue(ownership), migrationSetDigest, transitionChain
   });
 }
