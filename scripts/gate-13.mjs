@@ -22,6 +22,12 @@ const packageJson = JSON.parse(read("package.json"));
 assert.equal(packageJson.scripts?.["gate:13"], "pnpm gate:12 && node scripts/gate-13.mjs", "Gate 13 must invoke the cumulative Gate 0–12 chain first.");
 assert.equal(packageJson.scripts?.["gate:13:focused"], "node scripts/gate-13.mjs", "Gate 13 focused entrypoint must be deterministic and direct.");
 
+// The checks below read the compiled workspace, so this gate builds it rather
+// than assuming a caller did: a focused run on a clean checkout would otherwise
+// fail on a missing dist instead of on evidence.
+const workspaceBuild = spawnSync("pnpm", ["build"], { cwd: root, encoding: "utf8" });
+assert.equal(workspaceBuild.status, 0, `Gate 13 requires a built workspace:\n${workspaceBuild.stdout}${workspaceBuild.stderr}`);
+
 const releaseAuthorityInputs = spawnSync(process.execPath, ["scripts/check-release-authority-inputs.mjs"], { cwd: root, encoding: "utf8" });
 assert.equal(releaseAuthorityInputs.status, 0,
   `Gate 13 requires every attested release input to describe the shipped product:\n${releaseAuthorityInputs.stderr}`);
