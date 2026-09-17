@@ -2,12 +2,12 @@
   "$schema": "../../schemas/package-release-manifest.v1.schema.json",
   "factoryLockTemplates": {
     "minimal": {
-      "digest": "sha256:0b5cb4c4307af50d5618bac3599c2fb18521a117082d4022a552caade7339f3b",
+      "digest": "sha256:6b58a7d8d93a6a2ba4d0748328a83a44b78c094db54002d90d5947b75d9f469f",
       "preset": "sales-reference",
       "theme": "minimal"
     },
     "neobrutalism": {
-      "digest": "sha256:4a96e7525c0fd884457f022ae24578a686d16ae3142b0605ea8ea9c0b892cfcf",
+      "digest": "sha256:383147a5b090fc5956d85de32ab68cb76ff5b351dc3ce2b364ec08e6e37f1139",
       "preset": "sales-reference",
       "theme": "neobrutalism"
     }
@@ -34,7 +34,7 @@
       "version": "1.1.0"
     },
     {
-      "integrity": "sha512-sbW9eJ98bmCRldc9zpHbeL0ZfoswjvbBYAd91yXzZT//oD4Vr3ErMCA19CCCs9jSlNy66H1d7uPmeZ3e3ZOY/g==",
+      "integrity": "sha512-sfiOm3efCeU0oWD+ho7OWi8DqVi7G08YT9t8FmLFcWAmaZdb215RuUByw7QqcV69h+AF1akjI78yHdxrF1Dqgg==",
       "package": "@k-nex/composition",
       "peerCompatibility": {
         "core": "1.1.0",
@@ -47,7 +47,7 @@
       "version": "1.1.0"
     },
     {
-      "integrity": "sha512-imL6Rctw/ccNyzfyxmB7KtnlCTjEsZSpK+1N8J7+akO0FywMvEnjZf+Y+7skUfFVO28ahKoYglnPWD5hdRuDjw==",
+      "integrity": "sha512-tRQOeO9YgJnhHNnkF7i5qBu8YNShfCS6CxPdto0r7Diraxl2MP7Vo2mN1ATmlMFVniXElfZs5WsOab4W5/eUPw==",
       "package": "@k-nex/contracts",
       "peerCompatibility": {
         "core": "1.1.0",
@@ -125,7 +125,7 @@
       "version": "1.1.0"
     },
     {
-      "integrity": "sha512-efRpuw8J8a46gZei4fF6ty35c0LbFSgfxKyjLXcKLNFcge9KAYVzuGiW8d7Jxtt5a3iY/hvSGFJwB7Zsepq1yQ==",
+      "integrity": "sha512-QWqNVvrejWWBGkh7r11XhgBCaa/ILkFZACCDsEgLjfg61KmkbZPrmd+wE9Jfr/LRiKYTUPplRlxyHc9oigY1+g==",
       "package": "@k-nex/theme-minimal",
       "peerCompatibility": {
         "core": "1.1.0",
@@ -138,7 +138,7 @@
       "version": "1.1.0"
     },
     {
-      "integrity": "sha512-i9f7h+6WoBWubjwW3Gtb/bkUwjfcSp9GFpaKlc/chqWMKL2kaiE4K5L4hpfSuKeqcOEWYBxe8TxHob/gZ63dlQ==",
+      "integrity": "sha512-H2J4OrrqNKxSlXH6/eVzoELEUWRenzfrSU3wKnvoCAMpYtsghvpHbl+kWFRBxTFGm4arZlerSTCenSQt6axBrw==",
       "package": "@k-nex/theme-neobrutalism",
       "peerCompatibility": {
         "core": "1.1.0",
