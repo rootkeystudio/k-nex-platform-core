@@ -23,7 +23,7 @@ function rawRegistration(): RegistrationResult {
         id: "module.sales",
         kind: "module",
         package: "@k-nex/module-sales",
-        version: "1.0.0",
+        version: salesManifest.version,
         integrity,
         required: [],
         optional: []
@@ -32,7 +32,7 @@ function rawRegistration(): RegistrationResult {
       registrationOrder: ["module.sales"]
     },
     installed: [{
-      package: { name: "@k-nex/module-sales", version: "1.0.0", integrity },
+      package: { name: "@k-nex/module-sales", version: salesManifest.version, integrity },
       manifest: salesManifest
     }],
     registrations: [salesRegistration]
@@ -43,7 +43,7 @@ function scope(raw: RegistrationResult): ScopedRegistrationResult {
   const integrity = `sha512-${"a".repeat(86)}==`;
   const lifecycle = createPlatformPluginLifecycleState({
     pluginId: "module.sales", catalogStatus: "supported",
-    package: { status: "installed", name: "@k-nex/module-sales", version: "1.0.0", integrity }, enabled: true,
+    package: { status: "installed", name: "@k-nex/module-sales", version: salesManifest.version, integrity }, enabled: true,
     configuration: { revision: 1, ready: true }, migration: { current: 1, required: 1, ready: true }, dataState: "active", releaseStatus: "supported"
   });
   return scopePlatformPluginRegistration(raw, [reconcilePlatformPluginAvailability(raw, lifecycle)]);
@@ -127,7 +127,7 @@ describe("Payload application composition", () => {
     const integrity = `sha512-${"a".repeat(86)}==`;
     const lifecycle = createPlatformPluginLifecycleState({
       pluginId: "module.sales", catalogStatus: "supported",
-      package: { status: "installed", name: "@k-nex/module-sales", version: "1.0.0", integrity }, enabled: false,
+      package: { status: "installed", name: "@k-nex/module-sales", version: salesManifest.version, integrity }, enabled: false,
       configuration: { revision: 1, ready: true }, migration: { current: 1, required: 1, ready: true }, dataState: "retained", releaseStatus: "supported"
     });
     const composed = composePayloadApplication({
