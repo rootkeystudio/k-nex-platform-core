@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
 
@@ -13,7 +13,7 @@ import { buildPlatformReleaseTransition, parseCanonicalPackageReleaseManifest } 
 import { materializePreparedTreeAtomic, ownershipFromFactoryPlan, phase13UpgradePreparationDigests, readRepositorySnapshot, releaseLockFromFactoryPlan, targetGenerationFromFactoryPlan } from "../../../scripts/lib/phase-13-upgrade-preparation.mjs";
 
 const repositoryRoot = resolve(import.meta.dirname, "../../..");
-const nodePath = "/Users/canersevince/.nvm/versions/node/v24.19.0/bin";
+const nodePath = dirname(process.execPath);
 const acceptedSourceCommit = "c8fe7f2518c219957297155e307768837186ec5f";
 const roots = [];
 const digest = phase13UpgradePreparationDigests.value;
