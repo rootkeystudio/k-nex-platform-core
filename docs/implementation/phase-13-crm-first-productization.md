@@ -480,10 +480,16 @@ as one:
   snapshot rather than claiming each durable effect through
   `PostgresStaticDeploymentStore.claimEffect`.
 
-The release transition is admitted by an exact source-release preflight before
-its first mutation and finalized by an exact CAS onto the target release
-identity. Holding one lock across all ten offline-required steps requires the
-coordinator above, so it is deferred with it.
+The generated migration command does not perform release transitions, and that
+is deliberate: it cannot hold the database authority across the whole set, so
+it refuses rather than performing an unfenced one. A fresh install records the
+release it is directly in its bootstrap migration and passes through the
+historical transition steps unchanged, which also keeps the model composable
+for the next release. A database still on the predecessor is refused by an
+exact source preflight placed before every target migration, naming the
+coordinator. The transition step itself advances only the exact predecessor
+tuple - all three chain fields - onto the target identity, and is the step the
+coordinator will execute under its own fence.
 
 ### P13.10 — Gate 13 limited-beta closeout
 

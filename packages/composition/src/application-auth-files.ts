@@ -1,6 +1,6 @@
 import { supportedFrameworkTuple } from "@k-nex/contracts";
 
-import { platformAcceptedPredecessors, platformReleaseIdentity, platformReleaseRevision } from "./platform-release-revision.js";
+import { platformReleaseIdentity, platformReleaseRevision } from "./platform-release-revision.js";
 
 export interface ApplicationAuthFilesOptions {
   readonly applicationId: string;

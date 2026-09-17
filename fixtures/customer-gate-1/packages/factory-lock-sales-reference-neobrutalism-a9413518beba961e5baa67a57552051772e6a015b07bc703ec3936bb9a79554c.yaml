@@ -964,7 +964,7 @@ packages:
       react: ^18.0.0 || ^19.0.0
 
   '@k-nex/composition@file:.k-nex/packages/k-nex-composition-1.1.0.tgz':
-    resolution: {integrity: sha512-lnIVdJotHNZ/IB8anDXg15ccWkyqXJdIFlP7iDD2e7jnovgFo2kJeb3/Duu0F6e2OcLd12O0gTyIIjCJBJ87ow==, tarball: file:.k-nex/packages/k-nex-composition-1.1.0.tgz}
+    resolution: {integrity: sha512-EluFqJAAtgzuyxzyYDPz47MFRB+Cu+EAx8U3iTXsDh63b40/mo9y+h3FpGvzmO7xzLBRTt20WpUJ3bjtBq8RqA==, tarball: file:.k-nex/packages/k-nex-composition-1.1.0.tgz}
     version: 1.1.0
 
   '@k-nex/contracts@file:.k-nex/packages/k-nex-contracts-1.1.0.tgz':

@@ -5,7 +5,7 @@ import { gunzipSync } from "node:zlib";
 
 import { ApplicationManifestSchema, canonicalJson, supportedFrameworkTuple, type ApplicationManifest, type PackageReleaseManifestAuthority, type VerifiedPackageReleaseManifest } from "@k-nex/contracts";
 import { applicationAuthFiles } from "./application-auth-files.js";
-import { platformAcceptedPredecessors, platformReleaseIdentity, platformReleaseRevision } from "./platform-release-revision.js";
+import { platformReleaseIdentity, platformReleaseRevision, platformTransitionSource } from "./platform-release-revision.js";
 import { crmCoreMigrationSource as canonicalCrmCoreMigrationSource } from "./crm-core-migration-template.js";
 import { dataMovementMigrationSource } from "./data-movement-migration-template.js";
 import { dataMovementHostSource } from "./data-movement-host-template.js";
@@ -702,32 +702,41 @@ export async function down({ db }: MigrateDownArgs): Promise<void> {
  * closed rather than leaving readiness to discover a stale one. Rollback is by
  * source restore, so there is no reverse step to write.
  */
-function acceptedPredecessorPredicate(platformRelease: string): string {
-  return platformAcceptedPredecessors(platformRelease)
-    .map(({ predecessorRevision, revision, identity }) =>
-      `("predecessor_revision" = ${predecessorRevision} AND "revision" = ${revision} AND "release_revision" = '${identity}')`)
-    .join(" OR ");
-}
-
 /**
- * The release transition mutates customer schema before it reaches its final
- * step, so the exact source state is admitted here, before the first target
- * migration, and never inferred afterwards. An unsupported predecessor fails
- * this migration and leaves the target transition unapplied.
+ * A release transition step belongs to the upgrade coordinator, not to the
+ * ordinary migration command. A fresh install of any release records that
+ * release directly, so it reaches these steps already at or beyond them and
+ * they do nothing; a database still on the predecessor is refused here, before
+ * any customer schema changes, because this command cannot hold the database
+ * authority across the whole transition. That fence is the coordinator's, and
+ * until it ships this transition is deliberately not executable this way.
  */
 function releasePreflightMigrationSource(applicationId: string, platformRelease: string): string {
+  const revision = platformReleaseRevision(platformRelease);
+  const source = platformTransitionSource(platformRelease);
+  const sourceClause = source === undefined ? "FALSE" :
+    `("predecessor_revision" = ${source.predecessorRevision} AND "revision" = ${source.revision} AND "release_revision" = '${source.identity}')`;
   return `import { sql, type MigrateDownArgs, type MigrateUpArgs } from "@payloadcms/db-postgres";
 
 export async function up({ db }: MigrateUpArgs): Promise<void> {
   await db.execute(sql.raw(\`DO $$
-DECLARE admitted integer;
+DECLARE recorded integer; transition integer;
 BEGIN
   PERFORM pg_advisory_xact_lock(hashtext('k-nex/release-revision/${applicationId}'));
-  SELECT count(*) INTO admitted FROM "k_nex_release_revision"
-   WHERE "application_id" = '${applicationId}' AND (${acceptedPredecessorPredicate(platformRelease)});
-  IF admitted <> 1 THEN
-    RAISE EXCEPTION 'Release ${platformRelease} refuses this database: ${applicationId} does not record an accepted predecessor release';
+  IF to_regclass('public.k_nex_release_revision') IS NULL THEN
+    RETURN;
   END IF;
+  SELECT count(*) INTO recorded FROM "k_nex_release_revision"
+   WHERE "application_id" = '${applicationId}' AND "revision" >= ${revision};
+  IF recorded = 1 THEN
+    RETURN;
+  END IF;
+  SELECT count(*) INTO transition FROM "k_nex_release_revision"
+   WHERE "application_id" = '${applicationId}' AND ${sourceClause};
+  IF transition = 1 THEN
+    RAISE EXCEPTION 'Release ${platformRelease} will not migrate this database: an existing release must be transitioned by the upgrade coordinator, which holds the database authority across the whole transition, not by the application migration command';
+  END IF;
+  RAISE EXCEPTION 'Release ${platformRelease} refuses this database: ${applicationId} does not record a release this application can run';
 END $$;\`));
 }
 
@@ -737,19 +746,33 @@ export async function down({ db }: MigrateDownArgs): Promise<void> {
 `;
 }
 
+/**
+ * The step the coordinator executes to move an admitted predecessor onto this
+ * release. A database already at or beyond this release passes through it
+ * unchanged, so a later release's fresh install can replay the registry
+ * without walking transitions it was never on.
+ */
 function releaseRevisionMigrationSource(applicationId: string, platformRelease: string): string {
   const revision = platformReleaseRevision(platformRelease);
+  const source = platformTransitionSource(platformRelease);
+  const sourceClause = source === undefined ? "FALSE" :
+    `("predecessor_revision" = ${source.predecessorRevision} AND "revision" = ${source.revision} AND "release_revision" = '${source.identity}')`;
   return `import { sql, type MigrateDownArgs, type MigrateUpArgs } from "@payloadcms/db-postgres";
 
 export async function up({ db }: MigrateUpArgs): Promise<void> {
   await db.execute(sql.raw(\`DO $$
-DECLARE advanced integer;
+DECLARE recorded integer; advanced integer;
 BEGIN
   PERFORM pg_advisory_xact_lock(hashtext('k-nex/release-revision/${applicationId}'));
+  SELECT count(*) INTO recorded FROM "k_nex_release_revision"
+   WHERE "application_id" = '${applicationId}' AND "revision" >= ${revision};
+  IF recorded = 1 THEN
+    RETURN;
+  END IF;
   UPDATE "k_nex_release_revision"
      SET "predecessor_revision" = "revision", "revision" = ${revision},
          "release_revision" = '${platformReleaseIdentity(platformRelease)}'
-   WHERE "application_id" = '${applicationId}' AND (${acceptedPredecessorPredicate(platformRelease)});
+   WHERE "application_id" = '${applicationId}' AND ${sourceClause};
   GET DIAGNOSTICS advanced = ROW_COUNT;
   IF advanced <> 1 THEN
     RAISE EXCEPTION 'k_nex_release_revision did not advance to ${platformReleaseIdentity(platformRelease)} for ${applicationId} from an accepted predecessor';
@@ -771,7 +794,7 @@ export async function up({ db }: MigrateUpArgs): Promise<void> {
   await db.execute(sql.raw(\`CREATE TABLE "k_nex_release_revision" (
     "application_id" varchar PRIMARY KEY NOT NULL, "predecessor_revision" integer NOT NULL,
     "revision" integer NOT NULL, "release_revision" varchar NOT NULL
-  ); INSERT INTO "k_nex_release_revision" VALUES ('${applicationId}', 0, 1, 'platform-${platformRelease}-bootstrap');\`));
+  ); INSERT INTO "k_nex_release_revision" VALUES ('${applicationId}', 0, ${platformReleaseRevision(platformRelease)}, '${platformReleaseIdentity(platformRelease)}');\`));
 }
 
 export async function down({ db }: MigrateDownArgs): Promise<void> {

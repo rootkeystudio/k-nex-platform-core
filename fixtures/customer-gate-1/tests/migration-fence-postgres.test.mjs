@@ -74,16 +74,15 @@ test("proves advisory-lock concurrency, rollback, release receipt, and stale rea
 });
 
 /**
- * A database upgraded from 1.0 keeps the bootstrap migration it already ran,
- * and that migration names the release it was generated for, so without a
- * release-revision step the upgraded database still reads platform-1.0.0 and
- * the 1.1 application can never report ready. This proves the step exists,
- * that it converges an upgraded database and a fresh one onto the same
- * identity, that the readiness contract accepts exactly that identity, and
- * that it refuses to run twice.
+ * A fresh install records the release it is, directly, so it reaches the
+ * historical transition steps already at that release and passes through them
+ * unchanged. A database still on the predecessor is refused before any target
+ * migration runs: this command cannot hold the database authority across the
+ * whole transition, so it does not pretend to perform one. The coordinator's
+ * own step is proved here too, against the exact predecessor tuple.
  */
-test("the release-revision migration converges upgraded and fresh databases onto the release the application runs", { timeout: 180_000 }, async () => {
-  const { planCreateKnexApplication, platformAcceptedPredecessors, platformReleaseIdentity, platformReleaseRevision } = await import("@k-nex/composition");
+test("the release transition admits a fresh install, refuses a predecessor database, and is executable only from the exact source", { timeout: 180_000 }, async () => {
+  const { planCreateKnexApplication, platformReleaseIdentity, platformReleaseRevision, platformTransitionSource } = await import("@k-nex/composition");
   const applicationId = "release-revision-proof";
   const plan = planCreateKnexApplication({ applicationId, applicationName: "Release Revision Proof", theme: "minimal", database: "external", primaryCurrency: "USD" });
   const rawStatement = (path, label) => {
@@ -93,90 +92,92 @@ test("the release-revision migration converges upgraded and fresh databases onto
     assert.ok(statement, `${label} must carry one raw statement.`);
     return statement;
   };
-  const statement = rawStatement("src/migrations/20260909_000036_release_revision.ts", "a release-revision migration");
   const preflight = rawStatement("src/migrations/20260905_000026_release_preflight.ts", "a release preflight migration");
+  const statement = rawStatement("src/migrations/20260909_000036_release_revision.ts", "a release-revision migration");
+  const [, bootstrapRow] = /INSERT INTO "k_nex_release_revision" VALUES \(([^)]+)\)/u.exec(plan.files["src/migrations/20260827_000002_knex_bootstrap.ts"]) ?? [];
+  assert.ok(bootstrapRow, "The bootstrap migration must insert one release row.");
   const targetRevision = platformReleaseRevision("1.1.0");
   const targetIdentity = platformReleaseIdentity("1.1.0");
+  const source = platformTransitionSource("1.1.0");
+  assert.deepEqual(source, { predecessorRevision: 0, revision: 1, identity: "platform-1.0.0-bootstrap" });
 
-  // The transition mutates customer schema before its final step, so the
-  // preflight must run before the first target migration; otherwise an
-  // unsupported source database is mutated and only then inspected.
+  // A fresh install bootstraps straight onto this release, so the historical
+  // transition steps have nothing to do and a later release can replay the
+  // registry without walking transitions it was never on.
+  assert.match(bootstrapRow, new RegExp(`0, ${targetRevision}, '${targetIdentity}'`, "u"),
+    "The bootstrap migration must record this release directly.");
+
+  // The preflight must still precede every target migration.
   const registry = [...plan.files["src/migrations/index.ts"].matchAll(/name: "([^"\n]+)"/gu)].map(([, name]) => name);
   const preflightIndex = registry.indexOf("20260905_000026_release_preflight");
-  const revisionIndex = registry.indexOf("20260909_000036_release_revision");
   assert.ok(preflightIndex > 0, "The generated registry must contain the release preflight.");
-  assert.equal(revisionIndex, registry.length - 1, "The release-revision step must be the last migration.");
-  for (const target of ["20260905_000027_crm_core", "20260906_000029_attachment_upload_admissions", "20260908_000034_reports"]) {
+  for (const target of ["20260905_000027_crm_core", "20260906_000029_attachment_upload_admissions", "20260908_000034_reports", "20260909_000036_release_revision"]) {
     assert.ok(registry.indexOf(target) > preflightIndex, `The preflight must precede the target migration ${target}.`);
   }
 
   const container = await new PostgreSqlContainer(POSTGRES_IMAGE).withDatabase("release_revision").withStartupTimeout(120_000).start();
   const pool = new pg.Pool({ connectionString: container.getConnectionUri() });
   try {
-    const bootstrap = async (release) => {
+    const seed = async (predecessor, revision, identity) => {
       await pool.query("drop table if exists k_nex_release_revision");
       await pool.query(`create table k_nex_release_revision (
         application_id varchar primary key not null, predecessor_revision integer not null,
         revision integer not null, release_revision varchar not null
       )`);
-      await pool.query("insert into k_nex_release_revision values ($1, 0, 1, $2)", [applicationId, `platform-${release}-bootstrap`]);
+      if (identity !== undefined) await pool.query("insert into k_nex_release_revision values ($1, $2, $3, $4)", [applicationId, predecessor, revision, identity]);
     };
     const row = async () => (await pool.query(
       "select predecessor_revision, revision, release_revision from k_nex_release_revision where application_id = $1", [applicationId]
     )).rows;
 
-    // Upgraded: the preserved 1.0 bootstrap ran, and this release advances it.
-    await bootstrap("1.0.0");
-    await assert.rejects(assertMigrationReadiness({ pool, applicationId, artifactRevision: targetRevision, releaseRevision: targetIdentity }),
-      { code: "REVISION_MISMATCH" }, "An unupgraded database must not satisfy this release's readiness.");
-    await pool.query(statement);
-    const upgraded = await row();
-    assert.deepEqual(upgraded, [{ predecessor_revision: 1, revision: targetRevision, release_revision: targetIdentity }]);
-    assert.deepEqual(await assertMigrationReadiness({ pool, applicationId, artifactRevision: targetRevision, releaseRevision: targetIdentity }),
-      { applicationId, predecessorRevision: 1, revision: targetRevision, releaseRevision: targetIdentity });
-    await assert.rejects(pool.query(statement), /did not advance/u, "The release-revision migration must fail closed rather than advance twice.");
-    assert.deepEqual(await row(), upgraded, "A refused replay must leave the recorded release untouched.");
-
-    // Fresh install of this release must land on the identical row.
-    await bootstrap("1.1.0");
+    // Fresh install: no table yet, then this release's own row. Both pass.
+    await pool.query("drop table if exists k_nex_release_revision");
+    await pool.query(preflight);
+    await seed(0, targetRevision, targetIdentity);
     await pool.query(preflight);
     await pool.query(statement);
-    assert.deepEqual(await row(), upgraded, "A fresh install and an upgraded database must record the same release.");
+    assert.deepEqual(await row(), [{ predecessor_revision: 0, revision: targetRevision, release_revision: targetIdentity }],
+      "A database already on this release must pass through the transition steps unchanged.");
 
-    // Only the declared predecessors are admitted. Everything else must be
-    // refused by the preflight, before any target migration runs, and must
-    // also be refused by the final step so a mutated database cannot have an
-    // invalid release identity normalized into a ready-looking one.
-    const accepted = platformAcceptedPredecessors("1.1.0").map(({ revision, identity }) => `${revision}:${identity}`);
-    assert.deepEqual([...accepted].sort(), ["1:platform-1.0.0-bootstrap", "1:platform-1.1.0-bootstrap"].sort());
-    for (const [name, seed] of [
-      ["zero revision", { predecessor: 0, revision: 0, identity: "platform-1.0.0-bootstrap" }],
-      ["unknown identity", { predecessor: 0, revision: 1, identity: "platform-0.9.0-bootstrap" }],
-      ["corrupt identity", { predecessor: 0, revision: 1, identity: "" }],
-      ["already advanced", { predecessor: 1, revision: targetRevision, identity: targetIdentity }],
-      ["skipped release", { predecessor: 2, revision: 3, identity: "platform-1.2.0-release" }]
+    // A database still on the predecessor is refused, naming the coordinator,
+    // and is left exactly as it was.
+    await seed(source.predecessorRevision, source.revision, source.identity);
+    const predecessorRow = await row();
+    await assert.rejects(pool.query(preflight), /must be transitioned by the upgrade coordinator/u,
+      "The application migration command must refuse to perform a release transition.");
+    assert.deepEqual(await row(), predecessorRow, "A refused predecessor database must be left exactly as it was.");
+
+    // The coordinator's own step advances exactly that tuple, once.
+    await pool.query(statement);
+    assert.deepEqual(await row(), [{ predecessor_revision: source.revision, revision: targetRevision, release_revision: targetIdentity }]);
+    await pool.query(statement);
+    assert.deepEqual(await row(), [{ predecessor_revision: source.revision, revision: targetRevision, release_revision: targetIdentity }],
+      "Replaying the transition step on an advanced database must change nothing.");
+    assert.deepEqual(await assertMigrationReadiness({ pool, applicationId, artifactRevision: targetRevision, releaseRevision: targetIdentity }),
+      { applicationId, predecessorRevision: source.revision, revision: targetRevision, releaseRevision: targetIdentity });
+
+    // Every other recorded state is refused by both, and left untouched.
+    for (const [name, state] of [
+      ["zero revision", [0, 0, "platform-1.0.0-bootstrap"]],
+      ["unknown identity", [0, 1, "platform-0.9.0-bootstrap"]],
+      ["corrupt identity", [0, 1, ""]],
+      ["impossible chain field", [99, 1, "platform-1.0.0-bootstrap"]],
+      ["missing row", undefined]
     ]) {
-      await pool.query("delete from k_nex_release_revision where application_id = $1", [applicationId]);
-      await pool.query("insert into k_nex_release_revision values ($1, $2, $3, $4)", [applicationId, seed.predecessor, seed.revision, seed.identity]);
+      await seed(...(state ?? [0, 0, undefined]));
       const before = await row();
-      await assert.rejects(pool.query(preflight), /does not record an accepted predecessor release/u, `The preflight admitted a ${name} source.`);
-      await assert.rejects(pool.query(statement), /from an accepted predecessor/u, `The release-revision step advanced a ${name} source.`);
-      assert.deepEqual(await row(), before, `A refused ${name} source must be left exactly as it was.`);
+      await assert.rejects(pool.query(preflight), /does not record a release this application can run/u, `The preflight admitted a ${name} database.`);
+      await assert.rejects(pool.query(statement), /from an accepted predecessor/u, `The transition step advanced a ${name} database.`);
+      assert.deepEqual(await row(), before, `A refused ${name} database must be left exactly as it was.`);
     }
 
-    // A missing row is not a predecessor either.
-    await pool.query("delete from k_nex_release_revision where application_id = $1", [applicationId]);
-    await assert.rejects(pool.query(preflight), /does not record an accepted predecessor release/u, "The preflight admitted a database with no release record.");
-    await assert.rejects(pool.query(statement), /from an accepted predecessor/u, "The release-revision step advanced a database with no release record.");
-    assert.deepEqual(await row(), [], "A refused database must not gain a release record.");
-
-    // Two runners racing the final step: the advisory lock plus the exact CAS
-    // must let exactly one advance and refuse the other.
-    await bootstrap("1.0.0");
+    // Two coordinators racing the transition: exactly one advances.
+    await seed(source.predecessorRevision, source.revision, source.identity);
     const racers = await Promise.allSettled([pool.query(statement), pool.query(statement)]);
-    assert.equal(racers.filter(({ status }) => status === "fulfilled").length, 1, "Exactly one concurrent runner may advance the release.");
-    assert.equal(racers.filter(({ status }) => status === "rejected").length, 1, "The losing concurrent runner must be refused.");
-    assert.deepEqual(await row(), upgraded, "A contested advance must still record exactly the target release.");
+    assert.equal(racers.filter(({ status }) => status === "rejected").length, 0,
+      "A second runner must find the release already advanced rather than fail.");
+    assert.deepEqual(await row(), [{ predecessor_revision: source.revision, revision: targetRevision, release_revision: targetIdentity }],
+      "A contested transition must still record exactly the target release.");
   } finally {
     await pool.end();
     await container.stop();

@@ -43,18 +43,25 @@ export function platformPredecessorRelease(version: string): string | undefined 
  * not a supported predecessor, and must be refused before the target
  * transition mutates anything rather than normalized after it.
  */
-export function platformAcceptedPredecessors(version: string): readonly {
+/**
+ * A fresh install records the release it is, directly: its bootstrap migration
+ * writes that release's revision and identity, so it never walks the historical
+ * transition steps of releases it was never on. Those steps exist for one
+ * database state only - the release immediately before them - which is the
+ * exact tuple returned here, and which only the upgrade coordinator may
+ * execute. Returning `undefined` means the release has no predecessor to
+ * transition from.
+ */
+export function platformTransitionSource(version: string): {
   readonly predecessorRevision: number;
   readonly revision: number;
   readonly identity: string;
-}[] {
+} | undefined {
   const predecessor = platformPredecessorRelease(version);
-  // A bootstrap migration writes predecessor revision 0, and no release has yet
-  // advanced past its own first step, so every accepted entry state carries 0.
-  // Binding it matters: a row whose chain field is impossible is not the
-  // attested source, and overwriting it would erase that evidence.
-  const fresh = { predecessorRevision: 0, revision: 1, identity: `platform-${version}-bootstrap` };
-  return Object.freeze(predecessor === undefined
-    ? [fresh]
-    : [fresh, { predecessorRevision: 0, revision: platformReleaseRevision(predecessor), identity: platformReleaseIdentity(predecessor) }]);
+  if (predecessor === undefined) return undefined;
+  // A bootstrap writes predecessor revision 0 and no release advances past its
+  // own step, so the source chain field is 0. Binding it matters: a row whose
+  // chain field is impossible is not the attested source, and overwriting it
+  // would erase that evidence.
+  return Object.freeze({ predecessorRevision: 0, revision: platformReleaseRevision(predecessor), identity: platformReleaseIdentity(predecessor) });
 }
