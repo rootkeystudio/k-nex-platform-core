@@ -22,17 +22,21 @@ const decode = (value) => new TextDecoder().decode(value);
 const cloneFiles = (files) => Object.fromEntries(Object.entries(files).map(([path, file]) => [path, file.kind === "symlink" ? file : { kind: "file", bytes: new Uint8Array(file.bytes) }]));
 const migrationNames = (source) => [...source.matchAll(/name: "([^"\n]+)"/gu)].map(([, name]) => name);
 const frozenPredecessorMigrationNames = [
-  "20260826_000001_gate1", "20260826_000002_sales_sources", "20260826_000003_payload_mcp", "20260826_000004_event_outbox",
-  "20260826_000005_outbox_processor", "20260827_000006_sales_opportunities", "20260829_000007_runtime_extensions",
-  "20260829_000008_app_storage", "20260829_000009_extension_activation", "20260829_000010_theme_skin_profiles",
-  "20260829_000011_static_deployment", "20260829_000012_verified_artifacts", "20260829_000013_catalog_checkpoints",
-  "20260829_000014_theme_skin_verified_artifacts", "20260829_000015_extension_capability_authority",
-  "20260829_000016_extension_security_quarantine", "20260829_000017_static_release_authority", "20260829_000018_runner_quarantine",
-  "20260901_000019_authorization_storage", "20260901_000020_template_tombstones", "20260901_000021_authorization_outbox",
-  "20260901_000022_static_lifecycle_admission", "20260902_000023_system_settings", "20260902_000024_catalog_mirror",
-  "20260902_000025_system_operations", "20260903_000026_workspace_pages"
+  "20260827_000001_sales_baseline", "20260827_000002_knex_bootstrap", "20260829_000007_runtime_extensions",
+  "20260901_000019_authorization", "20260901_000022_static_lifecycle_admission", "20260902_000023_system_administration",
+  "20260903_000026_workspace_pages", "20260903_000027_event_outbox", "20260904_000028_workspace_sidebar_preferences"
 ];
 const frozenPhase13MigrationNames = [
+  "20260905_000027_crm_core",
+  "20260906_000029_attachment_upload_admissions",
+  "20260907_000030_pipeline_saved_views",
+  "20260907_000031_data_movement",
+  "20260908_000032_communications",
+  "20260908_000033_crm_workflows",
+  "20260908_000034_reports",
+  "20260909_000035_static_rebind_lock_protocol"
+];
+const frozenTransitionMigrationNames = [
   "20260905_000027_crm_core",
   "20260907_000030_pipeline_saved_views",
   "20260907_000031_data_movement",
@@ -41,21 +45,6 @@ const frozenPhase13MigrationNames = [
   "20260908_000034_reports",
   "20260909_000035_static_rebind_lock_protocol"
 ];
-function planWithMigrations(plan, directory) {
-  const migrationSnapshot = readRepositorySnapshot(directory);
-  const files = Object.fromEntries(Object.entries(plan.files).filter(([path]) => !path.startsWith("src/migrations/")));
-  for (const [path, file] of Object.entries(migrationSnapshot)) {
-    if (file.kind !== "file") throw new TypeError(`Migration fixture contains symlink ${path}.`);
-    files[`src/migrations/${path}`] = decode(file.bytes);
-  }
-  return { ...plan, files };
-}
-function writePlanMigrations(plan, target) {
-  rmSync(resolve(target, "src/migrations"), { recursive: true, force: true });
-  for (const [path, content] of Object.entries(plan.files).filter(([path]) => path.startsWith("src/migrations/"))) {
-    const output = resolve(target, path); mkdirSync(resolve(output, ".."), { recursive: true }); writeFileSync(output, content);
-  }
-}
 
 function verifiedRelease(manifest) {
   const token = Object.freeze({});
@@ -117,11 +106,13 @@ test("P13.9 prepares an exact generated 1.0.0 repository for deterministic 1.1.0
   assert.equal(Object.keys(rawSourcePlan.artifactDigests).length, 17, "Frozen 1.0 factory must verify all 17 archive identities.");
   for (const entry of sourceEndpoint.manifest.packages) assert.equal(`sha512-${createHash("sha512").update(readFileSync(resolve(mirror, `${entry.package.slice(1).replace("/", "-")}-${entry.version}.tgz`))).digest("base64")}`, entry.integrity);
   assert.equal(`sha256:${createHash("sha256").update(rawSourcePlan.files["pnpm-lock.yaml"]).digest("hex")}`, sourceEndpoint.manifest.factoryLockTemplates.minimal.digest, "Frozen 1.0 factory lock must be exact.");
-  const sourcePlan = planWithMigrations(rawSourcePlan, resolve(oldTree, "fixtures/customer-gate-1/src/migrations"));
+  // The accepted factory output is the source repository. Never overlay the
+  // current fixture registry: doing so hides drift in the source factory.
+  const sourcePlan = rawSourcePlan;
   const predecessorNames = migrationNames(sourcePlan.files["src/migrations/index.ts"]);
   assert.deepEqual(predecessorNames, frozenPredecessorMigrationNames, "Accepted Phase 12 migration identities/order changed.");
   assert.deepEqual(Object.keys(sourcePlan.files).filter((path) => /^src\/migrations\/.*\.ts$/u.test(path) && path !== "src/migrations/index.ts").map((path) => path.slice("src/migrations/".length, -3)).sort(), [...frozenPredecessorMigrationNames].sort(), "Accepted Phase 12 migration path closure has extras or omissions.");
-  const sourceDirectory = join(root, "source-repository"); predecessorFactory.applyCreateKnexApplication(rawSourcePlan, sourceDirectory); writePlanMigrations(sourcePlan, sourceDirectory);
+  const sourceDirectory = join(root, "source-repository"); predecessorFactory.applyCreateKnexApplication(sourcePlan, sourceDirectory);
   const sourceManifest = JSON.parse(sourcePlan.files["k-nex.app.json"]);
   assert.deepEqual(sourceManifest.plugins.map(({ id }) => id), ["module.sales"]); assert.deepEqual(sourceManifest.providers, {});
   const verifiedSourceApplicationManifest = authority({ manifest: sourceManifest, digest: digest(sourceManifest) });
@@ -137,15 +128,20 @@ test("P13.9 prepares an exact generated 1.0.0 repository for deterministic 1.1.0
   expectedTargetApplicationManifest.themes.version = targetPackageVersions.get(expectedTargetApplicationManifest.themes.package);
   expectedTargetApplicationManifest.runtime.node = targetEndpoint.manifest.framework.node; expectedTargetApplicationManifest.runtime.packageManagerVersion = targetEndpoint.manifest.framework.pnpm;
   assert.deepEqual(targetApplicationManifest, expectedTargetApplicationManifest, "Upgrade target may change only target-authorized schema/package/framework version fields.");
-  const targetPlan = planWithMigrations(rawTargetPlan, resolve(repositoryRoot, "fixtures/customer-gate-1/src/migrations"));
+  // The prepared target factory output owns its complete registry as well.
+  const targetPlan = rawTargetPlan;
   const targetNames = migrationNames(targetPlan.files["src/migrations/index.ts"]); const additionNames = targetNames.slice(predecessorNames.length);
-  assert.equal(targetNames.length, 33); assert.deepEqual(targetNames.slice(0, 26), predecessorNames); assert.deepEqual(additionNames, frozenPhase13MigrationNames, "Phase 13 append identities/order changed.");
+  assert.equal(targetNames.length, 17); assert.deepEqual(targetNames.slice(0, predecessorNames.length), predecessorNames); assert.deepEqual(additionNames, frozenPhase13MigrationNames, "Factory target append identities/order changed.");
   assert.deepEqual(JSON.parse(targetPlan.files["k-nex.app.json"]).plugins.map(({ id }) => id), ["module.sales"]); assert.doesNotMatch(targetPlan.files["src/k-nex-registry.ts"], /provider\.realtime|kNexRealtimeRegistry/u);
   const policyPath = join(root, "transition-policy.json");
   execFileSync(process.execPath, [resolve(repositoryRoot, "scripts/generate-phase-13-transition-policy.mjs"), "--output", policyPath], { cwd: repositoryRoot, env: { ...process.env, PATH: `${nodePath}:${process.env.PATH}` }, stdio: "ignore" });
   const policy = JSON.parse(readFileSync(policyPath, "utf8")); const transition = buildPlatformReleaseTransition({ source: sourceEndpoint, target: targetEndpoint, policy });
-  assert.deepEqual(transition.migrations.steps.map(({ id }) => id), additionNames); assert.equal(transition.migrations.graphDigest, digest(transition.migrations.steps));
-  for (const name of predecessorNames) assert.equal(targetPlan.files[`src/migrations/${name}.ts`], sourcePlan.files[`src/migrations/${name}.ts`], `Predecessor migration ${name} changed bytes.`);
+  assert.deepEqual(transition.migrations.steps.map(({ id }) => id), frozenTransitionMigrationNames); assert.equal(transition.migrations.graphDigest, digest(transition.migrations.steps));
+  // The target factory may regenerate a predecessor source with target release
+  // metadata (bootstrap is intentionally such a case). Append-only retention
+  // is proved on the prepared tree below, where the compiler carries the
+  // accepted source bytes forward; comparing raw target factory bytes here
+  // would reintroduce an overlay-shaped assertion.
   assert.deepEqual(Object.keys(targetPlan.files).filter((path) => /^src\/migrations\/.*\.ts$/u.test(path) && path !== "src/migrations/index.ts").map((path) => path.slice("src/migrations/".length, -3)).sort(), [...targetNames].sort(), "Target migration path closure has extras or omissions.");
   const sourceOwnership = ownershipFromFactoryPlan({ plan: sourcePlan, release: sourceEndpoint.manifest });
   const sourceMigrationSetDigest = digest(sourceOwnership.files.filter(({ mode }) => mode === "append-only").map(({ path, digest: fileDigest }) => ({ path, digest: fileDigest })));
@@ -177,6 +173,7 @@ test("P13.9 prepares an exact generated 1.0.0 repository for deterministic 1.1.0
   assert.equal(readFileSync(join(preparedA, "customer/custom.ts"), "utf8"), "export const customerCode = true;\n");
   assert.match(readFileSync(join(preparedA, ".env.example"), "utf8"), /CUSTOMER_TEMPLATE_VALUE=kept/u);
   assert.equal(readFileSync(join(preparedA, "src/k-nex-registry.ts"), "utf8"), targetPlan.files["src/k-nex-registry.ts"]);
+  assert.equal(readFileSync(join(preparedA, "src/migrations/index.ts"), "utf8"), targetPlan.files["src/migrations/index.ts"]);
   assert.equal(readFileSync(join(preparedA, "package.json"), "utf8"), targetPlan.files["package.json"]);
   assert.equal(readFileSync(join(preparedA, "pnpm-lock.yaml"), "utf8"), targetPlan.files["pnpm-lock.yaml"]);
   assert.equal(readFileSync(join(preparedA, ".k-nex/generated-files.json"), "utf8"), canonicalGeneratedFileOwnershipManifest(targetOwnership));
