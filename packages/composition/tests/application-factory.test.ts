@@ -727,13 +727,14 @@ describe("create-knex-app", () => {
     const argsLog = join(root, "gh-args.json");
     const bin = fakeGh(root, hostedVerification(manifest));
     const written = join(root, "written");
-    execFileSync(process.execPath, [script, "--target", written, "--id", "cli-written", "--name", "CLI Written", "--database", "external", "--no-install"], {
+    execFileSync(process.execPath, [script, "--target", written, "--id", "cli-written", "--name", "CLI Written", "--database", "external", "--primary-currency", "USD", "--no-install"], {
       encoding: "utf8", env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, GH_ARGS_LOG: argsLog }
     });
     expect(readdirSync(written)).toEqual(expect.arrayContaining([".env.example", "package.json", "pnpm-lock.yaml", "src"]));
     expect(existsSync(join(written, "node_modules"))).toBe(false);
     expect(JSON.parse(readFileSync(argsLog, "utf8"))).toEqual([
       "attestation", "verify", manifestPath, "--repo", "rootkeystudio/k-nex-platform-core",
+      "--signer-workflow", "rootkeystudio/k-nex-platform-core/.github/workflows/release-evidence.yml", "--deny-self-hosted-runners",
       "--predicate-type", "https://k-nex.dev/release-manifest/v1", "--format", "json"
     ]);
     const historicalRoot = join(root, "historical-gh"); mkdirSync(historicalRoot);
@@ -741,12 +742,13 @@ describe("create-knex-app", () => {
     const historicalBin = fakeGh(historicalRoot, hostedVerification(JSON.parse(readFileSync(historicalManifestPath, "utf8"))));
     const explicit = join(root, "explicit");
     const historicalArgsLog = join(root, "historical-gh-args.json");
-    execFileSync(process.execPath, [script, "--target", explicit, "--id", "cli-explicit", "--name", "CLI Explicit", "--database", "external", "--release-version", "1.0.0", "--no-install"], {
+    execFileSync(process.execPath, [script, "--target", explicit, "--id", "cli-explicit", "--name", "CLI Explicit", "--database", "external", "--primary-currency", "USD", "--release-version", "1.0.0", "--no-install"], {
       encoding: "utf8", env: { ...process.env, PATH: `${historicalBin}:${process.env.PATH}`, GH_ARGS_LOG: historicalArgsLog }
     });
     expect(existsSync(join(explicit, "pnpm-lock.yaml"))).toBe(true);
     expect(JSON.parse(readFileSync(historicalArgsLog, "utf8"))).toEqual([
       "attestation", "verify", historicalManifestPath, "--repo", "rootkeystudio/k-nex-platform-core",
+      "--signer-workflow", "rootkeystudio/k-nex-platform-core/.github/workflows/release-evidence.yml", "--deny-self-hosted-runners",
       "--predicate-type", "https://k-nex.dev/release-manifest/v1", "--format", "json"
     ]);
   }, 15_000);
@@ -757,6 +759,20 @@ describe("create-knex-app", () => {
     for (const [name, mode, error] of [["apply", [], "--workspace requires --plan-only"], ["no-install", ["--plan-only", "--no-install"], "--workspace is plan-only"]] as const) {
       const target = join(root, name);
       expect(() => execFileSync(process.execPath, [script, "--target", target, "--id", `workspace-${name}`, "--name", "Workspace Rejected", "--workspace", ...mode], { encoding: "utf8", stdio: "pipe" })).toThrow(error);
+      expect(existsSync(target)).toBe(false);
+    }
+  }, 15_000);
+
+  it("refuses to generate an application that can never report ready", () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "create-knex-app-currency-"))); roots.push(root);
+    const script = fileURLToPath(new URL("../../../scripts/create-knex-app.mjs", import.meta.url));
+    for (const [name, currency, error] of [
+      ["missing", [], "--primary-currency <ISO-4217> is required"],
+      ["lowercase", ["--primary-currency", "usd"], "must be an ISO-4217 alphabetic code"],
+      ["numeric", ["--primary-currency", "840"], "must be an ISO-4217 alphabetic code"]
+    ] as const) {
+      const target = join(root, name);
+      expect(() => execFileSync(process.execPath, [script, "--target", target, "--id", `currency-${name}`, "--name", "Currency Rejected", "--database", "external", ...currency, "--no-install"], { encoding: "utf8", stdio: "pipe" })).toThrow(error);
       expect(existsSync(target)).toBe(false);
     }
   }, 15_000);
@@ -790,7 +806,7 @@ describe("create-knex-app", () => {
     const manifestPath = join(root, "package-release-manifest.json"); writeFileSync(manifestPath, `${JSON.stringify(forged, null, 2)}\n`);
     const bin = fakeGh(root, hostedVerification(original));
     const target = join(root, "target");
-    expect(() => execFileSync(process.execPath, [fileURLToPath(new URL("../../../scripts/create-knex-app.mjs", import.meta.url)), "--target", target, "--id", "forged", "--name", "Forged", "--database", "external", "--release-manifest", manifestPath, "--package-mirror", mirror, "--no-install"], {
+    expect(() => execFileSync(process.execPath, [fileURLToPath(new URL("../../../scripts/create-knex-app.mjs", import.meta.url)), "--target", target, "--id", "forged", "--name", "Forged", "--database", "external", "--primary-currency", "USD", "--release-manifest", manifestPath, "--package-mirror", mirror, "--no-install"], {
       encoding: "utf8", env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, GH_ARGS_LOG: join(root, "forged-gh-args.json") }, stdio: "pipe"
     })).toThrow();
     expect(existsSync(target)).toBe(false);
@@ -810,7 +826,7 @@ describe("create-knex-app", () => {
       const caseRoot = join(root, name); mkdirSync(caseRoot);
       const bin = fakeGh(caseRoot, verification);
       const target = join(caseRoot, "target");
-      expect(() => execFileSync(process.execPath, [script, "--target", target, "--id", `identity-${name}`, "--name", `Identity ${name}`, "--database", "external", "--release-manifest", manifestPath, "--package-mirror", mirror, "--no-install"], {
+      expect(() => execFileSync(process.execPath, [script, "--target", target, "--id", `identity-${name}`, "--name", `Identity ${name}`, "--database", "external", "--primary-currency", "USD", "--release-manifest", manifestPath, "--package-mirror", mirror, "--no-install"], {
         encoding: "utf8", env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, GH_ARGS_LOG: join(caseRoot, "gh-args.json") }, stdio: "pipe"
       })).toThrow();
       expect(existsSync(target)).toBe(false);
