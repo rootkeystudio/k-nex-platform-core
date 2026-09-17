@@ -20,6 +20,19 @@ const packageJson = JSON.parse(read("package.json"));
 assert.equal(packageJson.scripts?.["gate:13"], "pnpm gate:12 && node scripts/gate-13.mjs", "Gate 13 must invoke the cumulative Gate 0–12 chain first.");
 assert.equal(packageJson.scripts?.["gate:13:focused"], "node scripts/gate-13.mjs", "Gate 13 focused entrypoint must be deterministic and direct.");
 
+const releaseAuthorityInputs = spawnSync(process.execPath, ["scripts/check-release-authority-inputs.mjs"], { cwd: root, encoding: "utf8" });
+assert.equal(releaseAuthorityInputs.status, 0,
+  `Gate 13 requires every attested release input to describe the shipped product:\n${releaseAuthorityInputs.stderr}`);
+assert.match(releaseAuthorityInputs.stdout, /^RELEASE_AUTHORITY_INPUTS_PASS \d+$/mu, "Release-authority input check did not report its exact marker.");
+
+const releaseAuthorityTests = spawnSync(process.execPath, [
+  "--test",
+  "scripts/check-release-authority-inputs.test.mjs",
+  "scripts/generate-phase-13-transition-policy.test.mjs"
+], { cwd: root, encoding: "utf8" });
+assert.equal(releaseAuthorityTests.status, 0,
+  `Gate 13 requires the attested release-input guards to hold:\n${releaseAuthorityTests.stdout}${releaseAuthorityTests.stderr}`);
+
 const phase12Result = read("docs/implementation/phase-12-result.md");
 for (const marker of [
   "# Phase 12 Result",

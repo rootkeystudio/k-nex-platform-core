@@ -6,6 +6,7 @@ import { dirname, resolve } from "node:path";
 
 import { canonicalJson, platformReleaseGeneratorContractDigest } from "../packages/contracts/dist/index.js";
 import { salesReferenceCompilerBoundary } from "../packages/composition/dist/index.js";
+import { acceptedSourceMigrationRegistry, factoryMigrationRegistry } from "./lib/platform-release-transition.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const args = process.argv.slice(2);
@@ -64,38 +65,15 @@ if (sourceTrustOutput !== undefined) {
 }
 
 /**
- * The attested 1.0.0 composition archive ships exactly this ordered migration
- * registry. It is a frozen historical fact rather than a live derivation: the
- * 1.0 factory cannot change. The P13.9 preparation proof reproduces that
- * factory from its accepted commit and re-proves this list against it.
- */
-const acceptedSourceMigrations = Object.freeze([
-  "20260827_000001_sales_baseline",
-  "20260827_000002_knex_bootstrap",
-  "20260829_000007_runtime_extensions",
-  "20260901_000019_authorization",
-  "20260901_000022_static_lifecycle_admission",
-  "20260902_000023_system_administration",
-  "20260903_000026_workspace_pages",
-  "20260903_000027_event_outbox",
-  "20260904_000028_workspace_sidebar_preferences"
-]);
-
-/**
  * The upgrade policy must describe the application the factory actually ships,
  * so the target registry is read from the shipped compiler boundary and never
- * from a hand-maintained fixture. Registry order is the migration identifier
- * order; the P13.9 preparation proof asserts this derivation against the exact
- * `src/migrations/index.ts` the target factory emits.
+ * from a hand-maintained fixture.
  */
-const targetMigrations = [...salesReferenceCompilerBoundary.platformPaths, ...salesReferenceCompilerBoundary.migrationPaths]
-  .filter((path) => /^src\/migrations\/(?!index\.ts$)[^/]+\.ts$/u.test(path))
-  .map((path) => path.slice("src/migrations/".length, -".ts".length))
-  .sort();
+const targetMigrations = factoryMigrationRegistry(salesReferenceCompilerBoundary);
 assert.equal(new Set(targetMigrations).size, targetMigrations.length, "Target factory declares a duplicate migration identity.");
-assert.deepEqual(targetMigrations.slice(0, acceptedSourceMigrations.length), [...acceptedSourceMigrations],
+assert.deepEqual(targetMigrations.slice(0, acceptedSourceMigrationRegistry.length), [...acceptedSourceMigrationRegistry],
   "Target factory no longer retains the attested 1.0.0 migration registry as its exact prefix.");
-const appendedMigrations = targetMigrations.slice(acceptedSourceMigrations.length);
+const appendedMigrations = targetMigrations.slice(acceptedSourceMigrationRegistry.length);
 const migrationSet = readJson(migrationSetPath);
 assert.equal(canonicalJson(migrationSet), readFileSync(resolve(root, migrationSetPath), "utf8"), "Accepted Phase13 migration-set manifest must be canonical JSON.");
 assert.deepEqual(Object.keys(migrationSet).sort(), ["$schema", "schemaVersion", "sourceRelease", "targetRelease", "steps"].sort(), "Accepted Phase13 migration-set manifest fields changed.");

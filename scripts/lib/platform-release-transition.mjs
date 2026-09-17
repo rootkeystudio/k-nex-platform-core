@@ -14,6 +14,39 @@ const sourceDisposition = new Set(["remove", "replacement-required"]);
 
 export const sha256Canonical = (value) => `sha256:${createHash("sha256").update(canonicalJson(value)).digest("hex")}`;
 
+/**
+ * The attested 1.0.0 composition archive ships exactly this ordered migration
+ * registry. It is a frozen historical fact rather than a live derivation: the
+ * 1.0 factory cannot change. Every release-authority input derives the 1.0
+ * side of a transition from this list, and the P13.9 preparation proof
+ * reproduces the 1.0 factory from its accepted commit to re-prove it.
+ */
+export const acceptedSourceMigrationRegistry = Object.freeze([
+  "20260827_000001_sales_baseline",
+  "20260827_000002_knex_bootstrap",
+  "20260829_000007_runtime_extensions",
+  "20260901_000019_authorization",
+  "20260901_000022_static_lifecycle_admission",
+  "20260902_000023_system_administration",
+  "20260903_000026_workspace_pages",
+  "20260903_000027_event_outbox",
+  "20260904_000028_workspace_sidebar_preferences"
+]);
+
+/**
+ * Registry order is migration identity order. The shipped compiler boundary
+ * declares migration paths in two arrays (platform and domain), so the target
+ * registry is their identity-ordered union; the P13.9 preparation proof
+ * asserts this derivation against the src/migrations/index.ts the factory
+ * actually emits.
+ */
+export function factoryMigrationRegistry(boundary) {
+  return [...boundary.platformPaths, ...boundary.migrationPaths]
+    .filter((path) => /^src\/migrations\/(?!index\.ts$)[^/]+\.ts$/u.test(path))
+    .map((path) => path.slice("src/migrations/".length, -".ts".length))
+    .sort();
+}
+
 function record(value, label) {
   if (value === null || typeof value !== "object" || Array.isArray(value)) throw new TypeError(`${label} must be an object.`);
   return value;
