@@ -54,23 +54,29 @@ test("P13.3 packed composition emits its embedded Payload patch and shuts down a
   try {
     const mirror = resolve(directory, "mirror");
     mkdirSync(mirror);
-    const baseManifest = JSON.parse(readFileSync(resolve(root, "releases/1.0.0/package-release-manifest.json"), "utf8"));
+    const baseManifest = JSON.parse(readFileSync(resolve(root, "releases/1.1.0/package-release-manifest.json"), "utf8"));
     for (const entry of baseManifest.packages) copyFileSync(resolve(root, "fixtures/customer-gate-1/packages", `${entry.package.slice(1).replace("/", "-")}-${entry.version}.tgz`), resolve(mirror, `${entry.package.slice(1).replace("/", "-")}-${entry.version}.tgz`));
     for (const lock of Object.values(baseManifest.factoryLockTemplates)) copyFileSync(resolve(root, "fixtures/customer-gate-1/packages", `factory-lock-sales-reference-${lock.theme}-${lock.digest.slice(7)}.yaml`), resolve(mirror, `factory-lock-sales-reference-${lock.theme}-${lock.digest.slice(7)}.yaml`));
     const manifest = structuredClone(baseManifest);
-    manifest.release.version = "1.0.0-p13.3.fixture";
-    manifest.supportWindow.supportedReleases = [manifest.release.version];
-    for (const [name, source] of [["@k-nex/composition", "packages/composition"], ["@k-nex/runtime", "packages/runtime"], ["@k-nex/payload-adapter", "packages/payload-adapter"], ["@k-nex/module-sales", "modules/sales"], ["@k-nex/provider-realtime-socketio", "packages/realtime-socketio"]]) {
-      execFileSync("pnpm", ["build"], { cwd: resolve(root, source), stdio: "pipe", encoding: "utf8" });
-      execFileSync("pnpm", ["pack", "--pack-destination", mirror], { cwd: resolve(root, source), stdio: "pipe", encoding: "utf8" });
+    const packedVersions = new Map();
+    for (const [name, source] of [["@k-nex/contracts", "packages/contracts"], ["@k-nex/composition", "packages/composition"], ["@k-nex/runtime", "packages/runtime"], ["@k-nex/payload-adapter", "packages/payload-adapter"], ["@k-nex/module-sales", "modules/sales"], ["@k-nex/provider-realtime-socketio", "packages/realtime-socketio"]]) {
+      const sourceDirectory = resolve(root, source);
+      const packageManifest = JSON.parse(readFileSync(resolve(sourceDirectory, "package.json"), "utf8"));
+      assert.equal(packageManifest.name, name, `Packed source identity differs for ${name}.`);
+      const archive = `${name.slice(1).replace("/", "-")}-${packageManifest.version}.tgz`;
+      execFileSync("pnpm", ["build"], { cwd: sourceDirectory, stdio: "pipe", encoding: "utf8" });
+      execFileSync("pnpm", ["pack", "--pack-destination", mirror], { cwd: sourceDirectory, stdio: "pipe", encoding: "utf8" });
       const entry = manifest.packages.find((candidate) => candidate.package === name);
       assert.ok(entry);
-      entry.integrity = `sha512-${createHash("sha512").update(readFileSync(resolve(mirror, `${name.slice(1).replace("/", "-")}-1.0.0.tgz`))).digest("base64")}`;
+      entry.version = packageManifest.version;
+      entry.integrity = `sha512-${createHash("sha512").update(readFileSync(resolve(mirror, archive))).digest("base64")}`;
+      packedVersions.set(name, packageManifest.version);
     }
     const consumer = resolve(directory, "consumer");
     mkdirSync(consumer);
-    writeFileSync(resolve(consumer, "package.json"), JSON.stringify({ name: "p13-3-packed-factory-consumer", private: true, type: "module", dependencies: { "@k-nex/composition": `file:${resolve(mirror, "k-nex-composition-1.0.0.tgz")}`, "@k-nex/contracts": `file:${resolve(mirror, "k-nex-contracts-1.0.0.tgz")}` } }));
-    writeFileSync(resolve(consumer, "pnpm-workspace.yaml"), `packages:\n  - "."\n\noverrides:\n  "@k-nex/contracts": "file:${resolve(mirror, "k-nex-contracts-1.0.0.tgz")}"\n`);
+    const packedArchive = (name) => resolve(mirror, `${name.slice(1).replace("/", "-")}-${packedVersions.get(name)}.tgz`);
+    writeFileSync(resolve(consumer, "package.json"), JSON.stringify({ name: "p13-3-packed-factory-consumer", private: true, type: "module", dependencies: { "@k-nex/composition": `file:${packedArchive("@k-nex/composition")}`, "@k-nex/contracts": `file:${packedArchive("@k-nex/contracts")}` } }));
+    writeFileSync(resolve(consumer, "pnpm-workspace.yaml"), `packages:\n  - "."\n\noverrides:\n  "@k-nex/contracts": "file:${packedArchive("@k-nex/contracts")}"\n`);
     execFileSync("pnpm", ["install", "--ignore-scripts"], { cwd: consumer, stdio: "pipe", encoding: "utf8" });
     const factory = await import(pathToFileURL(resolve(consumer, "node_modules/@k-nex/composition/dist/index.js")));
     const canonicalPatch = readFileSync(patchPath, "utf8");
