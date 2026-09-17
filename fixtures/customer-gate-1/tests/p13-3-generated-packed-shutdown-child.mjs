@@ -50,8 +50,18 @@ try {
 }
 
 if (Number.isSafeInteger(port) && port > 0) {
+  // This proof asserts the generated web host's own exit code and signal, so it
+  // must be the process that receives the signal. Spawning it through `pnpm
+  // run` put a wrapper in between, and on a small runner the signal's arrival
+  // and the wrapper's own exit made teardown nondeterministic - the host was
+  // reported as never stopping while it was still draining. The argv comes from
+  // the start script the product ships, so this cannot drift from it.
+  const startScript = JSON.parse(readFileSync(resolve(customerDirectory, "package.json"), "utf8")).scripts?.start;
+  assert.equal(typeof startScript, "string", "The generated application must declare a start script.");
+  const [startCommand, ...startArgs] = startScript.split(" ").filter((part) => part.length > 0);
+  assert.equal(startCommand, "node", "The generated start script must invoke node directly for a signal-exact shutdown proof.");
   const start = () => new Promise((resolveProcess, reject) => {
-    const child = spawn("pnpm", ["start"], {
+    const child = spawn(process.execPath, startArgs, {
       cwd: customerDirectory,
       env: { ...process.env, HOSTNAME: "127.0.0.1", PORT: String(port) },
       stdio: ["ignore", "pipe", "pipe"]
