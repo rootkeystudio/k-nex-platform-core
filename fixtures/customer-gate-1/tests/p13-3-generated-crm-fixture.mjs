@@ -498,7 +498,7 @@ export async function withGeneratedCrmBrowserFixture(runBrowser) {
     stage("worker-ready");
     stage("browser-callback-start");
     const runDoctor = () => run("pnpm", ["knex:doctor"], { cwd: application, env: environment, stdio: "pipe" });
-    await runBrowser({ application, origin, personas, records, pool, connectionString: databaseUrl.toString(), applicationOutput: () => output, workerOutput: () => workerOutput, workerProcess: () => worker, startWorker, stopWorker, acknowledgeAbnormalWorkerExit, startWeb, stopWeb, restoreToCleanDatabase, issueAttachmentUploadReceipt, runDoctor });
+    await runBrowser({ application, origin, personas, records, pool, environment, connectionString: databaseUrl.toString(), applicationOutput: () => output, workerOutput: () => workerOutput, workerProcess: () => worker, startWorker, stopWorker, acknowledgeAbnormalWorkerExit, startWeb, stopWeb, restoreToCleanDatabase, issueAttachmentUploadReceipt, runDoctor });
     stage("browser-callback-complete");
   } catch (error) {
     primaryFailure = error;

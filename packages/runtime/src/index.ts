@@ -23,6 +23,7 @@ export * from "./plugin-settings.js";
 export * from "./page-template.js";
 export * from "./plugin-lifecycle.js";
 export * from "./upgrade-planner.js";
+export * from "./generated-executable-closure.js";
 export * from "./generated-migration-closure.js";
 export * from "./migration-fence.js";
 export * from "./plugin-data-lifecycle.js";

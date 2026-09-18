@@ -120,12 +120,16 @@ const generatedReleaseSources = async () => {
     assert.ok(statement, `${label} must carry one raw statement.`);
     return statement;
   };
+  // The executable closure is proved by the generated migrate command against a
+  // real installation; here the release-state SQL is what is under test, so it
+  // is handed a stand-in value and asserted to carry it through unchanged.
+  const executableClosure = `sha256:${"e".repeat(64)}`;
   const completion = new Function("digest", "releaseClosure",
-    bodyOf(plan.files["src/migrations/20260909_000036_release_revision.ts"], "completionStatement\\(digest: string, releaseClosure: string \\| null\\): string", "The completion statement")
-  )(closure.digest, closure.releaseManifestDigest);
+    bodyOf(plan.files["src/migrations/20260909_000036_release_revision.ts"], "completionStatement\\(digest: string, releaseClosure: string\\): string", "The completion statement")
+  )(closure.digest, executableClosure);
 
   return {
-    applicationId, release, plan, root, closure, declared,
+    applicationId, release, plan, root, closure, declared, executableClosure,
     installing: platformInstallingState(release),
     complete: platformReleaseState(release),
     source: platformTransitionSource(release),
@@ -195,7 +199,7 @@ test("the release record is one canonical completion receipt for both installati
     const declaredLedger = registry.slice(0, -1);
     const readiness = () => assertPlatformReleaseReadiness({
       pool, applicationId, predecessorRevision: complete.predecessorRevision, revision: complete.revision,
-      releaseRevision: complete.identity, migrationSetDigest: closure.digest, releaseClosure: closure.releaseManifestDigest,
+      releaseRevision: complete.identity, migrationSetDigest: closure.digest, releaseClosure: release.executableClosure,
       declaredMigrations: closure.migrations
     });
 
@@ -212,7 +216,7 @@ test("the release record is one canonical completion receipt for both installati
     assert.deepEqual(await row(), canonicalRow, "Replaying either step on a completed release must change nothing.");
     assert.deepEqual(await readiness(), {
       applicationId, predecessorRevision: complete.predecessorRevision, revision: complete.revision,
-      releaseRevision: complete.identity, migrationSetDigest: closure.digest, releaseClosure: closure.releaseManifestDigest,
+      releaseRevision: complete.identity, migrationSetDigest: closure.digest, releaseClosure: release.executableClosure,
       appliedMigrations: [...closure.migrations]
     }, "A completed release must be readable as the exact migration evidence it was written from.");
     const freshRecord = (await row())[0];
@@ -226,7 +230,7 @@ test("the release record is one canonical completion receipt for both installati
     assert.deepEqual(await row(), canonicalRow, "An upgraded database must record exactly the same release as a fresh installation.");
     assert.deepEqual((await row())[0], freshRecord, "Both installation histories must end at one byte-identical record.");
     assert.deepEqual((await pool.query("select migration_set_digest, release_closure from k_nex_release_revision where application_id = $1", [applicationId])).rows,
-      [{ migration_set_digest: closure.digest, release_closure: closure.releaseManifestDigest }],
+      [{ migration_set_digest: closure.digest, release_closure: release.executableClosure }],
       "An upgraded database must record the closure that completed it.");
 
     // The identity is a completion receipt: no declared set, no identity.
@@ -292,7 +296,7 @@ test("the release record is one canonical completion receipt for both installati
  */
 test("a completed release keeps proving its migration closure or stops being served", { timeout: 180_000 }, async () => {
   const release = await generatedReleaseSources();
-  const { applicationId, plan, root, closure, installing, complete, completion, materialize } = release;
+  const { applicationId, plan, root, closure, installing, complete, completion, materialize, executableClosure } = release;
   const { assertGeneratedMigrationClosure } = await import("@k-nex/runtime");
   const substitutedStep = "20260908_000034_reports";
   const registrySource = plan.files["src/migrations/index.ts"];
@@ -378,7 +382,7 @@ test("a completed release keeps proving its migration closure or stops being ser
       ledger: (await pool.query("select name from payload_migrations order by id")).rows.map(({ name }) => name),
       columns: (await pool.query("select table_name, column_name from information_schema.columns where table_schema = 'public'")).rowCount
     });
-    const readiness = (digest = closure.digest, releaseClosure = closure.releaseManifestDigest) => assertPlatformReleaseReadiness({
+    const readiness = (digest = closure.digest, releaseClosure = executableClosure) => assertPlatformReleaseReadiness({
       pool, applicationId, predecessorRevision: complete.predecessorRevision, revision: complete.revision,
       releaseRevision: complete.identity, migrationSetDigest: digest, releaseClosure, declaredMigrations: declaredSet
     });
@@ -386,7 +390,7 @@ test("a completed release keeps proving its migration closure or stops being ser
     await completeDatabase(declaredSet);
     assert.deepEqual((await observedState()).release, [{
       predecessor_revision: complete.predecessorRevision, revision: complete.revision, release_revision: complete.identity,
-      migration_set_digest: closure.digest, release_closure: closure.releaseManifestDigest
+      migration_set_digest: closure.digest, release_closure: executableClosure
     }], "A completed release must record the closure that produced it.");
     await readiness();
 

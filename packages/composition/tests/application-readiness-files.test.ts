@@ -67,8 +67,8 @@ describe("generated application readiness", () => {
     expect(readiness).toContain("ApplicationManifestSchema.parse");
     expect(readiness).toContain("PackageReleaseManifestSchema.parse");
     expect(readiness).toContain("assertPlatformReleaseReadiness");
-    expect(readiness).toContain("migrationSetDigest: closure.digest, releaseClosure: closure.releaseManifestDigest, declaredMigrations: closure.migrations");
-    expect(readiness.indexOf("assertGeneratedMigrationClosure(root)")).toBeLessThan(readiness.indexOf("await assertPlatformReleaseReadiness"));
+    expect(readiness).toContain("migrationSetDigest: closure.migration.digest, releaseClosure: closure.digest, declaredMigrations: closure.migration.migrations");
+    expect(readiness.indexOf("assertGeneratedExecutableClosure({ root")).toBeLessThan(readiness.indexOf("await assertPlatformReleaseReadiness"));
     expect(readiness.indexOf("await assertPlatformReleaseReadiness")).toBeLessThan(readiness.indexOf("await assertSalesSchema(pool)"));
     expect(doctor.indexOf("await reconcileKnexReadiness(payload)")).toBeLessThan(doctor.indexOf("console.log(kNexApplicationReadyMarker)"));
     expect(readiness).toContain("new NodeHttpsAdministrationOperatorClient");

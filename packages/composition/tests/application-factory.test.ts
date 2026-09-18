@@ -195,7 +195,7 @@ describe("create-knex-app", () => {
       ]
     });
 
-    expect(salesReferenceCompilerBoundary.platformPaths).toHaveLength(106);
+    expect(salesReferenceCompilerBoundary.platformPaths).toHaveLength(107);
     const options = { applicationId: "sales-boundary", applicationName: "Sales Boundary", theme: "minimal", database: "external", primaryCurrency: "USD" } as const;
     expect(() => planCreateKnexApplication(options)).not.toThrow();
     const expectRejectedPlan = (mutation: "add-sales-output" | "remove-sales-output" | "second-domain", error: RegExp): void => {
@@ -587,7 +587,7 @@ describe("create-knex-app", () => {
       "knex:issue-bootstrap-token": "node --env-file-if-exists=.env dist/k-nex-issue-bootstrap-token.js",
       "knex:db:up": "docker compose up -d postgres",
       "knex:doctor": "node --env-file-if-exists=.env dist/k-nex-doctor.js",
-      "knex:migrate": "payload migrate",
+      "knex:migrate": "node --env-file-if-exists=.env k-nex-migrate.mjs",
       "knex:worker": "node --env-file-if-exists=.env dist/k-nex-worker.js",
       start: "node --env-file-if-exists=.env dist/k-nex-web.js"
     });

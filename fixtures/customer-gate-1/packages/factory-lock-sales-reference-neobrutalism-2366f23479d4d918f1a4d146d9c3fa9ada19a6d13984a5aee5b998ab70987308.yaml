@@ -964,7 +964,7 @@ packages:
       react: ^18.0.0 || ^19.0.0
 
   '@k-nex/composition@file:.k-nex/packages/k-nex-composition-1.1.0.tgz':
-    resolution: {integrity: sha512-FMm/Hiz0JAgWFpZlBVSoo4ZjrkQN9f9QvvieSKa4E1njH9LJqBimy5mgICwfxL9n6AmU9Y+CLtLb9kJfXiB43g==, tarball: file:.k-nex/packages/k-nex-composition-1.1.0.tgz}
+    resolution: {integrity: sha512-JOqSCYzBc2KKG4Rdrojr2wC7NuZf/7TNkGitl1usEyrtX3fpc+iEY7SZLSpu05MbJGoboyu9N2O80E3lqpe8jw==, tarball: file:.k-nex/packages/k-nex-composition-1.1.0.tgz}
     version: 1.1.0
 
   '@k-nex/contracts@file:.k-nex/packages/k-nex-contracts-1.1.0.tgz':
@@ -1018,7 +1018,7 @@ packages:
       '@k-nex/runtime': 1.1.0
 
   '@k-nex/runtime@file:.k-nex/packages/k-nex-runtime-1.1.0.tgz':
-    resolution: {integrity: sha512-onwIpgGx2vGR7t6/wGVm6L8y6sbsJtjRmGmR5ImOFmJj6JihPQP5uhjPvWmSAZK5EJIJy86YPdeQKoE9ykroEw==, tarball: file:.k-nex/packages/k-nex-runtime-1.1.0.tgz}
+    resolution: {integrity: sha512-YHJQTXmppbSVcST0HsQZOEeE59RvW1VJuXqt4roNqDZP1U+YxOGZj/7GN2whRDQ3qv6Cq4JEohX+oKc9uQCb9w==, tarball: file:.k-nex/packages/k-nex-runtime-1.1.0.tgz}
     version: 1.1.0
 
   '@k-nex/theme-neobrutalism@file:.k-nex/packages/k-nex-theme-neobrutalism-1.1.0.tgz':
@@ -1899,8 +1899,8 @@ packages:
     resolution: {integrity: sha512-lGe34o6EHj9y3Kts9R4ZYs/Gr+6N7MCaMlIFA3F1R2O5/m7K06AxfSeO5530PEERE6/WyEg3lsuyw4GHlPZHog==}
     engines: {node: ^4.5.0 || >= 5.9}
 
-  baseline-browser-mapping@2.11.24:
-    resolution: {integrity: sha512-hYrgxie335U08WqICoGqKRzV1HFXv6zdxwJE4ekCb80CM9a0SVVsN4QPwT67RraRo+9h8IATk6uxHJw7QSkdOg==}
+  baseline-browser-mapping@2.11.25:
+    resolution: {integrity: sha512-gMmEShwwq7FJqMwvfRwvCl00v4kN+KOfJqXn+f4nrufak5gNHJOksd/60Dvjuz7sI8Y5WiSFBa8FEYr+zoyqCw==}
     engines: {node: '>=6.0.0'}
     hasBin: true
 
@@ -4159,6 +4159,7 @@ snapshots:
     dependencies:
       '@k-nex/composition': file:.k-nex/packages/k-nex-composition-1.1.0.tgz
       '@k-nex/contracts': file:.k-nex/packages/k-nex-contracts-1.1.0.tgz
+      '@k-nex/extension-bundler': file:.k-nex/packages/k-nex-extension-bundler-1.1.0.tgz
       semver: 7.8.5
 
   '@k-nex/theme-neobrutalism@file:.k-nex/packages/k-nex-theme-neobrutalism-1.1.0.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
@@ -5238,7 +5239,7 @@ snapshots:
 
   base64id@2.0.0: {}
 
-  baseline-browser-mapping@2.11.24: {}
+  baseline-browser-mapping@2.11.25: {}
 
   binary-extensions@2.3.0: {}
 
@@ -5923,7 +5924,7 @@ snapshots:
     dependencies:
       '@next/env': 16.3.4
       '@swc/helpers': 0.5.23
-      baseline-browser-mapping: 2.11.24
+      baseline-browser-mapping: 2.11.25
       caniuse-lite: 1.0.30001810
       postcss: 8.5.23
       react: 19.2.8

@@ -428,6 +428,9 @@ importers:
       '@k-nex/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@k-nex/extension-bundler':
+        specifier: workspace:*
+        version: link:../extension-bundler
       semver:
         specifier: 7.8.5
         version: 7.8.5

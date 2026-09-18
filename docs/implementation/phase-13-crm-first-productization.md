@@ -508,7 +508,18 @@ rather than trusting its own first success, so a migration changed under a name
 the ledger already carries - or a registry re-pointed at a different
 implementation - stops the release rather than collecting its receipt.
 
-The guard that performs that check ships in `@k-nex/runtime` rather than in the
+Naming an archive is not proof of the bytes behind it, and several declared
+steps are wrappers whose SQL lives in package code, so the generated migrate
+command is no longer `payload migrate`. It proves the executable closure first -
+the manifest's declared archive integrities, the selected factory lock, and the
+installed bytes of every released package, compared file by file against the
+archive that declares them - and hands over to Payload only if that holds. A
+package installed twice is refused rather than resolved. The completion receipt
+records that closure, so a database says which code it was migrated by rather
+than which manifest file was on disk. Readiness re-proves the same closure
+before serving.
+
+The guard that performs these checks ships in `@k-nex/runtime` rather than in the
 generated tree. A guard generated into the application it guards can be edited
 alongside the constant it checks, which is not an authority at all; the durable
 authority is the receipt the database recorded before any later edit, which is

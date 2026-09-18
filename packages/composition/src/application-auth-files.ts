@@ -2010,7 +2010,7 @@ import { ApplicationManifestSchema, PackageReleaseManifestSchema, PluginManifest
 import manifestJson from "@k-nex/module-sales/manifest" with { type: "json" };
 import realtimeManifestJson from "@k-nex/provider-realtime-socketio/manifest" with { type: "json" };
 import { NodeHttpsAdministrationOperatorClient, type RuntimeExtensionPool } from "@k-nex/payload-adapter";
-import { assertExactProtectedRoleBaselineState, assertGeneratedMigrationClosure, assertPlatformReleaseReadiness, canonicalIana, currentProtectedPlatformRoleBaselineRelease, protectedRoleBootstrapId } from "@k-nex/runtime";
+import { assertExactProtectedRoleBaselineState, assertGeneratedExecutableClosure, assertPlatformReleaseReadiness, canonicalIana, currentProtectedPlatformRoleBaselineRelease, protectedRoleBootstrapId } from "@k-nex/runtime";
 import { ${themeResolver} as resolveSelectedThemeProfile } from "@k-nex/theme-${theme}";
 import type { Payload } from "payload";
 
@@ -2353,11 +2353,11 @@ export async function reconcileKnexReadiness(payload: Payload) {
   // that was correct once is not evidence that the database still is what it
   // says, and a migration changed under a name the ledger already carries would
   // otherwise be invisible to every later check.
-  const closure = assertGeneratedMigrationClosure(root);
+  const closure = assertGeneratedExecutableClosure({ root, theme: "${theme}" });
   await assertPlatformReleaseReadiness({ pool, applicationId: kNexIdentity.applicationId,
     predecessorRevision: ${platformReleaseState(platformRelease).predecessorRevision}, revision: ${platformReleaseState(platformRelease).revision},
     releaseRevision: ${JSON.stringify(platformReleaseIdentity(platformRelease))},
-    migrationSetDigest: closure.digest, releaseClosure: closure.releaseManifestDigest, declaredMigrations: closure.migrations });
+    migrationSetDigest: closure.migration.digest, releaseClosure: closure.digest, declaredMigrations: closure.migration.migrations });
   await assertSalesSchema(pool);
   await assertReportingTimezone(pool);
   await bootstrapApplicationTheme(payload);
