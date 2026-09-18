@@ -140,7 +140,8 @@ test("P13.3 generated worker joins admitted work, bounds a blocked drain, and fa
     const neverStartedAt = Date.now();
     neverWorker.kill("SIGTERM");
     assert.equal(await childExit(neverWorker, 5_000), 1, "Handle-free worker shutdown must hit its referenced watchdog.");
-    assert.match(workerOutput().slice(neverOutputStart), /K_NEX_WORKER_SHUTDOWN_EXPIRED/u);
+    await until(() => /K_NEX_WORKER_SHUTDOWN_EXPIRED/u.test(workerOutput().slice(neverOutputStart)),
+      "Worker never reported its expired shutdown watchdog.");
     assert.ok(Date.now() - neverStartedAt >= 100, "Worker did not wait for its shutdown watchdog.");
     acknowledgeAbnormalWorkerExit(neverWorker);
 
@@ -159,7 +160,11 @@ test("P13.3 generated worker joins admitted work, bounds a blocked drain, and fa
     const rejectionStartedAt = Date.now();
     rejectedImmediately.kill("SIGTERM");
     assert.equal(await childExit(rejectedImmediately, 5_000), 1, "Settled worker shutdown rejection must exit nonzero.");
-    assert.match(workerOutput().slice(rejectionOutputStart), /P13_3_INJECTED_SETTLED_WORKER_FAILURE/u);
+    // Process exit and pipe drain are not synchronized, so the injected
+    // failure can still be in flight when the child is already gone. Wait for
+    // it within a bound rather than reading the buffer once.
+    await until(() => /P13_3_INJECTED_SETTLED_WORKER_FAILURE/u.test(workerOutput().slice(rejectionOutputStart)),
+      "Settled worker shutdown rejection never reported its injected failure.");
     assert.ok(Date.now() - rejectionStartedAt < 2_000, "Worker waited for its watchdog after a settled rejection.");
     acknowledgeAbnormalWorkerExit(rejectedImmediately);
     writeFileSync(workerPath, workerSource);
