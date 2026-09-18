@@ -48,7 +48,7 @@ export const salesReferenceCompilerBoundary = Object.freeze({
     "src/app/api/system/access/assignments/[assignmentId]/revoke/route.ts", "src/app/api/system/access/assignments/route.ts", "src/app/api/system/access/grants/[grantId]/remove/route.ts", "src/app/api/system/access/roles/[roleId]/permissions/route.ts", "src/app/api/system/access/roles/route.ts", "src/app/api/system/extensions/[extensionId]/operations/[operationId]/execute/route.ts", "src/app/api/system/extensions/[extensionId]/plan/route.ts", "src/app/api/system/settings/[settingsId]/route.ts", "src/app/api/system/themes/profiles/[profileId]/preview/route.ts", "src/app/api/system/themes/profiles/[profileId]/publish/route.ts", "src/app/api/system/themes/profiles/[profileId]/rollback/route.ts", "src/app/api/system/themes/profiles/[profileId]/stage/route.ts",
     "src/app/components/k-nex-workspace-page-editor.tsx", "src/app/components/k-nex-workspace-page-runtime.tsx", "src/app/components/k-nex-workspace-shell.tsx", "src/app/components/login-form.tsx", "src/app/components/logout-button.tsx", "src/app/layout.tsx", "src/app/styles.css",
     "src/boot.ts", "src/k-nex-authority.ts", "src/k-nex-bootstrap-owner.ts", "src/k-nex-bootstrap-token.ts", "src/k-nex-doctor.ts", "src/k-nex-identity.ts", "src/k-nex-issue-bootstrap-token.ts", "src/k-nex-readiness.ts", "src/k-nex-realtime.ts", "src/k-nex-registry.ts", "src/k-nex-system-access.ts", "src/k-nex-system-extensions.ts", "src/k-nex-system-operations.ts", "src/k-nex-system-theme-settings.ts", "src/k-nex-theme-runtime.ts", "src/k-nex-users.ts", "src/k-nex-web.ts", "src/k-nex-worker.ts", "src/k-nex-workspace-navigation.ts", "src/k-nex-workspace-page-http.ts", "src/k-nex-workspace-pages.ts",
-    "src/migrations/20260827_000002_knex_bootstrap.ts", "src/migrations/20260829_000007_runtime_extensions.ts", "src/migrations/20260901_000019_authorization.ts", "src/migrations/20260901_000022_static_lifecycle_admission.ts", "src/migrations/20260902_000023_system_administration.ts", "src/migrations/20260903_000026_workspace_pages.ts", "src/migrations/20260903_000027_event_outbox.ts", "src/migrations/20260904_000028_workspace_sidebar_preferences.ts", "src/migrations/20260905_000026_release_preflight.ts", "src/migrations/20260909_000035_static_rebind_lock_protocol.ts", "src/migrations/20260909_000036_release_revision.ts", "src/migrations/index.ts", "src/payload.config.ts", "src/tests/generated-application.test.ts", "tsconfig.json", "tsconfig.scripts.json"
+    "src/migrations/20260827_000002_knex_bootstrap.ts", "src/migrations/20260829_000007_runtime_extensions.ts", "src/migrations/20260901_000019_authorization.ts", "src/migrations/20260901_000022_static_lifecycle_admission.ts", "src/migrations/20260902_000023_system_administration.ts", "src/migrations/20260903_000026_workspace_pages.ts", "src/migrations/20260903_000027_event_outbox.ts", "src/migrations/20260904_000028_workspace_sidebar_preferences.ts", "src/migrations/20260905_000026_release_preflight.ts", "src/migrations/20260909_000035_static_rebind_lock_protocol.ts", "src/migrations/20260909_000036_release_revision.ts", "src/migrations/index.ts", "src/payload.config.ts", "src/release-migration-set.ts", "src/tests/generated-application.test.ts", "tsconfig.json", "tsconfig.scripts.json"
   ]),
   runtimePaths: Object.freeze([
     "src/app/(workspace)/sales/accounts/[id]/page.tsx",
@@ -757,8 +757,11 @@ export async function down({ db }: MigrateDownArgs): Promise<void> {
  * only once this database's applied migration ledger is exactly the set this
  * release declares - so a direct invocation, a partial chain, a substituted or
  * missing step, and an unknown extra step all leave the recorded release
- * untouched. A database already carrying this release passes through
- * unchanged, which is what lets a later release replay the registry.
+ * untouched. A database already carrying this release passes through, which is
+ * what lets a later release replay the registry, but it passes through the same
+ * ledger and migration-set checks: a receipt that were only true at the instant
+ * it was written would make the first valid completion a permanent exemption
+ * from the proof it stands for.
  */
 /** The migration identities this release declares, in the order it applies them. */
 function declaredMigrationRegistry(): readonly string[] {
@@ -778,35 +781,211 @@ function releaseRevisionMigrationSource(applicationId: string, platformRelease: 
   const ledger = (names: readonly string[]) => `ARRAY[${names.map((name) => `'${name}'`).join(",")}]::text[]`;
   return `import { sql, type MigrateDownArgs, type MigrateUpArgs } from "@payloadcms/db-postgres";
 
+import { releaseMigrationSetDigest } from "../release-migration-set.js";
+
+/**
+ * The receipt records the migration set that produced it, so the claim stays
+ * checkable after the fact: the ledger proves which migrations ran, and this
+ * digest proves which bytes those names stood for. The completion row is only
+ * read as authority again while both still hold.
+ */
+function completionStatement(): string {
+  const digest = "'" + releaseMigrationSetDigest + "'";
+  return [
+    "DO $$",
+    "DECLARE applied text[]; recorded text; complete integer; advanced integer;",
+    "BEGIN",
+    "  PERFORM pg_advisory_xact_lock(hashtext('k-nex/release-revision/${applicationId}'));",
+    "  IF to_regclass('public.k_nex_release_revision') IS NULL THEN",
+    "    RAISE EXCEPTION 'Release ${platformRelease} will not record its identity: ${applicationId} has no release record';",
+    "  END IF;",
+    "  IF to_regclass('public.payload_migrations') IS NULL THEN",
+    "    applied := ARRAY[]::text[];",
+    "  ELSE",
+    "    SELECT coalesce(array_agg(\\"name\\" ORDER BY \\"id\\"), ARRAY[]::text[]) INTO applied FROM \\"payload_migrations\\";",
+    "  END IF;",
+    "  IF applied IS DISTINCT FROM ${ledger(precedingMigrations)}",
+    "     AND applied IS DISTINCT FROM ${ledger([...precedingMigrations, completionStep])} THEN",
+    "    RAISE EXCEPTION 'Release ${platformRelease} will not record its identity: the applied migration ledger is not the exact set this release declares';",
+    "  END IF;",
+    "  ALTER TABLE \\"k_nex_release_revision\\" ADD COLUMN IF NOT EXISTS \\"migration_set_digest\\" varchar;",
+    "  SELECT count(*) INTO complete FROM \\"k_nex_release_revision\\"",
+    "   WHERE \\"application_id\\" = '${applicationId}' AND ${tupleClause(complete).replace(/"/gu, '\\"')};",
+    "  IF complete = 1 THEN",
+    "    SELECT \\"migration_set_digest\\" INTO recorded FROM \\"k_nex_release_revision\\" WHERE \\"application_id\\" = '${applicationId}';",
+    "    IF recorded IS DISTINCT FROM " + digest + " THEN",
+    "      RAISE EXCEPTION 'Release ${platformRelease} refuses this database: its release identity was recorded for migration set %, and this artifact declares %', coalesce(recorded, 'none'), " + digest + ";",
+    "    END IF;",
+    "    RETURN;",
+    "  END IF;",
+    "  UPDATE \\"k_nex_release_revision\\"",
+    "     SET \\"predecessor_revision\\" = ${complete.predecessorRevision}, \\"revision\\" = ${complete.revision},",
+    "         \\"release_revision\\" = '${complete.identity}', \\"migration_set_digest\\" = " + digest,
+    "   WHERE \\"application_id\\" = '${applicationId}' AND (${tupleClause(installing).replace(/"/gu, '\\"')}${source === undefined ? "" : ` OR ${tupleClause(source).replace(/"/gu, '\\"')}`});",
+    "  GET DIAGNOSTICS advanced = ROW_COUNT;",
+    "  IF advanced <> 1 THEN",
+    "    RAISE EXCEPTION 'Release ${platformRelease} will not record its identity: ${applicationId} does not carry this installation or the exact predecessor release';",
+    "  END IF;",
+    "END $$;"
+  ].join("\\n");
+}
+
 export async function up({ db }: MigrateUpArgs): Promise<void> {
-  await db.execute(sql.raw(\`DO $$
-DECLARE complete integer; applied text[]; advanced integer;
-BEGIN
-  PERFORM pg_advisory_xact_lock(hashtext('k-nex/release-revision/${applicationId}'));
-  SELECT count(*) INTO complete FROM "k_nex_release_revision"
-   WHERE "application_id" = '${applicationId}' AND ${tupleClause(complete)};
-  IF complete = 1 THEN
-    RETURN;
-  END IF;
-  SELECT array_agg("name" ORDER BY "id") INTO applied FROM "payload_migrations";
-  IF applied IS DISTINCT FROM ${ledger(precedingMigrations)}
-     AND applied IS DISTINCT FROM ${ledger([...precedingMigrations, completionStep])} THEN
-    RAISE EXCEPTION 'Release ${platformRelease} will not record its identity: the applied migration ledger is not the exact set this release declares';
-  END IF;
-  UPDATE "k_nex_release_revision"
-     SET "predecessor_revision" = ${complete.predecessorRevision}, "revision" = ${complete.revision},
-         "release_revision" = '${complete.identity}'
-   WHERE "application_id" = '${applicationId}' AND (${tupleClause(installing)}${source === undefined ? "" : ` OR ${tupleClause(source)}`});
-  GET DIAGNOSTICS advanced = ROW_COUNT;
-  IF advanced <> 1 THEN
-    RAISE EXCEPTION 'Release ${platformRelease} will not record its identity: ${applicationId} does not carry this installation or the exact predecessor release';
-  END IF;
-END $$;\`));
+  await db.execute(sql.raw(completionStatement()));
 }
 
 export async function down({ db }: MigrateDownArgs): Promise<void> {
   void db;
   throw new Error("Platform release ${platformRelease} is forward-only; recover the predecessor release by restoring its protected source and database.");
+}
+`;
+}
+
+/**
+ * The migration set a release declares is a set of bytes, not a set of labels.
+ * `payload_migrations` can only ever record the label, so a migration changed
+ * under its own filename executes different SQL, records the expected name, and
+ * would collect the release receipt. This module is the byte half of that
+ * evidence: it carries the digest of the exact migration sources this release
+ * generated, refuses to let any step run against a source tree that no longer
+ * matches it, and is the value the completion receipt records so readiness can
+ * re-check the same claim for as long as the database is served.
+ *
+ * It also admits each step before the step runs. Payload executes only pending
+ * migrations, so a database whose ledger lost, gained, or reordered a row would
+ * otherwise have the missing step re-executed against a schema that is already
+ * past it - the "partial restore" shape, where the release row survives and the
+ * ledger does not. Admission runs inside the step's own transaction, before the
+ * step's first statement, so a refusal leaves schema, data, and ledger exactly
+ * as they were.
+ */
+/**
+ * The digest the generated application will be held to. It is taken from the
+ * sources this factory is about to write, in the order the release applies
+ * them, so the value recorded in the database receipt is a statement about the
+ * bytes that ran rather than about the names they were filed under.
+ */
+function migrationSourceDigest(files: Readonly<Record<string, string>>): string {
+  const digest = createHash("sha256");
+  for (const name of declaredMigrationRegistry()) {
+    const source = files[`src/migrations/${name}.ts`];
+    if (source === undefined) throw new Error(`The generated application does not carry the declared migration ${name}.`);
+    digest.update(`${name}\u0000${createHash("sha256").update(source, "utf8").digest("hex")}\n`);
+  }
+  return digest.digest("hex");
+}
+
+function releaseMigrationSetSource(applicationId: string, platformRelease: string, digest: string): string {
+  const registry = declaredMigrationRegistry();
+  const bootstrapIndex = registry.indexOf("20260827_000002_knex_bootstrap");
+  const preflightIndex = registry.indexOf("20260905_000026_release_preflight");
+  const installing = platformInstallingState(platformRelease);
+  const complete = platformReleaseState(platformRelease);
+  const source = platformTransitionSource(platformRelease);
+  if (bootstrapIndex < 0 || preflightIndex <= bootstrapIndex) throw new Error("The generated migration registry does not carry the release admission steps.");
+  const refusal = (reason: string) => `RAISE EXCEPTION 'Release ${platformRelease} refuses to run %: ${reason}', step;`;
+  return `import { sql, type MigrateUpArgs } from "@payloadcms/db-postgres";
+import { createHash } from "node:crypto";
+import { readFileSync, readdirSync } from "node:fs";
+import { join, resolve } from "node:path";
+
+/** The migration identities this release applies, in the order it applies them. */
+export const releaseMigrationSet = ${JSON.stringify(registry, null, 2)} as const;
+
+/** The digest of the exact migration sources this release generated. */
+export const releaseMigrationSetDigest = ${JSON.stringify(digest)};
+
+const recordCreatedAt = ${bootstrapIndex};
+const targetSetStartsAt = ${preflightIndex};
+let verifiedDigest: string | undefined;
+
+/** The digest of the migration sources this installation would actually run. */
+export function observedMigrationSetDigest(root: string = process.cwd()): string {
+  const directory = resolve(root, "src/migrations");
+  const entries = readdirSync(directory, { withFileTypes: true });
+  if (entries.some((entry) => !entry.isFile() || entry.isSymbolicLink())) {
+    throw new Error("Release ${platformRelease} refuses this source tree: src/migrations holds an entry that is not a regular file.");
+  }
+  const present = entries.map((entry) => entry.name).filter((name) => name !== "index.ts")
+    .map((name) => name.endsWith(".ts") ? name.slice(0, -".ts".length) : name).sort();
+  if (present.length !== releaseMigrationSet.length || present.some((name, index) => name !== releaseMigrationSet[index])) {
+    throw new Error("Release ${platformRelease} refuses this source tree: src/migrations holds " + present.join(", ") + ", which is not the migration set this release declares.");
+  }
+  const digest = createHash("sha256");
+  for (const name of releaseMigrationSet) {
+    digest.update(name + "\\u0000" + createHash("sha256").update(readFileSync(join(directory, name + ".ts"))).digest("hex") + "\\n");
+  }
+  return digest.digest("hex");
+}
+
+/** Refuses a migration set whose bytes are not the ones this release declares. */
+export function assertMigrationSetIntegrity(root?: string): string {
+  if (verifiedDigest !== undefined) return verifiedDigest;
+  const observed = observedMigrationSetDigest(root);
+  if (observed !== releaseMigrationSetDigest) {
+    throw new Error("Release ${platformRelease} refuses this migration set: the sources on disk digest to " + observed +
+      ", and this release declares " + releaseMigrationSetDigest + ". A migration was changed under a name this release already knows.");
+  }
+  verifiedDigest = observed;
+  return observed;
+}
+
+function admissionStatement(step: string, index: number): string {
+  const ledger = "ARRAY[" + releaseMigrationSet.slice(0, index).map((name) => "'" + name + "'").join(",") + "]::text[]";
+  return [
+    "DO $$",
+    "DECLARE applied text[]; state text; step text := " + "'" + step + "'" + ";",
+    "BEGIN",
+    "  PERFORM pg_advisory_xact_lock(hashtext('k-nex/release-revision/${applicationId}'));",
+    "  IF to_regclass('public.payload_migrations') IS NULL THEN",
+    "    applied := ARRAY[]::text[];",
+    "  ELSE",
+    "    SELECT coalesce(array_agg(\\"name\\" ORDER BY \\"id\\"), ARRAY[]::text[]) INTO applied FROM \\"payload_migrations\\";",
+    "  END IF;",
+    "  IF applied IS DISTINCT FROM " + ledger + " THEN",
+    "    ${refusal("the applied migration ledger is not the exact set this release applies before this step, so this step would run against a database it was never ordered against")}",
+    "  END IF;",
+    "  IF to_regclass('public.k_nex_release_revision') IS NULL THEN",
+    index <= recordCreatedAt
+      ? "    RETURN;"
+      : "    ${refusal(`${applicationId} has no release record, and the bootstrap migration that creates it has already run`)}",
+    "  END IF;",
+    "  SELECT CASE",
+    "    WHEN ${tupleClause(installing).replace(/"/gu, '\\"')} THEN 'installing'",
+    "    WHEN ${tupleClause(complete).replace(/"/gu, '\\"')} THEN 'complete'",${source === undefined ? "" : `
+    "    WHEN ${tupleClause(source).replace(/"/gu, '\\"')} THEN 'predecessor'",`}
+    "    ELSE 'unknown' END INTO state",
+    "   FROM \\"k_nex_release_revision\\" WHERE \\"application_id\\" = '${applicationId}';",
+    "  IF state IS NULL OR state = 'unknown' THEN",
+    "    ${refusal(`${applicationId} does not record a release state this release may migrate`)}",
+    "  END IF;",
+    "  IF state = 'complete' THEN",
+    "    ${refusal(`this database already completed ${platformRelease}, so re-running a declared step would change a database its release receipt already describes`)}",
+    "  END IF;",${source === undefined ? "" : `
+    index < targetSetStartsAt
+      ? "  IF state = 'predecessor' THEN ${refusal("a database carrying the predecessor release has already applied this step")} END IF;"
+      : "",`}
+    "END $$;"
+  ].filter((line) => line !== "").join("\\n");
+}
+
+async function admitReleaseStep(db: MigrateUpArgs["db"], step: string): Promise<void> {
+  const index = releaseMigrationSet.indexOf(step as (typeof releaseMigrationSet)[number]);
+  if (index < 0) throw new Error("Release ${platformRelease} refuses to run " + step + ": it is not a migration this release declares.");
+  assertMigrationSetIntegrity();
+  await db.execute(sql.raw(admissionStatement(step, index)));
+}
+
+/**
+ * Binds a declared step to the admission it may run under. Payload receives the
+ * wrapped step, so there is no path that executes a release migration without
+ * first proving the database is one this release may still migrate.
+ */
+export function admitted<Args extends { readonly db: MigrateUpArgs["db"] }>(step: string, up: (args: Args) => Promise<void>): (args: Args) => Promise<void> {
+  return async (args: Args): Promise<void> => {
+    await admitReleaseStep(args.db, step);
+    await up(args);
+  };
 }
 `;
 }
@@ -998,9 +1177,10 @@ function planKnexApplication(options: CreateKnexApplicationOptions, includeRealt
     "src/migrations/20260909_000035_static_rebind_lock_protocol.ts": `import { kNexStaticRebindLockProtocolSchemaMigration } from "@k-nex/payload-adapter";\n\nexport const up = kNexStaticRebindLockProtocolSchemaMigration.up;\nexport const down = kNexStaticRebindLockProtocolSchemaMigration.down;\n`,
     "src/migrations/20260905_000026_release_preflight.ts": releasePreflightMigrationSource(options.applicationId, release?.release.version ?? currentReleaseVersion),
     "src/migrations/20260909_000036_release_revision.ts": releaseRevisionMigrationSource(options.applicationId, release?.release.version ?? currentReleaseVersion),
-    "src/migrations/index.ts": `import * as baseline from "./20260827_000001_sales_baseline.js";\nimport * as bootstrap from "./20260827_000002_knex_bootstrap.js";\nimport * as runtimeExtensions from "./20260829_000007_runtime_extensions.js";\nimport * as authorization from "./20260901_000019_authorization.js";\nimport * as staticLifecycleAdmission from "./20260901_000022_static_lifecycle_admission.js";\nimport * as systemAdministration from "./20260902_000023_system_administration.js";\nimport * as workspacePages from "./20260903_000026_workspace_pages.js";\nimport * as eventOutbox from "./20260903_000027_event_outbox.js";\nimport * as workspaceSidebarPreferences from "./20260904_000028_workspace_sidebar_preferences.js";\nimport * as releasePreflight from "./20260905_000026_release_preflight.js";\nimport * as crmCore from "./20260905_000027_crm_core.js";\nimport * as attachmentUploadAdmissions from "./20260906_000029_attachment_upload_admissions.js";\nimport * as pipelineSavedViews from "./20260907_000030_pipeline_saved_views.js";\nimport * as dataMovement from "./20260907_000031_data_movement.js";\nimport * as communications from "./20260908_000032_communications.js";\nimport * as crmWorkflows from "./20260908_000033_crm_workflows.js";\nimport * as reports from "./20260908_000034_reports.js";\nimport * as staticRebindLockProtocol from "./20260909_000035_static_rebind_lock_protocol.js";\nimport * as releaseRevision from "./20260909_000036_release_revision.js";\n\nexport const migrations = [\n  { name: "20260827_000001_sales_baseline", up: baseline.up, down: baseline.down },\n  { name: "20260827_000002_knex_bootstrap", up: bootstrap.up, down: bootstrap.down },\n  { name: "20260829_000007_runtime_extensions", up: runtimeExtensions.up, down: runtimeExtensions.down },\n  { name: "20260901_000019_authorization", up: authorization.up, down: authorization.down },\n  { name: "20260901_000022_static_lifecycle_admission", up: staticLifecycleAdmission.up, down: staticLifecycleAdmission.down },\n  { name: "20260902_000023_system_administration", up: systemAdministration.up, down: systemAdministration.down },\n  { name: "20260903_000026_workspace_pages", up: workspacePages.up, down: workspacePages.down },\n  { name: "20260903_000027_event_outbox", up: eventOutbox.up, down: eventOutbox.down },\n  { name: "20260904_000028_workspace_sidebar_preferences", up: workspaceSidebarPreferences.up, down: workspaceSidebarPreferences.down },\n  { name: "20260905_000026_release_preflight", up: releasePreflight.up, down: releasePreflight.down },\n  { name: "20260905_000027_crm_core", up: crmCore.up, down: crmCore.down },\n  { name: "20260906_000029_attachment_upload_admissions", up: attachmentUploadAdmissions.up, down: attachmentUploadAdmissions.down },\n  { name: "20260907_000030_pipeline_saved_views", up: pipelineSavedViews.up, down: pipelineSavedViews.down },\n  { name: "20260907_000031_data_movement", up: dataMovement.up, down: dataMovement.down },\n  { name: "20260908_000032_communications", up: communications.up, down: communications.down },\n  { name: "20260908_000033_crm_workflows", up: crmWorkflows.up, down: crmWorkflows.down },\n  { name: "20260908_000034_reports", up: reports.up, down: reports.down },\n  { name: "20260909_000035_static_rebind_lock_protocol", up: staticRebindLockProtocol.up, down: staticRebindLockProtocol.down },\n  { name: "20260909_000036_release_revision", up: releaseRevision.up, down: releaseRevision.down }\n];\n`,
+    "src/migrations/index.ts": `import { admitted } from "../release-migration-set.js";\nimport * as baseline from "./20260827_000001_sales_baseline.js";\nimport * as bootstrap from "./20260827_000002_knex_bootstrap.js";\nimport * as runtimeExtensions from "./20260829_000007_runtime_extensions.js";\nimport * as authorization from "./20260901_000019_authorization.js";\nimport * as staticLifecycleAdmission from "./20260901_000022_static_lifecycle_admission.js";\nimport * as systemAdministration from "./20260902_000023_system_administration.js";\nimport * as workspacePages from "./20260903_000026_workspace_pages.js";\nimport * as eventOutbox from "./20260903_000027_event_outbox.js";\nimport * as workspaceSidebarPreferences from "./20260904_000028_workspace_sidebar_preferences.js";\nimport * as releasePreflight from "./20260905_000026_release_preflight.js";\nimport * as crmCore from "./20260905_000027_crm_core.js";\nimport * as attachmentUploadAdmissions from "./20260906_000029_attachment_upload_admissions.js";\nimport * as pipelineSavedViews from "./20260907_000030_pipeline_saved_views.js";\nimport * as dataMovement from "./20260907_000031_data_movement.js";\nimport * as communications from "./20260908_000032_communications.js";\nimport * as crmWorkflows from "./20260908_000033_crm_workflows.js";\nimport * as reports from "./20260908_000034_reports.js";\nimport * as staticRebindLockProtocol from "./20260909_000035_static_rebind_lock_protocol.js";\nimport * as releaseRevision from "./20260909_000036_release_revision.js";\n\nexport const migrations = [\n  { name: "20260827_000001_sales_baseline", up: admitted("20260827_000001_sales_baseline", baseline.up), down: baseline.down },\n  { name: "20260827_000002_knex_bootstrap", up: admitted("20260827_000002_knex_bootstrap", bootstrap.up), down: bootstrap.down },\n  { name: "20260829_000007_runtime_extensions", up: admitted("20260829_000007_runtime_extensions", runtimeExtensions.up), down: runtimeExtensions.down },\n  { name: "20260901_000019_authorization", up: admitted("20260901_000019_authorization", authorization.up), down: authorization.down },\n  { name: "20260901_000022_static_lifecycle_admission", up: admitted("20260901_000022_static_lifecycle_admission", staticLifecycleAdmission.up), down: staticLifecycleAdmission.down },\n  { name: "20260902_000023_system_administration", up: admitted("20260902_000023_system_administration", systemAdministration.up), down: systemAdministration.down },\n  { name: "20260903_000026_workspace_pages", up: admitted("20260903_000026_workspace_pages", workspacePages.up), down: workspacePages.down },\n  { name: "20260903_000027_event_outbox", up: admitted("20260903_000027_event_outbox", eventOutbox.up), down: eventOutbox.down },\n  { name: "20260904_000028_workspace_sidebar_preferences", up: admitted("20260904_000028_workspace_sidebar_preferences", workspaceSidebarPreferences.up), down: workspaceSidebarPreferences.down },\n  { name: "20260905_000026_release_preflight", up: admitted("20260905_000026_release_preflight", releasePreflight.up), down: releasePreflight.down },\n  { name: "20260905_000027_crm_core", up: admitted("20260905_000027_crm_core", crmCore.up), down: crmCore.down },\n  { name: "20260906_000029_attachment_upload_admissions", up: admitted("20260906_000029_attachment_upload_admissions", attachmentUploadAdmissions.up), down: attachmentUploadAdmissions.down },\n  { name: "20260907_000030_pipeline_saved_views", up: admitted("20260907_000030_pipeline_saved_views", pipelineSavedViews.up), down: pipelineSavedViews.down },\n  { name: "20260907_000031_data_movement", up: admitted("20260907_000031_data_movement", dataMovement.up), down: dataMovement.down },\n  { name: "20260908_000032_communications", up: admitted("20260908_000032_communications", communications.up), down: communications.down },\n  { name: "20260908_000033_crm_workflows", up: admitted("20260908_000033_crm_workflows", crmWorkflows.up), down: crmWorkflows.down },\n  { name: "20260908_000034_reports", up: admitted("20260908_000034_reports", reports.up), down: reports.down },\n  { name: "20260909_000035_static_rebind_lock_protocol", up: admitted("20260909_000035_static_rebind_lock_protocol", staticRebindLockProtocol.up), down: staticRebindLockProtocol.down },\n  { name: "20260909_000036_release_revision", up: admitted("20260909_000036_release_revision", releaseRevision.up), down: releaseRevision.down }\n];\n`,
     "src/payload.config.ts": payloadConfigSource(options.applicationId),
   };
+  files["src/release-migration-set.ts"] = releaseMigrationSetSource(options.applicationId, release?.release.version ?? currentReleaseVersion, migrationSourceDigest(files));
   if (releaseManifest !== undefined) files[".k-nex/package-release-manifest.json"] = releaseManifest;
   if (factoryLock !== undefined) files["pnpm-lock.yaml"] = factoryLock;
   if (release !== undefined && options.packageSource !== undefined) {

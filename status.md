@@ -1,6 +1,6 @@
 # Project Status
 
-- **Updated:** 2026-09-17
+- **Updated:** 2026-09-18
 - **Phase:** Phase 13 — CRM-First Productization and Pilot Readiness
 - **Active task:** P13.10 — Gate 13 limited-beta closeout (re-review response)
 - **State:** In progress
@@ -29,11 +29,19 @@ From the exact-head re-review:
 - `gate:13:focused` failed on a missing `dist` before reaching any evidence; it now builds the workspace it reads.
 - Corpus outcomes were literals the gate then asserted; they are derived from the executed-proof set, and the gate re-verifies that linkage through a tested module.
 
+From the third exact-head re-review:
+
+- A completed release bypassed the exact-ledger proof forever: both release steps returned on the canonical tuple before reading `payload_migrations`, and readiness checked two scalar fields. A release row that was correct once is no longer treated as evidence that the database still matches it - the completion step validates the ledger before accepting an already-complete tuple, and readiness reads the canonical tuple, the recorded migration-set digest, and the applied ledger together.
+- The exact migration set bound names, not bytes: a migration changed under its own filename executed different SQL, recorded the expected name, and collected the receipt. The generated application now carries the digest of its own migration sources, records it in the completion receipt, and verifies it against the sources on disk before any declared step's first statement.
+- Payload only runs pending migrations, so a canonical database whose ledger lost a row would have had that step re-executed against a schema already past it. Every declared step is now admitted against the exact ledger prefix it was ordered against, inside its own transaction, so a refusal leaves schema, data, and ledger unchanged.
+- `executeMigrationJob` finalized by setting `predecessor_revision = revision`, which would have recreated the lineage-dependent tuple the canonical release record removes. It now refuses platform release identities outright; it remains the plugin migration primitive.
+- The "next release" claim compared the same canonical row twice. It is narrowed to what is proved: both 1.1 histories converge on one record, and a release names its predecessor by that predecessor's canonical record. A three-release proof needs a declared 1.2.0.
+
 ## Validation
 
-Node 24.19/pnpm 11.9: every workspace unit suite PASS (Contracts 244, Composition 188, Runtime 596, Payload adapter 320, Sales 83, themes/UI, plus Sales boundary and pack reproducibility checks). Real PostgreSQL/Chromium proofs run individually on this head: P13.9 repository preparation, P13.9 backup/restore and source protection, the release-revision convergence proof, P13.3 packed shutdown, P12.9 generated application journey, P12.10 generated theme profiles, the packed customer boot, and the previous-release upgrade all PASS. The 1.1 closure chain was regenerated and all 17 archive integrities plus both factory lock digests match the release manifest.
+Node 24.19/pnpm 11.9: every workspace unit suite PASS (Contracts 244, Composition 188, Runtime 601, Payload adapter 320, Sales 83, themes/UI, plus Sales boundary and pack reproducibility checks). Real PostgreSQL/Chromium proofs run individually on this head: the release-state proofs (canonical receipt for both histories, and a completed release that keeps proving its migration set), P13.9 repository preparation, P13.9 backup/restore and source protection, and the P13.4 generated configuration journey - which builds, migrates, boots, and serves a real generated application through the new per-step admission - all PASS. The 1.1 closure chain was regenerated and all 17 archive integrities plus both factory lock digests match the release manifest. The release-state proofs now run inside focused Gate 13 rather than only under `test:postgres`.
 
-Exact-head `unit`, focused `validate`, and `repository-evidence` all passed on `c5e3eea`; the head has moved since, so the focused run must be repeated before the evidence is claimed for it. `pnpm gate:13` still requires network and an authenticated `gh` through the Phase 8 evidence check, so the cumulative chain has not completed on any head.
+`pnpm gate:13` still requires network and an authenticated `gh` through the Phase 8 evidence check, so the cumulative chain has not completed on any head.
 
 ## Out of Phase 13 acceptance
 

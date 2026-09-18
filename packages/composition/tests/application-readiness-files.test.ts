@@ -66,8 +66,10 @@ describe("generated application readiness", () => {
     expect(readiness).toContain("predecessorRevisions, [1, 2]");
     expect(readiness).toContain("ApplicationManifestSchema.parse");
     expect(readiness).toContain("PackageReleaseManifestSchema.parse");
-    expect(readiness).toContain("assertMigrationReadiness");
-    expect(readiness.indexOf("await assertMigrationReadiness")).toBeLessThan(readiness.indexOf("await assertSalesSchema(pool)"));
+    expect(readiness).toContain("assertPlatformReleaseReadiness");
+    expect(readiness).toContain("migrationSetDigest: releaseMigrationSetDigest, declaredMigrations: releaseMigrationSet");
+    expect(readiness.indexOf("assertMigrationSetIntegrity(root)")).toBeLessThan(readiness.indexOf("await assertPlatformReleaseReadiness"));
+    expect(readiness.indexOf("await assertPlatformReleaseReadiness")).toBeLessThan(readiness.indexOf("await assertSalesSchema(pool)"));
     expect(doctor.indexOf("await reconcileKnexReadiness(payload)")).toBeLessThan(doctor.indexOf("console.log(kNexApplicationReadyMarker)"));
     expect(readiness).toContain("new NodeHttpsAdministrationOperatorClient");
     expect(readiness).toContain("assertExactProtectedRoleBaselineState");

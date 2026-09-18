@@ -497,9 +497,27 @@ record at a point where the bootstrap that creates it has already run. A
 database still on the predecessor is refused by name, pointing at the
 coordinator, which will execute that transition under its own fence.
 
+The receipt binds bytes, not labels. `payload_migrations` can only record a
+migration's name, so the completion row also records the digest of the exact
+migration sources the release generated, and every declared step verifies that
+digest against the sources on disk before its first statement runs. A migration
+changed under a name the ledger already carries therefore stops the release
+rather than collecting its receipt.
+
+A receipt checked only when it is written would make the first valid completion
+a permanent exemption from the proof it stands for, so it is re-proved instead
+of trusted: readiness reads the canonical tuple, the recorded migration-set
+digest, and the applied ledger together, and every declared step is admitted
+against the ledger prefix it was ordered against before it may execute. A
+completed database whose ledger later loses, gains, reorders, or renames a row -
+by a partial restore as easily as by tampering - is refused, and the pending
+step that restore made look outstanding is refused before it mutates anything.
+
 Admitting the source outside Payload - binding the exact source ledger order,
-release-lock and manifest digests, and database identity before any pending
-migration runs - belongs to that coordinator too, and is deferred with it.
+release-lock and manifest digests, and database identity before Payload is
+allowed to select any pending migration at all - belongs to that coordinator
+too, and is deferred with it. Within the migration command, admission runs
+inside each step's own transaction rather than ahead of the whole run.
 
 ### P13.10 — Gate 13 limited-beta closeout
 

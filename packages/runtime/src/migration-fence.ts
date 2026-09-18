@@ -1,5 +1,6 @@
 export type MigrationFenceErrorCode =
-  | "INVALID_INPUT" | "LOCK_UNAVAILABLE" | "REVISION_MISMATCH" | "STALE_ARTIFACT" | "RELEASE_MISMATCH";
+  | "INVALID_INPUT" | "LOCK_UNAVAILABLE" | "REVISION_MISMATCH" | "STALE_ARTIFACT" | "RELEASE_MISMATCH"
+  | "MIGRATION_SET_MISMATCH" | "LEDGER_MISMATCH";
 
 export class MigrationFenceError extends Error {
   constructor(readonly code: MigrationFenceErrorCode, message: string) {
@@ -51,6 +52,18 @@ export function deriveMigrationLockKey(applicationId: string, databaseIdentity: 
   return Object.freeze([hash32(identity, 0x811c9dc5), hash32(identity, 0x6d2b79f5)]);
 }
 
+/**
+ * This primitive advances a lineage: it records the revision it came from, so a
+ * later job can prove it started where the previous one stopped. A platform
+ * release is not a lineage - it is one exact terminal state that a fresh
+ * installation and an upgrade must both reach - so a release receipt written
+ * this way would carry the installation history that the release model
+ * deliberately drops. Plugin migrations keep this primitive; the platform
+ * release transition is refused here rather than silently issuing a receipt
+ * that no readiness check would accept.
+ */
+export const platformReleaseReceiptPattern = /^platform-/u;
+
 function validateJob(input: {
   readonly applicationId: string;
   readonly expectedPredecessorRevision: number;
@@ -62,6 +75,9 @@ function validateJob(input: {
     input.targetRevision !== input.expectedPredecessorRevision + 1 ||
     !/^[a-zA-Z0-9][a-zA-Z0-9._:+/-]{0,127}$/u.test(input.releaseRevision)) {
     fail("INVALID_INPUT", "Migration predecessor, target, or release revision is invalid.");
+  }
+  if (platformReleaseReceiptPattern.test(input.releaseRevision)) {
+    fail("INVALID_INPUT", "Platform release receipts are written by the release transition itself, which records one terminal release state rather than this primitive's migration lineage.");
   }
 }
 
@@ -129,6 +145,70 @@ export async function executeMigrationJob(input: {
     }
     session.release();
   }
+}
+
+export interface PlatformReleaseReceipt extends MigrationRevisionReceipt {
+  readonly migrationSetDigest: string;
+  readonly appliedMigrations: readonly string[];
+}
+
+/**
+ * A release receipt is only evidence for as long as the database still matches
+ * the evidence. The recorded tuple says which release this database reached,
+ * the recorded migration-set digest says which exact migration bytes brought it
+ * there, and the applied ledger says that set is still the set the database
+ * carries. Checking the tuple alone would make the receipt true only at the
+ * instant it was written: a ledger row deleted, reordered, renamed, or added
+ * afterwards - by a partial restore as easily as by tampering - would leave a
+ * database that no longer is what the receipt claims, and it would still be
+ * served. All three are read here, under the same call, so a divergence refuses
+ * the database rather than the next person to notice it.
+ */
+export async function assertPlatformReleaseReadiness(input: {
+  readonly pool: Pick<MigrationPool, "query">;
+  readonly applicationId: string;
+  readonly predecessorRevision: number;
+  readonly revision: number;
+  readonly releaseRevision: string;
+  readonly migrationSetDigest: string;
+  readonly declaredMigrations: readonly string[];
+}): Promise<PlatformReleaseReceipt> {
+  if (!Number.isSafeInteger(input.revision) || input.revision < 0 || !Number.isSafeInteger(input.predecessorRevision) || input.predecessorRevision < 0) {
+    fail("INVALID_INPUT", "Platform release revision is invalid.");
+  }
+  if (!/^[0-9a-f]{64}$/u.test(input.migrationSetDigest)) fail("INVALID_INPUT", "Platform migration set digest is invalid.");
+  if (input.declaredMigrations.length === 0) fail("INVALID_INPUT", "Platform migration set is empty.");
+  // to_jsonb keeps this readable against a database whose release table has not
+  // yet been extended with the digest column: an installing or predecessor
+  // database answers NULL here and is refused below, instead of failing with an
+  // undefined-column error that says nothing about the release state.
+  const result = await input.pool.query<{ application_id: string; predecessor_revision: number; revision: number; release_revision: string; migration_set_digest: string | null }>(
+    `select application_id, predecessor_revision, revision, release_revision,
+            to_jsonb(k_nex_release_revision) ->> 'migration_set_digest' as migration_set_digest
+     from k_nex_release_revision where application_id = $1`,
+    [input.applicationId]
+  );
+  const row = result.rows[0];
+  if (result.rows.length !== 1 || row === undefined) fail("REVISION_MISMATCH", "Application migration revision is unavailable.");
+  if (row.revision > input.revision) fail("STALE_ARTIFACT", "Artifact is older than the database migration revision.");
+  if (row.revision !== input.revision || row.predecessor_revision !== input.predecessorRevision) {
+    fail("REVISION_MISMATCH", "Database does not carry the exact release state this artifact was built for.");
+  }
+  if (row.release_revision !== input.releaseRevision) fail("RELEASE_MISMATCH", "Artifact release revision does not match the migrated database.");
+  if (row.migration_set_digest !== input.migrationSetDigest) {
+    fail("MIGRATION_SET_MISMATCH", "Database release receipt was written by a different migration set than this artifact declares.");
+  }
+  const ledger = await input.pool.query<{ applied: readonly string[] | null }>(
+    "select array_agg(name order by id) as applied from payload_migrations"
+  );
+  const applied = ledger.rows[0]?.applied ?? [];
+  if (applied.length !== input.declaredMigrations.length || applied.some((name, index) => name !== input.declaredMigrations[index])) {
+    fail("LEDGER_MISMATCH", "Applied migration ledger is not the exact set this release declares.");
+  }
+  return Object.freeze({
+    applicationId: row.application_id, predecessorRevision: row.predecessor_revision, revision: row.revision,
+    releaseRevision: row.release_revision, migrationSetDigest: input.migrationSetDigest, appliedMigrations: Object.freeze([...applied])
+  });
 }
 
 export async function assertMigrationReadiness(input: {

@@ -1,6 +1,6 @@
 import { supportedFrameworkTuple } from "@k-nex/contracts";
 
-import { platformReleaseIdentity, platformReleaseRevision } from "./platform-release-revision.js";
+import { platformReleaseIdentity, platformReleaseRevision, platformReleaseState } from "./platform-release-revision.js";
 
 export interface ApplicationAuthFilesOptions {
   readonly applicationId: string;
@@ -2010,12 +2010,13 @@ import { ApplicationManifestSchema, PackageReleaseManifestSchema, PluginManifest
 import manifestJson from "@k-nex/module-sales/manifest" with { type: "json" };
 import realtimeManifestJson from "@k-nex/provider-realtime-socketio/manifest" with { type: "json" };
 import { NodeHttpsAdministrationOperatorClient, type RuntimeExtensionPool } from "@k-nex/payload-adapter";
-import { assertExactProtectedRoleBaselineState, assertMigrationReadiness, canonicalIana, currentProtectedPlatformRoleBaselineRelease, protectedRoleBootstrapId } from "@k-nex/runtime";
+import { assertExactProtectedRoleBaselineState, assertPlatformReleaseReadiness, canonicalIana, currentProtectedPlatformRoleBaselineRelease, protectedRoleBootstrapId } from "@k-nex/runtime";
 import { ${themeResolver} as resolveSelectedThemeProfile } from "@k-nex/theme-${theme}";
 import type { Payload } from "payload";
 
 import { kNexAuthority } from "./k-nex-authority.js";
 import { kNexIdentity } from "./k-nex-identity.js";
+import { assertMigrationSetIntegrity, releaseMigrationSet, releaseMigrationSetDigest } from "./release-migration-set.js";
 import { kNexSalesRegistry, kNexThemePresentation } from "./k-nex-registry.js";
 import { bootstrapApplicationTheme, resolveApplicationTheme } from "./k-nex-theme-runtime.js";
 import { migrations } from "./migrations/index.js";
@@ -2347,8 +2348,17 @@ export async function reconcileKnexReadiness(payload: Payload) {
   // bootstrap identity instead left every upgraded database permanently
   // not-ready, because its bootstrap still names the predecessor release.
   if (release.release.version !== ${JSON.stringify(platformRelease)}) fail("Application release manifest does not match the generated release.");
-  await assertMigrationReadiness({ pool, applicationId: kNexIdentity.applicationId,
-    artifactRevision: ${platformReleaseRevision(platformRelease)}, releaseRevision: ${JSON.stringify(platformReleaseIdentity(platformRelease))} });
+  // The receipt is re-proved here, not trusted: the recorded tuple, the
+  // migration set the receipt was written for, and the ledger still on the
+  // database all have to agree with the artifact being served. A release row
+  // that was correct once is not evidence that the database still is what it
+  // says, and a migration changed under a name the ledger already carries would
+  // otherwise be invisible to every later check.
+  assertMigrationSetIntegrity(root);
+  await assertPlatformReleaseReadiness({ pool, applicationId: kNexIdentity.applicationId,
+    predecessorRevision: ${platformReleaseState(platformRelease).predecessorRevision}, revision: ${platformReleaseState(platformRelease).revision},
+    releaseRevision: ${JSON.stringify(platformReleaseIdentity(platformRelease))},
+    migrationSetDigest: releaseMigrationSetDigest, declaredMigrations: releaseMigrationSet });
   await assertSalesSchema(pool);
   await assertReportingTimezone(pool);
   await bootstrapApplicationTheme(payload);

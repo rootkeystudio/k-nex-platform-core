@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { assertMigrationReadiness, deriveMigrationLockKey, executeMigrationJob, MigrationFenceError, type MigrationSession } from "../src/index.js";
+import { assertMigrationReadiness, assertPlatformReleaseReadiness, deriveMigrationLockKey, executeMigrationJob, MigrationFenceError, type MigrationSession } from "../src/index.js";
 
 function harness(options: { lock?: boolean; revision?: number; migrationFails?: boolean } = {}) {
   let revision = options.revision ?? 6;
@@ -57,5 +57,82 @@ describe("migration execution fence", () => {
     const current = harness({ revision: 7 });
     await expect(assertMigrationReadiness({ pool: current.pool, applicationId: "customer.alpha", artifactRevision: 6, releaseRevision: "release-6" })).rejects.toEqual(expect.objectContaining<Partial<MigrationFenceError>>({ code: "STALE_ARTIFACT" }));
     await expect(assertMigrationReadiness({ pool: current.pool, applicationId: "customer.alpha", artifactRevision: 7, releaseRevision: "wrong" })).rejects.toEqual(expect.objectContaining<Partial<MigrationFenceError>>({ code: "RELEASE_MISMATCH" }));
+  });
+});
+
+/**
+ * A completed platform release is only evidence while the database still
+ * matches it, so this stands in for the three things that can drift apart
+ * after the receipt is written: the release tuple, the migration set the
+ * receipt was written for, and the ledger that set left behind.
+ */
+function platformDatabase(overrides: {
+  predecessorRevision?: number; revision?: number; releaseRevision?: string;
+  migrationSetDigest?: string | null; applied?: readonly string[];
+} = {}) {
+  const declared = ["20260827_000001_sales_baseline", "20260909_000036_release_revision"];
+  const digest = "a".repeat(64);
+  const row = {
+    application_id: "customer.alpha",
+    predecessor_revision: overrides.predecessorRevision ?? 0,
+    revision: overrides.revision ?? 2,
+    release_revision: overrides.releaseRevision ?? "platform-1.1.0-release",
+    migration_set_digest: overrides.migrationSetDigest === undefined ? digest : overrides.migrationSetDigest
+  };
+  return {
+    declared, digest,
+    input: { applicationId: "customer.alpha", predecessorRevision: 0, revision: 2, releaseRevision: "platform-1.1.0-release", migrationSetDigest: digest, declaredMigrations: declared },
+    pool: {
+      async query<T extends object>(text: string) {
+        if (text.includes("payload_migrations")) return { rows: [{ applied: overrides.applied ?? declared }] as unknown as T[] };
+        return { rows: [row] as unknown as T[] };
+      }
+    }
+  };
+}
+
+describe("platform release readiness", () => {
+  it("accepts the canonical release only with its own migration set and ledger", async () => {
+    const database = platformDatabase();
+    await expect(assertPlatformReleaseReadiness({ pool: database.pool, ...database.input })).resolves.toEqual({
+      applicationId: "customer.alpha", predecessorRevision: 0, revision: 2, releaseRevision: "platform-1.1.0-release",
+      migrationSetDigest: database.digest, appliedMigrations: database.declared
+    });
+  });
+
+  it("refuses a canonical release row whose durable ledger has drifted", async () => {
+    const missing = platformDatabase({ applied: ["20260909_000036_release_revision"] });
+    await expect(assertPlatformReleaseReadiness({ pool: missing.pool, ...missing.input })).rejects.toMatchObject({ code: "LEDGER_MISMATCH" });
+
+    const reordered = platformDatabase({ applied: ["20260909_000036_release_revision", "20260827_000001_sales_baseline"] });
+    await expect(assertPlatformReleaseReadiness({ pool: reordered.pool, ...reordered.input })).rejects.toMatchObject({ code: "LEDGER_MISMATCH" });
+
+    const extra = platformDatabase({ applied: ["20260827_000001_sales_baseline", "20260909_000036_release_revision", "20260910_000037_unknown"] });
+    await expect(assertPlatformReleaseReadiness({ pool: extra.pool, ...extra.input })).rejects.toMatchObject({ code: "LEDGER_MISMATCH" });
+  });
+
+  it("refuses a release recorded for migration bytes this artifact does not carry", async () => {
+    const substituted = platformDatabase({ migrationSetDigest: "b".repeat(64) });
+    await expect(assertPlatformReleaseReadiness({ pool: substituted.pool, ...substituted.input })).rejects.toMatchObject({ code: "MIGRATION_SET_MISMATCH" });
+
+    const unrecorded = platformDatabase({ migrationSetDigest: null });
+    await expect(assertPlatformReleaseReadiness({ pool: unrecorded.pool, ...unrecorded.input })).rejects.toMatchObject({ code: "MIGRATION_SET_MISMATCH" });
+  });
+
+  it("refuses a lineage-dependent release row for the same release identity", async () => {
+    const lineage = platformDatabase({ predecessorRevision: 1 });
+    await expect(assertPlatformReleaseReadiness({ pool: lineage.pool, ...lineage.input })).rejects.toMatchObject({ code: "REVISION_MISMATCH" });
+
+    const installing = platformDatabase({ revision: 0, releaseRevision: "platform-1.1.0-installing", migrationSetDigest: null });
+    await expect(assertPlatformReleaseReadiness({ pool: installing.pool, ...installing.input })).rejects.toMatchObject({ code: "REVISION_MISMATCH" });
+  });
+
+  it("keeps platform release receipts out of the lineage migration primitive", async () => {
+    const test = harness();
+    await expect(executeMigrationJob({
+      pool: test.pool, applicationId: "customer.alpha", expectedPredecessorRevision: 6, targetRevision: 7,
+      releaseRevision: "platform-1.1.0-release", migrate: test.migrate
+    })).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    expect(test.queries).not.toContain("migrate");
   });
 });
