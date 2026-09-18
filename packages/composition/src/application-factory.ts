@@ -162,11 +162,11 @@ const exactDependencies = Object.freeze({
   "@payloadcms/db-postgres": "3.88.0",
   "@payloadcms/next": "3.88.0",
   "graphql": "16.14.2",
-  "next": "16.3.1",
+  "next": "16.3.4",
   "payload": "3.88.0",
   "react": "19.2.8",
   "react-dom": "19.2.8",
-  "sharp": "0.35.3",
+  "sharp": "0.35.4",
   "socket.io-client": "4.8.3"
 });
 
@@ -195,7 +195,7 @@ export function payloadPostgresPatchSource(): string {
 
 export function generatedPnpmWorkspace(providedOverrides: Readonly<Record<string, string>> = {}): string {
   const overrides = { ...providedOverrides, ...deterministicReleaseOverrides };
-  return `packages:\n  - "."\n\nallowBuilds:\n  "cpu-features@0.0.10": false\n  "esbuild@0.18.20": true\n  "esbuild@0.25.12": true\n  "esbuild@0.28.2": true\n  "protobufjs@7.6.5": false\n  "sharp@0.35.3": true\n  "ssh2@1.17.0": false\n\npatchedDependencies:\n  "${payloadPostgresPatchPackage}": "${payloadPostgresPatchFilename}"\n\noverrides:\n${Object.entries(overrides).map(([name, specifier]) => `  "${name}": "${specifier}"`).join("\n")}\n`;
+  return `packages:\n  - "."\n\nallowBuilds:\n  "cpu-features@0.0.10": false\n  "esbuild@0.18.20": true\n  "esbuild@0.25.12": true\n  "esbuild@0.28.2": true\n  "protobufjs@7.6.5": false\n  "sharp@0.35.4": true\n  "ssh2@1.17.0": false\n\npatchedDependencies:\n  "${payloadPostgresPatchPackage}": "${payloadPostgresPatchFilename}"\n\noverrides:\n${Object.entries(overrides).map(([name, specifier]) => `  "${name}": "${specifier}"`).join("\n")}\n`;
 }
 
 const verifiedPlanArtifacts = new WeakMap<ApplicationFactoryPlan, ReadonlyMap<string, Uint8Array>>();
