@@ -145,11 +145,16 @@ test("P13.3 generated worker joins admitted work, bounds a blocked drain, and fa
     assert.ok(Date.now() - neverStartedAt >= 100, "Worker did not wait for its shutdown watchdog.");
     acknowledgeAbnormalWorkerExit(neverWorker);
 
-    const settledRejection = shortenedWatchdog.replace(
+    // Built from the unshortened worker on purpose: a settled rejection racing
+    // a 150ms watchdog proves whichever of the two happened to win on the day,
+    // and both exit nonzero. Against the real 30s deadline, reporting the
+    // injected failure in under two seconds can only mean the shutdown did not
+    // wait for its watchdog.
+    const settledRejection = workerSource.replace(
       "let shutdownFailure;",
       'admittedFailures.push(new Error("P13_3_INJECTED_SETTLED_WORKER_FAILURE"));\nlet shutdownFailure;'
     );
-    assert.notEqual(settledRejection, shortenedWatchdog, "Generated worker settled rejection seam changed.");
+    assert.notEqual(settledRejection, workerSource, "Generated worker settled rejection seam changed.");
     writeFileSync(workerPath, settledRejection);
     const rejectionOutputStart = workerOutput().length;
     await startWorker();

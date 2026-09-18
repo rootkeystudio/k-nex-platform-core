@@ -43,6 +43,7 @@ From the fourth exact-head re-review:
 - The guard was generated into the application it guarded and verified a constant in its own file. It now ships in `@k-nex/runtime`; the generated tree carries only the declaration, and the durable authority is the closure the database recorded before any later edit.
 - `assertMigrationSetIntegrity` memoized its first success, so within one `payload migrate` process only the first step actually re-read the files, and the proof hid this by re-evaluating the function body with a fresh cache. The guard no longer caches, and the proofs import the real module and mutate between calls in one process.
 - `assertPlatformReleaseReadiness` read the release row and `payload_migrations` in two statements, which a concurrent restore could cross. Both are now read in one statement, and a unit test asserts exactly one query.
+- The settled-rejection worker proof injected its failure into a worker whose shutdown watchdog the previous phase had shortened to 150ms, so it raced the watchdog and both outcomes exit nonzero; CI lost that race on this head. It now injects into the unshortened worker, where reporting the failure in under two seconds can only mean the shutdown did not wait for its 30s deadline.
 
 ## Validation
 
