@@ -484,20 +484,25 @@ test("P13.10 generated fixture proves controlled browser readiness before and af
       // smaller host the same budget measures the host, not the product. Both
       // the observed distribution and the environment it was observed in are
       // emitted below, so no number can be read without its conditions.
+      // Core count cannot tell a controlled measurement host from a shared
+      // four-vCPU runner that is also hosting PostgreSQL, a Next server, and
+      // Chromium. So the controlled budget applies only where the run declares
+      // itself that host; everywhere else the observation is still recorded and
+      // still bounded, just not read as a product latency claim.
       const parallelism = availableParallelism();
-      const controlledHost = parallelism >= 4;
+      const controlledHost = process.env.K_NEX_CONTROLLED_FIXTURE_HOST === "1";
       const serverP95Budget = controlledHost ? 1_000 : 2_000;
       const browserP95Budget = controlledHost ? 2_500 : 5_000;
       const serverP95 = Object.fromEntries(Object.entries(distributions).map(([operation, distribution]) => {
         assert.equal(distribution.server.count, serverSamplesPerOperation, `authenticated ${operation} server-observed sample count diverged`);
         assert.equal(distribution.client.count, serverSamplesPerOperation, `authenticated ${operation} client diagnostic sample count diverged`);
         assert.ok(distribution.server.p95 <= serverP95Budget,
-          `authenticated ${operation} server-observed p95 ${distribution.server.p95.toFixed(3)}ms exceeds ${serverP95Budget}ms on a ${parallelism}-way host`);
+          `authenticated ${operation} server-observed p95 ${distribution.server.p95.toFixed(3)}ms exceeds ${serverP95Budget}ms on a ${parallelism}-way ${controlledHost ? "controlled" : "shared"} host`);
         return [operation, distribution.server.p95];
       }));
       const clientP95 = Object.fromEntries(Object.entries(distributions).map(([operation, distribution]) => [operation, distribution.client.p95]));
       process.stdout.write(`P13_10_BROWSER_READINESS ${JSON.stringify({ sampleCount: timings.length, postRestoreSmokeCount: postRestoreSmokeTimings.length, serverSampleCount: serverTimings.length, browserSamplesPerRoute: samplesPerOperation, serverSamplesPerOperation, p95Milliseconds: Number(readinessP95.toFixed(2)), serverObservedP95Milliseconds: serverP95, clientHttpP95Milliseconds: clientP95, cacheState: profile.cacheState, host: { availableParallelism: parallelism, controlled: controlledHost, serverP95BudgetMilliseconds: serverP95Budget, browserP95BudgetMilliseconds: browserP95Budget } })}\n`);
-      assert.ok(readinessP95 <= browserP95Budget, `controlled fixture browser readiness p95 ${readinessP95.toFixed(2)}ms exceeds ${browserP95Budget}ms on a ${parallelism}-way host`);
+      assert.ok(readinessP95 <= browserP95Budget, `browser readiness p95 ${readinessP95.toFixed(2)}ms exceeds ${browserP95Budget}ms on a ${parallelism}-way ${controlledHost ? "controlled" : "shared"} host`);
       assert.equal(timings.length, (dailyRoutes.length + 1) * 2 * samplesPerOperation, "pre-restore readiness sample count diverged from declared role/route matrix");
       assert.equal(postRestoreSmokeTimings.length, 3 * 2, "post-restore smoke sample count diverged from declared role/route matrix");
       assert.equal(serverTimings.length, 3 * serverSamplesPerOperation, "manager server sample count diverged from declared operation matrix");
