@@ -39,6 +39,13 @@ const frozenPhase13MigrationNames = [
   "20260909_000036_release_revision"
 ];
 
+function installAcceptedSource(directory, env) {
+  const install = (offline) => execFileSync("pnpm",
+    ["install", ...(offline ? ["--offline"] : []), "--frozen-lockfile", "--ignore-scripts"],
+    { cwd: directory, env, stdio: "ignore" });
+  try { install(true); } catch { install(false); }
+}
+
 function verifiedRelease(manifest) {
   const token = Object.freeze({});
   const record = Object.freeze({ manifest, digest: digest(manifest), attestation: Object.freeze({ localExactArtifact: true }) });
@@ -81,7 +88,11 @@ test("P13.9 prepares an exact generated 1.0.0 repository for deterministic 1.1.0
   const oldTree = join(root, "accepted-source");
   execFileSync("git", ["worktree", "add", "--detach", oldTree, acceptedSourceCommit], { cwd: repositoryRoot, stdio: "ignore" });
   context.after(() => { try { execFileSync("git", ["worktree", "remove", "--force", oldTree], { cwd: repositoryRoot, stdio: "ignore" }); } catch {} });
-  execFileSync("pnpm", ["install", "--offline", "--frozen-lockfile", "--ignore-scripts"], { cwd: oldTree, env: { ...process.env, PATH: `${nodePath}:${process.env.PATH}` }, stdio: "ignore" });
+  // The accepted 1.0 closure is installed from its own frozen lockfile. The
+  // local store is preferred, but it only holds that closure while the current
+  // head still resolves the same packages, so a dependency move must not turn
+  // this proof red: fall back to fetching exactly what 1.0 declared.
+  installAcceptedSource(oldTree, { ...process.env, PATH: `${nodePath}:${process.env.PATH}` });
   execFileSync("pnpm", ["--filter", "@k-nex/composition", "build"], { cwd: oldTree, env: { ...process.env, PATH: `${nodePath}:${process.env.PATH}` }, stdio: "ignore" });
   const predecessorFactory = await import(`${pathToFileURL(join(oldTree, "packages/composition/dist/application-factory.js")).href}?p139=${Date.now()}`);
 

@@ -1050,7 +1050,10 @@ test("P13.9 protects source with an exact 1.0 process, fences target promotion, 
     execFileSync("git", ["worktree", "add", "--detach", oldTree, p139AcceptedSourceCommit], { cwd: repositoryRoot, stdio: "ignore" });
     const nodeDirectory = resolve(process.execPath, "..");
     const env = { ...process.env, PATH: `${nodeDirectory}:${process.env.PATH}` };
-    execFileSync("pnpm", ["install", "--offline", "--frozen-lockfile", "--ignore-scripts"], { cwd: oldTree, env, stdio: "ignore" });
+    // Prefer the local store, but fetch 1.0's own frozen closure when the
+    // current head no longer resolves it.
+    try { execFileSync("pnpm", ["install", "--offline", "--frozen-lockfile", "--ignore-scripts"], { cwd: oldTree, env, stdio: "ignore" }); }
+    catch { execFileSync("pnpm", ["install", "--frozen-lockfile", "--ignore-scripts"], { cwd: oldTree, env, stdio: "ignore" }); }
     // The accepted 1.0 customer script bundles before tsc; build its complete
     // workspace dependency closure explicitly so this test never falls back to
     // the current 1.1 tree.
