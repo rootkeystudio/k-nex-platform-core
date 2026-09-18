@@ -22,7 +22,7 @@ From the first review round:
 From the exact-head re-review:
 
 - The attested transition policy was authored from the hand-maintained fixture migration lineage rather than the registry the factory ships, so the signed migration set omitted `20260906_000029_attachment_upload_admissions`. It now derives from the shipped compiler boundary, and a release-authority input check walks the import graph so no attested input can read that lineage again.
-- An application upgraded from 1.0 could never report ready: readiness exact-matches the release identity in `k_nex_release_revision`, the append-only 1.0 bootstrap still named 1.0.0, and nothing advanced it. Each release now emits its own release-revision migration, and a real PostgreSQL proof shows an upgraded and a fresh database converging on the same record.
+- An application upgraded from 1.0 could never report ready: readiness exact-matches the release identity in `k_nex_release_revision`, the append-only 1.0 bootstrap still named 1.0.0, and nothing advanced it. A release is now one canonical record, written last as a completion receipt once the applied ledger is exactly the declared set, so a fresh installation and an upgraded database carry the identical tuple; a real PostgreSQL proof covers both histories, every refused state, and the predecessor the next release would name.
 - The deployment proof rewrote the transition's offline-required steps as overlap-safe online expansions and claimed zero-downtime eligibility. That reclassification is what opened the promotion path at all, so the proof now asserts the refusal the supervisor actually returns for the accepted set, and the promotion journey is labelled as the hypothetical online transition it is.
 - Generated-file ownership, release locks, and the transition policy named `@k-nex/runtime` as the generator while the factory and upgrade compiler live in `@k-nex/composition`, so the managed-output contract digest bound bytes that generate nothing.
 - The Sales-reference expiry guard read the generated customer `package.json`, whose version the factory hard-codes, and so could never fire; it is bound to the platform release.
@@ -33,7 +33,7 @@ From the exact-head re-review:
 
 Node 24.19/pnpm 11.9: every workspace unit suite PASS (Contracts 244, Composition 188, Runtime 596, Payload adapter 320, Sales 83, themes/UI, plus Sales boundary and pack reproducibility checks). Real PostgreSQL/Chromium proofs run individually on this head: P13.9 repository preparation, P13.9 backup/restore and source protection, the release-revision convergence proof, P13.3 packed shutdown, P12.9 generated application journey, P12.10 generated theme profiles, the packed customer boot, and the previous-release upgrade all PASS. The 1.1 closure chain was regenerated and all 17 archive integrities plus both factory lock digests match the release manifest.
 
-A focused Gate 13 run passed end to end on `34334e5`; the head has moved since, so it must be rerun before the evidence is claimed. `pnpm gate:13` still requires network and an authenticated `gh` through the Phase 8 evidence check, so the cumulative chain has not completed on this head.
+Exact-head `unit`, focused `validate`, and `repository-evidence` all passed on `c5e3eea`; the head has moved since, so the focused run must be repeated before the evidence is claimed for it. `pnpm gate:13` still requires network and an authenticated `gh` through the Phase 8 evidence check, so the cumulative chain has not completed on any head.
 
 ## Out of Phase 13 acceptance
 

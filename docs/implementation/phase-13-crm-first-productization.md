@@ -482,14 +482,24 @@ as one:
 
 The generated migration command does not perform release transitions, and that
 is deliberate: it cannot hold the database authority across the whole set, so
-it refuses rather than performing an unfenced one. A fresh install records the
-release it is directly in its bootstrap migration and passes through the
-historical transition steps unchanged, which also keeps the model composable
-for the next release. A database still on the predecessor is refused by an
-exact source preflight placed before every target migration, naming the
-coordinator. The transition step itself advances only the exact predecessor
-tuple - all three chain fields - onto the target identity, and is the step the
-coordinator will execute under its own fence.
+it refuses rather than performing an unfenced one.
+
+A release is one exact database state. The bootstrap migration records only
+that an installation is running; the release identity is a completion receipt
+written last, and only once the applied migration ledger is exactly the set the
+release declares. A freshly installed database and an upgraded one therefore
+carry the identical record, which is what the next release names as its
+predecessor. Release state is admitted as an exact tuple - all three chain
+fields - and never by numeric comparison, so a row that merely counts as newer,
+carries a corrupt identity, or carries an impossible chain field is refused
+before any target migration mutates customer schema, as is a missing release
+record at a point where the bootstrap that creates it has already run. A
+database still on the predecessor is refused by name, pointing at the
+coordinator, which will execute that transition under its own fence.
+
+Admitting the source outside Payload - binding the exact source ledger order,
+release-lock and manifest digests, and database identity before any pending
+migration runs - belongs to that coordinator too, and is deferred with it.
 
 ### P13.10 — Gate 13 limited-beta closeout
 

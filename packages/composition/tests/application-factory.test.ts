@@ -318,7 +318,7 @@ describe("create-knex-app", () => {
     expect(first.files["src/k-nex-registry.ts"]).toContain('const realtimeGateway = realtimeManifest.provides.find(({ capability }) => capability === "realtime.gateway");');
     expect(first.files["src/k-nex-registry.ts"]).toContain('capability: "realtime.gateway", plugin: realtimeManifest.id, version: realtimeGateway.version');
     expect(first.files["src/k-nex-theme-runtime.ts"]).toContain(`profile.themeId !== "theme.minimal" || profile.themeVersion !== "${supportedFrameworkTuple.core}"`);
-    expect(first.files["src/migrations/20260827_000002_knex_bootstrap.ts"]).toContain("platform-1.1.0-release");
+    expect(first.files["src/migrations/20260827_000002_knex_bootstrap.ts"]).toContain("platform-1.1.0-installing");
     expect(first.files["src/k-nex-realtime.ts"]).toContain("createSocketIoMemoryGateway");
     expect(first.files["src/k-nex-realtime.ts"]).toContain("currentPayloadAuthentication");
     expect(first.files["src/k-nex-realtime.ts"]).toContain('channel = "k_nex_runtime_invalidation"');
@@ -662,7 +662,7 @@ describe("create-knex-app", () => {
     expect(plan.files["src/k-nex-registry.ts"]).toContain('capability: "realtime.gateway", plugin: realtimeManifest.id, version: realtimeGateway.version');
     expect(plan.files["src/k-nex-registry.ts"]).toContain('themeVersion: "1.1.0"');
     expect(plan.files["src/k-nex-theme-runtime.ts"]).toContain('profile.themeId !== "theme.minimal" || profile.themeVersion !== "1.1.0"');
-    expect(plan.files["src/migrations/20260827_000002_knex_bootstrap.ts"]).toContain("platform-1.1.0-release");
+    expect(plan.files["src/migrations/20260827_000002_knex_bootstrap.ts"]).toContain("platform-1.1.0-installing");
     expect(Object.keys(plan.artifactDigests)).toHaveLength(release.packages.length);
     const packageReleaseManifest = plan.files[".k-nex/package-release-manifest.json"]!;
     expect(packageReleaseManifest).toBe(canonicalJson(PackageReleaseManifestSchema.parse(release)));
