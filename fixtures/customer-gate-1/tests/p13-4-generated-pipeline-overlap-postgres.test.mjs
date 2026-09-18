@@ -16,13 +16,26 @@ function action(origin, cookie, actionId, routeId, nodeId, input, idempotencyKey
   return fetch(`${origin}/api/k-nex/sales/actions/${actionId}`, { method: "POST", headers: { "content-type": "application/json", cookie, origin }, body: JSON.stringify({ routeId, nodeId, selection: {}, input, idempotencyKey }) });
 }
 
-async function waitForBlockedRequests(pool, minimum) {
-  for (let attempt = 0; attempt < 200; attempt += 1) {
-    const row = (await pool.query("select count(*)::int count from pg_stat_activity where datname=current_database() and wait_event_type='Lock'")).rows[0];
+/**
+ * This proof depends on the winner reaching the contended lock before the
+ * loser is fired. Counting every backend in a lock wait cannot express that:
+ * unrelated activity satisfies the count, the loser can be queued first,
+ * validate against the pre-winner snapshot, and commit - which is what the
+ * two-core runner produced, both requests returning 200. So the winner is
+ * observed blocked by this test's own blocking transaction before the loser
+ * starts, and the loser only has to be blocked by something, because it queues
+ * behind either the blocker or the winner.
+ */
+async function waitForBlockedRequests(pool, minimum, blockedBy) {
+  for (let attempt = 0; attempt < 400; attempt += 1) {
+    const row = (await pool.query(`select count(*)::int count from pg_stat_activity
+      where datname = current_database() and pid <> pg_backend_pid()
+        and cardinality(pg_blocking_pids(pid)) > 0
+        and ($1::int is null or $1::int = any(pg_blocking_pids(pid)))`, [blockedBy ?? null])).rows[0];
     if (row.count >= minimum) return;
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
-  throw new Error(`Expected ${minimum} generated Sales requests to be blocked on transaction locks.`);
+  throw new Error(`Expected ${minimum} generated Sales requests to be blocked${blockedBy === undefined ? "" : " by the contending transaction"}.`);
 }
 
 async function pipelineSnapshot(pool, pipelineId, name) {
@@ -98,8 +111,9 @@ test("P13.4 generated transactions serialize pipeline snapshots against create, 
       try {
         await blocker.query("begin");
         await blocker.query("lock table sales_action_idempotency in access exclusive mode");
+        const blockerPid = (await blocker.query("select pg_backend_pid() as pid")).rows[0].pid;
         const winner = action(origin, cookie, "sales.pipeline.update", "sales.route.pipeline-settings", "pipeline-update", snapshot.input, `p134-overlap-pipeline-${index + 1}`);
-        await waitForBlockedRequests(pool, 1);
+        await waitForBlockedRequests(pool, 1, blockerPid);
         const loser = action(origin, cookie, candidate.actionId, candidate.routeId, candidate.nodeId, loserInput, candidate.key);
         await waitForBlockedRequests(pool, 2);
         await blocker.query("rollback");
@@ -201,8 +215,9 @@ test("P13.4 generated transactions serialize pipeline snapshots against create, 
     try {
       await overlapBlocker.query("begin");
       await overlapBlocker.query("lock table sales_action_idempotency in access exclusive mode");
+      const overlapBlockerPid = (await overlapBlocker.query("select pg_backend_pid() as pid")).rows[0].pid;
       const canonicalWinner = action(origin, ownerCookie, "sales.opportunity.stage.update", "sales.route.opportunity-detail", "sales-page-opportunity-detail-main-action-1", canonicalOverlapInput, "p134-canonical-overlap-winner");
-      await waitForBlockedRequests(pool, 1);
+      await waitForBlockedRequests(pool, 1, overlapBlockerPid);
       const privateLoser = action(origin, ownerCookie, "sales.opportunity.close", "sales.route.opportunity-detail", "sales-page-opportunity-detail-main-action-2", privateOverlapInput, privateOverlapKey);
       await waitForBlockedRequests(pool, 2);
       await overlapBlocker.query("rollback");
