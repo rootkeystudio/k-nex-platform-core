@@ -52,7 +52,10 @@ async function database(run) {
     await pool.query("insert into sales_opportunities values (1,$1,$2,'report-user','team-a',1,'discovery','10.005','USD','active',null,now()-interval '3 days'),(2,$1,$2,'report-user','team-a',1,'proposal','10.005','USD','active',null,now()-interval '2 days'),(3,$1,$2,'report-user','team-a',1,'won','11.00','USD','active',now(),now()-interval '8 days'),(4,$1,$2,'report-user','team-a',1,'lost','9.00','USD','active',now(),now()-interval '4 days'),(5,$1,$2,'other','team-z',1,'proposal','999.00','USD','archived',null,now())", [app, environment]);
     await pool.query("insert into sales_leads values(1,$1,$2,'report-user','team-a','qualified','active',now()),(2,$1,$2,'report-user','team-a','disqualified','active',now())", [app, environment]);
     await pool.query("insert into sales_activities values(1,$1,$2,'report-user','team-a','report-user','completed',now(),now(),null),(2,$1,$2,'report-user','team-a','report-user','cancelled',now(),null,null)", [app, environment]);
-    await pool.query("insert into sales_tasks values(1,$1,$2,'report-user','team-a','open',current_date-1),(2,$1,$2,'report-user','team-a','open',null)", [app, environment]);
+    // Aging buckets are computed in the reporting timezone, so the due date is
+    // seeded in that timezone too. Seeding it in the database's own date made
+    // this proof fail for the hours when the two dates differ.
+    await pool.query("insert into sales_tasks values(1,$1,$2,'report-user','team-a','open',(now() at time zone 'America/New_York')::date-1),(2,$1,$2,'report-user','team-a','open',null)", [app, environment]);
     await run(pool);
   } finally { await pool.end(); await container.stop(); }
 }
