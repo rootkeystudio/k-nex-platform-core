@@ -149,20 +149,25 @@ export async function executeMigrationJob(input: {
 
 export interface PlatformReleaseReceipt extends MigrationRevisionReceipt {
   readonly migrationSetDigest: string;
+  readonly releaseClosure: string | null;
   readonly appliedMigrations: readonly string[];
 }
 
 /**
  * A release receipt is only evidence for as long as the database still matches
  * the evidence. The recorded tuple says which release this database reached,
- * the recorded migration-set digest says which exact migration bytes brought it
- * there, and the applied ledger says that set is still the set the database
- * carries. Checking the tuple alone would make the receipt true only at the
- * instant it was written: a ledger row deleted, reordered, renamed, or added
- * afterwards - by a partial restore as easily as by tampering - would leave a
- * database that no longer is what the receipt claims, and it would still be
- * served. All three are read here, under the same call, so a divergence refuses
- * the database rather than the next person to notice it.
+ * the recorded closure digest says which migration and registry bytes brought
+ * it there, the recorded release manifest identifies the package archives those
+ * migrations executed from, and the applied ledger says that set is still the
+ * set the database carries. Checking the tuple alone would make the receipt
+ * true only at the instant it was written: a ledger row deleted, reordered,
+ * renamed, or added afterwards - by a partial restore as easily as by tampering
+ * - would leave a database that no longer is what the receipt claims, and it
+ * would still be served.
+ *
+ * All four are read in one statement. Two statements would let a concurrent
+ * restore or migration land between the release row and the ledger and produce
+ * a pair that was never true together.
  */
 export async function assertPlatformReleaseReadiness(input: {
   readonly pool: Pick<MigrationPool, "query">;
@@ -171,21 +176,28 @@ export async function assertPlatformReleaseReadiness(input: {
   readonly revision: number;
   readonly releaseRevision: string;
   readonly migrationSetDigest: string;
+  readonly releaseClosure: string | null;
   readonly declaredMigrations: readonly string[];
 }): Promise<PlatformReleaseReceipt> {
   if (!Number.isSafeInteger(input.revision) || input.revision < 0 || !Number.isSafeInteger(input.predecessorRevision) || input.predecessorRevision < 0) {
     fail("INVALID_INPUT", "Platform release revision is invalid.");
   }
-  if (!/^[0-9a-f]{64}$/u.test(input.migrationSetDigest)) fail("INVALID_INPUT", "Platform migration set digest is invalid.");
+  if (!/^[0-9a-f]{64}$/u.test(input.migrationSetDigest)) fail("INVALID_INPUT", "Platform migration closure digest is invalid.");
+  if (input.releaseClosure !== null && !/^sha256:[0-9a-f]{64}$/u.test(input.releaseClosure)) fail("INVALID_INPUT", "Platform release closure identity is invalid.");
   if (input.declaredMigrations.length === 0) fail("INVALID_INPUT", "Platform migration set is empty.");
   // to_jsonb keeps this readable against a database whose release table has not
-  // yet been extended with the digest column: an installing or predecessor
+  // yet been extended with the receipt columns: an installing or predecessor
   // database answers NULL here and is refused below, instead of failing with an
   // undefined-column error that says nothing about the release state.
-  const result = await input.pool.query<{ application_id: string; predecessor_revision: number; revision: number; release_revision: string; migration_set_digest: string | null }>(
-    `select application_id, predecessor_revision, revision, release_revision,
-            to_jsonb(k_nex_release_revision) ->> 'migration_set_digest' as migration_set_digest
-     from k_nex_release_revision where application_id = $1`,
+  const result = await input.pool.query<{
+    application_id: string; predecessor_revision: number; revision: number; release_revision: string;
+    migration_set_digest: string | null; release_closure: string | null; applied: readonly string[] | null;
+  }>(
+    `select r.application_id, r.predecessor_revision, r.revision, r.release_revision,
+            to_jsonb(r) ->> 'migration_set_digest' as migration_set_digest,
+            to_jsonb(r) ->> 'release_closure' as release_closure,
+            (select array_agg(l.name order by l.id) from payload_migrations l) as applied
+     from k_nex_release_revision r where r.application_id = $1`,
     [input.applicationId]
   );
   const row = result.rows[0];
@@ -196,18 +208,19 @@ export async function assertPlatformReleaseReadiness(input: {
   }
   if (row.release_revision !== input.releaseRevision) fail("RELEASE_MISMATCH", "Artifact release revision does not match the migrated database.");
   if (row.migration_set_digest !== input.migrationSetDigest) {
-    fail("MIGRATION_SET_MISMATCH", "Database release receipt was written by a different migration set than this artifact declares.");
+    fail("MIGRATION_SET_MISMATCH", "Database release receipt was written by a different migration closure than this artifact declares.");
   }
-  const ledger = await input.pool.query<{ applied: readonly string[] | null }>(
-    "select array_agg(name order by id) as applied from payload_migrations"
-  );
-  const applied = ledger.rows[0]?.applied ?? [];
+  if (row.release_closure !== input.releaseClosure) {
+    fail("RELEASE_MISMATCH", "Database release receipt was written against a different package release closure than this artifact carries.");
+  }
+  const applied = row.applied ?? [];
   if (applied.length !== input.declaredMigrations.length || applied.some((name, index) => name !== input.declaredMigrations[index])) {
     fail("LEDGER_MISMATCH", "Applied migration ledger is not the exact set this release declares.");
   }
   return Object.freeze({
     applicationId: row.application_id, predecessorRevision: row.predecessor_revision, revision: row.revision,
-    releaseRevision: row.release_revision, migrationSetDigest: input.migrationSetDigest, appliedMigrations: Object.freeze([...applied])
+    releaseRevision: row.release_revision, migrationSetDigest: input.migrationSetDigest, releaseClosure: input.releaseClosure,
+    appliedMigrations: Object.freeze([...applied])
   });
 }
 

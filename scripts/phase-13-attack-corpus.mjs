@@ -182,7 +182,7 @@ const proofs = [
     "P13.9 protects source with an exact 1.0 process, fences target promotion, and emits immutable recovery evidence",
     "P13.9 generated Chromium proves physical Postgres restore preserves current CRM product",
     "the release record is one canonical completion receipt for both installation histories",
-    "a completed release keeps proving its migration set or stops being served"
+    "a completed release keeps proving its migration closure or stops being served"
   ]),
   nodeProof("fixture-readiness", [
     "tests/p13-10-limited-beta-fixture-postgres.test.mjs",
@@ -281,7 +281,7 @@ const attackProofs = {
     evidence("upgrade-restore", "P13.9 protects source with an exact 1.0 process, fences target promotion, and emits immutable recovery evidence"),
     evidence("upgrade-restore", "P13.9 generated Chromium proves physical Postgres restore preserves current CRM product"),
     evidence("upgrade-restore", "the release record is one canonical completion receipt for both installation histories"),
-    evidence("upgrade-restore", "a completed release keeps proving its migration set or stops being served")
+    evidence("upgrade-restore", "a completed release keeps proving its migration closure or stops being served")
   ]
 };
 
@@ -365,7 +365,7 @@ const evidenceClasses = [
   { id: "import-export", evidence: [evidence("data-movement", "P13.5 generated Chromium completes accessible imports, request-local merge, and export download journeys")] },
   { id: "communication-adapter", evidence: [evidence("communications", "P13.6 generated HTTP and Chromium prove webhook bounds and recipient-only notification journeys")] },
   { id: "reports", evidence: [evidence("reports", "P13.8 real PG processes exact closed seven-report catalog with one fenced artifact/audit/outbox chain")] },
-  { id: "backup-restore-upgrade", evidence: [evidence("upgrade-restore", "P13.9 upgrades the exact Phase-12 Sales predecessor and restores its current-v1 truth into a clean PostgreSQL database"), evidence("upgrade-restore", "P13.9 protects source with an exact 1.0 process, fences target promotion, and emits immutable recovery evidence"), evidence("upgrade-restore", "P13.9 generated Chromium proves physical Postgres restore preserves current CRM product"), evidence("upgrade-restore", "a completed release keeps proving its migration set or stops being served")] },
+  { id: "backup-restore-upgrade", evidence: [evidence("upgrade-restore", "P13.9 upgrades the exact Phase-12 Sales predecessor and restores its current-v1 truth into a clean PostgreSQL database"), evidence("upgrade-restore", "P13.9 protects source with an exact 1.0 process, fences target promotion, and emits immutable recovery evidence"), evidence("upgrade-restore", "P13.9 generated Chromium proves physical Postgres restore preserves current CRM product"), evidence("upgrade-restore", "a completed release keeps proving its migration closure or stops being served")] },
   { id: "worker-realtime-recovery", evidence: [evidence("crm-recovery", "P13.3 generated browser receives opaque Socket.IO invalidations, resyncs after a host loss, and drops revoked current authority"), evidence("workflows", "P13.7 generated HTTP action and restarted worker preserve one durable workflow effect"), evidence("fixture-readiness", "P13.10 fixture-only real PostgreSQL evidence proves representative data, bounded import/report replay, independent metrics, reminders, and controlled DB timings")] },
   { id: "representative-six-stage-dataset", evidence: [evidence("fixture-readiness", "P13.10 fixture-only real PostgreSQL evidence proves representative data, bounded import/report replay, independent metrics, reminders, and controlled DB timings")] },
   { id: "ten-thousand-row-import-replay", evidence: [evidence("fixture-readiness", "P13.10 fixture-only real PostgreSQL evidence proves representative data, bounded import/report replay, independent metrics, reminders, and controlled DB timings")] },

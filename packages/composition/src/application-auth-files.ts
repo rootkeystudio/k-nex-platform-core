@@ -2010,13 +2010,12 @@ import { ApplicationManifestSchema, PackageReleaseManifestSchema, PluginManifest
 import manifestJson from "@k-nex/module-sales/manifest" with { type: "json" };
 import realtimeManifestJson from "@k-nex/provider-realtime-socketio/manifest" with { type: "json" };
 import { NodeHttpsAdministrationOperatorClient, type RuntimeExtensionPool } from "@k-nex/payload-adapter";
-import { assertExactProtectedRoleBaselineState, assertPlatformReleaseReadiness, canonicalIana, currentProtectedPlatformRoleBaselineRelease, protectedRoleBootstrapId } from "@k-nex/runtime";
+import { assertExactProtectedRoleBaselineState, assertGeneratedMigrationClosure, assertPlatformReleaseReadiness, canonicalIana, currentProtectedPlatformRoleBaselineRelease, protectedRoleBootstrapId } from "@k-nex/runtime";
 import { ${themeResolver} as resolveSelectedThemeProfile } from "@k-nex/theme-${theme}";
 import type { Payload } from "payload";
 
 import { kNexAuthority } from "./k-nex-authority.js";
 import { kNexIdentity } from "./k-nex-identity.js";
-import { assertMigrationSetIntegrity, releaseMigrationSet, releaseMigrationSetDigest } from "./release-migration-set.js";
 import { kNexSalesRegistry, kNexThemePresentation } from "./k-nex-registry.js";
 import { bootstrapApplicationTheme, resolveApplicationTheme } from "./k-nex-theme-runtime.js";
 import { migrations } from "./migrations/index.js";
@@ -2354,11 +2353,11 @@ export async function reconcileKnexReadiness(payload: Payload) {
   // that was correct once is not evidence that the database still is what it
   // says, and a migration changed under a name the ledger already carries would
   // otherwise be invisible to every later check.
-  assertMigrationSetIntegrity(root);
+  const closure = assertGeneratedMigrationClosure(root);
   await assertPlatformReleaseReadiness({ pool, applicationId: kNexIdentity.applicationId,
     predecessorRevision: ${platformReleaseState(platformRelease).predecessorRevision}, revision: ${platformReleaseState(platformRelease).revision},
     releaseRevision: ${JSON.stringify(platformReleaseIdentity(platformRelease))},
-    migrationSetDigest: releaseMigrationSetDigest, declaredMigrations: releaseMigrationSet });
+    migrationSetDigest: closure.digest, releaseClosure: closure.releaseManifestDigest, declaredMigrations: closure.migrations });
   await assertSalesSchema(pool);
   await assertReportingTimezone(pool);
   await bootstrapApplicationTheme(payload);

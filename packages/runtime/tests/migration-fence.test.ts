@@ -68,23 +68,30 @@ describe("migration execution fence", () => {
  */
 function platformDatabase(overrides: {
   predecessorRevision?: number; revision?: number; releaseRevision?: string;
-  migrationSetDigest?: string | null; applied?: readonly string[];
+  migrationSetDigest?: string | null; releaseClosure?: string | null; applied?: readonly string[];
 } = {}) {
   const declared = ["20260827_000001_sales_baseline", "20260909_000036_release_revision"];
   const digest = "a".repeat(64);
+  const releaseClosure = `sha256:${"c".repeat(64)}`;
   const row = {
     application_id: "customer.alpha",
     predecessor_revision: overrides.predecessorRevision ?? 0,
     revision: overrides.revision ?? 2,
     release_revision: overrides.releaseRevision ?? "platform-1.1.0-release",
-    migration_set_digest: overrides.migrationSetDigest === undefined ? digest : overrides.migrationSetDigest
+    migration_set_digest: overrides.migrationSetDigest === undefined ? digest : overrides.migrationSetDigest,
+    release_closure: overrides.releaseClosure === undefined ? releaseClosure : overrides.releaseClosure,
+    applied: overrides.applied ?? declared
   };
+  const queries: string[] = [];
   return {
-    declared, digest,
-    input: { applicationId: "customer.alpha", predecessorRevision: 0, revision: 2, releaseRevision: "platform-1.1.0-release", migrationSetDigest: digest, declaredMigrations: declared },
+    declared, digest, releaseClosure, queries,
+    input: {
+      applicationId: "customer.alpha", predecessorRevision: 0, revision: 2, releaseRevision: "platform-1.1.0-release",
+      migrationSetDigest: digest, releaseClosure, declaredMigrations: declared
+    },
     pool: {
       async query<T extends object>(text: string) {
-        if (text.includes("payload_migrations")) return { rows: [{ applied: overrides.applied ?? declared }] as unknown as T[] };
+        queries.push(text);
         return { rows: [row] as unknown as T[] };
       }
     }
@@ -96,8 +103,13 @@ describe("platform release readiness", () => {
     const database = platformDatabase();
     await expect(assertPlatformReleaseReadiness({ pool: database.pool, ...database.input })).resolves.toEqual({
       applicationId: "customer.alpha", predecessorRevision: 0, revision: 2, releaseRevision: "platform-1.1.0-release",
-      migrationSetDigest: database.digest, appliedMigrations: database.declared
+      migrationSetDigest: database.digest, releaseClosure: database.releaseClosure, appliedMigrations: database.declared
     });
+    // One statement: a second read would let a concurrent restore or migration
+    // land between the release row and the ledger it is supposed to describe.
+    expect(database.queries).toHaveLength(1);
+    expect(database.queries[0]).toContain("k_nex_release_revision");
+    expect(database.queries[0]).toContain("payload_migrations");
   });
 
   it("refuses a canonical release row whose durable ledger has drifted", async () => {
@@ -117,6 +129,12 @@ describe("platform release readiness", () => {
 
     const unrecorded = platformDatabase({ migrationSetDigest: null });
     await expect(assertPlatformReleaseReadiness({ pool: unrecorded.pool, ...unrecorded.input })).rejects.toMatchObject({ code: "MIGRATION_SET_MISMATCH" });
+
+    const republished = platformDatabase({ releaseClosure: `sha256:${"d".repeat(64)}` });
+    await expect(assertPlatformReleaseReadiness({ pool: republished.pool, ...republished.input })).rejects.toMatchObject({ code: "RELEASE_MISMATCH" });
+
+    const unclosed = platformDatabase({ releaseClosure: null });
+    await expect(assertPlatformReleaseReadiness({ pool: unclosed.pool, ...unclosed.input })).rejects.toMatchObject({ code: "RELEASE_MISMATCH" });
   });
 
   it("refuses a lineage-dependent release row for the same release identity", async () => {

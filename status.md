@@ -37,6 +37,13 @@ From the third exact-head re-review:
 - `executeMigrationJob` finalized by setting `predecessor_revision = revision`, which would have recreated the lineage-dependent tuple the canonical release record removes. It now refuses platform release identities outright; it remains the plugin migration primitive.
 - The "next release" claim compared the same canonical row twice. It is narrowed to what is proved: both 1.1 histories converge on one record, and a release names its predecessor by that predecessor's canonical record. A three-release proof needs a declared 1.2.0.
 
+From the fourth exact-head re-review:
+
+- The migration digest covered leaf migration filenames only, so `src/migrations/index.ts` - the registry that decides which implementation runs under each ledger name, and whether it is admitted at all - could be re-pointed while every hashed file stayed identical. The digest is now a closure over every migration source, the registry, and the verified package release manifest that identifies the archives those implementations execute from.
+- The guard was generated into the application it guarded and verified a constant in its own file. It now ships in `@k-nex/runtime`; the generated tree carries only the declaration, and the durable authority is the closure the database recorded before any later edit.
+- `assertMigrationSetIntegrity` memoized its first success, so within one `payload migrate` process only the first step actually re-read the files, and the proof hid this by re-evaluating the function body with a fresh cache. The guard no longer caches, and the proofs import the real module and mutate between calls in one process.
+- `assertPlatformReleaseReadiness` read the release row and `payload_migrations` in two statements, which a concurrent restore could cross. Both are now read in one statement, and a unit test asserts exactly one query.
+
 ## Validation
 
 Node 24.19/pnpm 11.9: every workspace unit suite PASS (Contracts 244, Composition 188, Runtime 601, Payload adapter 320, Sales 83, themes/UI, plus Sales boundary and pack reproducibility checks). Real PostgreSQL/Chromium proofs run individually on this head: the release-state proofs (canonical receipt for both histories, and a completed release that keeps proving its migration set), P13.9 repository preparation, P13.9 backup/restore and source protection, and the P13.4 generated configuration journey - which builds, migrates, boots, and serves a real generated application through the new per-step admission - all PASS. The 1.1 closure chain was regenerated and all 17 archive integrities plus both factory lock digests match the release manifest. The release-state proofs now run inside focused Gate 13 rather than only under `test:postgres`.

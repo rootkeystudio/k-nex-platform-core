@@ -498,11 +498,22 @@ database still on the predecessor is refused by name, pointing at the
 coordinator, which will execute that transition under its own fence.
 
 The receipt binds bytes, not labels. `payload_migrations` can only record a
-migration's name, so the completion row also records the digest of the exact
-migration sources the release generated, and every declared step verifies that
-digest against the sources on disk before its first statement runs. A migration
-changed under a name the ledger already carries therefore stops the release
-rather than collecting its receipt.
+migration's name, so the completion row also records the digest of the closure
+that decides what those names do: every migration source, the registry file that
+wires each ledger name to an implementation and to its admission, and the
+verified package release manifest that identifies the archives those
+implementations come from. Every declared step verifies that closure against the
+files on disk before its first statement runs, and re-verifies it on every step
+rather than trusting its own first success, so a migration changed under a name
+the ledger already carries - or a registry re-pointed at a different
+implementation - stops the release rather than collecting its receipt.
+
+The guard that performs that check ships in `@k-nex/runtime` rather than in the
+generated tree. A guard generated into the application it guards can be edited
+alongside the constant it checks, which is not an authority at all; the durable
+authority is the receipt the database recorded before any later edit, which is
+why readiness compares the artifact's closure against the recorded one rather
+than against a file beside the migration.
 
 A receipt checked only when it is written would make the first valid completion
 a permanent exemption from the proof it stands for, so it is re-proved instead
