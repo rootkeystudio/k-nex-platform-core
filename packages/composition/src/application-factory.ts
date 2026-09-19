@@ -655,9 +655,8 @@ const source = (path: string) => readFileSync(fileURLToPath(import.meta.resolve(
 
 export async function up({ db }: MigrateUpArgs): Promise<void> {
   await admitGeneratedReleaseExecutable({
-    applicationId: ${JSON.stringify(applicationId)}, release: ${JSON.stringify(platformRelease)},
-    step: "20260827_000001_sales_baseline", theme: ${JSON.stringify(theme)},
-    execute: (statement) => db.execute(sql.raw(statement))
+    step: "20260827_000001_sales_baseline",
+    execute: (statement: string) => db.execute(sql.raw(statement))
   });
   await db.execute(sql.raw(source("@k-nex/module-sales/payload-baseline-up.sql")));
 }
