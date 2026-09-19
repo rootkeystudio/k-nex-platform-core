@@ -287,7 +287,7 @@ test("P13.9 generated migrate command proves the code it runs, and names what it
         {
           name: "a runtime verifier replaced with one that accepts everything",
           apply: () => substitute(verifier, Buffer.from([
-            "import { admitGeneratedReleaseStep, assertGeneratedMigrationClosure } from \"./generated-migration-closure.js\";",
+            "import { admitGeneratedReleaseStep, assertGeneratedMigrationClosure, readGeneratedMigrationClosure } from \"./generated-migration-closure.js\";",
             "export const executableBootstrapVariables = Object.freeze([]);",
             "export function assertGeneratedExecutableBootstrap() {}",
             "export function sanitizedExecutableEnvironment(environment = process.env) { return { ...environment }; }",
@@ -296,8 +296,9 @@ test("P13.9 generated migrate command proves the code it runs, and names what it
             "    packages: [], recorded: `sha256:${\"0\".repeat(64)}`, digest: `sha256:${\"1\".repeat(64)}` });",
             "}",
             "export async function admitGeneratedReleaseExecutable(input) {",
-            "  return admitGeneratedReleaseStep({ applicationId: input.applicationId, release: input.release, step: input.step,",
-            "    root: input.root ?? process.cwd(), execute: input.execute });",
+            "  const root = input.root ?? process.cwd();",
+            "  const declared = readGeneratedMigrationClosure(root);",
+            "  return admitGeneratedReleaseStep({ applicationId: declared.applicationId, release: declared.release, step: input.step, root, execute: input.execute });",
             "}",
             ""
           ].join("\n")))
