@@ -3000,7 +3000,12 @@ export async function startKnexRealtime(payload: Payload, httpServer: Server) {
     connecting = connect(true);
     await connecting;
   } catch (error) {
+    // A bridge that never started has no owner to close it, so it closes
+    // itself: the listener handlers have already scheduled a reconnect by the
+    // time a strict start fails, and nothing would ever stop that loop.
+    closed = true;
     clearInterval(synchronizeTimer);
+    if (reconnectTimer !== undefined) clearTimeout(reconnectTimer);
     state = "closed";
     recordHealth();
     await gateway.close().catch(() => undefined);
@@ -3019,13 +3024,17 @@ export async function startKnexRealtime(payload: Payload, httpServer: Server) {
       if (reconnectTimer !== undefined) clearTimeout(reconnectTimer);
       closing = (async () => {
         await connecting?.catch(() => undefined);
-        await gateway.close();
-        await Promise.allSettled([...pendingAuthorizations]);
+        // The listener is returned before the gateway closes: pool.end() waits
+        // for every checked-out client, so a shutdown that closed the pool
+        // first would wait for the connection it is trying to close.
         const active = listener;
         if (active !== undefined) {
           await active.query("UNLISTEN k_nex_runtime_invalidation").catch(() => undefined);
           release(active);
+          listener = undefined;
         }
+        await gateway.close();
+        await Promise.allSettled([...pendingAuthorizations]);
         await Promise.allSettled([...publications]);
         await synchronizing;
         credentialHeaders.clear();
