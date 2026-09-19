@@ -74,7 +74,7 @@ function neutralUpgradeManifest(currentManifest, version, label) {
 }
 
 test("boots the current Sales package and applies a neutral fixture upgrade history in the same PostgreSQL database", { timeout: 300_000 }, async () => {
-  const currentManifest = PackageReleaseManifestSchema.parse(JSON.parse(readFileSync(resolve(repositoryRoot, "releases/1.0.0/package-release-manifest.json"), "utf8")));
+  const currentManifest = PackageReleaseManifestSchema.parse(JSON.parse(readFileSync(resolve(repositoryRoot, "releases/1.1.0/package-release-manifest.json"), "utf8")));
   const priorManifest = neutralUpgradeManifest(currentManifest, "0.9.0", "fixture-prior");
   const targetManifest = neutralUpgradeManifest(currentManifest, "1.0.1", "fixture-target");
   const container = await new PostgreSqlContainer(POSTGRES_IMAGE).withDatabase("customer_beta_upgrade").withStartupTimeout(120_000).start();
@@ -98,7 +98,9 @@ test("boots the current Sales package and applies a neutral fixture upgrade hist
     await installApplication(application, mirror, currentManifest, applicationId, container.getConnectionUri());
     const priorBoot = await boot(application, applicationId, container.getConnectionUri(), "seed-prior");
     assert.equal(priorBoot.code, 0, `${priorBoot.stdout}\n${priorBoot.stderr}`);
-    assert.equal(JSON.parse(priorBoot.stdout.match(/PACKED_CUSTOMER_BOOT (\{.*\})/u)[1]).documents, 1);
+    const priorEvidenceMatch = priorBoot.stdout.match(/PACKED_CUSTOMER_BOOT (\{.*\})/u);
+    assert.ok(priorEvidenceMatch, `${priorBoot.stdout}\n${priorBoot.stderr}`);
+    assert.equal(JSON.parse(priorEvidenceMatch[1]).documents, 1);
 
     rmSync(application, { recursive: true, force: true });
     await installApplication(application, mirror, currentManifest, applicationId, container.getConnectionUri());
@@ -106,7 +108,7 @@ test("boots the current Sales package and applies a neutral fixture upgrade hist
     const targetMigrations = await import(pathToFileURL(requireFromTarget.resolve("@k-nex/module-sales/migrations")));
     const plan = planPluginUpgrade({
       pluginId: "module.fixture.upgrade", packageName: "@fixture/upgrade-module", currentVersion: "0.9.0", targetVersion: "1.0.1",
-      currentPlatformRelease: "1.0.0", targetPlatformRelease: "1.0.0", currentReleaseManifest: priorManifest, targetReleaseManifest: targetManifest,
+      currentPlatformRelease: "1.1.0", targetPlatformRelease: "1.1.0", currentReleaseManifest: priorManifest, targetReleaseManifest: targetManifest,
       targets: targetMigrations.salesUpgradeTargets, migrations: targetMigrations.salesUpgradeMigrations
     });
     assert.equal(plan.ready, true);
@@ -128,11 +130,11 @@ test("boots the current Sales package and applies a neutral fixture upgrade hist
     assert.equal(targetBoot.code, 0, `${targetBoot.stdout}\n${targetBoot.stderr}`);
     const targetEvidence = JSON.parse(targetBoot.stdout.match(/PACKED_CUSTOMER_BOOT (\{.*\})/u)[1]);
     assert.equal(targetEvidence.documents, 1); assert.equal(targetEvidence.opportunities, 1);
-    const customerData = await pool.query("select title, potential_revenue, private_note from sales_tasks");
-    assert.deepEqual(customerData.rows, [{ title: "Preserve beta renewal", potential_revenue: "42000", private_note: "customer-owned" }]);
+    const customerData = await pool.query("select application_id, environment, owner_id, status, archive_status, title from sales_tasks");
+    assert.deepEqual(customerData.rows, [{ application_id: applicationId, environment: "production", owner_id: "fixture-owner", status: "open", archive_status: "active", title: "Preserve beta renewal" }]);
     const artifacts = await pool.query("select artifact_id, revision, document from k_nex_upgrade_artifacts order by artifact_id");
     assert.equal(artifacts.rows.length, 8);
-    assert.equal(artifacts.rows.every(({ revision, document }) => revision === 2 && document.revision === 2), true);
+    assert.equal(artifacts.rows.every(({ revision, document }) => revision === 3 && document.revision === 3), true);
     assert.equal(artifacts.rows.find(({ artifact_id }) => artifact_id === "sales.settings").document.values.defaultPage, "tasks");
     assert.equal(artifacts.rows.find(({ artifact_id }) => artifact_id === "sales.template").document.descriptor.id, "sales.page.tasks");
   } finally {

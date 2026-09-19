@@ -236,6 +236,9 @@ export class WorkspacePageOutboxWorker {
 
   get started(): boolean { return this.running; }
 
+  /** Joins work admitted before stop(); it never admits a new dispatch. */
+  async idle(): Promise<void> { await this.draining; }
+
   drain(): Promise<number> {
     if (this.draining) return this.draining;
     const operation = this.drainBatch().finally(() => { if (this.draining === operation) this.draining = undefined; });

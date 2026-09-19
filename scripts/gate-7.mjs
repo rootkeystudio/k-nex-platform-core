@@ -43,7 +43,21 @@ assert.equal(componentStateMatrix.length, 16);
 assert.deepEqual(componentThemeMatrix, ["theme.minimal", "theme.neobrutalism"]);
 assert.equal(minimalThemePackage.primitiveOverrides?.Button, neobrutalismThemePackage.primitiveOverrides?.Button, "themes cannot fork component behavior");
 assert.equal(genericPuckBlockBridges.length, 13);
-assert.equal(salesPuckBlockBridges.length, 7);
+assert.deepEqual(salesPuckBlockBridges.map(({ definition }) => definition.id), [
+  "sales.task-table",
+  "sales.task-quick-create",
+  "sales.opportunity-kanban",
+  "sales.settings-summary",
+  "sales.calendar",
+  "sales.saved-view-table",
+  "sales.block.report.pipeline-value-by-stage",
+  "sales.block.report.weighted-forecast",
+  "sales.block.report.won-lost-conversion",
+  "sales.block.report.lead-conversion",
+  "sales.block.report.activity-by-owner-team",
+  "sales.block.report.task-aging",
+  "sales.block.report.sales-cycle-duration"
+], "Sales Puck inventory must exactly match the closed CRM dashboard authoring surface.");
 assert.equal(salesDefaultPageContract.templates.length, 4);
 assert.equal(/from\s+["'](?:payload|@k-nex\/theme-|@tanstack\/|@puckeditor\/)/.test(salesPages), false, "Sales pages bypass platform UI boundaries.");
 assert.equal(componentManifest.dependencies["@react-aria/focus"], "3.22.1");

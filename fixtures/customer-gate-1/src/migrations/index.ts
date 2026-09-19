@@ -24,6 +24,13 @@ import * as migration_20260902_000023_system_settings from "./20260902_000023_sy
 import * as migration_20260902_000024_catalog_mirror from "./20260902_000024_catalog_mirror.js";
 import * as migration_20260902_000025_system_operations from "./20260902_000025_system_operations.js";
 import * as migration_20260903_000026_workspace_pages from "./20260903_000026_workspace_pages.js";
+import * as migration_20260905_000027_crm_core from "./20260905_000027_crm_core.js";
+import * as migration_20260907_000030_pipeline_saved_views from "./20260907_000030_pipeline_saved_views.js";
+import * as migration_20260907_000031_data_movement from "./20260907_000031_data_movement.js";
+import * as migration_20260908_000032_communications from "./20260908_000032_communications.js";
+import * as migration_20260908_000033_crm_workflows from "./20260908_000033_crm_workflows.js";
+import * as migration_20260908_000034_reports from "./20260908_000034_reports.js";
+import * as migration_20260909_000035_static_rebind_lock_protocol from "./20260909_000035_static_rebind_lock_protocol.js";
 
 import type { CustomerPayloadMigration } from "@k-nex/payload-adapter";
 
@@ -157,5 +164,40 @@ export const migrations: CustomerPayloadMigration[] = [
     up: migration_20260903_000026_workspace_pages.up,
     down: migration_20260903_000026_workspace_pages.down,
     name: "20260903_000026_workspace_pages"
+  },
+  {
+    up: migration_20260905_000027_crm_core.up,
+    down: migration_20260905_000027_crm_core.down,
+    name: "20260905_000027_crm_core"
+  },
+  {
+    up: migration_20260907_000030_pipeline_saved_views.up,
+    down: migration_20260907_000030_pipeline_saved_views.down,
+    name: "20260907_000030_pipeline_saved_views"
+  },
+  {
+    up: migration_20260907_000031_data_movement.up,
+    down: migration_20260907_000031_data_movement.down,
+    name: "20260907_000031_data_movement"
+  },
+  {
+    up: migration_20260908_000032_communications.up,
+    down: migration_20260908_000032_communications.down,
+    name: "20260908_000032_communications"
+  },
+  {
+    up: migration_20260908_000033_crm_workflows.up,
+    down: migration_20260908_000033_crm_workflows.down,
+    name: "20260908_000033_crm_workflows"
+  },
+  {
+    up: migration_20260908_000034_reports.up,
+    down: migration_20260908_000034_reports.down,
+    name: "20260908_000034_reports"
+  },
+  {
+    up: migration_20260909_000035_static_rebind_lock_protocol.up,
+    down: migration_20260909_000035_static_rebind_lock_protocol.down,
+    name: "20260909_000035_static_rebind_lock_protocol"
   }
 ];

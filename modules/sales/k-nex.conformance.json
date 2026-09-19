@@ -43,7 +43,7 @@
       "file": "tests/ui.test.mjs",
       "id": "component-runtime-puck",
       "kind": "node-test",
-      "testName": "every Sales UI contribution renders outside the editor and every block reconciles into Puck"
+      "testName": "every Sales UI contribution renders, while only report-safe blocks reconcile into Puck"
     },
     {
       "covers": ["default-page-seed"],

@@ -1,6 +1,6 @@
 {
   "name": "@k-nex/ui-data",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "files": ["dist"],
   "type": "module",
@@ -25,6 +25,10 @@
     "./presentation": {
       "types": "./dist/presentation.d.ts",
       "default": "./dist/presentation.js"
+    },
+    "./table-controls": {
+      "types": "./dist/table-controls.d.ts",
+      "default": "./dist/table-controls.js"
     }
   },
   "scripts": {

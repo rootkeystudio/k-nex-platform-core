@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { workspacePageApplicationFiles } from "../src/workspace-page-application-files.js";
+import { applicationAuthFiles } from "../src/application-auth-files.js";
 
 type GeneratedEditorSession = Readonly<{
   persistence: Readonly<{
@@ -42,8 +43,8 @@ function strictModeGeneratedEditorSession(source: string): Readonly<{ session: G
     .replace(/  if \(unavailable === "access"\) return <section[^\n]*\n/u, "")
     .replace(/  if \(unavailable === "authority"\) return <section[^\n]*\n/u, "")
     .replace(/  return <WorkspacePuckEditorHost[^\n]*\/>;\n/u, "  return session;\n");
-  const WorkspacePageEditor = new Function("useState", "useRef", "useEffect", "useMemo", "WorkspaceEditorSession", "createAuthorizedPuckBuilderProfile", "WorkspacePuckEditorHost", "presentUiRuntimeReact", "genericPuckBlockBridges", "salesPuckBlockBridges", "salesOpportunitiesDescriptor", "salesTasksDescriptor", "salesTotalPotentialRevenueDescriptor", "fetch", "crypto", `${executable}\nreturn WorkspacePageEditor;`)(
-    useState, useRef, useEffect, useMemo, WorkspaceEditorSession, () => ({}), () => undefined, () => undefined, [], [], {}, {}, {},
+  const WorkspacePageEditor = new Function("useState", "useRef", "useEffect", "useMemo", "WorkspaceEditorSession", "createAuthorizedPuckBuilderProfile", "WorkspacePuckEditorHost", "presentUiRuntimeReact", "genericPuckBlockBridges", "salesPuckBlockBridges", "salesOpportunitiesDescriptor", "salesTasksDescriptor", "salesPipelineSnapshotDescriptor", "salesSavedViewListDescriptor", "salesSavedViewDetailDescriptor", "salesSavedViewTableDescriptor", "salesSavedViewKanbanDescriptor", "salesSavedViewCalendarDescriptor", "salesPipelineValueByStageDescriptor", "salesWeightedForecastDescriptor", "salesWonLostConversionDescriptor", "salesLeadConversionDescriptor", "salesActivityByOwnerTeamDescriptor", "salesTaskAgingDescriptor", "salesSalesCycleDurationDescriptor", "fetch", "crypto", `${executable}\nreturn WorkspacePageEditor;`)(
+    useState, useRef, useEffect, useMemo, WorkspaceEditorSession, () => ({}), () => undefined, () => undefined, [], [], {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {},
     async (_input: string, init?: Readonly<{ method?: string; signal?: AbortSignal }>) => {
       if (init?.method === "POST" && init.signal !== undefined) mutationSignals.push(init.signal);
       return { ok: true, status: 200, json: async () => ({ watermark }) };
@@ -111,15 +112,23 @@ describe("generated workspace page builder policy", () => {
     expect(source).toContain('import { salesPuckBlockBridges } from "@k-nex/module-sales/puck";');
     expect(source).toContain('import { genericPuckBlockBridges } from "@k-nex/ui-builder-blocks";');
     expect(source).toContain('import { genericUiBlockDefinitions } from "@k-nex/ui-builder-blocks/runtime";');
-    expect(source).toContain('blocks: [...genericPuckBlockBridges, ...salesPuckBlockBridges.filter');
+    expect(source).toContain('blocks: [...genericPuckBlockBridges, ...(salesEnabled ? salesPuckBlockBridges.filter');
     expect(source).toContain('const platformBlocks = new Map(genericUiBlockDefinitions.map');
     expect(source).toContain("kNexSalesRegistry.scopedRegistration.contributions[kind]");
     expect(source).toContain("workspaceSalesPermissions(payload, context, signal)");
+    expect(source).toContain("usesSales(previous) || usesSales(document)");
+    expect(source).toContain("workspaceBuilderProfile(payload, context, signal, usesSales(document))");
+    expect(source).toContain('if (!salesRequired) return createAuthorizedPuckBuilderProfile({');
+    expect(source).toContain("const salesRequired = usesSales(persistedDocument);");
+    expect(source).toContain("const salesEnabled = usesSales(detail.workingCopy.document) || await currentSalesGeneration(payload).catch(() => undefined) !== undefined;");
+    expect(source).toContain("Object.freeze({ document: persistedDocument, sourceResults: Object.freeze({}) })");
+    expect(source).toContain("return [registered];");
+    expect(source).not.toContain("registered.outputFields.filter");
     expect(source).toContain("function workspaceDocumentValidator(payload: Payload): WorkspacePageDocumentValidator<KnexRequestContext>");
     expect(source).toContain("documents: workspaceDocumentValidator(payload)");
-    expect(source).toContain("profile.validateChange(previous, { ...document, version: previous.version })");
-    expect(source).toContain("return profile.validateDocument(document)");
-    expect(source).toContain(".validateDocument(document)");
+    expect(source).toContain("profile.validateChange(admittedWorkspaceSalesDocument(previous), { ...admittedWorkspaceSalesDocument(document), version: previous.version })");
+    expect(source).toContain("profile.validateDocument(admittedWorkspaceSalesDocument(document))");
+    expect(source).toContain("return document;");
   });
 
   it("keeps compiled Sales dependencies available across unrelated lifecycle advances", () => {
@@ -149,6 +158,50 @@ describe("generated workspace page builder policy", () => {
     expect(runtime).not.toContain("builder-puck");
     expect(runtime).not.toContain("PuckBlock");
     expect(editor).toContain('blocks: [...genericPuckBlockBridges, ...salesPuckBlockBridges]');
+  });
+
+  it("admits the fixed report bridges only through registered current-authority sources", () => {
+    const files = workspacePageApplicationFiles({ applicationId: "customer-alpha" });
+    const runtime = files["src/k-nex-workspace-pages.ts"]!;
+    const editor = files["src/app/components/k-nex-workspace-page-editor.tsx"]!;
+    const sales = files["src/k-nex-sales-workspace.ts"]!;
+    const reportDescriptors = [
+      "salesPipelineValueByStageDescriptor",
+      "salesWeightedForecastDescriptor",
+      "salesWonLostConversionDescriptor",
+      "salesLeadConversionDescriptor",
+      "salesActivityByOwnerTeamDescriptor",
+      "salesTaskAgingDescriptor",
+      "salesSalesCycleDurationDescriptor"
+    ];
+
+    for (const descriptor of reportDescriptors) {
+      expect(editor).toContain(descriptor);
+      expect(runtime).toContain(descriptor);
+    }
+    expect(editor).toContain('blocks: [...genericPuckBlockBridges, ...salesPuckBlockBridges]');
+    expect(editor).toContain("authority: initialProjection.authority");
+    expect(runtime).toContain('const registered = contribution("blocks", bridge.definition.id, bridge.definition.version)');
+    expect(runtime).toContain('registered?.id === bridge.definition.id && registered.version === bridge.definition.version');
+    expect(runtime).toContain('const registered = contribution("sources", candidate.id, candidate.version)');
+    expect(runtime).toContain('registered.id !== candidate.id || registered.version !== candidate.version || !permissions.has(registered.permission)');
+    expect(sales).toContain('request.descriptor.id.startsWith("sales.report.") ? { kind: request.descriptor.id, where: salesRecordWhere(current) }');
+    expect(sales).toContain('permissions.includes(request.descriptor.permission)');
+    expect(sales).toContain('const reportObjectPermissionIds = Object.freeze(["sales.activities.read", "sales.leads.read", "sales.opportunities.read", "sales.pipelines.read", "sales.tasks.read"] as const);');
+    expect(sales).toContain('const reportFieldPermissionIds = Object.freeze(["sales.opportunities.amount.read"] as const);');
+    expect(sales).toContain('currentSalesGeneration(payload)');
+    expect(sales).toContain('runtimeGenerationId, recordScope: current.salesScope.recordScope, applicationWide: current.salesScope.applicationWide, authorizedTeamIds: current.salesScope.authorizedTeamIds, permissionGrants: reportPermissions, objectPermissionGrants: reportObjectPermissions, fieldPermissionGrants: reportFieldPermissions');
+    expect(sales).toContain('if (actionId === "sales.report.run") return Object.freeze({ collection: "sales-report-runs", operations: Object.freeze([] as const), permissionId: "sales.exports.execute" });');
+  });
+
+  it("reuses exact current report admission for artifact download without an application-wide scope substitute", () => {
+    const route = applicationAuthFiles({ applicationId: "customer-alpha", applicationName: "Customer Alpha", theme: "minimal" })["src/app/api/k-nex/sales/report-artifact/route.ts"]!;
+    expect(route).toContain('import { workspaceSalesReportAdmission } from "../../../../../k-nex-sales-workspace.js";');
+    expect(route).toContain("const admission = await workspaceSalesReportAdmission(payload, context);");
+    expect(route).toContain("admission.context.actorId !== actorId");
+    expect(route).toContain("!admission.permissionGrants.includes(\"sales.reports.read\")");
+    expect(route).toContain("readGeneratedSalesReportArtifact(pool, admission, artifactId)");
+    expect(route).not.toContain('recordScope: "application-sales-scope", applicationWide: true');
   });
 
   it("derives the workspace owner override from the revision-pinned active owner assignment", () => {
@@ -202,7 +255,8 @@ describe("generated workspace page builder policy", () => {
     expect(client).toContain('"/api/k-nex/workspace-pages/" + encodeURIComponent(pageId) + "/actions/"');
     expect(route).toContain('openWorkspacePageSession(payload, context, pageId, "view", context.correlationId)');
     expect(route).toContain('detail.page.state !== "published" || detail.impact.state !== "ready" || detail.publication === undefined');
-    expect(route).toContain("function boundAction(document: UiDocument, actionId: string)");
+    expect(route).toContain("function boundAction(document: UiDocument, nodeId: string, actionId: string)");
+    expect(route).toContain("if (node.id === nodeId && action?.id === actionId)");
     expect(route).toContain("node.children?.forEach(visit)");
     expect(route).toContain("if (action === undefined) return notFound();");
     expect(route).toContain("return Response.json({ code: \"NOT_FOUND\" }, { status: 404");
@@ -210,7 +264,68 @@ describe("generated workspace page builder policy", () => {
     expect(route).toContain('import { executeWorkspaceSalesAction }');
     expect(route).toContain('import { openWorkspacePageSession }');
     expect(sales).toContain("new RegisteredActionGateway(kNexSalesRegistry.scopedRegistration");
-    expect(sales).toContain("new CurrentAuthorityActionGatewayPolicy(kNexAuthority(payload).adapter");
+    expect(sales).toContain("function salesActionCapability(payload: Payload");
+    expect(sales).toContain("new CurrentAuthorityPayloadPersistenceAuthorizer(kNexAuthority(payload).adapter, context");
+    expect(sales).toContain("candidate.collection === collection && candidate.operations.some((candidateOperation) => candidateOperation === operation)");
+    expect(sales).toContain('if (operation !== "find" && operation !== "create" && operation !== "update") return false;');
+    expect(sales).not.toContain('persistence.guard({ collection: salesActionGrant(action.id).collection })');
+    expect(sales).toContain('capability.guard({ collection, id: resourceId, operation: "update" })');
+    expect(sales).toContain('capability.guard({ collection: "sales-accounts", id: accountId, operation: "find" })');
+    expect(sales).toContain('{ collection: "sales-tasks", operations: Object.freeze(["create"] as const)');
+    expect(sales).toContain('{ collection: "sales-tasks", operations: Object.freeze(["find", "update"] as const)');
+    expect(sales).toContain('{ collection: "sales-opportunities", operations: Object.freeze(["find", "update"] as const)');
+    expect(sales).toContain('const relatedCollection = input.relatedRecordType === "sales.account" ? "sales-accounts"');
+    expect(sales).toContain(': input.relatedRecordType === "sales.task" ? "sales-tasks" : undefined;');
+    expect(sales).toContain('if (collection === "sales-tasks")');
+    expect(sales).toContain('if (collection === "sales-opportunities")');
+    expect(sales).toContain('if (collection === "sales-activities")');
+    expect(sales).toContain('if (collection === "sales-notes")');
+    expect(sales).toContain('if (collection === "sales-attachment-references")');
+    expect(sales).toContain("if (collection !== grant.collection");
+    expect(sales).toContain("await kNexAuthority(payload).adapter.allows(context, currentTarget) && await lockSalesActionTarget");
+    expect(sales).toContain('const teamScope = current.salesScope.authorizedTeamIds.length === 0 ? sql`false` : sql`"team_id" in ${current.salesScope.authorizedTeamIds}`;');
+    expect(sales).toContain('const recordScope = current.salesScope.recordScope === "application-sales-scope"');
+    expect(sales).toContain('current.salesScope.recordScope === "explicit-application-or-team-scope"');
+    expect(sales).toContain('"owner_id" = ${actorId} OR ${teamScope}');
+    expect(sales).toContain('FROM "sales_current_authority_scopes"');
+    expect(sales).toContain('AND "revision" = ${current.salesScope.revision} AND "mutation_allowed" = true FOR SHARE');
+    expect(sales).toContain("FOR UPDATE");
+    expect(sales).toContain("await persistence.transaction.begin();");
+    expect(sales).toContain("if (response.ok) await persistence?.transaction.commit();");
+    expect(sales).toContain('type WorkspaceSalesAuthorization = Readonly<{ principal:');
+    expect(sales).toContain('authorizationRevision: number; lifecycleRevision: number;');
+    expect(sales).toContain('SELECT "authorization_revision", "lifecycle_revision" FROM "k_nex_authorization_state"');
+    expect(sales).toContain('WHERE "application_id" = ${kNexIdentity.applicationId} FOR SHARE');
+    expect(sales).toContain('Sales action authority changed.');
+    expect(sales).toContain('INSERT INTO "sales_action_idempotency"');
+    expect(sales).toContain('ON CONFLICT ("application_id", "environment", "effective_actor_id", "action_id", "idempotency_key")');
+    expect(sales).toContain('IDEMPOTENCY_CONFLICT');
+    expect(sales).toContain('if (action.descriptor.id === "sales.task.create" && replay === undefined) {');
+    expect(sales).toContain('await admitTrustedSalesTaskCreateId(idempotency.request, { id: Number(resourceId), resourceId });');
+    expect(sales).toContain('if (trustedTaskCreateRequest !== undefined) revokeTrustedSalesTaskCreateId(trustedTaskCreateRequest);');
+    expect(sales).toContain("SELECT nextval(pg_get_serial_sequence('public.sales_tasks', 'id')) AS \"id\"");
+    expect(sales).toContain('typeof id !== "number" || !Number.isSafeInteger(id) || id < 1 || id > 2_147_483_647');
+    expect(sales).toContain('...(resourceId === undefined ? {} : { resourceId })');
+    expect(sales).toContain('"sales-action-" + createHash("sha256")');
+    expect(sales).toContain('AND "result_json" = \'{"state":"pending"}\'::jsonb');
+    expect(sales).toContain('FROM "k_nex_sales_attachment_upload_admissions"');
+    expect(sales).not.toContain('k_nex_sales_attachment_uploads');
+    expect(sales).toContain('const authorizedParent = (action.descriptor.id === "sales.activity.complete" || action.descriptor.id === "sales.activity.cancel") && parent.collection === "sales-tasks"');
+    expect(sales).toContain('? await salesActivityTaskParent(idempotency.request, parent.id)');
+    expect(sales).toContain("else await persistence?.transaction.rollback();");
+    expect(sales).toContain("await persistence?.transaction.rollback();");
+    expect(sales).toContain("if (error instanceof ActionGatewayError) return Object.freeze({");
+    expect(sales).toContain("body: Object.freeze({ code: error.code, status: error.status, detail: error.message, correlationId: context.correlationId.slice(0, 128) })");
+    expect(sales.indexOf("if (error instanceof ActionGatewayError) return Object.freeze({")).toBeGreaterThan(sales.lastIndexOf("await persistence?.transaction.rollback();"));
+    expect(sales).toContain('const select = collection === "sales-pipelines" ? { status: true, revision: true } : collection === "sales-saved-views" ? { ownerId: true, visibility: true, visibilityTeamId: true, status: true, revision: true }');
+    expect(sales).toContain(': { ownerId: true, teamId: true, status: true, archiveStatus: true, revision: true, accountId: true, pipelineId: true, stageId: true, relatedRecordType: true, relatedRecordId: true };');
+    expect(sales).toContain("if (!await allowed(payload, context, action.descriptor.permission, resourceId, record, undefined, current))");
+    expect(sales).toContain("applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment, recordId");
+    expect(sales).toContain("...(resourceId === undefined ? {} : { resourceId })");
+    expect(sales).toContain("rawRequest: Object.freeze({})");
+    expect(sales).not.toContain("const request = authenticated.request as PayloadRequest;");
+    expect(sales).not.toContain("await request.payload.find");
+    expect(sales).not.toContain("rawRequest: { payload }");
     expect(sales).not.toContain("salesOpportunityStageUpdateHandler");
     expect(sales).not.toContain("kNexWorkspacePages");
   });
@@ -219,23 +334,134 @@ describe("generated workspace page builder policy", () => {
     const sales = workspacePageApplicationFiles({ applicationId: "customer-alpha" })["src/k-nex-sales-workspace.ts"]!;
 
     expect(sales).toContain("new DataSourceGateway({");
-    expect(sales).toContain("new CurrentAuthorityDataSourcePolicy(");
+    expect(sales).toContain('const workspaceSalesAuthorityBrand: unique symbol = Symbol("workspace-sales-current-authority")');
+    expect(sales).toContain("function workspaceSalesAuthorization(value: unknown): WorkspaceSalesAuthorization");
+    expect(sales).toContain("value[workspaceSalesAuthorityBrand] !== true");
+    expect(sales).toContain("workspaceCurrentSalesPolicy(permissions, current, plan)");
     expect(sales).toContain("kNexSalesRegistry.scopedRegistration.contributions.sources");
     expect(sales).toContain("kNexSalesRegistry.scopedRegistration.bindings.sources");
     expect(sales).toContain("const workspaceSalesBudget = new BoundedQueryBudgetEvaluator();");
     expect(sales).toContain("budget: workspaceSalesBudget,");
+    expect(sales).toContain("const capability = createPayloadPersistenceCapability(request,");
+    expect(sales).toContain("applicationIdentity: Object.freeze({ applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment })");
     expect(sales).not.toContain("budget: new BoundedQueryBudgetEvaluator()");
-    expect(sales).toContain('source: (descriptor) => target(descriptor.permission)');
-    expect(sales).toContain('field: (descriptor, fieldId) => {');
+    expect(sales).toContain("recordEnvironment: kNexIdentity.environment");
+    expect(sales).toContain("authorizedTeamIds: current.salesScope.authorizedTeamIds");
+    expect(sales).toContain("recordScope: current.salesScope.recordScope");
+    expect(sales).toContain("collectionScope: recordId === undefined");
+    expect(sales).toContain("applicationWide: current.salesScope.applicationWide");
+    expect(sales).toContain("mutationAllowed: current.salesScope.mutationAllowed");
+    expect(sales).toContain("function parseSalesScope");
+    expect(sales).toContain("from sales_current_authority_scopes where application_id=$1 and environment=$2 and principal_id=$3");
+    expect(sales).toContain('current.salesScope.recordScope === "application-sales-scope" || current.salesScope.recordScope === "explicit-application-or-team-scope" && current.salesScope.applicationWide');
+    expect(sales).toContain('if (current.salesScope.recordScope === "explicit-application-or-team-scope") return { and: [...identity');
+    expect(sales).toContain("authorized_team_ids.length > 32");
+    expect(sales).toContain("teamId: { in: current.salesScope.authorizedTeamIds }");
+    expect(sales).toContain("applicationId: { equals: kNexIdentity.applicationId }");
+    expect(sales).toContain("environment: { equals: kNexIdentity.environment }");
     expect(sales).toContain('state: response.body.code === "INSUFFICIENT_FIELD_PERMISSION" ? "insufficient-permission" : "forbidden"');
     expect(sales).toContain('if (response.status === 429) {');
     expect(sales).toContain('state: "rate-limited", problem: { code: response.body.code, status: 429 }');
-    expect(sales).toContain('recordScope = descriptor.id === "sales.opportunities"');
+    expect(sales).toContain('request.descriptor.id === "sales.pipeline.snapshot" ? { kind: "sales.pipelines"');
+    expect(sales).toContain('request.descriptor.id === "sales.saved-view.list" || request.descriptor.id === "sales.saved-view.detail" ? { kind: "sales.saved-views"');
     expect(sales).toContain("for (const node of sourceNodes(document))");
+    expect(sales).toContain("const loaded = new Map<string, DataSourceBindingResult<unknown>>();");
+    expect(sales).toContain("const loadKey = canonicalJson({ source: binding.source, sourceInput, selectedFields, query });");
+    expect(sales).toContain("if (existing !== undefined) { output[node.id] = existing; continue; }");
     expect(sales).not.toContain("salesOpportunitiesHandler");
     expect(sales).not.toContain("salesTasksHandler");
     expect(sales).not.toContain("salesTotalPotentialRevenueHandler");
     expect(sales).not.toContain("const permissions = [descriptor.permission");
+  });
+
+  it("bounds Sales permission checks behind one request authentication", () => {
+    const files = workspacePageApplicationFiles({ applicationId: "customer-alpha" });
+    const sales = files["src/k-nex-sales-workspace.ts"]!;
+    const runtime = files["src/k-nex-workspace-pages.ts"]!;
+    const scan = sales.slice(sales.indexOf("export async function workspaceSalesPermissions"), sales.indexOf("function savedViewMetadataWhere"));
+    const sourcePolicy = sales.slice(sales.indexOf("const workspaceCurrentSalesPolicy"), sales.indexOf("function sourceNodes"));
+
+    expect(scan).toContain("const permissions = (await actor(payload, context)).permissions;");
+    expect(sales).toContain("const authentication = await currentPayloadAuthentication(payload, context);");
+    expect(sales).toContain("const workspaceSalesActorRequests = new WeakMap<KnexRequestContext, ReturnType<typeof buildActor>>();");
+    expect(sales).toContain("function actor(payload: Payload, context: KnexRequestContext, refresh = false, permissionIds?: readonly string[]): ReturnType<typeof buildActor>");
+    expect(sales).toContain("const existing = workspaceSalesActorRequests.get(context);");
+    expect(sales).toContain("async function salesPermissionProjection(payload: Payload, context: KnexRequestContext, current: WorkspaceSalesAuthorization, permissionIds?: readonly string[])");
+    expect(sales).toContain("for (const descriptor of descriptors)");
+    expect(sales).toContain("targets.slice(index, index + 4)");
+    expect(sales).toContain("adapter.allows(context, currentTarget)");
+    expect(sales).toContain("const permissions = await salesPermissionProjection(payload, context, current, permissionIds);");
+    expect(sales).toContain("return { authorization: current, permissions, request");
+    expect(sales).toContain("actor(payload, context, true)");
+    expect(sales).toContain("function salesActionActorPermissionIds(actionId: string): readonly string[] | undefined");
+    expect(sales).toContain("const current = preauthenticated ?? await actor(payload, context, false, salesActionActorPermissionIds(action.id));");
+    expect(sales).toContain('actionId === "sales.opportunity.stage.update" || actionId === "sales.opportunity.close"');
+    expect(sales).toContain('{ collection: "sales-pipelines", operations: Object.freeze(["find"] as const), permissionId: primary.permissionId }');
+    expect(sales).toContain('export type WorkspaceSalesRouteActionIntent = Readonly<{ kind: "opportunity-close" | "opportunity-stage-update"; routeId: "sales.route.opportunity-detail"; nodeId: string }>;');
+    expect(sales).toContain('function closeIntent(input: unknown)');
+    expect(sales).toContain('function stageUpdateIntent(input: unknown)');
+    expect(sales).toContain('["qualification", "discovery", "proposal", "negotiation"].includes(value.stage as string)');
+    expect(sales).toContain('if (!preauthenticated.permissions.includes(salesActionGrant(action.id).permissionId)) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Current authority does not permit this action.");');
+    expect(sales).toContain('const replay = await reserveSalesActionIdempotency(idempotency, currentAuthorization);');
+    expect(sales).toContain('const expectedActionId = routeIntent.kind === "opportunity-close" ? "sales.opportunity.close" : "sales.opportunity.stage.update";');
+    expect(sales).toContain('const intent = routeIntent.kind === "opportunity-close" ? closeIntent(input) : stageUpdateIntent(input);');
+    expect(sales).toContain('input = await resolveOpportunityRouteIntent(payload, context, persistence, preauthenticated, action.id, intent, signal);');
+    expect(sales).toContain('salesActionGrant(actionId).permissionId');
+    expect(sales).toContain('ORDER BY "stage_id" FOR UPDATE');
+    expect(sales).toContain('if (await capability.guard({ collection: "sales-opportunities", id: intent.id, operation: "update" }) !== true)');
+    expect(sales).toContain('!await currentSalesAuthorityFence(current.request, current.authorization)');
+    expect(sales).toContain('if (replay === undefined && (input as Readonly<Record<string, unknown>>).expectedRevision !== intent.expectedRevision)');
+    expect(sales).not.toContain('if (replay !== undefined) {\n        await persistence.transaction.commit();');
+    const routeAction = sales.slice(sales.indexOf('if (routeIntent !== undefined)'));
+    expect(routeAction.indexOf('input = await resolveOpportunityRouteIntent(payload, context, persistence, preauthenticated, action.id, intent, signal);')).toBeLessThan(routeAction.indexOf('const replay = await reserveSalesActionIdempotency(idempotency, currentAuthorization);'));
+    expect(sales).toContain('return executeWorkspaceSalesAction(payload, context, action, input, idempotencyKey, signal, intent);');
+    expect(sales).toContain("allowed(payload, context, action.descriptor.permission, resourceId, record, undefined, current)");
+    expect(scan).not.toContain("allowsMany");
+    expect(scan).toContain("return signal?.aborted ? Object.freeze([]) : permissions;");
+    expect(sourcePolicy).toContain("const workspaceCurrentSalesPolicy = (permissions: readonly string[], current: WorkspaceSalesAuthorization");
+    expect(sourcePolicy).toContain('permissions.includes(request.descriptor.permission)');
+    expect(sourcePolicy).toContain('request.descriptor.id === "sales.notifications" ? { kind: "sales.notifications", where: recipientOnlyWhere(current) }');
+    expect(sourcePolicy).toContain('request.descriptor.id === "sales.reminders" ? { kind: "sales.reminders", where: recipientOnlyWhere(current) }');
+    expect(sales).toContain('function recipientOnlyWhere(current: WorkspaceSalesAuthorization)');
+    expect(sales).toContain('{ recipientId: { equals: current.effectiveActor.id } }');
+    expect(sales).toContain('{ collection: "sales-notifications", operations: ["find"] }');
+    expect(sales).toContain('{ collection: "sales-reminders", operations: ["find"] }');
+    expect(sales).toContain('collection === "sales-notifications" && operation === "find" ? "sales.notifications.read"');
+    expect(sales).toContain('collection === "sales-reminders" && operation === "find" ? "sales.reminders.read"');
+    expect(sales).toContain('actionId === "sales.notification.read" || actionId === "sales.notification.archive"');
+    expect(sales).toContain('{ collection: "sales-notifications", operations: Object.freeze(["find", "update"] as const), permissionId: "sales.notifications.write" }');
+    expect(sales).toContain('actionId === "sales.reminder.dismiss"');
+    expect(sales).toContain('{ collection: "sales-reminders", operations: Object.freeze(["find", "update"] as const), permissionId: "sales.reminders.write" }');
+    expect(sales).toContain('actionId === "sales.reminder.schedule"');
+    expect(sales).toContain('{ collection: "sales-reminders", operations: Object.freeze(["create", "update"] as const), permissionId: "sales.reminders.write" }');
+    expect(sales).toContain('actionId === "sales.email.send"');
+    expect(sales).toContain('{ collection: "sales-activities", operations: Object.freeze(["create", "update"] as const), permissionId: "sales.communications.email.send" }');
+    expect(sales).toContain('actionId === "sales.calendar.sync"');
+    expect(sales).toContain('{ collection: "sales-activities", operations: Object.freeze(["find"] as const), permissionId: "sales.communications.calendar.sync" }');
+    expect(sales).toContain('actionId === "sales.integration.configure"');
+    expect(sales).toContain('{ collection: "sales-provider-configurations", operations: Object.freeze([] as const), permissionId: "sales.settings.write" }');
+    expect(sales).toContain('let communicationRelationAdmission: Readonly<Record<string, unknown>> | undefined;');
+    expect(sales).toContain('await capability.guard({ collection: relation.collection, id: relation.id, operation: "find" })');
+    expect(sales).toContain('communicationRelationAdmission = Object.freeze({ actionId: action.descriptor.id');
+    expect(sales).toContain('...(communicationRelationAdmission === undefined ? {} : { communicationRelationAdmission })');
+    expect(sales).toContain('{ collection: "sales-contacts", operations: Object.freeze(["find"] as const), permissionId: "sales.contacts.read" }');
+    expect(sales).toContain('{ collection: "sales-leads", operations: Object.freeze(["find"] as const), permissionId: "sales.leads.read" }');
+    expect(sales).toContain('{ collection: "sales-tasks", operations: Object.freeze(["find"] as const), permissionId: "sales.tasks.read" }');
+    expect(sales).toContain('collection === "sales-notifications") return postgresRows');
+    expect(sales).toContain('collection === "sales-reminders") return postgresRows');
+    expect(sourcePolicy).not.toContain("nativeKanban");
+    expect(sourcePolicy).toContain("field !== undefined && (execution || permissions.includes(field.permission))");
+    expect(sourcePolicy).toContain('return permissions.includes("sales.pipelines.read") || permissions.includes("sales.opportunities.read")');
+    expect(sourcePolicy).toContain("extendedPermissionId !== undefined && permissions.includes(extendedPermissionId)");
+    expect(sourcePolicy).not.toContain("allowed(payload, context");
+    expect(runtime).toContain("const permissions = salesRequired ? await workspaceSalesPermissions(payload, context, session.signal) : Object.freeze([] as string[]);");
+    expect(runtime).toContain('projectWorkspaceSalesDocument(payload, context, persistedDocument, permissions, session.signal, Object.freeze({}), pageNumber, undefined, "table", pageNodeId)');
+    expect(sales).toContain("pageNumber > 1_000_000");
+    expect(sales).toContain("timeline ? requestedPage > 4");
+    expect(sales).toContain("detail || administrationPageSize !== undefined ? 1 : requestedPage");
+    expect(sales).toContain("page: { number: sourcePage, size: boundedPageSize }");
+    expect(runtime).toContain("const currentState = await kNexAuthority(payload).store.readState(scope.applicationId, scope.environment);");
+    expect(runtime).toContain("currentState.authorizationRevision !== session.watermark.authorizationRevision || currentState.lifecycleRevision !== session.watermark.lifecycleRevision");
   });
 
   it("revalidates a page snapshot and fails projections closed when the current Sales watermark changes", () => {
@@ -264,9 +490,9 @@ describe("generated workspace page builder policy", () => {
     expect(editor).toContain("Editor authority changed");
     expect(route).toContain("loadWorkspacePageViewProjection");
     expect(route).toContain("loadWorkspacePageEditorProjection");
-    expect(route).toContain('requestedWatermark(new URL(request.url).searchParams.get("watermark"))');
+    expect(route).toContain('requestedWatermark(search.get("watermark"))');
     expect(route).toContain("readWorkspacePageWatermark");
-    expect(route).toContain('requested !== undefined && (mode === "edit" || sameWatermark(requested, watermark))');
+    expect(route).toContain('requested !== undefined && nodeId === null && (mode === "edit" || sameWatermark(requested, watermark))');
     expect(route).toContain('Response.json({ watermark: projection.watermark, projection }');
     expect(route).toContain('["Workspace page session authority changed.", "Workspace page session was invalidated."].includes(error.message)');
     expect(route).toContain('Response.json({ code: "REVISION_CONFLICT" }, { status: 409');
@@ -278,7 +504,7 @@ describe("generated workspace page builder policy", () => {
     expect(runtime.indexOf("const state = await runtime.synchronizeInvalidations();")).toBeGreaterThan(runtime.indexOf("const detail = await runtime.service.detail(context, scope, pageId, capability);"));
     expect(runtime).toContain("if (initialState.authorizationRevision !== state.authorizationRevision || initialState.lifecycleRevision !== state.lifecycleRevision) throw new TypeError(\"Workspace page session authority changed.\");");
     expect(runtime).toContain("if (session.signal.aborted) { session.close(); throw new TypeError(\"Workspace page session was invalidated.\"); }");
-    expect(runtime).toContain("loadWorkspaceSalesSources(payload, context, document, session.signal)");
+    expect(runtime).toContain('projectWorkspaceSalesDocument(payload, context, persistedDocument, permissions, session.signal, Object.freeze({}), pageNumber, undefined, "table", pageNodeId)');
     expect(runtime).toContain("Workspace page projection was invalidated.");
   });
 

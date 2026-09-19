@@ -23,6 +23,12 @@ k-nex deploy plan/apply
 
 One generic command must not silently choose between host package mutation and runtime app activation.
 
+## Shipped today
+
+Only `create-knex-app` exists as a command. `k-nex app`, `k-nex extension *`, and `k-nex deploy *` describe the intended surface and are not implemented; read them as design, not as available tooling.
+
+`create-knex-app` requires `--target`, `--id`, `--name`, and `--primary-currency` (ISO-4217, for example `USD`). The reporting currency is required because the factory is the only thing that seeds `system.general` reporting settings, and readiness fails without them. It runs `gh attestation verify` against the bundled release manifest, so it needs the GitHub CLI, an authenticated account, and network access; `--release-version` selects which bundled release is verified.
+
 ## Customer application compiler
 
 Static flow:

@@ -6,6 +6,8 @@ import { pathToFileURL } from "node:url";
 
 import pg from "pg";
 
+import { startAdministrationOperatorWorkerFenceHeartbeat } from "./administration-operator-worker-fence.mjs";
+
 const required = (name) => {
   const value = process.env[name];
   if (!value) throw new Error(`Missing ${name}.`);
@@ -16,6 +18,7 @@ const integer = (name) => {
   if (!Number.isSafeInteger(value) || value < 1) throw new Error(`Invalid ${name}.`);
   return value;
 };
+const optionalInteger = (name, fallback) => process.env[name] === undefined ? fallback : integer(name);
 const digest = (value) => `sha256:${createHash("sha256").update(typeof value === "string" ? value : canonicalJson(value)).digest("hex")}`;
 const applicationPath = required("P12_OPERATOR_APPLICATION_PATH");
 const packedModule = (name) => import(pathToFileURL(join(applicationPath, "node_modules", "@k-nex", name, "dist/index.js")).href);
@@ -117,14 +120,29 @@ const generation = Object.freeze({
   migrationRevision: 28
 });
 const workerFencingToken = 1;
-await new PostgresStaticDeploymentStore(pool, clock, { read: () => { throw new Error("Fixture bootstrap never reads a build token."); } }).initialize({
+const workerOwner = "worker:phase-12-generated-application";
+const workerLeaseDurationMs = 240_000;
+const workerFenceHeartbeatIntervalMs = optionalInteger("P12_OPERATOR_WORKER_FENCE_HEARTBEAT_INTERVAL_MS", 60_000);
+if (workerFenceHeartbeatIntervalMs > workerLeaseDurationMs / 4) throw new Error("Invalid P12_OPERATOR_WORKER_FENCE_HEARTBEAT_INTERVAL_MS.");
+const staticDeploymentStore = new PostgresStaticDeploymentStore(pool, clock, { read: () => { throw new Error("Fixture bootstrap never reads a build token."); } });
+await staticDeploymentStore.initialize({
   applicationId,
   environment,
   generation,
-  workerOwner: "worker:phase-12-generated-application",
+  workerOwner,
   workerFencingToken,
-  workerLeaseExpiresAt: new Date(clock.now().valueOf() + 240_000).toISOString()
+  workerLeaseExpiresAt: new Date(clock.now().valueOf() + workerLeaseDurationMs).toISOString()
 });
+const workerFenceRenewal = Object.freeze({
+  applicationId,
+  environment,
+  generationId: generation.generationId,
+  fencingToken: workerFencingToken,
+  owner: workerOwner,
+  expectedPromotionRevision: 0,
+  leaseDurationMs: workerLeaseDurationMs
+});
+await staticDeploymentStore.renewWorkerFence(workerFenceRenewal);
 await store.reconcileStaticHostInventory({
   applicationId,
   environment,
@@ -222,6 +240,7 @@ const server = new NodeHttpsAdministrationOperatorServer({
   maxBodyBytes: bodyLimit,
   clock: () => clock.now(),
   handler: async (command) => {
+    if (!operatorAvailable) throw new Error("Administration operator worker authority is unavailable.");
     const response = await commandHandler.handle(command);
     if (crashAfterCommitFile && command.command.kind === "extension-execute" && !existsSync(crashAfterCommitFile)) {
       writeFileSync(crashAfterCommitFile, "crashed\n", { flag: "wx", mode: 0o600 });
@@ -231,12 +250,31 @@ const server = new NodeHttpsAdministrationOperatorServer({
   }
 });
 
+let workerFenceHeartbeat;
 let closePromise;
+let operatorAvailable = true;
 const close = () => closePromise ??= (async () => {
+  operatorAvailable = false;
+  await workerFenceHeartbeat?.stop();
   await server.close();
   await pool.end();
 })();
-process.once("SIGTERM", () => void close());
-process.once("SIGINT", () => void close());
+const shutdown = () => void close().catch((error) => {
+  process.stderr.write(`P12_ADMINISTRATION_OPERATOR_SHUTDOWN_FAILED=${error instanceof Error ? error.name : "Error"}\n`);
+  process.exitCode = 1;
+});
+process.once("SIGTERM", shutdown);
+process.once("SIGINT", shutdown);
 await server.start(port, "127.0.0.1");
+workerFenceHeartbeat = startAdministrationOperatorWorkerFenceHeartbeat({
+  store: staticDeploymentStore,
+  renewal: workerFenceRenewal,
+  intervalMs: workerFenceHeartbeatIntervalMs,
+  onFailure: (error) => {
+    operatorAvailable = false;
+    process.stderr.write(`P12_ADMINISTRATION_OPERATOR_WORKER_FENCE_RENEWAL_FAILED=${error instanceof Error ? error.name : "Error"}\n`);
+    process.exitCode = 1;
+    shutdown();
+  }
+});
 process.stdout.write(`P12_ADMINISTRATION_OPERATOR_READY=${port}\n`);

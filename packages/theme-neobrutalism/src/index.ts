@@ -49,7 +49,7 @@ ${themeRootSelector} :where([data-k-nex-primitive="button"],[data-k-nex-primitiv
 
 export const neobrutalismThemePackage = defineThemePackage({
   id: "theme.neobrutalism",
-  version: "1.0.0",
+  version: "1.1.0",
   surfaces: ["admin", "public"],
   tokenSchema: { safeParse: tokenSchema },
   defaults,

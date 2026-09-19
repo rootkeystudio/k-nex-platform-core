@@ -9,14 +9,20 @@ allowBuilds:
   "esbuild@0.25.12": true
   "esbuild@0.28.2": true
   "protobufjs@7.6.5": false
-  "sharp@0.35.3": true
+  sharp: set this to true or false
+  "sharp@0.35.4": true
   "ssh2@1.17.0": false
 
 engineStrict: true
 fetchTimeout: 30000
 minimumReleaseAge: 10080
 overrides:
+  "@tiptap/core": 3.30.5
+  "@tiptap/pm": 3.30.5
   fast-uri: 3.1.6
+  js-yaml: 4.3.2
+patchedDependencies:
+  '@payloadcms/db-postgres@3.88.0': patches/@payloadcms__db-postgres@3.88.0.patch
 peerDependencyRules:
   allowedVersions:
     "@modelcontextprotocol/sdk": "1.26.0 || 1.30.0"

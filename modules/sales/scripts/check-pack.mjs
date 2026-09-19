@@ -8,7 +8,9 @@ import { constants, gzipSync, gunzipSync } from "node:zlib";
 const packageRoot = resolve(import.meta.dirname, "..");
 const firstTemporaryRoot = mkdtempSync(join(tmpdir(), "k-nex-module-sales-pack-first-"));
 const secondTemporaryRoot = mkdtempSync(join(tmpdir(), "k-nex-module-sales-pack-second-"));
-const filename = "k-nex-module-sales-1.0.0.tgz";
+// Bind the archive to the version this package declares: a literal filename
+// silently checks the previous release's archive after a version bump.
+const filename = `k-nex-module-sales-${JSON.parse(readFileSync(resolve(packageRoot, "package.json"), "utf8")).version}.tgz`;
 
 function tarEntries(archive) {
   const entries = new Map();

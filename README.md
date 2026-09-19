@@ -161,6 +161,8 @@ separate deployment supervisor
 
 This repository contains a deeply exercised platform core, but it is not yet a finished CRM/CMS product or a production-observed customer fleet. Gate 12 must prove a generated runnable product shell; Gate 13 must prove one coherent CRM workflow and pilot-readiness evidence.
 
+Phase 13 delivers the CRM product, the generated application, and attested upgrade preparation, which means the customer repository is compiled, verified, and attested for the next release. It does not deliver customer upgrade execution, restartable restore authority, or maintenance promotion. The five capabilities excluded from that outcome are stated once, in the P13.9 section of the [Phase 13 CRM-first plan](./docs/implementation/phase-13-crm-first-productization.md).
+
 ## License
 
 No license has been selected. Until one is added, treat the repository and contents as proprietary.

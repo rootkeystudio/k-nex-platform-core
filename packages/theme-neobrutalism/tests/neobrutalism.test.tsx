@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import { UiDocumentSchema, canonicalJson, type UiDocument } from "@k-nex/contracts";
 import { KNeXDesignSystemProvider, type ThemePresentationSnapshot } from "@k-nex/ui-design-system-contracts";
-import { resolveMinimalThemeProfile } from "@k-nex/theme-minimal";
+import { minimalThemePackage, resolveMinimalThemeProfile } from "@k-nex/theme-minimal";
 import { neobrutalismThemePackage, resolveNeobrutalismThemeProfile } from "../src/index.js";
 
 const document = UiDocumentSchema.parse(JSON.parse(await readFile(new URL("../../../fixtures/ui-documents/valid/cms.v1.json", import.meta.url), "utf8")));
@@ -16,7 +16,7 @@ function profile(themeId: "theme.minimal" | "theme.neobrutalism", palette: strin
     id: "theme-profile.public-default",
     surface: "public",
     themeId,
-    themeVersion: "1.0.0",
+    themeVersion: themeId === "theme.minimal" ? minimalThemePackage.version : neobrutalismThemePackage.version,
     palette,
     mode: "light",
     values: {},

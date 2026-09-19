@@ -1,0 +1,218 @@
+{
+  "$defs": {
+    "__schema0": {
+      "const": 1,
+      "type": "number"
+    },
+    "__schema1": {
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+      "type": "string"
+    },
+    "__schema10": {
+      "maxLength": 160,
+      "minLength": 3,
+      "pattern": "^[a-z0-9][a-z0-9._:-]*$",
+      "type": "string"
+    },
+    "__schema11": {
+      "items": {
+        "$ref": "#/$defs/__schema12"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
+    "__schema12": {
+      "additionalProperties": false,
+      "properties": {
+        "manifestDigest": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "sourceRelease": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "targetRelease": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "transitionId": {
+          "$ref": "#/$defs/__schema10"
+        }
+      },
+      "required": [
+        "transitionId",
+        "sourceRelease",
+        "targetRelease",
+        "manifestDigest"
+      ],
+      "type": "object"
+    },
+    "__schema2": {
+      "maxLength": 64,
+      "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-(?:(?:0|[1-9][0-9]*)|(?:[0-9]*[A-Za-z-][0-9A-Za-z-]*))(?:\\.(?:(?:0|[1-9][0-9]*)|(?:[0-9]*[A-Za-z-][0-9A-Za-z-]*)))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
+      "type": "string"
+    },
+    "__schema3": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "__schema4": {
+      "items": {
+        "$ref": "#/$defs/__schema5"
+      },
+      "maxItems": 256,
+      "minItems": 1,
+      "type": "array"
+    },
+    "__schema5": {
+      "additionalProperties": false,
+      "properties": {
+        "integrity": {
+          "pattern": "^sha512-[A-Za-z0-9+/]{86}==$",
+          "type": "string"
+        },
+        "package": {
+          "$ref": "#/$defs/__schema6"
+        },
+        "role": {
+          "enum": [
+            "core",
+            "plugin",
+            "provider",
+            "builder",
+            "theme",
+            "tooling"
+          ],
+          "type": "string"
+        },
+        "version": {
+          "$ref": "#/$defs/__schema2"
+        }
+      },
+      "required": [
+        "package",
+        "version",
+        "role",
+        "integrity"
+      ],
+      "type": "object"
+    },
+    "__schema6": {
+      "maxLength": 214,
+      "pattern": "^@?[a-z0-9][a-z0-9._-]*(?:\\/[a-z0-9][a-z0-9._-]*)?$",
+      "type": "string"
+    },
+    "__schema7": {
+      "items": {
+        "$ref": "#/$defs/__schema8"
+      },
+      "maxItems": 128,
+      "type": "array"
+    },
+    "__schema8": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "pattern": "^(module|provider|builder|theme|integration|preset)(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
+          "type": "string"
+        },
+        "integrity": {
+          "pattern": "^sha512-[A-Za-z0-9+/]{86}==$",
+          "type": "string"
+        },
+        "package": {
+          "$ref": "#/$defs/__schema6"
+        },
+        "version": {
+          "$ref": "#/$defs/__schema2"
+        }
+      },
+      "required": [
+        "id",
+        "package",
+        "version",
+        "integrity"
+      ],
+      "type": "object"
+    },
+    "__schema9": {
+      "additionalProperties": false,
+      "properties": {
+        "generatorId": {
+          "$ref": "#/$defs/__schema10"
+        },
+        "package": {
+          "$ref": "#/$defs/__schema6"
+        },
+        "schemaVersion": {
+          "exclusiveMinimum": 0,
+          "maximum": 65535,
+          "type": "integer"
+        },
+        "version": {
+          "$ref": "#/$defs/__schema2"
+        }
+      },
+      "required": [
+        "package",
+        "version",
+        "schemaVersion",
+        "generatorId"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://schemas.k-nex.dev/application-release-lock/v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "kNexApplicationUpgradeInvariant": "release-lock",
+  "properties": {
+    "applicationId": {
+      "$ref": "#/$defs/__schema1"
+    },
+    "frameworkTupleDigest": {
+      "$ref": "#/$defs/__schema3"
+    },
+    "generator": {
+      "$ref": "#/$defs/__schema9"
+    },
+    "migrationSetDigest": {
+      "$ref": "#/$defs/__schema3"
+    },
+    "packages": {
+      "$ref": "#/$defs/__schema4"
+    },
+    "platformRelease": {
+      "$ref": "#/$defs/__schema2"
+    },
+    "plugins": {
+      "$ref": "#/$defs/__schema7"
+    },
+    "releaseManifestDigest": {
+      "$ref": "#/$defs/__schema3"
+    },
+    "schemaVersion": {
+      "$ref": "#/$defs/__schema0"
+    },
+    "sourceOwnershipDigest": {
+      "$ref": "#/$defs/__schema3"
+    },
+    "transitionChain": {
+      "$ref": "#/$defs/__schema11"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "applicationId",
+    "platformRelease",
+    "releaseManifestDigest",
+    "frameworkTupleDigest",
+    "packages",
+    "plugins",
+    "generator",
+    "sourceOwnershipDigest",
+    "migrationSetDigest",
+    "transitionChain"
+  ],
+  "title": "K-Nex Application Release Lock v1",
+  "type": "object"
+}

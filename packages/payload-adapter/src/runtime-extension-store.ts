@@ -131,6 +131,10 @@ interface OperationRow {
   result_json: ExtensionManagerReceipt | null;
 }
 
+type OperationIdentityRow = Pick<OperationRow,
+  "operation_id" | "application_id" | "environment" | "delivery_class" | "extension_id" | "operation_kind"
+>;
+
 interface ExtensionRow {
   delivery_class: "platform-plugin" | "hot-application" | "theme-skin";
   extension_id: string;
@@ -707,7 +711,17 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
     const reconciliationDigest = await sha256({ applicationId: input.applicationId, environment: input.environment, receiptId: deployment.receiptId, hostInventoryDigest: this.hostInventoryDigest });
     const operationId = `static-host-reconcile-${reconciliationDigest.slice("sha256:".length, "sha256:".length + 32)}`;
     await this.transaction(async (session) => {
-      await session.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [canonicalJson([input.applicationId, input.environment, "static-host-runtime-inventory"])]);
+      await session.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [canonicalJson([input.applicationId, input.environment, "static-deployment"])]);
+      const persistedIdentities = await session.query<{ extension_id: string }>(
+        `select extension_id from runtime_extensions
+         where application_id=$1 and environment=$2 and delivery_class='platform-plugin'
+         order by extension_id collate "C"`,
+        [input.applicationId, input.environment]
+      );
+      const identities = [...new Set([...plugins.map(({ id }) => id), ...persistedIdentities.rows.map(({ extension_id }) => extension_id)])].sort();
+      for (const extensionId of identities) {
+        await session.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [canonicalJson([input.applicationId, input.environment, "platform-plugin", extensionId])]);
+      }
       const authority = await session.query<StaticHostAuthorityRow>(
         `select d.revision, d.active_generation_id, d.active_generation,
            f.active_execution_generation, f.fencing_token, f.promotion_revision, f.lease_expires_at, x.event_json
@@ -779,11 +793,14 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
         `select * from runtime_extension_operations
          where application_id=$1 and environment=$2 and phase not in ('completed','failed') and lease_expires_at <= $3
          order by lease_expires_at, operation_id
-         limit $4 for update skip locked`,
+         limit $4`,
         [input.applicationId, input.environment, now, this.reconciliationBatchSize]
       );
       let reclaimed = 0;
       for (const candidate of expired.rows) {
+        if (candidate.delivery_class === "platform-plugin") {
+          await session.query("select pg_advisory_xact_lock_shared(hashtextextended($1, 0))", [canonicalJson([candidate.application_id, candidate.environment, "static-deployment"])]);
+        }
         const identityLock = await session.query<{ acquired: boolean }>(
           "select pg_try_advisory_xact_lock(hashtextextended($1, 0)) as acquired",
           [identityKey(candidate)]
@@ -798,6 +815,7 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
         );
         const row = failed.rows[0];
         if (!row) continue;
+        this.assertOperationIdentity(candidate, row);
         // A claim without a persisted plan never reached the lifecycle evidence boundary; manufacturing bundle evidence for it would be false.
         if (row.plan_json && !(row.plan_json.executionClass === "static-release" && row.plan_json.preparation === "impact-only")) {
           await this.appendTransition(session, row, "failed", undefined);
@@ -816,6 +834,9 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
     return this.transaction(async (session) => {
       const request = input.request;
       const key = canonicalJson([request.applicationId, request.environment, request.extension.deliveryClass, request.extension.id]);
+      if (request.extension.deliveryClass === "platform-plugin") {
+        await session.query("select pg_advisory_xact_lock_shared(hashtextextended($1, 0))", [canonicalJson([request.applicationId, request.environment, "static-deployment"])]);
+      }
       await session.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [key]);
       await session.query(
         `insert into runtime_extensions (application_id, environment, delivery_class, extension_id, revision, disposition)
@@ -900,7 +921,8 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
 
   async savePlan(id: string, token: string, plan: PluginManagerPlan): Promise<RuntimeExtensionOperation> {
     return this.transaction(async (session) => {
-      const row = await this.lockOperation(session, id, token);
+      const durable = await this.prepareOperationStateWrite(session, id);
+      const row = await this.lockPreparedOperation(session, durable, token);
       const state = await session.query<ExtensionRow>(
         `select *, 0::int as inventory_revision from runtime_extensions where application_id=$1 and environment=$2 and delivery_class=$3 and extension_id=$4 for update`,
         [row.application_id, row.environment, row.delivery_class, row.extension_id]
@@ -940,7 +962,10 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
 
   async transition(input: Parameters<RuntimeExtensionStore["transition"]>[0]) {
     return this.transaction(async (session) => {
-      const row = await this.lockOperation(session, input.operationId, input.leaseToken);
+      const durable = await this.prepareOperationStateWrite(session, input.operationId, (identity) => {
+        if (input.authority) assertAuthorityOwner(identity, input.authority);
+      });
+      const row = await this.lockPreparedOperation(session, durable, input.leaseToken);
       if (row.plan_json?.executionClass === "static-release" && row.plan_json.preparation !== "prepared") {
         fail("PHASE_CONFLICT", "Static lifecycle transitions require a prepared source/build plan.");
       }
@@ -964,7 +989,9 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
 
   async stageGeneration(input: Parameters<RuntimeExtensionStore["stageGeneration"]>[0]) {
     return this.transaction(async (session) => {
-      const row = await this.lockOperation(session, input.operationId, input.leaseToken);
+      assertStage(input.stage, this.clock.now());
+      const durable = await this.prepareOperationStateWrite(session, input.operationId, (identity) => assertAuthorityOwner(identity, input.stage.authority));
+      const row = await this.lockPreparedOperation(session, durable, input.leaseToken);
       if (row.phase !== "staged" || row.plan_json?.executionClass !== "live-generation" || !row.authority_json) {
         fail("PHASE_CONFLICT", "Only a staged live generation can enter warm-up.");
       }
@@ -1038,9 +1065,10 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
 
   async activateGeneration(id: string, token: string): Promise<ExtensionActivationReceipt> {
     return this.transaction(async (session) => {
+      const durable = await this.prepareOperationStateWrite(session, id);
       const replay = await this.completedReceipt(session, id, ["install", "update"]);
       if (replay) return replay as ExtensionActivationReceipt;
-      const row = await this.lockOperation(session, id, token);
+      const row = await this.lockPreparedOperation(session, durable, token);
       if (row.phase !== "warming" || row.plan_json?.executionClass !== "live-generation" || !row.authority_json || !["install", "update"].includes(row.operation_kind)) {
         fail("PHASE_CONFLICT", "Only a warming live generation can activate.");
       }
@@ -1122,9 +1150,10 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
 
   async enableGeneration(id: string, token: string): Promise<ExtensionEnableReceipt> {
     return this.transaction(async (session) => {
+      const durable = await this.prepareOperationStateWrite(session, id);
       const replay = await this.completedReceipt(session, id, ["install"]);
       if (replay) return replay as ExtensionEnableReceipt;
-      const row = await this.lockOperation(session, id, token);
+      const row = await this.lockPreparedOperation(session, durable, token);
       const plan = row.plan_json;
       if (row.phase !== "planning" || row.delivery_class !== "platform-plugin" || row.operation_kind !== "install" ||
         plan?.executionClass !== "live-generation" || !("retainedStaticGeneration" in plan)) {
@@ -1176,9 +1205,11 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
 
   async rollbackGeneration(id: string, token: string, stage: StagedGenerationActivation): Promise<ExtensionActivationReceipt> {
     return this.transaction(async (session) => {
+      assertStage(stage, this.clock.now(), false);
+      const durable = await this.prepareOperationStateWrite(session, id, (identity) => assertAuthorityOwner(identity, stage.authority));
       const replay = await this.completedReceipt(session, id, ["rollback"]);
       if (replay) return replay as ExtensionActivationReceipt;
-      const row = await this.lockOperation(session, id, token);
+      const row = await this.lockPreparedOperation(session, durable, token);
       if (row.phase !== "planning" || row.operation_kind !== "rollback" || row.plan_json?.executionClass !== "live-generation") {
         fail("PHASE_CONFLICT", "Only a planned live-generation rollback can commit.");
       }
@@ -1273,8 +1304,14 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
 
   async completeStaticRelease(id: string, token: string, receipt: StaticDeploymentReceipt): Promise<StaticDeploymentReceipt> {
     return this.transaction(async (session) => {
+      const durable = await this.readOperationIdentity(session, id);
+      if (durable.delivery_class !== "platform-plugin" || receipt.applicationId !== durable.application_id || receipt.environment !== durable.environment) {
+        fail("GENERATION_MISMATCH", "Static deployment receipt does not bind the durable runtime operation scope.");
+      }
+      await this.lockStaticReleaseScope(session, durable.application_id, durable.environment, id);
       const persisted = await session.query<OperationRow>(`select * from runtime_extension_operations where operation_id=$1 for update`, [id]);
       const replay = persisted.rows[0];
+      if (replay) this.assertOperationIdentity(durable, replay);
       if (replay?.phase === "completed") {
         if (replay.plan_json?.executionClass !== "static-release" || !replay.result_json || !("activeGenerationId" in replay.result_json) || canonicalJson(replay.result_json) !== canonicalJson(receipt)) {
           fail("STATE_INVALID", "Completed static release operation has a different persisted receipt.");
@@ -1282,6 +1319,7 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
         return replay.result_json;
       }
       const row = await this.lockOperation(session, id, token);
+      this.assertOperationIdentity(durable, row);
       if (row.delivery_class !== "platform-plugin" || row.plan_json?.executionClass !== "static-release" || row.plan_json.preparation !== "prepared" ||
         !["source-change-ready", "build-attested", "zero-downtime-eligible", "rollback-window-open"].includes(row.phase)) {
         fail("PHASE_CONFLICT", "Static deployment receipt cannot complete this runtime operation.");
@@ -1294,8 +1332,6 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
           (receipt.previousGenerationId !== plan.plan.currentGenerationId || receipt.activeGenerationId === receipt.previousGenerationId))) {
         fail("GENERATION_MISMATCH", "Static deployment receipt does not bind the planned runtime operation.");
       }
-      const identity = identityKey(row);
-      await session.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [identity]);
       const stateResult = await session.query<ExtensionRow>(
         `select *, 0::int as inventory_revision from runtime_extensions where application_id=$1 and environment=$2 and delivery_class=$3 and extension_id=$4 for update`,
         [row.application_id, row.environment, row.delivery_class, row.extension_id]
@@ -1332,13 +1368,6 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
       const priorGenerationEvidence = row.operation_kind === "update"
         ? previousGeneration ?? fail("STATE_INVALID", "Static update has no active immutable generation evidence.")
         : undefined;
-      await this.projectAuthorizationLifecycle(
-        session,
-        event,
-        [active ? receipt.activeGenerationId : previousRuntimeGenerationId ?? fail("STATE_INVALID", "Static disposition has no prior plugin generation.")],
-        updateCompatibility,
-        priorGenerationEvidence
-      );
       await this.sharedStaticGenerationRebinder.rebind({
         session,
         applicationId: row.application_id,
@@ -1348,6 +1377,13 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
         excludeExtensionId: row.extension_id,
         operationId: row.operation_id
       });
+      await this.projectAuthorizationLifecycle(
+        session,
+        event,
+        [active ? receipt.activeGenerationId : previousRuntimeGenerationId ?? fail("STATE_INVALID", "Static disposition has no prior plugin generation.")],
+        updateCompatibility,
+        priorGenerationEvidence
+      );
       await this.completeOperation(session, row, receipt);
       return receipt;
     });
@@ -1528,9 +1564,12 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
     disposition: "disabled" | "removed"
   ): Promise<ExtensionDispositionReceipt> {
     return this.transaction(async (session) => {
+      const durable = await this.prepareOperationStateWrite(session, id, (identity) => {
+        if (identity.operation_kind !== operationKind) fail("PHASE_CONFLICT", `Runtime extension operation is not ${operationKind}.`);
+      });
       const replay = await this.completedReceipt(session, id, [operationKind]);
       if (replay) return replay as ExtensionDispositionReceipt;
-      const row = await this.lockOperation(session, id, token);
+      const row = await this.lockPreparedOperation(session, durable, token);
       if (row.phase !== "planning" || row.operation_kind !== operationKind || row.plan_json?.executionClass !== "live-generation") {
         fail("PHASE_CONFLICT", `Only a planned live-generation ${operationKind} can commit.`);
       }
@@ -1935,6 +1974,67 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
     if (!row) fail("OPERATION_NOT_FOUND", "Runtime extension operation is unavailable.");
     if (row.lease_token !== token || new Date(row.lease_expires_at).valueOf() <= this.clock.now().valueOf()) fail("LEASE_CONFLICT", "Runtime extension operation lease is stale.");
     return row;
+  }
+
+  private async readOperationIdentity(session: RuntimeExtensionSession, id: string): Promise<OperationIdentityRow> {
+    const result = await session.query<OperationIdentityRow>(
+      `select operation_id, application_id, environment, delivery_class, extension_id, operation_kind
+       from runtime_extension_operations where operation_id=$1`,
+      [id]
+    );
+    const identity = result.rows[0];
+    if (!identity) fail("OPERATION_NOT_FOUND", "Runtime extension operation is unavailable.");
+    return identity;
+  }
+
+  private async prepareOperationStateWrite(
+    session: RuntimeExtensionSession,
+    id: string,
+    validate?: (identity: OperationIdentityRow) => void
+  ): Promise<OperationIdentityRow> {
+    const identity = await this.readOperationIdentity(session, id);
+    validate?.(identity);
+    if (identity.delivery_class === "platform-plugin") {
+      await session.query("select pg_advisory_xact_lock_shared(hashtextextended($1, 0))", [canonicalJson([identity.application_id, identity.environment, "static-deployment"])]);
+      await session.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [identityKey(identity)]);
+    }
+    return identity;
+  }
+
+  private async lockPreparedOperation(session: RuntimeExtensionSession, identity: OperationIdentityRow, token: string): Promise<OperationRow> {
+    const row = await this.lockOperation(session, identity.operation_id, token);
+    this.assertOperationIdentity(identity, row);
+    return row;
+  }
+
+  private assertOperationIdentity(expected: OperationIdentityRow, actual: OperationIdentityRow): void {
+    if (expected.operation_id !== actual.operation_id || expected.application_id !== actual.application_id ||
+      expected.environment !== actual.environment || expected.delivery_class !== actual.delivery_class ||
+      expected.extension_id !== actual.extension_id || expected.operation_kind !== actual.operation_kind) {
+      fail("STATE_INVALID", "Runtime extension immutable operation identity changed while acquiring lifecycle locks.");
+    }
+  }
+
+  private async lockStaticReleaseScope(
+    session: RuntimeExtensionSession,
+    applicationId: string,
+    environment: string,
+    operationId: string
+  ): Promise<void> {
+    await session.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [canonicalJson([applicationId, environment, "static-deployment"])]);
+    const identities = await session.query<{ extension_id: string }>(
+      `select locked.extension_id from (
+         select extension_id from runtime_extensions
+         where application_id=$1 and environment=$2 and delivery_class='platform-plugin'
+         union
+         select extension_id from runtime_extension_operations
+         where operation_id=$3 and application_id=$1 and environment=$2 and delivery_class='platform-plugin'
+       ) locked order by locked.extension_id collate "C"`,
+      [applicationId, environment, operationId]
+    );
+    for (const identity of identities.rows) {
+      await session.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [canonicalJson([applicationId, environment, "platform-plugin", identity.extension_id])]);
+    }
   }
 
   private async completedReceipt(

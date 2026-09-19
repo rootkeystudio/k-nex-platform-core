@@ -1,6 +1,6 @@
 {
   "name": "@k-nex/provider-realtime-socketio",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "sideEffects": false,
@@ -28,8 +28,8 @@
     "socket.io": "4.8.3"
   },
   "peerDependencies": {
-    "@k-nex/contracts": "1.0.0",
-    "@k-nex/runtime": "1.0.0"
+    "@k-nex/contracts": "1.1.0",
+    "@k-nex/runtime": "1.1.0"
   },
   "devDependencies": {
     "@k-nex/contracts": "workspace:*",

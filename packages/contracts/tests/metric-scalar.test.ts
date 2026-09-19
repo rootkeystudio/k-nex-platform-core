@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { MetricIntegerValueSchema, MetricScalarSchema, MetricScalarValueSchema } from "../src/metric-scalar.js";
+import { MetricIntegerValueSchema, MetricScalarSchema, MetricScalarV2Schema, MetricScalarValueSchema } from "../src/metric-scalar.js";
 
 const validValues = [
   { kind: "integer", value: 12 },
@@ -93,5 +93,18 @@ describe("metric.scalar@1", () => {
     expect(MetricScalarSchema.safeParse({ value: { kind: "text", value: "Open", url: "https://example.test" } }).success).toBe(false);
     expect(MetricScalarSchema.safeParse({ value: { kind: "text", value: "Open", code: "alert(1)" } }).success).toBe(false);
     expect(MetricScalarValueSchema.safeParse({ kind: "decimal", value: "1.5", scale: 2, unit: "https://example.test" }).success).toBe(false);
+  });
+});
+
+describe("metric.scalar@2", () => {
+  it("permits only unavailable percentage and duration values, while v1 remains byte-compatible", () => {
+    expect(MetricScalarV2Schema.safeParse({ value: { kind: "percentage", value: null } }).success).toBe(true);
+    expect(MetricScalarV2Schema.safeParse({ value: { kind: "duration", value: null, unit: "days" } }).success).toBe(true);
+    expect(MetricScalarSchema.safeParse({ value: { kind: "percentage", value: null } }).success).toBe(false);
+    for (const value of [{ kind: "integer", value: null }, { kind: "money", value: null, currency: "USD", scale: 2 }, { kind: "text", value: null }]) expect(MetricScalarV2Schema.safeParse({ value }).success).toBe(false);
+  });
+  it("forbids comparisons whenever either percentage or duration is unavailable", () => {
+    expect(MetricScalarV2Schema.safeParse({ value: { kind: "percentage", value: null }, comparison: { value: { kind: "percentage", value: "1" }, sentiment: "positive" } }).success).toBe(false);
+    expect(MetricScalarV2Schema.safeParse({ value: { kind: "duration", value: "1", unit: "days" }, comparison: { value: { kind: "duration", value: null, unit: "days" }, sentiment: "positive" } }).success).toBe(false);
   });
 });

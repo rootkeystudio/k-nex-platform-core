@@ -7,7 +7,7 @@ import { Form, TextInput } from "@k-nex/ui-forms";
 import { resolveMinimalThemeProfile } from "@k-nex/theme-minimal";
 import { resolveNeobrutalismThemeProfile } from "@k-nex/theme-neobrutalism";
 import { SalesTasksPage, createSalesTaskQuickCreateController, salesTasksTableDefinition } from "@k-nex/module-sales/pages";
-import { salesOpportunityStageMutation } from "@k-nex/module-sales/browser";
+import { salesOpportunityStageMutation, salesUpdateTaskMutation } from "@k-nex/module-sales/browser";
 import type { BrowserDataTransport } from "@k-nex/ui-runtime";
 
 const profile = (themeId: "theme.minimal" | "theme.neobrutalism", palette: string, revision: string) => ({
@@ -18,8 +18,8 @@ export const minimalPresentation = resolveMinimalThemeProfile(profile("theme.min
 export const neobrutalismPresentation = resolveNeobrutalismThemeProfile(profile("theme.neobrutalism", "primary", "p7-neobrutalism"));
 
 export const taskRecords = {
-  fields: ["title", "status", "potential-revenue"],
-  rows: [{ key: "task-1", values: { title: { kind: "text" as const, value: "Long localized customer follow-up task" }, status: { kind: "status" as const, value: "open" }, "potential-revenue": { kind: "money" as const, value: "1200", currency: "USD", scale: 2 } } }],
+  fields: ["title", "status"],
+  rows: [{ key: "task-1", values: { title: { kind: "text" as const, value: "Long localized customer follow-up task" }, status: { kind: "status" as const, value: "open" } } }],
   page: { number: 1, pageSize: 25, hasNext: false }
 };
 const transport = { query: async () => ({ ok: false as const, problem: { code: "UNUSED", status: 500 } }), mutate: async () => ({ ok: false as const, problem: { code: "UNUSED", status: 500 } }) } as BrowserDataTransport;
@@ -30,9 +30,10 @@ const taskActorFingerprint = `sha256:${"a".repeat(64)}`;
 const taskGridDefinition = defineDataTable({
   ...salesTasksTableDefinition,
   rowActions: [
-    ...(salesTasksTableDefinition.rowActions ?? []),
-    { id: salesOpportunityStageMutation.action.id, action: salesOpportunityStageMutation.action, mutation: salesOpportunityStageMutation, input: (rowKey: string) => ({ id: rowKey, stage: "won" }), label: "Archive" }
-  ]
+    { id: salesUpdateTaskMutation.action.id, action: salesUpdateTaskMutation.action, mutation: salesUpdateTaskMutation, input: (rowKey: string) => ({ id: rowKey, expectedRevision: 1, expectedStatus: "open", status: "completed" }), label: "Complete" },
+    { id: salesOpportunityStageMutation.action.id, action: salesOpportunityStageMutation.action, mutation: salesOpportunityStageMutation, input: (rowKey: string) => ({ id: rowKey, expectedRevision: 1, expectedPipelineId: "17", expectedPipelineRevision: 1, expectedSourceStageId: "76ad7b41-5584-5d62-ab10-2575df5a8d47", expectedSourceStageRevision: 1, destinationStageId: "a5299df1-1fd8-50dd-947a-4ed1ea145b2d", expectedDestinationStageRevision: 1 }), label: "Move to Discovery" }
+  ],
+  bulkActions: [{ id: salesUpdateTaskMutation.action.id, action: salesUpdateTaskMutation.action, mutation: salesUpdateTaskMutation, input: (rowKey: string) => ({ id: rowKey, expectedRevision: 1, expectedStatus: "open", status: "completed" }), label: "Complete" }]
 });
 const taskAuthorization = resolveDataTableActionAuthorization(salesTasksTableDefinition, taskActorFingerprint, {
   resolve: (request) => ({
@@ -70,6 +71,7 @@ function Surface({ label, presentation }: { readonly label: string; readonly pre
     <div data-matrix-state="rtl" dir="rtl">مرحبا بالمبيعات</div>
     <div data-matrix-state="long-text">Long localized customer follow-up task with intentionally extended content for bounded layout evidence</div>
     <div data-matrix-state="localization" lang="tr">Satış görevleri yerelleştirme kontrolü</div>
+    <DataTable definition={taskGridDefinition} actionAuthorization={taskGridAuthorization} actionActorFingerprint={taskActorFingerprint} mutationExecutor={mutationExecutor} viewState={viewState} requestState={{ state: "success", data: taskRecords }} label="Task selection table" onViewStateChange={setViewState} />
     <SalesTasksPage requestState={{ state: "success", data: taskRecords }} viewState={viewState} actionAuthorization={taskAuthorization} actionActorFingerprint={taskActorFingerprint} createTask={createTask} onViewStateChange={setViewState} onCreateTaskChange={() => undefined} onCreateTask={() => undefined} />
     <Dialog triggerLabel={`Open ${label} matrix dialog`} title={`${label} matrix dialog`}>Overlay performance probe</Dialog>
     <DataGrid definition={taskGridDefinition} actionAuthorization={taskGridAuthorization} actionActorFingerprint={taskActorFingerprint} mutationExecutor={mutationExecutor} viewState={selectedState} requestState={{ state: "success", data: taskRecords }} label="Task grid" renderDetail={(row) => row.key} />

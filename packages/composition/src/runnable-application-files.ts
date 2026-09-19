@@ -55,16 +55,39 @@ Before starting this application, deploy the K-Nex administration operator as a 
 
 ## Local development
 
-Copy \`.env.example\` to \`.env\`, set every value, then run:
+Copy \`.env.example\` to \`.env\`, set every value, then run the steps in this order. \`knex:doctor\` reports readiness, which requires the schema, the owner, and a reachable administration operator, so it runs after those exist rather than before them:
 
 \`\`\`bash
 pnpm install --frozen-lockfile
-pnpm knex:doctor
+pnpm build
 ${options.database === "docker-postgres" ? "pnpm knex:db:up\n" : ""}pnpm knex:migrate
 pnpm knex:issue-bootstrap-token -- --output .k-nex-bootstrap-token
 pnpm knex:bootstrap-owner -- --token-file .k-nex-bootstrap-token
+pnpm knex:doctor
 pnpm dev
 \`\`\`
+
+Run \`pnpm knex:worker\` alongside \`pnpm dev\`: reminders, notifications, exports, and provider delivery are processed by that worker, not by the web process.
+
+## Communication providers
+
+This release ships one bounded reference provider for email and calendar. \`K_NEX_REFERENCE_PROVIDER_ENDPOINT\` accepts only \`http://127.0.0.1/k-nex/reference-provider\`, and that endpoint is something you run: no SMTP, calendar, or third-party integration is included. Until a provider configuration is activated, the email and calendar actions fail closed with \`PROVIDER_UNAVAILABLE\` rather than accepting messages that cannot be delivered.
+
+The endpoint you run is held to the \`k-nex.reference-provider.v1\` contract, and it is the only provider family this release admits. Nothing here can unsend a message, so the endpoint must (1) treat the \`idempotency-key\` header as a durable exactly-once key whose store survives a provider restart, (2) answer \`{"providerReceiptId","idempotencyKey","duplicate"}\` as JSON on every accepted send, (3) answer the same receipt for a request carrying \`x-k-nex-reconcile: 1\` and \`404\` when the key is unknown, so a worker that lost a response reconciles instead of sending twice, and (4) answer \`409\` when a key it already holds arrives with different bytes. The worker verifies that declaration before every effect, records the opaque receipt, and never holds a database lock across your call.
+
+Outbound provider credentials and inbound webhook signing keys are separate slots with separate rotation. \`K_NEX_PROVIDER_SECRET_EMAIL_REFERENCE\` and \`K_NEX_PROVIDER_SECRET_CALENDAR_REFERENCE\` authorize outbound calls only; \`K_NEX_WEBHOOK_SECRET_EMAIL_REFERENCE\` and \`K_NEX_WEBHOOK_SECRET_CALENDAR_REFERENCE\` verify inbound webhook signatures only. A reference minted for one purpose never resolves under the other, so losing an API credential does not grant webhook-forgery authority.
+
+## Attachment upload receipts
+
+Attachment bytes are admitted by host storage before a Sales attachment reference is created. A deployment/operator process with this application's database authority records one immutable receipt; browsers and Sales actions cannot issue receipts. After storage has durably accepted the exact bytes, issue the bounded receipt with the same application environment:
+
+\`\`\`bash
+pnpm knex:issue-attachment-upload-receipt -- \\
+  --storage-ref storage/object-123 --uploader-actor-id user:123 \\
+  --filename document.pdf --media-type application/pdf --byte-size 1024
+\`\`\`
+
+Reissuing identical facts is safe. A storage reference already bound to different application, environment, uploader, filename, media type, byte size, or receipt revision fails closed.
 
 Production-mode check:
 
@@ -160,10 +183,11 @@ if (process.versions.node.split(".")[0] !== "24" || missing.length > 0 || kNexSa
 console.log("K_NEX_DOCTOR_PASS");
 `,
     "src/k-nex-worker.ts": `import { bootKnexApplication } from "./boot.js";
+import { shutdownKnexApplication } from "./k-nex-authority.js";
 
 const payload = await bootKnexApplication("worker");
 console.log("K_NEX_WORKER_READY");
-await payload.destroy();
+await shutdownKnexApplication(payload);
 `,
     "src/k-nex-bootstrap-owner.ts": `if (!process.env.K_NEX_BOOTSTRAP_TOKEN) throw new Error("K_NEX_BOOTSTRAP_TOKEN is required.");
 throw new Error("Run migrations before owner bootstrap; secure owner persistence is installed by the application authorization layer.");

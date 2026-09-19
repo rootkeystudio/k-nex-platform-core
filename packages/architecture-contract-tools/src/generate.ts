@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url";
 
 import {
   ActionDescriptorSchema,
+  ApplicationReleaseLockSchema,
+  ApplicationUpgradePlanEnvelopeV1Schema,
   AdministrationOperatorAuthenticatedCommandSchema,
   AgentToolDescriptorSchema,
   ApplicationManifestSchema,
@@ -16,6 +18,7 @@ import {
   ExtensionBundleManifestSchema,
   ExtensionCapabilityRequestSchema,
   ExtensionGenerationSchema,
+  GeneratedFileOwnershipManifestSchema,
   ExtensionInstallPlanSchema,
   ExtensionInstallReceiptSchema,
   ExtensionLifecycleEventSchema,
@@ -24,7 +27,10 @@ import {
   HotApplicationManifestSchema,
   MigrationCompatibilityPlanSchema,
   MetricScalarSchema,
+  MetricScalarV2Schema,
   PackageReleaseManifestSchema,
+  PlatformReleaseTransitionManifestSchema,
+  PreparationResultV1Schema,
   RuntimeInventorySchema,
   RuntimeExtensionInventorySchema,
   ThemeSkinManifestSchema,
@@ -208,6 +214,18 @@ function migrationCompatibilityPlanJsonSchema(): unknown {
   return generated;
 }
 
+function platformReleaseTransitionManifestJsonSchema(): unknown {
+  const generated = jsonSchema(PlatformReleaseTransitionManifestSchema) as Record<string, unknown>;
+  generated.kNexPlatformReleaseTransitionInvariants = true;
+  return generated;
+}
+
+function applicationUpgradeJsonSchema(schema: z.core.$ZodType, kind: "release-lock" | "ownership" | "plan" | "preparation"): unknown {
+  const generated = jsonSchema(schema) as Record<string, unknown>;
+  generated.kNexApplicationUpgradeInvariant = kind;
+  return generated;
+}
+
 function staticCompositionChangePlanJsonSchema(): unknown {
   const generated = jsonSchema(StaticCompositionChangePlanSchema) as Record<string, any>;
   referencedDefinition(generated, "migration").kNexMigrationRevisionChangeRequiresSteps = true;
@@ -261,12 +279,18 @@ const primaryArtifacts = [
   { path: "schemas/migration-compatibility-plan.v1.schema.json", value: migrationCompatibilityPlanJsonSchema() },
   { path: "schemas/worker-generation-fence.v1.schema.json", value: jsonSchema(WorkerGenerationFenceSchema) },
   { path: "schemas/package-release-manifest.v1.schema.json", value: jsonSchema(PackageReleaseManifestSchema) },
+  { path: "schemas/platform-release-transition-manifest.v1.schema.json", value: platformReleaseTransitionManifestJsonSchema() },
   { path: "schemas/runtime-inventory.v1.schema.json", value: jsonSchema(RuntimeInventorySchema) },
   { path: "schemas/runtime-extension-inventory.v1.schema.json", value: jsonSchema(RuntimeExtensionInventorySchema) },
   { path: "schemas/deployment-receipt.v1.schema.json", value: jsonSchema(DeploymentReceiptSchema) },
   { path: "schemas/application-manifest.v1.schema.json", value: applicationJsonSchema() },
+  { path: "schemas/application-release-lock.v1.schema.json", value: applicationUpgradeJsonSchema(ApplicationReleaseLockSchema, "release-lock") },
+  { path: "schemas/generated-file-ownership-manifest.v1.schema.json", value: applicationUpgradeJsonSchema(GeneratedFileOwnershipManifestSchema, "ownership") },
+  { path: "schemas/application-upgrade-plan-envelope.v1.schema.json", value: applicationUpgradeJsonSchema(ApplicationUpgradePlanEnvelopeV1Schema, "plan") },
+  { path: "schemas/application-upgrade-preparation-result.v1.schema.json", value: applicationUpgradeJsonSchema(PreparationResultV1Schema, "preparation") },
   { path: "schemas/event.v1.schema.json", value: eventJsonSchema() },
   { path: "schemas/metric-scalar.v1.schema.json", value: jsonSchema(MetricScalarSchema) },
+  { path: "schemas/metric-scalar.v2.schema.json", value: jsonSchema(MetricScalarV2Schema) },
   { path: "schemas/table-records.v1.schema.json", value: jsonSchema(TableRecordsSchema) },
   { path: "schemas/theme-profile.v1.schema.json", value: themeProfileJsonSchema() },
   { path: "schemas/theme-profile-publication-event.v1.schema.json", value: jsonSchema(ThemeProfilePublicationEventSchema) },
@@ -281,6 +305,7 @@ const primaryArtifacts = [
 
 const outputContractSchemas = [
   { id: "metric.scalar@1", schema: "schemas/metric-scalar.v1.schema.json" },
+  { id: "metric.scalar@2", schema: "schemas/metric-scalar.v2.schema.json" },
   { id: "table.records@1", schema: "schemas/table-records.v1.schema.json" }
 ] as const;
 

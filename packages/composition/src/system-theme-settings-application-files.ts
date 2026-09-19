@@ -19,9 +19,13 @@ export const systemGeneralSettingsDescriptor = SystemSettingsDescriptorSchema.pa
   schemaVersion: 1,
   id: "system.general",
   publisher: { kind: "platform", namespace: "system" },
-  descriptorSchemaVersion: 1,
+  descriptorSchemaVersion: 3,
   validation: "immediate",
-  fields: { siteName: { type: "string", required: true, default: "K-Nex" } },
+  fields: {
+    siteName: { type: "string", required: true, default: "K-Nex" },
+    reportingCurrency: { type: "string", required: true, description: "ISO 4217 currency used for reporting; rates are never inferred." },
+    reportingTimezone: { type: "string", required: true, default: "UTC", description: "Canonical IANA timezone used for application reporting and saved calendars." }
+  },
   readPermission: "system.settings.read",
   changePermission: "system.settings.manage"
 });

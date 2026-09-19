@@ -53,6 +53,13 @@ function resolver(handler: (current: TrustedAuthorizationSession, request: Effec
   return { authorize: vi.fn(handler) } as unknown as Pick<EffectiveAuthorityResolver, "authorize">;
 }
 
+function deferred<T>() {
+  let resolve: (value: T) => void = () => undefined;
+  let reject: (reason?: unknown) => void = () => undefined;
+  const promise = new Promise<T>((nextResolve, nextReject) => { resolve = nextResolve; reject = nextReject; });
+  return { promise, resolve, reject };
+}
+
 describe("current authority adapter", () => {
   it("authorizes only a branded server-selected target", async () => {
     const current = session();
@@ -96,5 +103,44 @@ describe("current authority adapter", () => {
 
     const waitingResolver = new CurrentAuthorityAdapter({ current: async () => session() }, resolver(async () => never), 5);
     await expect(waitingResolver.allows({}, target())).resolves.toBe(false);
+  });
+
+  it("drains raw session work without admitting a resolver after closure", async () => {
+    const current = deferred<TrustedAuthorizationSession>();
+    const authority = resolver(async (active, request) => decision(request, active));
+    const adapter = new CurrentAuthorityAdapter({ current: () => current.promise }, authority, 5);
+    const authorization = adapter.allows({}, target());
+    const draining = adapter.drain();
+    let drained = false;
+    void draining.then(() => { drained = true; });
+    await expect(authorization).resolves.toBe(false);
+    await Promise.resolve();
+    expect(drained).toBe(false);
+    current.resolve(session());
+    await expect(draining).resolves.toBeUndefined();
+    expect(authority.authorize).not.toHaveBeenCalled();
+    await expect(adapter.allows({}, target())).resolves.toBe(false);
+  });
+
+  it("drains raw resolver work concurrently and absorbs delayed rejection", async () => {
+    const active = session();
+    const resolution = deferred<AuthorizationDecision>();
+    const entered = deferred<void>();
+    const authority = resolver(() => { entered.resolve(); return resolution.promise; });
+    const adapter = new CurrentAuthorityAdapter({ current: async () => active }, authority, 100);
+    const authorization = adapter.allows({}, target());
+    await entered.promise;
+    expect(authority.authorize).toHaveBeenCalledOnce();
+    await expect(authorization).resolves.toBe(false);
+    const first = adapter.drain();
+    const second = adapter.drain();
+    let firstDone = false;
+    void first.then(() => { firstDone = true; });
+    await Promise.resolve();
+    expect(firstDone).toBe(false);
+    resolution.reject(new Error("late resolver failure"));
+    await expect(Promise.all([first, second])).resolves.toEqual([undefined, undefined]);
+    await expect(adapter.allows({}, target())).resolves.toBe(false);
+    expect(authority.authorize).toHaveBeenCalledOnce();
   });
 });

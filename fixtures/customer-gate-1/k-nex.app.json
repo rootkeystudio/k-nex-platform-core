@@ -33,13 +33,13 @@
     {
       "id": "module.sales",
       "package": "@k-nex/module-sales",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "enabled": true
     },
     {
       "id": "provider.realtime.socketio",
       "package": "@k-nex/provider-realtime-socketio",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "enabled": true
     }
   ],
@@ -47,7 +47,7 @@
     "realtime.gateway": {
       "plugin": "provider.realtime.socketio",
       "package": "@k-nex/provider-realtime-socketio",
-      "version": "1.0.0"
+      "version": "1.1.0"
     }
   },
   "themes": {},

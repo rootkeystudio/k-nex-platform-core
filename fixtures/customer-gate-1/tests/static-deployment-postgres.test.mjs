@@ -387,7 +387,12 @@ async function prepareCustomerSource() {
   await cp(join(staticDeploymentDirectory, "customer-package.json"), join(sourceDirectory, "package.json"));
   await cp(staticDeploymentDirectory, join(sourceDirectory, "static-deployment"), { recursive: true });
   await cp(join(fixtureDirectory, "..", "customer-alpha", "src"), join(sourceDirectory, "src"), { recursive: true });
-  await cp(join(fixtureDirectory, "src", "current-authority.ts"), join(sourceDirectory, "src", "current-authority.ts"));
+  const currentAuthority = await readFile(join(fixtureDirectory, "src", "current-authority.ts"), "utf8");
+  assert.match(currentAuthority, /@k-nex\/module-sales-current\//u, "The fixture's live-Sales test alias must remain explicit before static release composition.");
+  await writeFile(
+    join(sourceDirectory, "src", "current-authority.ts"),
+    currentAuthority.replaceAll("@k-nex/module-sales-current/", "@k-nex/module-sales/")
+  );
   await rm(join(sourceDirectory, "src", "migrations"), { recursive: true, force: true });
   await cp(join(fixtureDirectory, "src", "migrations"), join(sourceDirectory, "src", "migrations"), { recursive: true, force: true });
   await mkdir(join(sourceDirectory, ".k-nex"), { recursive: true });
@@ -550,10 +555,16 @@ async function provisionStaticBinarySchema(pool) {
     grant select on p9_static_sales_lifecycle_authority to p9_static_blue, p9_static_green;
     grant select (application_id, environment, delivery_class, extension_id, disposition, active_generation_id, active_generation) on runtime_extensions to p9_static_blue, p9_static_green;
     grant select on k_nex_authorization_state, k_nex_extension_authorization_generations, k_nex_roles, k_nex_role_permission_grants, k_nex_role_assignments to p9_static_blue, p9_static_green;
+    grant select (application_id, environment, principal_id, record_scope, application_wide, mutation_allowed, authorized_team_ids, revision, state) on sales_current_authority_scopes to p9_static_blue, p9_static_green;
+    grant select (application_id, environment, descriptor_id, descriptor_schema_version, owner_scope_key, document_revision, settings_revision, values_json) on k_nex_system_settings_documents to p9_static_blue, p9_static_green;
+    grant select (application_id, environment, source_id, revision, updated_at), insert (application_id, environment, source_id, revision), update (revision, updated_at) on sales_report_source_watermarks to p9_static_blue, p9_static_green;
+    grant select (id, created_at), delete on payload_locked_documents to p9_static_blue, p9_static_green;
+    grant select (parent_id, path, sales_tasks_id, sales_opportunities_id, users_id) on payload_locked_documents_rels to p9_static_blue, p9_static_green;
     grant select on runtime_worker_generation_fences to p9_static_blue, p9_static_green;
     grant insert on p9_static_binary_observations to p9_static_blue, p9_static_green;
-    grant insert (id, title, status, potential_revenue, private_note, updated_at, created_at) on sales_tasks to p9_static_blue, p9_static_green;
-    grant select (id, title, status, potential_revenue, private_note, updated_at, created_at) on sales_tasks to p9_static_blue, p9_static_green;
+    grant insert (id, application_id, environment, owner_id, team_id, created_by, updated_by, revision, audit, due_date, related_record_id, related_record_type, archive_status, status, title, updated_at, created_at) on sales_tasks to p9_static_blue, p9_static_green;
+    grant select (id, application_id, environment, owner_id, team_id, created_by, updated_by, revision, audit, due_date, related_record_id, related_record_type, archive_status, status, title, updated_at, created_at) on sales_tasks to p9_static_blue, p9_static_green;
+    grant insert (application_id, environment, effective_actor_id, action_id, idempotency_key, request_digest, result_json, result_digest, authorization_revision, lifecycle_revision), select (application_id, environment, effective_actor_id, action_id, idempotency_key, request_digest, result_json, result_digest), update (result_json, result_digest) on sales_action_idempotency to p9_static_blue, p9_static_green;
     grant select (id, name, batch, updated_at, created_at) on payload_migrations to p9_static_blue, p9_static_green;
     grant insert (event_id, event_type, schema_version, message_class, occurred_at, application_id, plugin_id, actor_id, actor_type, impersonator_id, correlation_id, causation_id, idempotency_key, payload, retention_until) on k_nex_outbox to p9_static_blue, p9_static_green;
     grant usage on sequence p9_static_binary_observations_id_seq, p9_static_process_events_id_seq, sales_tasks_id_seq, k_nex_outbox_id_seq to p9_static_blue, p9_static_green;
@@ -641,6 +652,12 @@ test("proves distinct customer binaries and deployment processes recover from Po
     const baseBuildPath = join(artifactsDirectory, "base-build.json");
     await writeFile(baseBuildPath, `${canonicalJson({ ...blueBuild, sourceCommit: baseCommit })}\n`);
     await boot(postgres.getConnectionUri());
+    await pool.query("insert into k_nex_system_settings_state (application_id,environment,settings_revision) values ('customer-alpha','production',1)");
+    await pool.query(
+      "insert into k_nex_system_settings_documents (application_id,environment,descriptor_id,descriptor_schema_version,owner_scope_key,owner_kind,owner_namespace,document_revision,settings_revision,values_json) values ('customer-alpha','production','system.general',3,'platform:system','platform','system',1,1,$1::jsonb)",
+      [JSON.stringify({ siteName: "K-Nex", reportingTimezone: "UTC", reportingCurrency: "USD" })]
+    );
+    await pool.query("insert into sales_current_authority_scopes (application_id,environment,principal_id,record_scope,application_wide,mutation_allowed,authorized_team_ids,state,revision) values ('customer-alpha','production','p10-static-sales-user','owned-or-assigned-team',false,true,'[]'::jsonb,'active',1)");
     await provisionStaticBinarySchema(pool);
     await docker(["network", "create", "--label", `p9-fixture=${network}`, network]);
     networkCreated = true;
@@ -1108,6 +1125,11 @@ test("proves distinct customer binaries and deployment processes recover from Po
       try { await assert.rejects(rolePool.query(statement), /permission denied/u); }
       finally { await rolePool.end(); }
     };
+    const assertRoleAllowed = async (role, statement) => {
+      const rolePool = new pg.Pool({ connectionString: processEnv(role, {}).DATABASE_URL });
+      try { await rolePool.query(statement); }
+      finally { await rolePool.end(); }
+    };
     await Promise.all([
       assertRoleDenied("builder", "update runtime_static_release_requests set generation_id='forged'"),
       assertRoleDenied("worker", "select * from runtime_static_release_requests"),
@@ -1117,9 +1139,13 @@ test("proves distinct customer binaries and deployment processes recover from Po
       assertRoleDenied("web-admin", "select * from runtime_static_release_requests"),
       assertRoleDenied("blue", "delete from sales_tasks"),
       assertRoleDenied("green", "update sales_tasks set title='forged'"),
-      assertRoleDenied("blue", "insert into sales_opportunities (name, stage) values ('forged', 'lead')"),
+      assertRoleDenied("green", "update k_nex_authorization_state set authorization_revision=authorization_revision+1"),
+      assertRoleDenied("green", "update sales_current_authority_scopes set revision=revision+1"),
+      assertRoleDenied("green", "select * from k_nex_authorization_state for share"),
+      assertRoleDenied("blue", "insert into sales_opportunities default values"),
       assertRoleDenied("green", "delete from k_nex_outbox")
     ]);
+    await assertRoleAllowed("green", "select authorization_revision,lifecycle_revision from public.k_nex_authorization_state where application_id='customer-alpha'");
     let realtimeProcess = startTopologyProcess("realtime-client", processEnv("realtime-client", { P9_PROCESS_INSTANCE: "realtime-1", P9_GATEWAY_URL: processGatewayUrl }));
     topology.push(realtimeProcess);
     await realtimeProcess.ready;
@@ -1299,7 +1325,7 @@ test("proves distinct customer binaries and deployment processes recover from Po
     const packagedBlueWorkerControlToken = sha256(`${network}:${owner.applicationId}:${owner.environment}:${blue.generationId}:release-worker-control`);
     const packagedWorkerEffect = observeDeferred(fetch(`http://127.0.0.1:${packagedBlueWorkerPort}/execute`, {
       method: "POST", headers: { "content-type": "application/json", "x-p9-worker-control": packagedBlueWorkerControlToken },
-      body: JSON.stringify({ effectId: "packaged-worker-effect", payload: "packaged worker external effect", delayMs: 15_000 })
+      body: JSON.stringify({ effectId: "packaged-worker-effect", payload: "packaged worker external effect", delayMs: 15_000, waitForDrain: true })
     }).then(async (response) => {
       const result = await response.json();
       if (!response.ok) throw new Error(result.error ?? "Packaged Blue worker effect failed.");
@@ -1340,7 +1366,7 @@ test("proves distinct customer binaries and deployment processes recover from Po
       const response = await fetch(`${alphaRoute}/sales-operation`, {
         method: "POST",
         headers,
-        body: JSON.stringify({ title: `Denied ${label} Sales mutation`, status: "open", potentialRevenue: "1" })
+        body: JSON.stringify({ title: `Denied ${label} Sales mutation` })
       });
       assert.equal(response.status, 403, `${label} request borrowed the seeded Sales principal.`);
       assert.deepEqual(await response.json(), { authorized: false });
@@ -1361,7 +1387,7 @@ test("proves distinct customer binaries and deployment processes recover from Po
       pausedBlueMutation = observeDeferred(fetch(`${alphaRoute}/sales-operation`, {
         method: "POST",
         headers: { "content-type": "application/json", authorization: "Bearer trusted-smoke-token:p10-static-sales-user", "x-idempotency-key": "p10-paused-blue-operation" },
-        body: JSON.stringify({ title: "Paused Blue must not execute", status: "open", potentialRevenue: "1" })
+        body: JSON.stringify({ title: "Paused Blue must not execute" })
       }).then((response) => ({ response }), (error) => ({ error })));
       for (let attempt = 0; attempt < 100 && await waitingAdvisoryLocks() < waitingBeforeRace + 2; attempt += 1) await delay(10);
       assert.equal(await waitingAdvisoryLocks() >= waitingBeforeRace + 2, true, "Blue Sales mutation did not pause behind Green reconciliation.");
@@ -1435,7 +1461,7 @@ test("proves distinct customer binaries and deployment processes recover from Po
     const releaseSalesRequest = () => ({
       method: "POST",
       headers: { "content-type": "application/json", authorization: "Bearer trusted-smoke-token:p10-static-sales-user", "x-idempotency-key": "p10-current-authority-release-operation" },
-      body: JSON.stringify({ title: "Current authority release proof", status: "open", potentialRevenue: "1" })
+      body: JSON.stringify({ title: "Current authority release proof" })
     });
     const [greenAuthorization, blueAuthorization] = await Promise.all([
       fetch(`${releaseRoute["customer-alpha-green-12"]}/sales-operation`, releaseSalesRequest()),
@@ -1444,8 +1470,293 @@ test("proves distinct customer binaries and deployment processes recover from Po
     const greenAuthorizationBody = await greenAuthorization.json();
     assert.equal(greenAuthorization.status, 200, `The actual promoted Green release process must pass current RBAC before its Sales action: ${JSON.stringify(greenAuthorizationBody)}`);
     assert.equal(greenAuthorizationBody.authorized, true);
+    const greenTaskId = Number(greenAuthorizationBody.task?.id);
+    assert.equal(Number.isSafeInteger(greenTaskId) && greenTaskId > 0, true, "Static task create must return its allocated public.sales_tasks ID.");
+    const greenTaskEvidence = (await pool.query(
+      "select id,title,status,revision,audit from sales_tasks where id=$1",
+      [greenTaskId]
+    )).rows[0];
+    assert.deepEqual(
+      { id: Number(greenTaskEvidence?.id), title: greenTaskEvidence?.title, status: greenTaskEvidence?.status, revision: Number(greenTaskEvidence?.revision) },
+      { id: greenTaskId, title: "Current authority release proof", status: "open", revision: 1 },
+      "Static create must persist the allocated ID and final task state in one create-only write."
+    );
+    const greenAudit = Array.isArray(greenTaskEvidence?.audit) ? greenTaskEvidence.audit[0] : undefined;
+    assert.deepEqual(
+      { actionId: greenAudit?.actionId, resourceId: greenAudit?.resourceId, fromState: greenAudit?.fromState, toState: greenAudit?.toState, revision: greenAudit?.revision },
+      { actionId: "sales.task.create", resourceId: String(greenTaskId), fromState: "absent", toState: "open", revision: 1 },
+      "Static task audit must be final at INSERT, not patched with an UPDATE."
+    );
+    const greenIdempotency = (await pool.query(
+      "select action_id,result_json from sales_action_idempotency where application_id=$1 and environment=$2 and effective_actor_id=$3 and idempotency_key=$4",
+      [owner.applicationId, owner.environment, "p10-static-sales-user", "p10-current-authority-release-operation"]
+    )).rows[0];
+    assert.deepEqual(
+      { actionId: greenIdempotency?.action_id, state: greenIdempotency?.result_json?.state, data: greenIdempotency?.result_json?.data },
+      { actionId: "sales.task.create", state: "succeeded", data: greenAuthorizationBody.task },
+      "Static idempotency must finalize exactly the create result."
+    );
+    assert.deepEqual((await pool.query(
+      "select event_type,plugin_id,payload->>'resourceId' resource_id,payload->>'actionId' action_id,payload->>'operation' operation from k_nex_outbox where event_id=$1",
+      [greenAudit.idempotencyKey]
+    )).rows, [{ event_type: "sales.event.task-changed", plugin_id: "module.sales", resource_id: String(greenTaskId), action_id: "sales.task.create", operation: "create" }]);
     assert.equal(blueAuthorization.status, 403, "The still-running Blue release process must fail current RBAC after Green promotion.");
     assert.deepEqual(await blueAuthorization.json(), { authorized: false });
+
+    // Static task creates are readers of immutable runtime and current authority.
+    // Lifecycle/authorization writers use the inverse-compatible global → runtime
+    // → authority exclusive sequence.  This matrix uses real PostgreSQL lock
+    // waiters, never wall-clock ordering, to prove the two sides linearize.
+    const staticDeploymentLock = (applicationId) => canonicalJson([applicationId, owner.environment, "static-deployment"]);
+    const runtimeLock = (applicationId) => canonicalJson([applicationId, owner.environment, "platform-plugin", "module.sales"]);
+    const authorizationLock = (applicationId) => canonicalJson([applicationId, "authorization-state"]);
+    const waitForAdvisoryWaiters = async (minimum, message) => {
+      for (let attempt = 0; attempt < 500; attempt += 1) {
+        const count = Number((await pool.query("select count(*)::int count from pg_locks where locktype='advisory' and not granted")).rows[0]?.count);
+        if (count >= minimum) return;
+        await delay(10);
+      }
+      assert.fail(message);
+    };
+    const beginStaticWriter = async (client, applicationId = owner.applicationId) => {
+      await client.query("begin");
+      for (const key of [staticDeploymentLock(applicationId), runtimeLock(applicationId), authorizationLock(applicationId)]) {
+        await client.query("select pg_advisory_xact_lock(hashtextextended($1,0))", [key]);
+      }
+    };
+    const advanceAuthorizationRevision = async (client) => {
+      await client.query("update k_nex_authorization_state set authorization_revision=authorization_revision+1,updated_at=now() where application_id=$1", [owner.applicationId]);
+      await client.query("update k_nex_extension_authorization_generations set authorization_revision=(select authorization_revision from k_nex_authorization_state where application_id=$1),updated_at=now() where application_id=$1 and delivery_class='platform-plugin' and extension_id='module.sales' and state='current'", [owner.applicationId]);
+    };
+    const salesCreate = (title, key) => fetch(`${releaseRoute["customer-alpha-green-12"]}/sales-operation`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: "Bearer trusted-smoke-token:p10-static-sales-user", "x-idempotency-key": key },
+      body: JSON.stringify({ title })
+    });
+    const taskMutationCounts = async (title, key) => ({
+      tasks: Number((await pool.query("select count(*)::int count from sales_tasks where title=$1", [title])).rows[0].count),
+      outbox: Number((await pool.query("select count(*)::int count from k_nex_outbox where plugin_id='module.sales'")).rows[0].count),
+      idempotency: Number((await pool.query("select count(*)::int count from sales_action_idempotency where application_id=$1 and environment=$2 and effective_actor_id='p10-static-sales-user' and idempotency_key=$3", [owner.applicationId, owner.environment, key])).rows[0].count)
+    });
+    const scopeSnapshot = async () => (await pool.query(
+      "select state,revision from sales_current_authority_scopes where application_id=$1 and environment=$2 and principal_id='p10-static-sales-user'",
+      [owner.applicationId, owner.environment]
+    )).rows[0];
+    const restoreScope = async (state) => {
+      const writer = await pool.connect();
+      try {
+        await beginStaticWriter(writer);
+        await writer.query("update sales_current_authority_scopes set state=$4,revision=revision+1,updated_at=now() where application_id=$1 and environment=$2 and principal_id=$3", [owner.applicationId, owner.environment, "p10-static-sales-user", state]);
+        await advanceAuthorizationRevision(writer);
+        await writer.query("commit");
+      } catch (error) {
+        await writer.query("rollback").catch(() => undefined);
+        throw error;
+      } finally { writer.release(); }
+    };
+    const mutationWins = async (label, mutate, restore) => {
+      const title = `Static ${label} mutation must win`;
+      const key = `p13-static-${label}-mutation-wins`;
+      const before = await taskMutationCounts(title, key);
+      const writer = await pool.connect();
+      let committed = false;
+      try {
+        await beginStaticWriter(writer);
+        await mutate(writer);
+        const blocked = observeDeferred(salesCreate(title, key));
+        await waitForAdvisoryWaiters(1, `${label} writer did not block the static task reader.`);
+        await writer.query("commit");
+        committed = true;
+        const response = await blocked;
+        assert.equal(response.status, 403, `${label} committed before task admission must fail closed.`);
+        assert.deepEqual(await response.json(), { authorized: false });
+        assert.deepEqual(await taskMutationCounts(title, key), before, `${label} denial must leave task, outbox, and idempotency rows untouched.`);
+      } finally {
+        if (!committed) await writer.query("rollback").catch(() => undefined);
+        writer.release();
+        await restore();
+      }
+    };
+    const scopeBeforeMutationMatrix = await scopeSnapshot();
+    assert.ok(scopeBeforeMutationMatrix, "Static Sales scope must exist before the lock matrix.");
+    await mutationWins(
+      "scope-revoke",
+      async (writer) => {
+        await writer.query("update sales_current_authority_scopes set state='revoked',revision=revision+1,updated_at=now() where application_id=$1 and environment=$2 and principal_id=$3", [owner.applicationId, owner.environment, "p10-static-sales-user"]);
+        await advanceAuthorizationRevision(writer);
+      },
+      () => restoreScope(scopeBeforeMutationMatrix.state)
+    );
+    const grantBeforeMutationMatrix = (await pool.query(
+      "select application_id,grant_id,role_id,permission_id,owner_kind,owner_namespace,owner_delivery_class,owner_extension_id,owner_generation,revision from k_nex_role_permission_grants where application_id=$1 and grant_id='p10-static-sales-write'",
+      [owner.applicationId]
+    )).rows[0];
+    assert.ok(grantBeforeMutationMatrix, "Static Sales task grant must exist before grant-removal proof.");
+    await mutationWins(
+      "grant-removal",
+      async (writer) => {
+        await writer.query("delete from k_nex_role_permission_grants where application_id=$1 and grant_id=$2", [owner.applicationId, grantBeforeMutationMatrix.grant_id]);
+        await advanceAuthorizationRevision(writer);
+      },
+      async () => {
+        const writer = await pool.connect();
+        try {
+          await beginStaticWriter(writer);
+          await writer.query(
+            "insert into k_nex_role_permission_grants (application_id,grant_id,role_id,permission_id,owner_kind,owner_namespace,owner_delivery_class,owner_extension_id,owner_generation,revision) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
+            [grantBeforeMutationMatrix.application_id, grantBeforeMutationMatrix.grant_id, grantBeforeMutationMatrix.role_id, grantBeforeMutationMatrix.permission_id, grantBeforeMutationMatrix.owner_kind, grantBeforeMutationMatrix.owner_namespace, grantBeforeMutationMatrix.owner_delivery_class, grantBeforeMutationMatrix.owner_extension_id, grantBeforeMutationMatrix.owner_generation, grantBeforeMutationMatrix.revision]
+          );
+          await advanceAuthorizationRevision(writer);
+          await writer.query("commit");
+        } catch (error) {
+          await writer.query("rollback").catch(() => undefined);
+          throw error;
+        } finally { writer.release(); }
+      }
+    );
+    const lifecycleBeforeMutationMatrix = (await pool.query(
+      "select disposition,active_generation_id,active_generation from runtime_extensions where application_id=$1 and environment=$2 and delivery_class='platform-plugin' and extension_id='module.sales'",
+      [owner.applicationId, owner.environment]
+    )).rows[0];
+    const generationBeforeMutationMatrix = (await pool.query(
+      "select runtime_generation_ids from k_nex_extension_authorization_generations where application_id=$1 and delivery_class='platform-plugin' and extension_id='module.sales' and state='current'",
+      [owner.applicationId]
+    )).rows[0];
+    assert.ok(lifecycleBeforeMutationMatrix, "Static Sales lifecycle must exist before lifecycle proof.");
+    assert.ok(generationBeforeMutationMatrix, "Static Sales authorization generation must exist before lifecycle proof.");
+    await mutationWins(
+      "lifecycle-disable",
+      async (writer) => {
+        await writer.query("update runtime_extensions set disposition='disabled',active_generation_id=null,active_generation=null,revision=revision+1,updated_at=now() where application_id=$1 and environment=$2 and delivery_class='platform-plugin' and extension_id='module.sales'", [owner.applicationId, owner.environment]);
+        await writer.query("update k_nex_authorization_state set lifecycle_revision=lifecycle_revision+1,updated_at=now() where application_id=$1", [owner.applicationId]);
+        await writer.query("update k_nex_extension_authorization_generations set lifecycle_revision=(select lifecycle_revision from k_nex_authorization_state where application_id=$1),updated_at=now() where application_id=$1 and delivery_class='platform-plugin' and extension_id='module.sales' and state='current'", [owner.applicationId]);
+      },
+      async () => {
+        const writer = await pool.connect();
+        try {
+          await beginStaticWriter(writer);
+          await writer.query("update runtime_extensions set disposition=$3,active_generation_id=$4,active_generation=$5::jsonb,revision=revision+1,updated_at=now() where application_id=$1 and environment=$2 and delivery_class='platform-plugin' and extension_id='module.sales'", [owner.applicationId, owner.environment, lifecycleBeforeMutationMatrix.disposition, lifecycleBeforeMutationMatrix.active_generation_id, JSON.stringify(lifecycleBeforeMutationMatrix.active_generation)]);
+          await writer.query("update k_nex_authorization_state set lifecycle_revision=lifecycle_revision+1,updated_at=now() where application_id=$1", [owner.applicationId]);
+          await writer.query("update k_nex_extension_authorization_generations set lifecycle_revision=(select lifecycle_revision from k_nex_authorization_state where application_id=$1),updated_at=now() where application_id=$1 and delivery_class='platform-plugin' and extension_id='module.sales' and state='current'", [owner.applicationId]);
+          await writer.query("commit");
+        } catch (error) {
+          await writer.query("rollback").catch(() => undefined);
+          throw error;
+        } finally { writer.release(); }
+      }
+    );
+    await mutationWins(
+      "generation-rebind",
+      async (writer) => {
+        await writer.query("update runtime_extensions set active_generation_id='customer-alpha-race-generation',active_generation=jsonb_set(active_generation,'{generationId}','\"customer-alpha-race-generation\"'::jsonb),revision=revision+1,updated_at=now() where application_id=$1 and environment=$2 and delivery_class='platform-plugin' and extension_id='module.sales'", [owner.applicationId, owner.environment]);
+        await writer.query("update k_nex_authorization_state set lifecycle_revision=lifecycle_revision+1,updated_at=now() where application_id=$1", [owner.applicationId]);
+        await writer.query("update k_nex_extension_authorization_generations set runtime_generation_ids='[\"customer-alpha-race-generation\"]'::jsonb,lifecycle_revision=(select lifecycle_revision from k_nex_authorization_state where application_id=$1),updated_at=now() where application_id=$1 and delivery_class='platform-plugin' and extension_id='module.sales' and state='current'", [owner.applicationId]);
+      },
+      async () => {
+        const writer = await pool.connect();
+        try {
+          await beginStaticWriter(writer);
+          await writer.query("update runtime_extensions set active_generation_id=$3,active_generation=$4::jsonb,revision=revision+1,updated_at=now() where application_id=$1 and environment=$2 and delivery_class='platform-plugin' and extension_id='module.sales'", [owner.applicationId, owner.environment, lifecycleBeforeMutationMatrix.active_generation_id, JSON.stringify(lifecycleBeforeMutationMatrix.active_generation)]);
+          await writer.query("update k_nex_authorization_state set lifecycle_revision=lifecycle_revision+1,updated_at=now() where application_id=$1", [owner.applicationId]);
+          await writer.query("update k_nex_extension_authorization_generations set runtime_generation_ids=$2::jsonb,lifecycle_revision=(select lifecycle_revision from k_nex_authorization_state where application_id=$1),updated_at=now() where application_id=$1 and delivery_class='platform-plugin' and extension_id='module.sales' and state='current'", [owner.applicationId, JSON.stringify(generationBeforeMutationMatrix.runtime_generation_ids)]);
+          await writer.query("commit");
+        } catch (error) {
+          await writer.query("rollback").catch(() => undefined);
+          throw error;
+        } finally { writer.release(); }
+      }
+    );
+    const replayCountsBeforeRevocation = await taskMutationCounts("Current authority release proof", "p10-current-authority-release-operation");
+    const replayWriter = await pool.connect();
+    try {
+      await beginStaticWriter(replayWriter);
+      await replayWriter.query("update sales_current_authority_scopes set state='revoked',revision=revision+1,updated_at=now() where application_id=$1 and environment=$2 and principal_id='p10-static-sales-user'", [owner.applicationId, owner.environment]);
+      await advanceAuthorizationRevision(replayWriter);
+      await replayWriter.query("commit");
+    } catch (error) {
+      await replayWriter.query("rollback").catch(() => undefined);
+      throw error;
+    } finally { replayWriter.release(); }
+    const reauthorizationReplay = await salesCreate("Current authority release proof", "p10-current-authority-release-operation");
+    assert.equal(reauthorizationReplay.status, 403, "Idempotency replay must reauthorize after a committed scope revoke.");
+    assert.deepEqual(await reauthorizationReplay.json(), { authorized: false });
+    assert.deepEqual(await taskMutationCounts("Current authority release proof", "p10-current-authority-release-operation"), replayCountsBeforeRevocation, "Rejected replay must not create a second task, outbox event, or idempotency result.");
+    await restoreScope(scopeBeforeMutationMatrix.state);
+
+    const rollbackTitle = "Static rollback releases shared task locks";
+    const rollbackKey = "p13-static-rollback-release";
+    const rollbackBefore = await taskMutationCounts(rollbackTitle, rollbackKey);
+    const rollbackWriter = await pool.connect();
+    try {
+      await beginStaticWriter(rollbackWriter);
+      await rollbackWriter.query("update sales_current_authority_scopes set state='revoked',revision=revision+1,updated_at=now() where application_id=$1 and environment=$2 and principal_id='p10-static-sales-user'", [owner.applicationId, owner.environment]);
+      const pendingRollbackCreate = observeDeferred(salesCreate(rollbackTitle, rollbackKey));
+      await waitForAdvisoryWaiters(1, "Static reader did not wait for the uncommitted authority writer.");
+      await rollbackWriter.query("rollback");
+      const rollbackReleased = await pendingRollbackCreate;
+      assert.equal(rollbackReleased.status, 200, "Writer rollback must release authority locks and preserve create authority.");
+      assert.deepEqual(await taskMutationCounts(rollbackTitle, rollbackKey), { tasks: rollbackBefore.tasks + 1, outbox: rollbackBefore.outbox + 1, idempotency: rollbackBefore.idempotency + 1 });
+    } finally { rollbackWriter.release(); }
+
+    const sharedBarrierKey = canonicalJson([owner.applicationId, owner.environment, "static-task-create-race-barrier"]);
+    const sharedBarrier = await pool.connect();
+    const sharedWriter = await pool.connect();
+    let barrierHeld = false;
+    let sharedWriterStarted = false;
+    try {
+      await pool.query(`
+        create function public.p13_static_task_create_barrier() returns trigger language plpgsql as $$
+        begin
+          perform pg_advisory_xact_lock(hashtextextended('${sharedBarrierKey.replace(/'/gu, "''")}',0));
+          return new;
+        end;
+        $$;
+        create trigger p13_static_task_create_barrier before insert on sales_action_idempotency
+          for each row when (new.idempotency_key like 'p13-static-shared-%') execute function public.p13_static_task_create_barrier();
+      `);
+      await sharedBarrier.query("select pg_advisory_lock(hashtextextended($1,0))", [sharedBarrierKey]);
+      barrierHeld = true;
+      const sharedWaitersBefore = Number((await pool.query("select count(*)::int count from pg_locks where locktype='advisory' and not granted")).rows[0].count);
+      const sharedOutboxBefore = Number((await pool.query("select count(*)::int count from k_nex_outbox where plugin_id='module.sales'")).rows[0].count);
+      const sharedCreates = [
+        observeDeferred(salesCreate("Static shared create one", "p13-static-shared-one")),
+        observeDeferred(salesCreate("Static shared create two", "p13-static-shared-two"))
+      ];
+      await waitForAdvisoryWaiters(sharedWaitersBefore + 2, "Two static creates did not concurrently hold shared lifecycle/authority locks before their durable reservations.");
+      const otherApplication = await pool.connect();
+      try {
+        await otherApplication.query("begin");
+        for (const key of [staticDeploymentLock("customer-bravo"), runtimeLock("customer-bravo"), authorizationLock("customer-bravo")]) {
+          assert.equal((await otherApplication.query("select pg_try_advisory_xact_lock(hashtextextended($1,0)) acquired", [key])).rows[0].acquired, true, "Customer-alpha static task locks must not block another application.");
+        }
+        await otherApplication.query("rollback");
+      } finally { otherApplication.release(); }
+      const promotion = observeDeferred((async () => {
+        await beginStaticWriter(sharedWriter);
+        sharedWriterStarted = true;
+        await sharedWriter.query("update sales_current_authority_scopes set state='revoked',revision=revision+1,updated_at=now() where application_id=$1 and environment=$2 and principal_id='p10-static-sales-user'", [owner.applicationId, owner.environment]);
+        await advanceAuthorizationRevision(sharedWriter);
+        await sharedWriter.query("commit");
+      })());
+      await waitForAdvisoryWaiters(sharedWaitersBefore + 3, "Writer global→runtime→authority order did not wait behind both shared task readers.");
+      await sharedBarrier.query("select pg_advisory_unlock(hashtextextended($1,0))", [sharedBarrierKey]);
+      barrierHeld = false;
+      const sharedResults = await Promise.all(sharedCreates);
+      assert.deepEqual(sharedResults.map((response) => response.status), [200, 200], "Two independent static task creates must coexist under shared runtime/authority locks.");
+      await promotion;
+      sharedWriterStarted = false;
+      assert.deepEqual(await taskMutationCounts("Static shared create one", "p13-static-shared-one"), { tasks: 1, outbox: sharedOutboxBefore + 2, idempotency: 1 });
+      assert.deepEqual(await taskMutationCounts("Static shared create two", "p13-static-shared-two"), { tasks: 1, outbox: sharedOutboxBefore + 2, idempotency: 1 });
+      await restoreScope(scopeBeforeMutationMatrix.state);
+    } finally {
+      if (barrierHeld) await sharedBarrier.query("select pg_advisory_unlock(hashtextextended($1,0))", [sharedBarrierKey]).catch(() => undefined);
+      await sharedWriter.query("rollback").catch(() => undefined);
+      sharedWriter.release();
+      sharedBarrier.release();
+      await pool.query("drop trigger if exists p13_static_task_create_barrier on sales_action_idempotency; drop function if exists public.p13_static_task_create_barrier()").catch(() => undefined);
+      if (sharedWriterStarted) await restoreScope(scopeBeforeMutationMatrix.state).catch(() => undefined);
+    }
+    scenarioEvidence.add("P13_STATIC_TASK_CREATE_LOCK_MATRIX");
     assert.equal((await store.readFence(owner)).activeExecutionGeneration, "customer-alpha-green-12");
     const staleDrainTicket = {
       ...owner, generationId: "customer-alpha-green-12", activeGenerationId: blue.generationId,
@@ -1980,7 +2291,7 @@ test("proves distinct customer binaries and deployment processes recover from Po
     const salesActionRequest = Object.freeze({
       method: "POST",
       headers: { "content-type": "application/json", authorization: "Bearer trusted-smoke-token:p10-static-sales-user", "x-idempotency-key": "p9-static-sales-action-before-disable" },
-      body: JSON.stringify({ title: "Phase 9 retained Sales task", status: "open", potentialRevenue: "42.00", privateNote: "lifecycle proof" })
+      body: JSON.stringify({ title: "Phase 9 retained Sales task" })
     });
     const activeSalesOperation = await fetch(`${processGatewayUrl}/sales-operation`, salesActionRequest);
     const activeSalesBody = await activeSalesOperation.text();
@@ -2430,6 +2741,6 @@ test("proves distinct customer binaries and deployment processes recover from Po
     "promoted:worker-green", "rollback-open:web-blue", "rolled-back:worker-blue", "source-attested:builder", "warming:web-green"
   ];
   assert.deepEqual([...crashEvidence].sort(), expectedCrashEvidence);
-  assert.deepEqual([...scenarioEvidence].sort(), ["SCN-17", "SCN-18", "SCN-20", "SCN-21"]);
+  assert.deepEqual([...scenarioEvidence].sort(), ["P13_STATIC_TASK_CREATE_LOCK_MATRIX", "SCN-17", "SCN-18", "SCN-20", "SCN-21"]);
   console.log(`P9_STATIC_SCENARIO_EVIDENCE=${JSON.stringify({ crashMatrix: expectedCrashEvidence, scenarios: [...scenarioEvidence].sort(), continuousHttp: trafficProbe.summary() })}`);
 });

@@ -63,6 +63,16 @@ describe("Payload data-source authentication adapter", () => {
     expect(result.request).not.toHaveProperty("payload.config");
   });
 
+  it("projects only the host application identity needed by closed source scopes", () => {
+    const configured = {
+      ...rawRequest,
+      payload: { ...payload, config: { custom: { kNexApplicationId: "customer-alpha", kNexEnvironment: "production", privateValue: "unavailable" } } }
+    } as unknown as PayloadRequest;
+    const context = createPayloadPersistenceCapability(configured, [{ collection: "sales-tasks", operations: ["find"] }], { authorize: () => true });
+    expect(context.applicationIdentity).toEqual({ applicationId: "customer-alpha", environment: "production" });
+    expect(context).not.toHaveProperty("payload.config");
+  });
+
   it("maps an unauthenticated Payload request to an explicit public actor", () => {
     const result = authenticator().authenticate({ ...gatewayRequest, rawRequest: { ...rawRequest, user: null } });
     expect(result.actor).toEqual({
@@ -94,6 +104,16 @@ describe("Payload data-source authentication adapter", () => {
 
     await expect(context.payload.find({ collection: "sales-tasks", overrideAccess: true })).rejects.toThrow(/authority denied/i);
     expect(find).not.toHaveBeenCalled();
+  });
+
+  it("binds each operation context without leaking it into the next Payload call", async () => {
+    const seen: unknown[] = [];
+    const request = { ...rawRequest, context: { prior: true }, payload: { find: vi.fn(async () => { seen.push(request.context); return { docs: [] }; }), create: vi.fn(), update: vi.fn() } } as unknown as PayloadRequest;
+    const context = createPayloadPersistenceCapability(request, [{ collection: "sales-tasks", operations: ["find"] }], { authorize: () => true });
+    await context.payload.find({ collection: "sales-tasks", overrideAccess: true, context: { event: "one" } });
+    await context.payload.find({ collection: "sales-tasks", overrideAccess: true, context: { event: "two" } });
+    expect(seen).toEqual([{ event: "one" }, { event: "two" }]);
+    expect(request.context).toEqual({ prior: true });
   });
 
   it("owns only the transaction it starts and exposes its host guard", async () => {

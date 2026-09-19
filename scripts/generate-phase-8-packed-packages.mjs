@@ -5,12 +5,26 @@ import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { constants, gunzipSync, gzipSync } from "node:zlib";
+import { assertExactReleasePackageSet } from "./lib/release-train.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const destination = resolve(root, "fixtures/customer-gate-1/packages");
 const blockSize = 512;
 const canonicalMtime = 499_162_500; // npm's fixed 1985-10-26 package timestamp.
 const maxTarBytes = 64 * 1024 * 1024;
+const args = process.argv.slice(2);
+const value = (name, fallback) => {
+  const index = args.indexOf(name);
+  if (index < 0) return fallback;
+  const result = args[index + 1];
+  if (result === undefined || result.startsWith("--")) throw new Error(`${name} requires a value.`);
+  return result;
+};
+const releaseVersion = value("--version", "1.0.0");
+if (!/^\d+\.\d+\.\d+$/u.test(releaseVersion)) throw new Error(`Invalid release version: ${releaseVersion}`);
+if (args.some((arg, index) => arg.startsWith("--") && !["--version"].includes(arg) || arg === "--version" && (index === args.length - 1 || args[index + 1]?.startsWith("--")))) {
+  throw new Error("Usage: generate-phase-8-packed-packages.mjs [--version <semver>]");
+}
 
 function packageRoot(name) {
   if (name === "@k-nex/module-sales") return resolve(root, "modules/sales");
@@ -143,6 +157,8 @@ function pack(directory, expectedFilename) {
     execFileSync("pnpm", ["pack", "--pack-destination", second], { cwd: directory, stdio: "ignore" });
     const archive = readFileSync(resolve(first, expectedFilename));
     assert.equal(archive.equals(readFileSync(resolve(second, expectedFilename))), true, `${basename(expectedFilename)} is not byte-reproducible.`);
+    const metadata = JSON.parse(parseTar(archive).find(({ path }) => path === "package/package.json").data.toString("utf8"));
+    assert.equal(metadata.version, releaseVersion, `${metadata.name} source version differs from requested release ${releaseVersion}.`);
     writeFileSync(resolve(destination, expectedFilename), canonicalArchive(archive));
   } finally {
     rmSync(first, { recursive: true, force: true });
@@ -151,25 +167,28 @@ function pack(directory, expectedFilename) {
 }
 
 function main() {
-  const release = JSON.parse(readFileSync(resolve(root, "releases/1.0.0/package-release-manifest.json"), "utf8"));
-  for (const entry of new Map([...release.packages, { package: "@k-nex/extension-bundler", version: "1.0.0" }].map((entry) => [entry.package, entry])).values()) {
+  const prior = JSON.parse(readFileSync(resolve(root, "releases/1.0.0/package-release-manifest.json"), "utf8"));
+  const releasePath = resolve(root, `releases/${releaseVersion}/package-release-manifest.json`);
+  const release = existsSync(releasePath) ? JSON.parse(readFileSync(releasePath, "utf8")) : { packages: prior.packages.map(({ package: name }) => ({ package: name, version: releaseVersion })) };
+  assertExactReleasePackageSet(release.packages, releaseVersion);
+  const entries = new Map(release.packages.map(({ package: name }) => [name, { package: name, version: releaseVersion }]));
+  for (const entry of entries.values()) {
     if (entry.package === "@k-nex/module-sales") continue;
     const filename = `${entry.package.replace(/^@k-nex\//u, "k-nex-")}-${entry.version}.tgz`;
     pack(packageRoot(entry.package), filename);
   }
 
-  for (const version of ["1.0.0"]) {
-    const source = resolve(root, `releases/sources/sales-${version}`);
+  {
+    const source = resolve(root, `releases/sources/sales-${releaseVersion}`);
     const metadata = JSON.parse(readFileSync(resolve(source, "release-source.json"), "utf8"));
     const manifest = JSON.parse(readFileSync(resolve(source, "package.json"), "utf8"));
-    assert.equal(metadata.version, version);
+    assert.equal(metadata.version, releaseVersion);
     assert.equal(manifest.name, "@k-nex/module-sales");
-    assert.equal(manifest.version, version);
-    assert.equal(version, "1.0.0");
-    pack(source, `k-nex-module-sales-${version}.tgz`);
+    assert.equal(manifest.version, releaseVersion);
+    pack(source, `k-nex-module-sales-${releaseVersion}.tgz`);
   }
 
-  process.stdout.write(`P8_PACKED_RELEASES_GENERATED ${release.packages.length}\n`);
+  process.stdout.write(`P8_PACKED_RELEASES_GENERATED ${releaseVersion} ${entries.size}\n`);
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();

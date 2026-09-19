@@ -1,6 +1,8 @@
+import { createHash } from "node:crypto";
+
 import { describe, expect, it } from "vitest";
 
-import { MetricScalarSchema, TableRecordsSchema, type DataSourceDefinition } from "@k-nex/contracts";
+import { canonicalJson, MetricScalarSchema, TableRecordsSchema, type DataSourceDefinition } from "@k-nex/contracts";
 
 import {
   BoundedQueryBudgetEvaluator,
@@ -177,6 +179,22 @@ describe("P2.3 staged data-source gateway", () => {
     }
   });
 
+  it("preserves validated report execution evidence beside unchanged source data", async () => {
+    const stages = recordingStages([]);
+    const reportExecutionBase = {
+      applicationId: "customer-gate-1", environment: "production",
+      source: { id: definition.descriptor.id, version: 2 }, sourceSchema: { id: definition.descriptor.sourceSchema.id, version: 3 },
+      authorizationRevision: 7, lifecycleRevision: 2, salesScopeRevision: 5, settingsRevision: 3,
+      reportingTimezone: "UTC", reportingCurrency: "USD", currencyScale: 2,
+      asOf: "2026-09-08T00:00:00.000Z", windowMode: "as-of" as const, grouping: "none" as const, authorizedRecordCount: 1
+    };
+    const reportExecution = { ...reportExecutionBase, executionDigest: `sha256:${createHash("sha256").update(canonicalJson(reportExecutionBase)).digest("hex")}` };
+    stages.dispatcher.dispatch = () => ({ data: metricValue, reportExecution });
+    const result = await new DataSourceGateway(stages).query({ ...request, input: {}, query: { filters: [], sort: [] }, selectedFields: [] });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.body).toMatchObject({ data: metricValue, reportExecution });
+  });
+
   it.each<StageName>([
     "authenticate",
     "catalog",
@@ -288,6 +306,56 @@ describe("P2.3 staged data-source gateway", () => {
     expect(releases).toBe(1);
   });
 
+  it("holds the concurrency lease through validation, redaction, and serialization", async () => {
+    const held: string[] = [];
+    let releases = 0;
+    const stages = recordingStages(held);
+    stages.budget.evaluate = (_source, gatewayRequest) => ({
+      input: {},
+      controls: { filters: [], sort: [] },
+      signal: gatewayRequest.signal,
+      lease: { release: () => { releases += 1; held.push("lease-released"); } }
+    });
+
+    const result = await new DataSourceGateway(stages).query(request);
+    expect(result.ok).toBe(true);
+    expect(releases).toBe(1);
+    // Handler output is as large as a trusted source makes it, so the stages
+    // that walk it have to be inside the budget the caller was admitted under.
+    for (const stage of ["source-schema", "output-contract", "redact", "result-budget", "cache-store"]) {
+      expect(held.indexOf(stage)).toBeLessThan(held.indexOf("lease-released"));
+    }
+  });
+
+  it("keeps the lease until an abandoned handler settles", async () => {
+    let releases = 0;
+    let finishHandler: (() => void) | undefined;
+    const stages = recordingStages([]);
+    stages.budget.evaluate = (_source, gatewayRequest) => ({
+      input: {},
+      controls: { filters: [], sort: [] },
+      signal: gatewayRequest.signal,
+      lease: { release: () => { releases += 1; } }
+    });
+    let dispatchStarted: (() => void) | undefined;
+    const dispatching = new Promise<void>((resolve) => { dispatchStarted = resolve; });
+    stages.dispatcher.dispatch = () => new Promise((resolve) => { finishHandler = () => resolve(metricValue); dispatchStarted?.(); });
+
+    const controller = new AbortController();
+    const pending = new DataSourceGateway(stages).query({ ...request, signal: controller.signal });
+    await dispatching;
+    controller.abort();
+    const result = await pending;
+    expect(result.ok).toBe(false);
+    // The dispatch this request abandoned is still consuming capacity, so the
+    // lease it was admitted under is not free to be handed to the next caller.
+    expect(releases).toBe(0);
+    finishHandler?.();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(releases).toBe(1);
+  });
+
   it("rejects invalid input and cannot let budgets expand authorized fields", async () => {
     let dispatched = false;
     const invalidStages = recordingStages([]);
@@ -371,6 +439,13 @@ describe("P2.3 staged data-source gateway", () => {
     expect(() => source.validate(definition, { ...metricValue, undeclared: true })).toThrowError(DataSourceGatewayError);
     expect(contract.validate(definition.descriptor, metricValue)).toEqual(metricValue);
     expect(() => contract.validate(definition.descriptor, { value: { kind: "integer", value: 1 }, extensions: {} })).toThrowError(DataSourceGatewayError);
+  });
+
+  it("dispatches metric.scalar versions exactly", () => {
+    const contract = new CanonicalOutputContractValidator();
+    const unavailable = { value: { kind: "percentage", value: null } };
+    expect(contract.validate({ ...definition.descriptor, primaryContract: { id: "metric.scalar", version: 2 } }, unavailable)).toEqual(unavailable);
+    expect(() => contract.validate(definition.descriptor, unavailable)).toThrowError(DataSourceGatewayError);
   });
 
   it("fails closed for an unknown source and normalizes malformed problem metadata", async () => {

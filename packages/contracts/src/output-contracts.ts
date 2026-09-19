@@ -1,5 +1,6 @@
 export const outputContracts = [
   "metric.scalar@1",
+  "metric.scalar@2",
   "table.records@1",
   "series.category@1",
   "series.time@1",

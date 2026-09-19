@@ -44,3 +44,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Generated-source proofs are hosted beside the packages they resolve through.
+packages/*/.k-nex-generated-proofs/

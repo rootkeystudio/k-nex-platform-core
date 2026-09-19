@@ -102,7 +102,7 @@
       ],
       "resources": [
         "sales.tasks",
-        "sales.total-potential-revenue",
+        "sales.opportunities",
         "logistics.shipment.assign",
         "page.filters.date-range"
       ],
@@ -141,6 +141,7 @@
   },
   "outputContracts": [
     "metric.scalar@1",
+    "metric.scalar@2",
     "table.records@1",
     "series.category@1",
     "series.time@1",
