@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { writeFileSync } from "node:fs";
+import { createServer as createHttpServer } from "node:http";
 import test from "node:test";
 
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
@@ -23,6 +24,39 @@ const authority = Object.freeze({ context: Object.freeze({ applicationId, enviro
 async function closeServer(server) {
   server.closeAllConnections();
   await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+}
+
+/**
+ * A provider the host does not run, answering on terms the host cannot choose:
+ * no declared length, bodies larger than the receipt bound, and bodies that
+ * arrive after the host has already decided.
+ */
+async function startUnboundedProvider(respond) {
+  const server = createHttpServer((request, response) => {
+    request.resume();
+    response.on("error", () => undefined);
+    if (request.method !== "POST" || request.url !== "/k-nex/reference-provider") { response.writeHead(404).end(); return; }
+    request.on("end", () => respond(response));
+  });
+  server.on("connection", (socket) => socket.on("error", () => undefined));
+  await new Promise((listening, reject) => server.once("error", reject).listen(0, "127.0.0.1", listening));
+  const address = server.address(); assert.ok(address && typeof address !== "string");
+  return Object.freeze({ endpoint: `http://127.0.0.1:${address.port}/k-nex/reference-provider`, server });
+}
+
+/** Reads the response headers the provider actually put on the wire. */
+async function providerResponseHeaders(endpoint) {
+  const response = await fetch(endpoint, { method: "POST", headers: { "content-type": "application/json" }, body: "{}", signal: AbortSignal.timeout(5_000) });
+  const headers = Object.freeze({ contentLength: response.headers.get("content-length"), transferEncoding: response.headers.get("transfer-encoding") });
+  await response.body?.cancel();
+  return headers;
+}
+
+async function operationState(pool, operationId) {
+  const operation = (await pool.query("select state,attempt,failure_code,provider_receipt_id,receipt_digest,accepted_at,effect_dispatched_at is not null dispatched,next_attempt_at>now() parked from sales_provider_operations where operation_id=$1", [operationId])).rows;
+  const receipts = Number((await pool.query("select count(*) count from sales_provider_activity_receipts where operation_id=$1", [operationId])).rows[0].count);
+  const timeline = Number((await pool.query("select count(*) count from k_nex_outbox where event_type='sales.event.timeline-changed'")).rows[0].count);
+  return Object.freeze({ operation, receipts, timeline });
 }
 
 async function communicationsDatabase(name, run) {
@@ -142,5 +176,116 @@ test("P13.C a provider that rejects a duplicate key never completes the local tr
       assert.equal(Number((await pool.query("select count(*) count from sales_provider_activity_receipts where operation_id=$1", [queued.operationId])).rows[0].count), 0);
       assert.equal(Number((await pool.query("select count(*) count from k_nex_outbox where event_type='sales.event.timeline-changed'")).rows[0].count), 0);
     } finally { await closeServer(provider.server); }
+  });
+});
+
+test("P13.C an oversized provider receipt is refused by byte count before it is allocated", { timeout: 180_000 }, async () => {
+  await communicationsDatabase("p13_c_provider_receipt_bytes", async (pool) => {
+    const { createGeneratedBoundedReferenceProviderTransport, createGeneratedEnvironmentProviderSecretResolver, processGeneratedSalesCommunications } = await import("../dist/src/k-nex-sales-communications.js");
+    const resolver = createGeneratedEnvironmentProviderSecretResolver(slots);
+    const shapes = [
+      // The reported hole: with no declared length there is nothing to check
+      // before the body arrives, so the bound has to hold while it streams.
+      ["no declared length", (digest) => (response) => {
+        response.writeHead(202, { "content-type": "application/json" });
+        // An admissible receipt first: a reader that stopped at the first
+        // parseable object would forge a completion out of this body.
+        response.write(JSON.stringify({ providerReceiptId: "forged-receipt-0001", idempotencyKey: digest, duplicate: false }));
+        response.write("x".repeat(64 * 1024));
+        response.end();
+      }],
+      ["chunked well past the bound", () => (response) => {
+        response.writeHead(202, { "content-type": "application/json", "transfer-encoding": "chunked" });
+        for (let chunk = 0; chunk < 64; chunk += 1) response.write("y".repeat(16 * 1024));
+        response.end();
+      }],
+      // Time was already bounded by the call abort; this is the shape that
+      // proves bytes are too, because the provider never stops sending them.
+      ["chunked past the bound and never ending", () => (response) => {
+        response.writeHead(202, { "content-type": "application/json", "transfer-encoding": "chunked" });
+        const timer = setInterval(() => response.write("z".repeat(16 * 1024)), 10);
+        response.on("close", () => clearInterval(timer));
+      }]
+    ];
+    for (const [index, [label, responder]] of shapes.entries()) {
+      const { queued, activity } = await queueSend(pool, `p13c-receipt-bytes-${index}`, `Receipt ${label}`);
+      const provider = await startUnboundedProvider(responder(queued.receipt.idempotencyDigest));
+      try {
+        const headers = await providerResponseHeaders(provider.endpoint);
+        assert.equal(headers.contentLength, null, `${label} must reach the host without a declared length`);
+        assert.equal(headers.transferEncoding, "chunked", `${label} must reach the host as a stream`);
+        const transport = createGeneratedBoundedReferenceProviderTransport(provider.endpoint);
+        const startedAt = Date.now();
+        assert.equal(await processGeneratedSalesCommunications(pool, current, resolver, transport), 1, `${label} must still be claimed and resolved`);
+        // The bound is the byte count, reached while the body streams, so the
+        // refusal never waits on the 10s call abort to stop the allocation.
+        assert.ok(Date.now() - startedAt < 8_000, `${label} must be refused on the byte bound, not the call abort`);
+        // A provider that breaks the receipt contract is stating a permanent
+        // fact about its own output, so the operation is terminal, not retried.
+        const state = await operationState(pool, queued.operationId);
+        assert.deepEqual(state.operation, [{ state: "dead-letter", attempt: 1, failure_code: "HOST_INVARIANT", provider_receipt_id: null, receipt_digest: null, accepted_at: null, dispatched: true, parked: false }], `${label} must dead-letter with no receipt`);
+        assert.equal(state.receipts, 0, `${label} must not record an activity receipt`);
+        assert.equal(state.timeline, 0, `${label} must not publish a completion`);
+        assert.deepEqual((await pool.query("select status,revision,provider_metadata from sales_activities where id=$1", [activity.id])).rows, [{ status: "scheduled", revision: 1, provider_metadata: null }], `${label} must not complete the Activity`);
+        await pool.query("update sales_provider_operations set next_attempt_at=now() where operation_id=$1", [queued.operationId]);
+        assert.equal(await processGeneratedSalesCommunications(pool, current, resolver, transport), 0, `${label} must never be reclaimed`);
+      } finally { await closeServer(provider.server); }
+    }
+  });
+});
+
+test("P13.C a provider receipt that never settles leaves the operation recoverable and unforged", { timeout: 180_000 }, async () => {
+  await communicationsDatabase("p13_c_provider_receipt_stall", async (pool) => {
+    const { createGeneratedBoundedReferenceProviderTransport, createGeneratedEnvironmentProviderSecretResolver, processGeneratedSalesCommunications } = await import("../dist/src/k-nex-sales-communications.js");
+    const resolver = createGeneratedEnvironmentProviderSecretResolver(slots);
+    const unhandled = [];
+    const onUnhandled = (reason) => unhandled.push(reason);
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      // A body that never ends, and a body that ends after the host already
+      // refused it: neither says anything about whether the message was sent,
+      // so both stay recoverable and neither may produce a receipt.
+      let settleLate;
+      const shapes = [
+        ["never ends", () => (response) => { response.writeHead(202, { "content-type": "application/json" }); response.write("{\"providerReceiptId\":\"late-receipt-0001\""); }],
+        ["settles after the refusal", (digest) => (response) => {
+          // Headers on the wire, body withheld: the host is reading a real
+          // response body when it decides, not waiting on the call abort.
+          response.writeHead(202, { "content-type": "application/json" });
+          response.flushHeaders();
+          settleLate = () => { response.end(JSON.stringify({ providerReceiptId: "late-receipt-0002", idempotencyKey: digest, duplicate: false })); };
+        }]
+      ];
+      for (const [index, [label, responder]] of shapes.entries()) {
+        settleLate = undefined;
+        const { queued, activity } = await queueSend(pool, `p13c-receipt-stall-${index}`, `Receipt ${label}`);
+        const provider = await startUnboundedProvider(responder(queued.receipt.idempotencyDigest));
+        try {
+          const transport = createGeneratedBoundedReferenceProviderTransport(provider.endpoint);
+          const startedAt = Date.now();
+          assert.equal(await processGeneratedSalesCommunications(pool, current, resolver, transport), 1, `${label} must still be claimed and resolved`);
+          // The read owns its own idle timeout, so the refusal lands far inside
+          // the 10s call abort that used to be the only bound.
+          assert.ok(Date.now() - startedAt < 8_000, `${label} must be refused well inside the call abort`);
+          const stalled = await operationState(pool, queued.operationId);
+          assert.deepEqual(stalled.operation, [{ state: "queued", attempt: 1, failure_code: "PROVIDER_OUTAGE", provider_receipt_id: null, receipt_digest: null, accepted_at: null, dispatched: true, parked: true }], `${label} must stay explicitly recoverable with no receipt`);
+          assert.equal(stalled.receipts, 0, `${label} must not record an activity receipt`);
+          assert.equal(stalled.timeline, 0, `${label} must not publish a completion`);
+          assert.deepEqual((await pool.query("select status,revision,provider_metadata from sales_activities where id=$1", [activity.id])).rows, [{ status: "scheduled", revision: 1, provider_metadata: null }], `${label} must not complete the Activity`);
+          if (settleLate !== undefined) {
+            settleLate();
+            await new Promise((resolve) => setTimeout(resolve, 250));
+            // The refusal was already decided; the bytes that arrive afterwards
+            // belong to a read nobody is holding, and change nothing.
+            const settled = await operationState(pool, queued.operationId);
+            assert.deepEqual(settled.operation, stalled.operation, `${label} must be unchanged by a late settlement`);
+            assert.equal(settled.receipts, 0, `${label} must not adopt a late receipt`);
+            assert.equal(settled.timeline, 0, `${label} must not publish a late completion`);
+          }
+        } finally { await closeServer(provider.server); }
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      assert.deepEqual(unhandled, [], "a refused receipt read must never reject into the process");
+    } finally { process.off("unhandledRejection", onUnhandled); }
   });
 });

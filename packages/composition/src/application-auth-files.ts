@@ -86,7 +86,7 @@ function authoritySource(): string {
 import { createHash, randomUUID } from "node:crypto";
 
 import { AuthorizationDecisionAuditSchema, canonicalJson } from "@k-nex/contracts";
-import { PostgresAuthorizationStore, type RuntimeExtensionPool } from "@k-nex/payload-adapter";
+import { PostgresAuthorizationStore, activePayloadPostgresTransaction, type RuntimeExtensionPool } from "@k-nex/payload-adapter";
 import {
   CurrentAuthorityAdapter,
   EffectiveAuthorityResolver,
@@ -99,7 +99,8 @@ import {
   createTrustedAuthorizationSession,
   platformPermissionDescriptors
 } from "@k-nex/runtime";
-import type { Payload } from "payload";
+import { sql } from "@payloadcms/db-postgres";
+import type { Payload, PayloadRequest } from "payload";
 
 import { kNexIdentity } from "./k-nex-identity.js";
 import { kNexSalesRegistry } from "./k-nex-registry.js";
@@ -355,7 +356,7 @@ export async function reauthenticateCurrentUser(payload: Payload, context: KnexR
 }
 
 export class KnexCredentialError extends Error {
-  readonly code: "CREDENTIAL_INPUT_INVALID" | "CREDENTIAL_SESSION_REQUIRED" | "CREDENTIAL_REAUTHENTICATION_REQUIRED" | "CREDENTIAL_EMAIL_TAKEN" | "CREDENTIAL_RECOVERY_TARGET_INVALID";
+  readonly code: "CREDENTIAL_INPUT_INVALID" | "CREDENTIAL_SESSION_REQUIRED" | "CREDENTIAL_REAUTHENTICATION_REQUIRED" | "CREDENTIAL_EMAIL_TAKEN" | "CREDENTIAL_RECOVERY_TARGET_INVALID" | "CREDENTIAL_RECOVERY_GRANT_UNAVAILABLE";
   constructor(code: KnexCredentialError["code"]) { super("Credential change was refused: " + code); this.name = "KnexCredentialError"; this.code = code; }
 }
 
@@ -388,35 +389,73 @@ function credentialChange(value: Record<string, unknown>): Readonly<{ email?: st
   return Object.freeze({ ...(email === undefined ? {} : { email }), ...(password === undefined ? {} : { password }) });
 }
 
-type CredentialAuditPool = { query(text: string, values?: readonly unknown[]): Promise<unknown> };
+/** The one-shot operator grant a recovery spends, read from the signed token file. */
+export type KnexCredentialRecoveryGrant = Readonly<{ digest: string; expiresAt: string }>;
 
-async function recordCredentialAudit(payload: Payload, input: Readonly<{ userId: string; actor: Readonly<{ kind: "user" | "service"; id: string }>; operation: CredentialAdmission["operation"]; correlationId: string }>): Promise<string> {
-  const state = await kNexAuthority(payload).store.readState(kNexIdentity.applicationId, kNexIdentity.environment);
-  if (state === undefined) throw new Error("Authorization state is unavailable.");
-  const auditId = input.operation + "-" + createHash("sha256").update(canonicalJson([kNexIdentity.applicationId, kNexIdentity.environment, input.operation, input.userId, input.correlationId])).digest("hex").slice(0, 32);
-  const audit = AuthorizationDecisionAuditSchema.parse({
-    schemaVersion: 1, auditId, decisionId: auditId + ".decision", correlationId: input.correlationId,
+type CredentialAuthorizationState = Readonly<{ authorizationRevision: number; lifecycleRevision: number }>;
+type CredentialChangeIntent = Readonly<{
+  admission: CredentialAdmission;
+  change: Readonly<{ email?: string; password?: string }>;
+  actor: Readonly<{ kind: "user" | "service"; id: string }>;
+  correlationId: string;
+  grant?: KnexCredentialRecoveryGrant;
+}>;
+
+function credentialAuditRecord(state: CredentialAuthorizationState, intent: CredentialChangeIntent) {
+  const auditId = intent.admission.operation + "-" + createHash("sha256").update(canonicalJson([kNexIdentity.applicationId, kNexIdentity.environment, intent.admission.operation, intent.admission.userId, intent.correlationId])).digest("hex").slice(0, 32);
+  return AuthorizationDecisionAuditSchema.parse({
+    schemaVersion: 1, auditId, decisionId: auditId + ".decision", correlationId: intent.correlationId,
     applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment,
     permissionId: "system.role-assignments.manage", owner: { kind: "platform", namespace: "system" },
-    principal: input.actor, effectiveActor: input.actor,
+    principal: intent.actor, effectiveActor: intent.actor,
     scope: { kind: "application", resource: "system.role-assignments" },
-    operation: input.operation, target: input.userId,
+    operation: intent.admission.operation, target: intent.admission.userId,
     authorizationRevision: state.authorizationRevision, lifecycleRevision: state.lifecycleRevision,
     outcome: "allow", reason: "granted", approval: "not-required", reauthentication: "satisfied"
   });
-  await (payload.db.pool as unknown as CredentialAuditPool).query(
-    "insert into k_nex_authorization_audit (audit_id,application_id,environment,permission_id,outcome,reason,authorization_revision,lifecycle_revision,audit_json) values ($1,$2,$3,'system.role-assignments.manage','allow','granted',$4,$5,$6::jsonb) on conflict (audit_id) do nothing",
-    [auditId, kNexIdentity.applicationId, kNexIdentity.environment, state.authorizationRevision, state.lifecycleRevision, JSON.stringify(audit)]
-  );
-  return auditId;
 }
 
-/** Clears every live session in the same write that moves the credential, so no cookie outlives it. */
-async function applyCredentialChange(payload: Payload, admission: CredentialAdmission, change: Readonly<{ email?: string; password?: string }>): Promise<void> {
-  await credentialAdmissions.run(admission, async () => payload.update({
-    collection: "users", id: admission.userId, overrideAccess: true, data: { ...change, sessions: [] }
-  }));
+function affectedRows(result: unknown): number {
+  const count = typeof result === "object" && result !== null && "rowCount" in result ? (result as { rowCount: unknown }).rowCount : undefined;
+  if (!Number.isSafeInteger(count) || Number(count) < 0) throw new Error("Credential statement result is invalid.");
+  return Number(count);
+}
+
+/**
+ * The grant, the credential, the session revocation and the audit are one
+ * PostgreSQL transaction. A credential that has moved therefore always carries
+ * exactly one audit, and a failure anywhere leaves the previous sign-in
+ * identity, the live sessions and an unspent recovery grant exactly as they
+ * were: the outcome the caller reports is the outcome the database holds.
+ */
+async function commitCredentialChange(payload: Payload, intent: CredentialChangeIntent): Promise<string> {
+  // Read outside the boundary: the transaction holds one pooled client, and the
+  // authorization state lives behind a second one.
+  const state = await kNexAuthority(payload).store.readState(kNexIdentity.applicationId, kNexIdentity.environment);
+  if (state === undefined) throw new Error("Authorization state is unavailable.");
+  const audit = credentialAuditRecord(state, intent);
+  const transactionId = await payload.db.beginTransaction();
+  if (transactionId === null || transactionId === undefined) throw new Error("A credential change requires a database transaction.");
+  const request = { payload, transactionID: transactionId } as unknown as PayloadRequest;
+  try {
+    const transaction = await activePayloadPostgresTransaction(request);
+    if (intent.grant !== undefined) {
+      const consumed = await transaction.execute(sql\`update k_nex_owner_bootstrap_tokens set consumed_at=now() where application_id=\${kNexIdentity.applicationId} and environment=\${kNexIdentity.environment} and token_digest=\${intent.grant.digest} and expires_at=\${intent.grant.expiresAt} and consumed_at is null and expires_at>now()\`);
+      if (affectedRows(consumed) !== 1) throw new KnexCredentialError("CREDENTIAL_RECOVERY_GRANT_UNAVAILABLE");
+    }
+    // Payload carries the transaction on the request, so the credential columns
+    // and the session rows it clears are the same uncommitted unit of work.
+    await credentialAdmissions.run(intent.admission, async () => payload.update({
+      collection: "users", id: intent.admission.userId, overrideAccess: true, data: { ...intent.change, sessions: [] }, req: request
+    }));
+    await transaction.execute(sql\`insert into k_nex_authorization_audit (audit_id,application_id,environment,permission_id,outcome,reason,authorization_revision,lifecycle_revision,audit_json) values (\${audit.auditId},\${kNexIdentity.applicationId},\${kNexIdentity.environment},'system.role-assignments.manage','allow','granted',\${state.authorizationRevision},\${state.lifecycleRevision},\${JSON.stringify(audit)}::jsonb) on conflict (audit_id) do nothing\`);
+    await payload.db.commitTransaction(transactionId);
+  } catch (error) {
+    await payload.db.rollbackTransaction(transactionId).catch(() => undefined);
+    throw error;
+  }
   requestAuthentications.delete(payload);
+  return audit.auditId;
 }
 
 async function credentialEmailIsFree(payload: Payload, email: string | undefined, userId: string): Promise<boolean> {
@@ -443,18 +482,24 @@ export async function changeCurrentUserCredentials(payload: Payload, context: Kn
   if (!await reauthenticateCurrentUser(payload, context, currentPassword)) throw new KnexCredentialError("CREDENTIAL_REAUTHENTICATION_REQUIRED");
   if (!await credentialEmailIsFree(payload, change.email, userId)) throw new KnexCredentialError("CREDENTIAL_EMAIL_TAKEN");
   const changed = credentialFieldNames.filter((field) => change[field] !== undefined);
-  await applyCredentialChange(payload, { userId, fields: changed, operation: "credential-change" }, change);
-  const auditId = await recordCredentialAudit(payload, { userId, actor: { kind: "user", id: userId }, operation: "credential-change", correlationId: context.correlationId });
+  const auditId = await commitCredentialChange(payload, {
+    admission: { userId, fields: changed, operation: "credential-change" }, change,
+    actor: { kind: "user", id: userId }, correlationId: context.correlationId
+  });
   return Object.freeze({ userId, auditId, changed });
 }
 
 /**
  * The operator half. It is bounded to the principal the committed bootstrap
  * receipt names, so a recovery grant re-establishes the existing owner's
- * sign-in identity and cannot mint authority for anyone else.
+ * sign-in identity and cannot mint authority for anyone else. It spends the
+ * grant itself rather than being handed an already-spent one, because a grant
+ * that is consumed outside this boundary is lost by every failure that leaves
+ * the credential untouched.
  */
-export async function recoverProtectedOwnerCredential(payload: Payload, receipt: Readonly<{ ownerPrincipal: Readonly<{ kind: string; id: string }>; state: string }>, operatorIdentity: string, input: unknown): Promise<Readonly<{ userId: string; auditId: string }>> {
+export async function recoverProtectedOwnerCredential(payload: Payload, receipt: Readonly<{ ownerPrincipal: Readonly<{ kind: string; id: string }>; state: string }>, operatorIdentity: string, grant: KnexCredentialRecoveryGrant, input: unknown): Promise<Readonly<{ userId: string; auditId: string }>> {
   if (receipt.state !== "committed" || receipt.ownerPrincipal.kind !== "user") throw new KnexCredentialError("CREDENTIAL_RECOVERY_TARGET_INVALID");
+  if (grant === null || typeof grant !== "object" || !/^sha256:[0-9a-f]{64}$/u.test(String(grant.digest)) || !Number.isFinite(Date.parse(String(grant.expiresAt)))) throw new KnexCredentialError("CREDENTIAL_RECOVERY_GRANT_UNAVAILABLE");
   if (input === null || typeof input !== "object" || Array.isArray(input)) throw new KnexCredentialError("CREDENTIAL_INPUT_INVALID");
   const value = input as Record<string, unknown>;
   if (Object.keys(value).sort().join("\\0") !== "email\\0password") throw new KnexCredentialError("CREDENTIAL_INPUT_INVALID");
@@ -464,9 +509,11 @@ export async function recoverProtectedOwnerCredential(payload: Payload, receipt:
   const owner = await payload.findByID({ collection: "users", id: userId, overrideAccess: true, disableErrors: true });
   if (owner === null || owner === undefined) throw new KnexCredentialError("CREDENTIAL_RECOVERY_TARGET_INVALID");
   if (!await credentialEmailIsFree(payload, change.email, userId)) throw new KnexCredentialError("CREDENTIAL_EMAIL_TAKEN");
-  const correlationId = "owner-credential-recovery-" + randomUUID();
-  await applyCredentialChange(payload, { userId, fields: credentialFieldNames, operation: "owner-credential-recovery" }, change);
-  const auditId = await recordCredentialAudit(payload, { userId, actor: { kind: "service", id: operatorIdentity }, operation: "owner-credential-recovery", correlationId });
+  const auditId = await commitCredentialChange(payload, {
+    admission: { userId, fields: credentialFieldNames, operation: "owner-credential-recovery" }, change,
+    actor: { kind: "service", id: operatorIdentity }, correlationId: "owner-credential-recovery-" + randomUUID(),
+    grant: Object.freeze({ digest: grant.digest, expiresAt: grant.expiresAt })
+  });
   return Object.freeze({ userId, auditId });
 }
 
@@ -669,6 +716,15 @@ export async function assertIssuedBootstrapToken(client: BootstrapTokenClient, t
   if (result.rowCount !== 1) throw new Error("Bootstrap token is unavailable, expired, or consumed.");
 }
 
+/**
+ * A recovery grant is spent on the credential transaction itself, so the only
+ * thing left to discard here is the operator's file. Unlinking it after that
+ * transaction commits can never spend a grant the credential did not move on.
+ */
+export function discardConsumedRecoveryToken(token: ReturnType<typeof readCredentialRecoveryToken>): void {
+  unlinkSync(token.path);
+}
+
 export async function consumeBootstrapToken(client: BootstrapTokenClient, token: ReturnType<typeof readBootstrapToken>): Promise<void> {
   const result = await client.query(
     "update k_nex_owner_bootstrap_tokens set consumed_at=now() where application_id=$1 and environment=$2 and token_digest=$3 and expires_at=$4 and consumed_at is null and expires_at>now()",
@@ -709,7 +765,7 @@ import { AuthorizationDecisionAuditSchema, canonicalJson, type BootstrapReceipt 
 import { bootstrapFirstOwner, currentProtectedPlatformRoleBaselineRelease, protectedRoleBootstrapId } from "@k-nex/runtime";
 
 import { bootKnexApplication } from "./boot.js";
-import { acquireBootstrapLock, assertIssuedBootstrapToken, consumeBootstrapToken, readBootstrapToken, readCredentialRecoveryToken, releaseBootstrapLock } from "./k-nex-bootstrap-token.js";
+import { acquireBootstrapLock, assertIssuedBootstrapToken, consumeBootstrapToken, discardConsumedRecoveryToken, readBootstrapToken, readCredentialRecoveryToken, releaseBootstrapLock } from "./k-nex-bootstrap-token.js";
 import { assertAdministrationOperatorConfiguration, administrationOperatorIdentity } from "./k-nex-readiness.js";
 import { kNexAuthority, recoverProtectedOwnerCredential, shutdownKnexApplication } from "./k-nex-authority.js";
 import { kNexIdentity } from "./k-nex-identity.js";
@@ -820,10 +876,11 @@ if (recovering) {
     if (receipt === undefined || receipt.protectedBaselineVersion !== currentProtectedPlatformRoleBaselineRelease.version || receipt.protectedBaselineDigest !== currentProtectedPlatformRoleBaselineRelease.digest) {
       throw new Error("Credential recovery requires the committed protected owner receipt of this baseline.");
     }
-    // The grant is spent before the credential moves, so a failure here costs a
-    // fresh operator-issued token instead of leaving a replayable one.
-    await consumeBootstrapToken(recoveryLock, recoveryToken);
-    const recovered = await recoverProtectedOwnerCredential(recoveryPayload, receipt, administrationOperatorIdentity(), { email, password });
+    // The grant is spent on the same transaction that moves the credential and
+    // writes its audit, so a recovery that reports failure has neither moved
+    // the sign-in identity nor cost the operator the one-shot grant.
+    const recovered = await recoverProtectedOwnerCredential(recoveryPayload, receipt, administrationOperatorIdentity(), recoveryToken, { email, password });
+    discardConsumedRecoveryToken(recoveryToken);
     console.log(\`K_NEX_OWNER_CREDENTIAL_RECOVERED \${recovered.userId} \${recovered.auditId}\`);
   } finally {
     try { if (recoveryLock !== undefined) await releaseBootstrapLock(recoveryLock); }
@@ -2754,10 +2811,11 @@ type OpaqueInvalidation = Readonly<{ topic: string; source: string; event: strin
 type RealtimeBridgePool = { connect(): Promise<NotificationClient>; query(text: string, values?: readonly unknown[]): Promise<{ rows: readonly Record<string, unknown>[] }> };
 
 export type KnexRealtimeBridgeHealth = Readonly<{
-  state: "connected" | "reconnecting" | "closed";
+  /** "degraded" is a listening bridge that owes subscribers a resynchronisation. */
+  state: "connected" | "degraded" | "reconnecting" | "closed";
   /** Increments once per successful LISTEN, so a resubscribe is observable. */
   connection: number;
-  /** Highest delivered Sales outbox row this bridge has published or resynchronised past. */
+  /** Highest delivered Sales outbox row this bridge has successfully published or resynchronised past. */
   watermark: number;
   synchronizedAt: number;
   degradedSince: number | undefined;
@@ -2784,6 +2842,9 @@ export const realtimeBridgeSynchronizationStaleMs = 60_000;
 export function realtimeBridgeDegradation(health: KnexRealtimeBridgeHealth | undefined, now: number): string | undefined {
   if (health === undefined) return undefined;
   if (health.state === "closed") return "Sales realtime invalidation bridge is closed.";
+  // No grace for a dropped publication: unlike a reconnect, the bridge is
+  // already serving subscribers an invalidation it knows they never received.
+  if (health.state === "degraded") return "Sales realtime invalidation bridge has an unpublished invalidation.";
   if (health.state === "reconnecting" && now - (health.degradedSince ?? now) > realtimeBridgeDegradedGraceMs) return "Sales realtime invalidation bridge is not listening.";
   if (now - health.synchronizedAt > realtimeBridgeSynchronizationStaleMs) return "Sales realtime invalidation bridge has not synchronised.";
   return undefined;
@@ -2895,19 +2956,40 @@ export async function startKnexRealtime(payload: Payload, httpServer: Server) {
   let watermark = 0;
   let synchronizedAt = Date.now();
   let degradedSince: number | undefined = Date.now();
-  // Only a reconnect can have lost notifications. No subscriber predates the
-  // first LISTEN, so the position this bridge starts from is not a gap.
+  let listening = false;
+  // A reconnect and a refused publication lose notifications the same way. No
+  // subscriber predates the first LISTEN, so the position this bridge starts
+  // from is not a gap.
   let missedNotifications = false;
-  const publications = new Set<Promise<void>>();
+  // Increments per gap, so a gap opened while a resynchronisation was in flight
+  // is not closed by that resynchronisation's success.
+  let gapGeneration = 0;
+  const publications = new Set<Promise<boolean>>();
   const releasedClients = new WeakSet<object>();
   const recordHealth = (): void => {
+    state = closed ? "closed" : !listening ? "reconnecting" : missedNotifications ? "degraded" : "connected";
+    if (state === "connected") degradedSince = undefined; else degradedSince ??= Date.now();
     (globalThis as RealtimeBridgeHealthHost)[realtimeBridgeHealthKey] = Object.freeze({ state, connection, watermark, synchronizedAt, degradedSince });
   };
   recordHealth();
-  const publish = (event: OpaqueInvalidation): void => {
-    const operation = gateway.publish({ channel: { topicId: event.topic, params: {} }, correlationId: event.correlation, message: event, messageClass: "reconstructible-invalidation" })
-      .then(() => undefined, () => undefined).finally(() => publications.delete(operation));
+  /**
+   * A refused enqueue or publication is a notification the subscribers never
+   * received, and the bridge is the only thing that knows it. Recording the gap
+   * is what stops the watermark from advancing past it and what keeps readiness
+   * honest until a resynchronisation has actually been published.
+   */
+  const recordPublicationGap = (): void => {
+    if (closed) return;
+    missedNotifications = true;
+    gapGeneration += 1;
+    recordHealth();
+  };
+  const publish = (event: OpaqueInvalidation): Promise<boolean> => {
+    const operation = (async () => gateway.publish({ channel: { topicId: event.topic, params: {} }, correlationId: event.correlation, message: event, messageClass: "reconstructible-invalidation" }))()
+      .then(() => true, () => { recordPublicationGap(); return false; })
+      .finally(() => publications.delete(operation));
     publications.add(operation);
+    return operation;
   };
   const release = (notificationClient: NotificationClient): void => {
     if (releasedClients.has(notificationClient)) return;
@@ -2916,26 +2998,30 @@ export async function startKnexRealtime(payload: Payload, httpServer: Server) {
     if (listener === notificationClient) listener = undefined;
   };
   /**
-   * A lost LISTEN loses every notification sent while it was gone, and the
-   * subscribers it feeds have no way to know that. The authoritative position is
-   * read from the database rather than inferred from the bridge's own history.
-   * A position that moved across a gap is the evidence that notifications were
-   * missed, and every topic is invalidated once so subscribers converge; a
-   * position that moved while the bridge was listening was already delivered.
+   * A lost LISTEN loses every notification sent while it was gone, and a refused
+   * publication loses one the bridge did read; the subscribers they feed have no
+   * way to know either. The authoritative position is read from the database
+   * rather than inferred from the bridge's own history, but reading it is not
+   * what closes a gap: only a full-topic resynchronisation that every topic
+   * accepted lets the watermark move past the notifications nobody received.
+   * A position that moved with no gap open was already delivered.
    */
   const synchronize = async (): Promise<void> => {
     const result = await pool.query("select coalesce(max(id),0)::text as watermark from k_nex_outbox where application_id=$1 and plugin_id='module.sales' and status='delivered'", [kNexIdentity.applicationId]);
     const authoritative = Number(result.rows[0]?.watermark);
     if (!Number.isSafeInteger(authoritative) || authoritative < 0) throw new TypeError("Realtime invalidation watermark is invalid.");
-    if (authoritative > watermark) {
-      const gap = missedNotifications;
-      watermark = authoritative;
-      missedNotifications = false;
-      if (gap) {
-        const marker = "realtime-resynchronisation-" + String(watermark);
-        for (const descriptor of salesRealtimeTopicDescriptors) publish(Object.freeze({ topic: descriptor.id, source: descriptor.sourceId, event: descriptor.eventId, correlation: marker, dedupe: marker }));
+    if (missedNotifications) {
+      const observed = gapGeneration;
+      const marker = "realtime-resynchronisation-" + String(authoritative);
+      const resynchronised = await Promise.all(salesRealtimeTopicDescriptors.map((descriptor) =>
+        publish(Object.freeze({ topic: descriptor.id, source: descriptor.sourceId, event: descriptor.eventId, correlation: marker, dedupe: marker }))));
+      // A refused resynchronisation leaves the gap, the watermark and the
+      // degraded state exactly as they were, so the next tick tries again.
+      if (resynchronised.every((published) => published) && gapGeneration === observed && !closed) {
+        watermark = Math.max(watermark, authoritative);
+        missedNotifications = false;
       }
-    }
+    } else if (authoritative > watermark) watermark = authoritative;
     synchronizedAt = Date.now();
     recordHealth();
   };
@@ -2951,9 +3037,9 @@ export async function startKnexRealtime(payload: Payload, httpServer: Server) {
   };
   const scheduleReconnect = (): void => {
     if (closed) return;
-    state = "reconnecting";
+    listening = false;
     missedNotifications = true;
-    degradedSince ??= Date.now();
+    gapGeneration += 1;
     recordHealth();
     reconnectTimer = setTimeout(() => { if (!closed) { connecting = connect(false); void connecting.catch(() => undefined); } }, realtimeBridgeReconnectDelayMs);
   };
@@ -2976,7 +3062,9 @@ export async function startKnexRealtime(payload: Payload, httpServer: Server) {
         try {
           const envelope = exactObject(JSON.parse(notification.payload), ["applicationId", "environment", "invalidation", "type"]);
           if (envelope.applicationId !== kNexIdentity.applicationId || envelope.environment !== kNexIdentity.environment || envelope.type !== "realtime") return;
-          publish(opaque(envelope.invalidation, String((envelope.invalidation as Record<string, unknown> | null)?.topic), String((envelope.invalidation as Record<string, unknown> | null)?.source), String((envelope.invalidation as Record<string, unknown> | null)?.event)));
+          // The result is not awaited here, but it is not discarded either: a
+          // refusal records the gap that holds the watermark back.
+          void publish(opaque(envelope.invalidation, String((envelope.invalidation as Record<string, unknown> | null)?.topic), String((envelope.invalidation as Record<string, unknown> | null)?.source), String((envelope.invalidation as Record<string, unknown> | null)?.event)));
         } catch { /* Untrusted notifications never alter realtime state. */ }
         synchronizeBackground();
       });
@@ -2985,8 +3073,9 @@ export async function startKnexRealtime(payload: Payload, httpServer: Server) {
       await notificationClient.query("LISTEN k_nex_runtime_invalidation");
       if (closed) { await notificationClient.query("UNLISTEN k_nex_runtime_invalidation").catch(() => undefined); release(notificationClient); return; }
       connection += 1;
-      state = "connected";
-      degradedSince = undefined;
+      listening = true;
+      // A resubscribed bridge is listening again but still owes every topic the
+      // resynchronisation for what the dead LISTEN dropped.
       recordHealth();
       synchronizeBackground();
     } catch (error) {
@@ -3004,9 +3093,9 @@ export async function startKnexRealtime(payload: Payload, httpServer: Server) {
     // itself: the listener handlers have already scheduled a reconnect by the
     // time a strict start fails, and nothing would ever stop that loop.
     closed = true;
+    listening = false;
     clearInterval(synchronizeTimer);
     if (reconnectTimer !== undefined) clearTimeout(reconnectTimer);
-    state = "closed";
     recordHealth();
     await gateway.close().catch(() => undefined);
     throw error;
@@ -3016,9 +3105,8 @@ export async function startKnexRealtime(payload: Payload, httpServer: Server) {
     async close(): Promise<void> {
       if (closing !== undefined) return closing;
       closed = true;
+      listening = false;
       synchronizationQueued = false;
-      state = "closed";
-      degradedSince ??= Date.now();
       recordHealth();
       clearInterval(synchronizeTimer);
       if (reconnectTimer !== undefined) clearTimeout(reconnectTimer);

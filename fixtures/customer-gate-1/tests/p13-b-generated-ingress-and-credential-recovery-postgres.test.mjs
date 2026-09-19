@@ -103,6 +103,92 @@ finally { await shutdownKnexApplication(payload); }
 process.exit(0);
 `;
 
+/**
+ * Kills the process at one named boundary of the credential journey, so the
+ * database is the only thing left to decide what happened. No generated code is
+ * instrumented: everything here wraps the Payload surface the journey uses, and
+ * "credential-written" reaches the transaction Payload is carrying to move the
+ * credential column on it before the session rows are ever cleared.
+ */
+const credentialBoundaryInstrumentation = `
+import { sql } from "@payloadcms/db-postgres";
+const boundary = process.env.PROBE_BOUNDARY;
+const die = (at) => { if (boundary === at) { console.log("PROBE_DIED " + at); process.exit(86); } };
+function instrument(payload) {
+  const update = payload.update.bind(payload);
+  const commit = payload.db.commitTransaction.bind(payload.db);
+  // Reauthentication logs in, and a login commits a transaction of its own. The
+  // credential write is the journey's only payload.update, so it is what arms
+  // the commit boundaries.
+  let writing = false;
+  payload.update = async (args) => {
+    writing = true;
+    die("before-write");
+    if (boundary === "credential-written") {
+      const session = payload.db.sessions[String(await args.req.transactionID)];
+      if (session === undefined) throw new Error("the credential write is not carrying a transaction");
+      await session.db.execute(sql\`update users set email='boundary-orphan@p13.example.test' where id=\${args.id}\`);
+      die("credential-written");
+    }
+    const result = await update(args);
+    die("after-write");
+    return result;
+  };
+  payload.db.commitTransaction = async (id) => {
+    if (writing) die("after-audit");
+    const value = await commit(id);
+    if (writing) die("after-commit");
+    return value;
+  };
+}
+`;
+
+const credentialBoundaryScript = `${credentialBoundaryInstrumentation}
+import { bootKnexApplication } from "./dist/boot.js";
+import { changeCurrentUserCredentials, kNexRequestContext, shutdownKnexApplication } from "./dist/k-nex-authority.js";
+const payload = await bootKnexApplication("credential-change");
+instrument(payload);
+try {
+  const headers = new Headers({ cookie: process.env.PROBE_COOKIE });
+  const result = await changeCurrentUserCredentials(payload, kNexRequestContext(headers, "credential-change"), JSON.parse(process.env.PROBE_INPUT));
+  console.log("PROBE_OK " + JSON.stringify(result));
+} catch (error) { console.log("PROBE_ERR " + (error?.code ?? error?.message ?? String(error))); }
+finally { await shutdownKnexApplication(payload); }
+process.exit(0);
+`;
+
+const recoveryBoundaryScript = `${credentialBoundaryInstrumentation}
+import { bootKnexApplication } from "./dist/boot.js";
+import { acquireBootstrapLock, assertIssuedBootstrapToken, readCredentialRecoveryToken, releaseBootstrapLock } from "./dist/k-nex-bootstrap-token.js";
+import { kNexAuthority, recoverProtectedOwnerCredential, shutdownKnexApplication } from "./dist/k-nex-authority.js";
+import { kNexIdentity } from "./dist/k-nex-identity.js";
+const payload = await bootKnexApplication("owner-credential-recovery");
+instrument(payload);
+let lock;
+try {
+  const token = readCredentialRecoveryToken(["--token-file", process.env.PROBE_TOKEN_FILE]);
+  lock = await acquireBootstrapLock(payload);
+  await assertIssuedBootstrapToken(lock, token);
+  const receipt = await kNexAuthority(payload).store.readProtectedRoleBaselineReceipt(kNexIdentity.applicationId);
+  const recovered = await recoverProtectedOwnerCredential(payload, receipt, process.env.PROBE_OPERATOR, token, { email: process.env.PROBE_EMAIL, password: process.env.PROBE_PASSWORD });
+  console.log("PROBE_OK " + JSON.stringify(recovered));
+} catch (error) { console.log("PROBE_ERR " + (error?.code ?? error?.message ?? String(error))); }
+finally {
+  try { if (lock !== undefined) await releaseBootstrapLock(lock); }
+  finally { await shutdownKnexApplication(payload); }
+}
+process.exit(0);
+`;
+
+/** The journey is expected to die here, so a clean exit is the failure. */
+function boundaryProbe(application, environment, script, boundary, extraEnvironment) {
+  const result = spawnSync(process.execPath, ["--input-type=module", "-e", script], {
+    cwd: application, env: { ...environment, ...extraEnvironment, PROBE_BOUNDARY: boundary }, encoding: "utf8"
+  });
+  assert.equal(result.status, 86, `A ${boundary} probe must die at its boundary.\n${result.stdout}\n${result.stderr}`);
+  assert.match(result.stdout, new RegExp(`PROBE_DIED ${boundary}`, "u"), `${result.stdout}\n${result.stderr}`);
+}
+
 test("P13.B generated ingress readers are bounded, the realtime bridge recovers, and owner credentials are recoverable", { timeout: 1_200_000 }, async () => {
   await withGeneratedCrmBrowserFixture(async ({ application, origin, personas, pool, environment, applicationOutput }) => {
     const owner = await login(origin, personas.owner.email, personas.owner.password);
@@ -225,7 +311,37 @@ test("P13.B generated ingress readers are bounded, the realtime bridge recovers,
     assert.notEqual((await login(origin, personas.owner.email, personas.owner.password)).status, 200, "The replaced password must stop working.");
     const rotated = await login(origin, personas.owner.email, "self-service-password-1");
     assert.equal(rotated.status, 200);
-    assert.equal((await pool.query("select count(*)::int count from k_nex_authorization_audit where audit_json->>'operation'='credential-change' and audit_json->>'target'=$1", [owner.userId])).rows[0].count, 1);
+    const credentialAudits = async () => (await pool.query("select count(*)::int count from k_nex_authorization_audit where audit_json->>'operation'='credential-change' and audit_json->>'target'=$1", [owner.userId])).rows[0].count;
+    assert.equal(await credentialAudits(), 1);
+
+    // -------- credential boundary failures --------
+    // A credential that moved without its audit, or an audit without the
+    // credential, is the whole finding. Kill the journey at each boundary in
+    // turn and require that nothing survives until the commit does.
+    for (const boundary of ["before-write", "credential-written", "after-write", "after-audit"]) {
+      boundaryProbe(application, environment, credentialBoundaryScript, boundary, {
+        PROBE_COOKIE: rotated.cookie,
+        PROBE_INPUT: JSON.stringify({ currentPassword: "self-service-password-1", email: `boundary-${boundary}@p13.example.test`, password: "boundary-refused-password-1" })
+      });
+      assert.equal((await login(origin, personas.owner.email, "self-service-password-1")).status, 200, `A ${boundary} failure must leave the previous credential working.`);
+      assert.notEqual((await login(origin, personas.owner.email, "boundary-refused-password-1")).status, 200, `A ${boundary} failure must not leave the new password working.`);
+      assert.notEqual((await login(origin, `boundary-${boundary}@p13.example.test`, "self-service-password-1")).status, 200, `A ${boundary} failure must not leave the new email working.`);
+      assert.notEqual((await login(origin, "boundary-orphan@p13.example.test", "self-service-password-1")).status, 200, `A ${boundary} failure must not leave an orphaned credential column behind.`);
+      assert.equal(await currentUser(origin, rotated.cookie), owner.userId, `A ${boundary} failure must leave live sessions alone.`);
+      assert.equal(await credentialAudits(), 1, `A ${boundary} failure must not write an audit.`);
+    }
+
+    // The far side of the same boundary: the commit landed, so the credential
+    // moved and carries exactly one audit even though nobody was told.
+    boundaryProbe(application, environment, credentialBoundaryScript, "after-commit", {
+      PROBE_COOKIE: rotated.cookie,
+      PROBE_INPUT: JSON.stringify({ currentPassword: "self-service-password-1", password: "boundary-committed-password-1" })
+    });
+    assert.notEqual((await login(origin, personas.owner.email, "self-service-password-1")).status, 200, "A committed credential change must replace the old password even when the caller never hears back.");
+    assert.equal(await currentUser(origin, rotated.cookie), undefined, "A committed credential change must revoke every live session.");
+    const committed = await login(origin, personas.owner.email, "boundary-committed-password-1");
+    assert.equal(committed.status, 200);
+    assert.equal(await credentialAudits(), 2, "A committed credential change must leave exactly one further audit.");
 
     // The owner password is now unknown to the operator; only recovery gets it back.
     const directory = mkdtempSync(join(tmpdir(), "p13b-recovery-"));
@@ -244,6 +360,26 @@ test("P13.B generated ingress readers are bounded, the realtime bridge recovers,
       assert.notEqual(withoutOperator.status, 0, "Recovery must require this deployment's administration operator configuration.");
       assert.notEqual((await login(origin, personas.owner.email, "operatorless-password-1")).status, 200);
 
+      const unspentGrants = async () => (await pool.query("select count(*)::int count from k_nex_owner_bootstrap_tokens where consumed_at is null")).rows[0].count;
+      const recoveryAudits = async () => (await pool.query("select count(*)::int count from k_nex_authorization_audit where audit_json->>'operation'='owner-credential-recovery' and audit_json->>'target'=$1", [owner.userId])).rows[0].count;
+      assert.equal(await unspentGrants(), 1);
+
+      // The grant is spent on the credential transaction, so a recovery killed
+      // anywhere inside that boundary costs the operator nothing: the very same
+      // grant file is still spendable, and it is the one the real run below uses.
+      for (const boundary of ["before-write", "credential-written", "after-write", "after-audit"]) {
+        boundaryProbe(application, environment, recoveryBoundaryScript, boundary, {
+          PROBE_TOKEN_FILE: tokenFile,
+          PROBE_OPERATOR: environment.K_NEX_ADMINISTRATION_OPERATOR_IDENTITY,
+          PROBE_EMAIL: personas.owner.email,
+          PROBE_PASSWORD: "boundary-recovered-password-1"
+        });
+        assert.equal(await unspentGrants(), 1, `A ${boundary} failure must leave the one-shot recovery grant unspent.`);
+        assert.equal(await recoveryAudits(), 0, `A ${boundary} failure must not write a recovery audit.`);
+        assert.notEqual((await login(origin, personas.owner.email, "boundary-recovered-password-1")).status, 200, `A ${boundary} failure must not move the owner credential.`);
+        assert.equal((await login(origin, personas.owner.email, "boundary-committed-password-1")).status, 200, `A ${boundary} failure must leave the owner credential where it was.`);
+      }
+
       // Kept so the spent grant can be presented again; consumption unlinks it.
       const grant = readFileSync(tokenFile, "utf8");
       const recovered = operatorProbe(application, environment,
@@ -252,9 +388,10 @@ test("P13.B generated ingress readers are bounded, the realtime bridge recovers,
       assert.equal(recovered.status, 0, `${recovered.stdout}\n${recovered.stderr}`);
       assert.match(recovered.stdout, new RegExp(`K_NEX_OWNER_CREDENTIAL_RECOVERED ${owner.userId} owner-credential-recovery-[0-9a-f]{32}`, "u"));
 
-      assert.equal(await currentUser(origin, rotated.cookie), undefined, "Recovery must revoke every live session.");
-      assert.notEqual((await login(origin, personas.owner.email, "self-service-password-1")).status, 200);
+      assert.equal(await currentUser(origin, committed.cookie), undefined, "Recovery must revoke every live session.");
+      assert.notEqual((await login(origin, personas.owner.email, "boundary-committed-password-1")).status, 200);
       assert.equal((await login(origin, personas.owner.email, "operator-recovered-password-1")).status, 200);
+      assert.equal(await unspentGrants(), 0, "The successful recovery must spend the grant the failed attempts left alone.");
 
       const audit = (await pool.query("select audit_json from k_nex_authorization_audit where audit_json->>'operation'='owner-credential-recovery' and audit_json->>'target'=$1", [owner.userId])).rows;
       assert.equal(audit.length, 1, "Operator recovery must leave exactly one audit record.");

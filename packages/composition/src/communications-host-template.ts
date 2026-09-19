@@ -8,7 +8,7 @@ import { ActionGatewayError } from "@k-nex/runtime";
 import { sql } from "@payloadcms/db-postgres";
 import type { Endpoint, PayloadRequest } from "payload";
 
-import { providerWebhookRequestByteLimit, readBoundedRequestBody } from "./k-nex-authority.js";
+import { KnexRequestBodyError, boundedRequestBodyText, providerWebhookRequestByteLimit, readBoundedRequestBody } from "./k-nex-authority.js";
 
 type Row = Record<string, unknown>;
 type ProviderId = "email.reference.v1" | "calendar.reference.v1";
@@ -168,12 +168,24 @@ export function createGeneratedBoundedReferenceProviderTransport(endpoint: strin
   });
 }
 
+const providerReceiptByteLimit = 4_096;
+/**
+ * A receipt arrives from a process this host does not run, so it is read on the
+ * same terms as inbound ingress rather than decoded whole.  The 10s call abort
+ * bounds time, but a chunked or length-less response is only bounded in bytes
+ * if the cap is applied while the body streams, so the shared ingress reader
+ * does it here too: one cap, an idle timeout, a total deadline, cancellation,
+ * and nothing retained once the cap is crossed.
+ */
+const providerReceiptReadLimits = Object.freeze({ maxBytes: providerReceiptByteLimit, idleTimeoutMs: 1_000, deadlineMs: 5_000 });
 async function boundedJson(response: Response): Promise<unknown> {
-  const declared = response.headers.get("content-length");
-  if (declared !== null && (!/^[0-9]+$/u.test(declared) || Number(declared) > 4_096)) throw new ProviderHostInvariantError("Provider receipt is invalid.");
-  const text = await response.text();
-  if (Buffer.byteLength(text, "utf8") > 4_096) throw new ProviderHostInvariantError("Provider receipt is invalid.");
-  try { return JSON.parse(text); } catch { throw new ProviderHostInvariantError("Provider receipt is invalid."); }
+  let bytes: Uint8Array;
+  // An oversize, over-declared, or absent body breaks the receipt contract and
+  // is terminal.  A stalled one says nothing about the effect, so it stays an
+  // outage the operation reconciles by receipt lookup instead of resending.
+  try { bytes = await readBoundedRequestBody(response, providerReceiptReadLimits); }
+  catch (error) { if (error instanceof KnexRequestBodyError && error.refusal !== "timed-out") throw new ProviderHostInvariantError("Provider receipt is invalid."); throw new Error("Provider transport failed."); }
+  try { return JSON.parse(boundedRequestBodyText(bytes)); } catch { throw new ProviderHostInvariantError("Provider receipt is invalid."); }
 }
 
 async function providerCredential(secretReference: string, resolver: GeneratedSalesProviderSecretResolver): Promise<string> {

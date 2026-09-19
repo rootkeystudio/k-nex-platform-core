@@ -164,12 +164,90 @@ export function createGeneratedBoundedReferenceProviderTransport(endpoint: strin
   });
 }
 
+const providerWebhookRequestByteLimit = 65_536;
+const providerReceiptByteLimit = 4_096;
+const boundedBodyIdleTimeoutMs = 1_000;
+type BoundedBodySource = Readonly<{ headers: Headers; body?: ReadableStream<Uint8Array> | null }>;
+type BoundedBodyRefusal = "declared-length" | "missing-body" | "too-large" | "timed-out";
+class BoundedBodyError extends Error {
+  readonly refusal: BoundedBodyRefusal;
+  constructor(refusal: BoundedBodyRefusal) { super("Body was refused: " + refusal); this.name = "BoundedBodyError"; this.refusal = refusal; }
+}
+
+/** Resolves the read or the bound, whichever comes first, and never twice. */
+async function boundedChunk(reader: ReadableStreamDefaultReader<Uint8Array>, idleTimeoutMs: number, deadline: number): Promise<ReadableStreamReadResult<Uint8Array>> {
+  const remaining = deadline - performance.now();
+  if (remaining <= 0) throw new BoundedBodyError("timed-out");
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await new Promise<ReadableStreamReadResult<Uint8Array>>((resolve, reject) => {
+      let settled = false;
+      const finish = (callback: () => void) => { if (settled) return; settled = true; callback(); };
+      timer = setTimeout(() => finish(() => reject(new BoundedBodyError("timed-out"))), Math.min(idleTimeoutMs, remaining));
+      void reader.read().then((value) => finish(() => resolve(value)), (error: unknown) => finish(() => reject(error)));
+    });
+  } finally { if (timer !== undefined) clearTimeout(timer); }
+}
+
+/**
+ * The generated application reads every body through readBoundedRequestBody in
+ * k-nex-authority.ts.  This customer application carries no authority module,
+ * so the same reader lives here and both boundaries share it: an inbound
+ * webhook and an outbound provider receipt are equally bytes from a process
+ * this host does not run, and neither is allocated whole before its size is
+ * known.  A byte cap alone is not enough, because a body that trickles, a body
+ * that never ends, and an oversize body all cost the sender nothing.
+ */
+async function readBoundedBody(source: BoundedBodySource, limits: Readonly<{ maxBytes: number; deadlineMs: number }>): Promise<Uint8Array> {
+  const declared = source.headers.get("content-length");
+  if (declared !== null && (!/^[0-9]+$/u.test(declared) || Number(declared) > limits.maxBytes)) throw new BoundedBodyError("declared-length");
+  const body = source.body;
+  if (body === null || body === undefined) throw new BoundedBodyError("missing-body");
+  const deadline = performance.now() + limits.deadlineMs;
+  const reader = body.getReader();
+  let cancelled = false;
+  const cancel = (): void => {
+    if (cancelled) return;
+    cancelled = true;
+    try { void reader.cancel().catch(() => undefined); } catch { /* a stream that refuses cancellation is already gone */ }
+  };
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  let oversize = false;
+  try {
+    while (true) {
+      const next = await boundedChunk(reader, boundedBodyIdleTimeoutMs, deadline);
+      if (next.done) break;
+      total += next.value.byteLength;
+      if (total > limits.maxBytes) {
+        // An oversize body is drained rather than reset, because cancelling an
+        // inbound stream makes some HTTP runtimes destroy the connection before
+        // the refusal is written. The drain answers to the same idle timeout and
+        // deadline as the read it replaces, and retains nothing.
+        if (!oversize) { oversize = true; chunks.length = 0; }
+        continue;
+      }
+      chunks.push(next.value);
+    }
+  } catch (error) {
+    cancel();
+    throw oversize ? new BoundedBodyError("too-large") : error;
+  } finally { reader.releaseLock(); }
+  if (oversize) throw new BoundedBodyError("too-large");
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+  return bytes;
+}
+
 async function boundedJson(response: Response): Promise<unknown> {
-  const declared = response.headers.get("content-length");
-  if (declared !== null && (!/^[0-9]+$/u.test(declared) || Number(declared) > 4_096)) throw new ProviderHostInvariantError("Provider receipt is invalid.");
-  const text = await response.text();
-  if (Buffer.byteLength(text, "utf8") > 4_096) throw new ProviderHostInvariantError("Provider receipt is invalid.");
-  try { return JSON.parse(text); } catch { throw new ProviderHostInvariantError("Provider receipt is invalid."); }
+  let bytes: Uint8Array;
+  // An oversize, over-declared, or absent body breaks the receipt contract and
+  // is terminal.  A stalled one says nothing about the effect, so it stays an
+  // outage the operation reconciles by receipt lookup instead of resending.
+  try { bytes = await readBoundedBody(response, { maxBytes: providerReceiptByteLimit, deadlineMs: 5_000 }); }
+  catch (error) { if (error instanceof BoundedBodyError && error.refusal !== "timed-out") throw new ProviderHostInvariantError("Provider receipt is invalid."); throw new Error("Provider transport failed."); }
+  try { return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)); } catch { throw new ProviderHostInvariantError("Provider receipt is invalid."); }
 }
 
 async function providerCredential(secretReference: string, resolver: GeneratedSalesProviderSecretResolver): Promise<string> {
@@ -306,9 +384,8 @@ export async function acceptGeneratedSalesProviderWebhook(input: Readonly<{ pool
 }
 
 export function generatedSalesProviderWebhookEndpoints(applicationId: string, environment: string, resolver: GeneratedSalesProviderSecretResolver): readonly Endpoint[] {
-  const boundedBody = async (request: Readonly<{ headers: Headers; body?: ReadableStream<Uint8Array> | null }>) => { const declared = request.headers.get("content-length"); if (declared !== null && (!/^[0-9]+$/u.test(declared) || Number(declared) > 65_536) || request.body === null || request.body === undefined) throw new Error("Webhook body is invalid."); const reader = request.body.getReader(); const chunks: Uint8Array[] = []; let total = 0; try { while (true) { const next = await reader.read(); if (next.done) break; total += next.value.byteLength; if (total > 65_536) throw new Error("Webhook body is invalid."); chunks.push(next.value); } } finally { reader.releaseLock(); } const body = new Uint8Array(total); let offset = 0; for (const chunk of chunks) { body.set(chunk, offset); offset += chunk.byteLength; } return body; };
   const endpoint = (providerId: ProviderId, path: string): Endpoint => ({ method: "post", path, handler: async (request) => {
-    try { const body = await boundedBody(request); const pool = request.payload.db.pool as unknown as ProviderPool; const result = await acceptGeneratedSalesProviderWebhook({ pool, resolver, providerId, applicationId, environment, signature: request.headers.get("x-k-nex-signature"), timestamp: request.headers.get("x-k-nex-timestamp"), body }); return Response.json(result, { status: 202, headers: { "cache-control": "no-store" } }); }
+    try { const body = await readBoundedBody(request, { maxBytes: providerWebhookRequestByteLimit, deadlineMs: 30_000 }); const pool = request.payload.db.pool as unknown as ProviderPool; const result = await acceptGeneratedSalesProviderWebhook({ pool, resolver, providerId, applicationId, environment, signature: request.headers.get("x-k-nex-signature"), timestamp: request.headers.get("x-k-nex-timestamp"), body }); return Response.json(result, { status: 202, headers: { "cache-control": "no-store" } }); }
     catch (error) { const status = error instanceof ActionGatewayError ? error.status : 400; return Response.json({ code: "WEBHOOK_INVALID", status }, { status, headers: { "cache-control": "no-store" } }); }
   } });
   return Object.freeze([endpoint("email.reference.v1", "/k-nex/sales/providers/email-reference/webhook"), endpoint("calendar.reference.v1", "/k-nex/sales/providers/calendar-reference/webhook")]);

@@ -145,6 +145,8 @@ const proofs = [
     "tests/p13-c-provider-idempotency-contract-postgres.test.mjs",
     "tests/p13-c-provider-secret-purpose-postgres.test.mjs"
   ], [
+    "P13.C an oversized provider receipt is refused by byte count before it is allocated",
+    "P13.C a provider receipt that never settles leaves the operation recoverable and unforged",
     "P13.C the bundled reference provider keeps a durable idempotency store across a restart",
     "P13.C an undeclared provider capability never reaches the network",
     "P13.C a provider that rejects a duplicate key never completes the local transition",

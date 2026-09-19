@@ -40,7 +40,10 @@ export const createRealtimeTopicRegistry = (topics) => Object.freeze([...topics]
 export const defineRealtimeTopic = (topic) => topic;
 export const createCurrentAuthorityTarget = (value) => value;
 export const createSocketIoMemoryGateway = () => Object.freeze({
-  publish: async (input) => { control().published.push(input); },
+  publish: async (input) => {
+    if (control().refusePublications) { control().refused.push(input); throw new Error("realtime gateway refused the publication"); }
+    control().published.push(input);
+  },
   close: async () => { control().gatewayClosed += 1; }
 });
 export const currentPayloadAuthentication = async () => ({ user: null });
@@ -52,8 +55,12 @@ export const kNexRequestContext = (headers, boundary) => Object.freeze({ headers
 let directory: string;
 let bridge: BridgeModule;
 
+type Publication = { channel: { topicId: string }; correlationId: string; message: unknown };
+
 type Control = {
-  published: Array<{ channel: { topicId: string }; correlationId: string; message: unknown }>;
+  published: Publication[];
+  refused: Publication[];
+  refusePublications: boolean;
   gatewayClosed: number;
   listeners: FakeListener[];
   watermark: number;
@@ -65,9 +72,20 @@ function control(): Control {
 }
 
 function freshControl(): Control {
-  const value: Control = { published: [], gatewayClosed: 0, listeners: [], watermark: 0, connectFailures: 0 };
+  const value: Control = { published: [], refused: [], refusePublications: false, gatewayClosed: 0, listeners: [], watermark: 0, connectFailures: 0 };
   (globalThis as typeof globalThis & { __kNexGeneratedRealtimeBridge: Control }).__kNexGeneratedRealtimeBridge = value;
   return value;
+}
+
+function invalidation(topic: "accounts" | "contacts", correlation: string): string {
+  return JSON.stringify({
+    applicationId: "customer-alpha", environment: "production", type: "realtime",
+    invalidation: { topic: `sales.topic.${topic}`, source: `sales.source.${topic}`, event: `sales.event.${topic === "accounts" ? "account" : "contact"}-changed`, correlation, dedupe: correlation }
+  });
+}
+
+function resynchronisations(): Publication[] {
+  return control().published.filter(({ correlationId }) => correlationId.startsWith("realtime-resynchronisation-"));
 }
 
 function fakePool(state: Control) {
@@ -172,6 +190,58 @@ it("reconnects, resubscribes, and resynchronises a monotonic watermark after the
   expect(bridge.currentKnexRealtimeBridgeHealth()!.state).toBe("closed");
   expect(control().gatewayClosed).toBe(1);
   expect(control().listeners.every(({ released }) => released)).toBe(true);
+});
+
+/**
+ * The finding this closes: a refused publication used to be swallowed, so the
+ * watermark walked past an invalidation nobody received while the LISTEN
+ * connection, the health state and readiness all stayed perfectly happy.
+ */
+it("holds the watermark and degrades readiness when a publication is refused with the listener still connected", { timeout: 30_000 }, async () => {
+  const state = freshControl();
+  state.watermark = 5;
+  const started = await bridge.startKnexRealtime({ db: { pool: fakePool(state) } }, undefined);
+  try {
+    await settle(() => bridge.currentKnexRealtimeBridgeHealth()?.watermark === 5, "bridge did not synchronise its first watermark");
+    expect(bridge.currentKnexRealtimeBridgeHealth()!.state).toBe("connected");
+
+    state.refusePublications = true;
+    state.listeners[0]!.notify(invalidation("accounts", "p13b-refused-invalidation"));
+    await settle(() => bridge.currentKnexRealtimeBridgeHealth()!.state === "degraded", "a refused publication did not degrade the bridge");
+    const gapped = bridge.currentKnexRealtimeBridgeHealth()!;
+    expect(bridge.realtimeBridgeDegradation(gapped, Date.now())).toBe("Sales realtime invalidation bridge has an unpublished invalidation.");
+    // No grace: the dropped invalidation is already being withheld from subscribers.
+    expect(bridge.realtimeBridgeDegradation(gapped, Date.now() + bridge.realtimeBridgeDegradedGraceMs + 1)).toBe("Sales realtime invalidation bridge has an unpublished invalidation.");
+
+    // The outbox moves on while the gap is open. Reading that position is not
+    // evidence that anyone received the notification behind it.
+    state.watermark = 9;
+    await settle(() => state.refused.length >= 4, "the bridge did not keep retrying the resynchronisation it owes");
+    expect(bridge.currentKnexRealtimeBridgeHealth()!.watermark).toBe(5);
+    expect(bridge.currentKnexRealtimeBridgeHealth()!.state).toBe("degraded");
+    expect(resynchronisations()).toEqual([]);
+    // The LISTEN connection never dropped, which is exactly why the old flag
+    // could not have caught this.
+    expect(state.listeners).toHaveLength(1);
+    expect(state.listeners[0]!.released).toBe(false);
+    expect(bridge.currentKnexRealtimeBridgeHealth()!.connection).toBe(1);
+
+    state.refusePublications = false;
+    await settle(() => bridge.currentKnexRealtimeBridgeHealth()!.state === "connected", "the bridge did not recover after the gateway was restored");
+    expect(bridge.currentKnexRealtimeBridgeHealth()!.watermark).toBe(9);
+    expect(bridge.realtimeBridgeDegradation(bridge.currentKnexRealtimeBridgeHealth(), Date.now())).toBeUndefined();
+    // Exactly one full-topic resynchronisation, carrying the position the
+    // watermark was finally allowed to reach.
+    expect(resynchronisations().map(({ channel }) => channel.topicId).sort()).toEqual(["sales.topic.accounts", "sales.topic.contacts"]);
+    expect(resynchronisations().every(({ correlationId }) => correlationId === "realtime-resynchronisation-9")).toBe(true);
+    expect(state.connectFailures).toBe(0);
+
+    // A settled bridge does not republish on every later tick.
+    const settled = resynchronisations().length;
+    await new Promise((resolve) => setTimeout(resolve, 1_200));
+    expect(resynchronisations()).toHaveLength(settled);
+    expect(bridge.currentKnexRealtimeBridgeHealth()!.state).toBe("connected");
+  } finally { await started.close(); }
 });
 
 it("keeps retrying a listener connection the pool refuses, and reports the bridge degraded while it is gone", async () => {

@@ -33,6 +33,8 @@ export const createPlatformPluginRegistrationAuthorizationContribution = () => u
 export const createTrustedAuthorizationSession = () => undefined;
 export const platformPermissionDescriptors = Object.freeze([]);
 export const kNexSalesRegistry = Object.freeze({ policyBindings: [], policyExecutors: {} });
+export const sql = (strings, ...values) => Object.freeze({ strings: Object.freeze([...strings]), values: Object.freeze(values) });
+export const activePayloadPostgresTransaction = async () => { throw new Error("generated ingress must not open a credential transaction for a refused body"); };
 export const bootKnexApplication = async () => { control.boots += 1; throw new Error("generated ingress must not boot the application for a refused body"); };
 export const workspaceSalesPermissions = async () => { control.salesPermissionReads += 1; return []; };
 export const createGeneratedEnvironmentProviderSecretResolver = () => undefined;
@@ -60,11 +62,12 @@ beforeAll(async () => {
   writeFileSync(join(directory, "stubs.mjs"), stubSource);
   const authority = generated["src/k-nex-authority.ts"]!
     .replace(/import \{ AuthorizationDecisionAuditSchema, canonicalJson \} from "@k-nex\/contracts";/u, 'import { AuthorizationDecisionAuditSchema, canonicalJson } from "./stubs.mjs";')
-    .replace(/import \{ PostgresAuthorizationStore,[^;]+from "@k-nex\/payload-adapter";/u, 'import { PostgresAuthorizationStore } from "./stubs.mjs";')
+    .replace(/import \{ PostgresAuthorizationStore,[^;]+from "@k-nex\/payload-adapter";/u, 'import { PostgresAuthorizationStore, activePayloadPostgresTransaction } from "./stubs.mjs";')
     .replace(/import \{\n(?:[^;]+)\n\} from "@k-nex\/runtime";/u, 'import { CurrentAuthorityAdapter, EffectiveAuthorityResolver, createAuthorizationCatalogProvider, createCurrentAuthorityTarget, createEffectiveAuthorizationRequest, createEffectiveAuthorizationCatalog, createPlatformPluginPolicyExecutable, createPlatformPluginRegistrationAuthorizationContribution, createTrustedAuthorizationSession, platformPermissionDescriptors } from "./stubs.mjs";')
+    .replace('import { sql } from "@payloadcms/db-postgres";', 'import { sql } from "./stubs.mjs";')
     .replace('import { kNexIdentity } from "./k-nex-identity.js";', 'import { kNexIdentity } from "./stubs.mjs";')
     .replace('import { kNexSalesRegistry } from "./k-nex-registry.js";', 'import { kNexSalesRegistry } from "./stubs.mjs";');
-  expect(authority).not.toMatch(/@k-nex\//u);
+  expect(authority).not.toMatch(/@k-nex\/|@payloadcms\//u);
   writeFileSync(join(directory, "authority.mjs"), transpile(authority));
   const upload = generated["src/app/api/k-nex/sales/import-upload/route.ts"]!
     .replaceAll('"../../../../../k-nex-authority.js"', '"./authority.mjs"')
