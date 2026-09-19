@@ -52,9 +52,9 @@ importers:
       '@k-nex/runtime':
         specifier: file:.k-nex/packages/k-nex-runtime-1.1.0.tgz
         version: file:.k-nex/packages/k-nex-runtime-1.1.0.tgz
-      '@k-nex/theme-minimal':
-        specifier: file:.k-nex/packages/k-nex-theme-minimal-1.1.0.tgz
-        version: file:.k-nex/packages/k-nex-theme-minimal-1.1.0.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@k-nex/theme-neobrutalism':
+        specifier: file:.k-nex/packages/k-nex-theme-neobrutalism-1.1.0.tgz
+        version: file:.k-nex/packages/k-nex-theme-neobrutalism-1.1.0.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@k-nex/ui-builder-blocks':
         specifier: file:.k-nex/packages/k-nex-ui-builder-blocks-1.1.0.tgz
         version: file:.k-nex/packages/k-nex-ui-builder-blocks-1.1.0.tgz(@floating-ui/dom@1.8.0)(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(typescript@6.0.3)(use-sync-external-store@1.7.0(react@19.2.8))(yjs@13.6.32)
@@ -964,7 +964,7 @@ packages:
       react: ^18.0.0 || ^19.0.0
 
   '@k-nex/composition@file:.k-nex/packages/k-nex-composition-1.1.0.tgz':
-    resolution: {integrity: sha512-JOqSCYzBc2KKG4Rdrojr2wC7NuZf/7TNkGitl1usEyrtX3fpc+iEY7SZLSpu05MbJGoboyu9N2O80E3lqpe8jw==, tarball: file:.k-nex/packages/k-nex-composition-1.1.0.tgz}
+    resolution: {integrity: sha512-3lWQBAcplWk/BJZpERXndP3m1AGjo4lgTCeLL9ta+75hTB8UTaNeSyw905RuD5HNQL82BKKdEi+/0Uky57Fo5g==, tarball: file:.k-nex/packages/k-nex-composition-1.1.0.tgz}
     version: 1.1.0
 
   '@k-nex/contracts@file:.k-nex/packages/k-nex-contracts-1.1.0.tgz':
@@ -976,7 +976,7 @@ packages:
     version: 1.1.0
 
   '@k-nex/module-sales@file:.k-nex/packages/k-nex-module-sales-1.1.0.tgz':
-    resolution: {integrity: sha512-+NEu/Eni3MnQs6Ilrzh0HQSWRNhBIy1149Er/wMRySFQL1USxtbeWxWKf0U7eBME98pq5x4mL4Qu9K/QNLdF8Q==, tarball: file:.k-nex/packages/k-nex-module-sales-1.1.0.tgz}
+    resolution: {integrity: sha512-nk1Als+L4KGyLKh4zFEFEZXk/zS7U0WLPiv8vzxoPuBLiYaGS5n9wJXNYhaB9MDHE4+1QobfJf9pqQUfSrtpxg==, tarball: file:.k-nex/packages/k-nex-module-sales-1.1.0.tgz}
     version: 1.1.0
     peerDependencies:
       '@k-nex/contracts': 1.1.0
@@ -1018,11 +1018,11 @@ packages:
       '@k-nex/runtime': 1.1.0
 
   '@k-nex/runtime@file:.k-nex/packages/k-nex-runtime-1.1.0.tgz':
-    resolution: {integrity: sha512-YHJQTXmppbSVcST0HsQZOEeE59RvW1VJuXqt4roNqDZP1U+YxOGZj/7GN2whRDQ3qv6Cq4JEohX+oKc9uQCb9w==, tarball: file:.k-nex/packages/k-nex-runtime-1.1.0.tgz}
+    resolution: {integrity: sha512-pMlOTwo/l6Qt9dSVFBoZH3Z0xE2iot2AVasa5iEmQ+9Dz3C447oaMXKmKyzA+odMfeG8jL1x6PP3iCBocDRe6A==, tarball: file:.k-nex/packages/k-nex-runtime-1.1.0.tgz}
     version: 1.1.0
 
-  '@k-nex/theme-minimal@file:.k-nex/packages/k-nex-theme-minimal-1.1.0.tgz':
-    resolution: {integrity: sha512-QWqNVvrejWWBGkh7r11XhgBCaa/ILkFZACCDsEgLjfg61KmkbZPrmd+wE9Jfr/LRiKYTUPplRlxyHc9oigY1+g==, tarball: file:.k-nex/packages/k-nex-theme-minimal-1.1.0.tgz}
+  '@k-nex/theme-neobrutalism@file:.k-nex/packages/k-nex-theme-neobrutalism-1.1.0.tgz':
+    resolution: {integrity: sha512-H2J4OrrqNKxSlXH6/eVzoELEUWRenzfrSU3wKnvoCAMpYtsghvpHbl+kWFRBxTFGm4arZlerSTCenSQt6axBrw==, tarball: file:.k-nex/packages/k-nex-theme-neobrutalism-1.1.0.tgz}
     version: 1.1.0
     peerDependencies:
       react: ^18.0.0 || ^19.0.0
@@ -2827,8 +2827,8 @@ packages:
     resolution: {integrity: sha512-9ZhXKM/rw350N1ovuWHbGxnGh/SNJ4cnxHiM0rxE4VN41wsg8P8zWn9hv/buK00RP4WvlOyr/RBDiptyxVbkZQ==}
     engines: {node: '>=0.10.0'}
 
-  prettier@3.9.7:
-    resolution: {integrity: sha512-T3mF5P7HFzZVLDQuCUNtJj6WK1pcpLMweMNUVwGb01bLNkH9AkKxtZvmInw8K6bnn2O3d6/5RHl6zSHiBAD0Og==}
+  prettier@3.9.8:
+    resolution: {integrity: sha512-WRFq3Wn3WId7LLROfMLdH7xaFr2jR62wU8nLO6rQUOLOxNZUviyJQs1M0iIhLexSFy+L+w0ch66wtoO2jRjG0A==}
     engines: {node: '>=14'}
     hasBin: true
 
@@ -4162,7 +4162,7 @@ snapshots:
       '@k-nex/extension-bundler': file:.k-nex/packages/k-nex-extension-bundler-1.1.0.tgz
       semver: 7.8.5
 
-  '@k-nex/theme-minimal@file:.k-nex/packages/k-nex-theme-minimal-1.1.0.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+  '@k-nex/theme-neobrutalism@file:.k-nex/packages/k-nex-theme-neobrutalism-1.1.0.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
     dependencies:
       '@k-nex/contracts': file:.k-nex/packages/k-nex-contracts-1.1.0.tgz
       '@k-nex/ui-design-system-contracts': file:.k-nex/packages/k-nex-ui-design-system-contracts-1.1.0.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -5835,7 +5835,7 @@ snapshots:
       js-yaml: 4.3.2
       lodash: 4.18.1
       minimist: 1.2.8
-      prettier: 3.9.7
+      prettier: 3.9.8
       tinyglobby: 0.2.17
 
   json-schema-to-zod@2.6.1: {}
@@ -6139,7 +6139,7 @@ snapshots:
     dependencies:
       xtend: 4.0.2
 
-  prettier@3.9.7: {}
+  prettier@3.9.8: {}
 
   process-warning@5.1.0: {}
 

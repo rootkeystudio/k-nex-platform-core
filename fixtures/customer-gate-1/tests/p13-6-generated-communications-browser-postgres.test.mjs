@@ -8,7 +8,7 @@ import { chromium } from "playwright";
 import { seriousAccessibilityViolations } from "./p13-3-browser-accessibility.mjs";
 import { withGeneratedCrmBrowserFixture } from "./p13-3-generated-crm-fixture.mjs";
 
-const forbiddenSecrets = ["p136-fixture-email-provider-secret", "p136-fixture-calendar-provider-secret", "secret-ref:v1:email-reference:webhook", "secret-ref:v1:calendar-reference:default"];
+const forbiddenSecrets = ["p136-fixture-email-provider-secret", "p136-fixture-calendar-provider-secret", "p136-fixture-email-webhook-secret", "p136-fixture-calendar-webhook-secret", "secret-ref:v1:email-reference:webhook", "secret-ref:v1:calendar-reference:default"];
 function assertNoSecrets(value, message) { for (const secret of forbiddenSecrets) assert.doesNotMatch(String(value), new RegExp(secret.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "u"), message); }
 
 async function login(browser, origin, persona) {
@@ -84,16 +84,16 @@ test("P13.6 generated HTTP and Chromium prove webhook bounds and recipient-only 
       select application_id,'p136-cross-team-email-send','p136.cross-team-email',permission_id,owner_kind,owner_namespace,owner_delivery_class,owner_extension_id,owner_generation,revision from k_nex_role_permission_grants where application_id='p13-crm-browser' and role_id='customer.initial-sales-administrator' and permission_id='sales.communications.email.send'`);
     await pool.query("insert into k_nex_role_assignments(application_id,assignment_id,role_id,subject_kind,subject_id,state) values ('p13-crm-browser','p136-cross-team-email-assignment','p136.cross-team-email','user',$1,'active')", [representativeId]);
     assert.equal(Number((await pool.query("select count(*) count from k_nex_role_permission_grants where application_id='p13-crm-browser' and role_id='p13.crm.representative' and permission_id='sales.communications.email.send'")).rows[0].count), 0, "test-only grant must not mutate canonical representative persona role");
-    await pool.query("insert into sales_provider_configurations(application_id,environment,provider_id,secret_reference,configured_by) values ('p13-crm-browser','test','email.reference.v1','secret-ref:v1:email-reference:webhook',$1)", [managerId]);
+    await pool.query("insert into sales_provider_configurations(application_id,environment,provider_id,secret_reference,webhook_secret_reference,configured_by) values ('p13-crm-browser','test','email.reference.v1','secret-ref:v1:email-reference:provider-api:default','secret-ref:v1:email-reference:webhook-signature:default',$1)", [managerId]);
     const operationId = "provider-browser-webhook-operation";
-    await pool.query(`insert into sales_provider_operations(operation_id,application_id,environment,provider_id,action_id,actor_id,related_record_type,related_record_id,idempotency_digest,payload_json,configuration_revision,authorization_revision,lifecycle_revision,scope_revision,state,attempt,next_attempt_at,accepted_at)
-      values($1,'p13-crm-browser','test','email.reference.v1','sales.email.send',$2,'sales.contact',$3,$4,'{}',1,1,0,1,'accepted',1,now(),now())`, [operationId, managerId, 1, `sha256:${"2".repeat(64)}`]);
+    await pool.query(`insert into sales_provider_operations(operation_id,application_id,environment,provider_id,action_id,actor_id,related_record_type,related_record_id,idempotency_digest,payload_json,configuration_revision,authorization_revision,lifecycle_revision,scope_revision,state,attempt,next_attempt_at,effect_claim_id,effect_dispatched_at,provider_receipt_id,provider_receipt_at,accepted_at)
+      values($1,'p13-crm-browser','test','email.reference.v1','sales.email.send',$2,'sales.contact',$3,$4,'{}',1,1,0,1,'accepted',1,now(),'browser-effect-claim',now(),'reference-receipt-browser-001',now(),now())`, [operationId, managerId, 1, `sha256:${"2".repeat(64)}`]);
     const event = { applicationId: "p13-crm-browser", environment: "test", eventId: "p136-browser-webhook-001", operationId, recipientId: managerId, kind: "message-delivered", metadata: { providerMessageId: "p136-browser-message-001" } };
-    const signed = webhook("p136-fixture-email-provider-secret", event);
+    const signed = webhook("p136-fixture-email-webhook-secret", event);
     assert.deepEqual(await postWebhook(origin, signed), { status: 202, body: { accepted: true, replay: false } });
     assert.deepEqual(await postWebhook(origin, signed), { status: 202, body: { accepted: true, replay: true } });
     const crossRecipient = { ...event, eventId: "p136-browser-cross-recipient", recipientId: representativeId, metadata: { providerMessageId: "p136-browser-cross-recipient" } };
-    assert.deepEqual(await postWebhook(origin, webhook("p136-fixture-email-provider-secret", crossRecipient)), { status: 400, body: { code: "WEBHOOK_INVALID", status: 400 } });
+    assert.deepEqual(await postWebhook(origin, webhook("p136-fixture-email-webhook-secret", crossRecipient)), { status: 400, body: { code: "WEBHOOK_INVALID", status: 400 } });
     assert.deepEqual(await oversizedWebhook(origin), { status: 400, body: { code: "WEBHOOK_INVALID", status: 400 } });
     assert.equal(Number((await pool.query("select count(*) count from sales_notifications where recipient_id=$1 and reference_id=$2", [managerId, event.eventId])).rows[0].count), 1);
 
@@ -151,10 +151,10 @@ test("P13.6 generated HTTP and Chromium prove webhook bounds and recipient-only 
         assert.deepEqual((await pool.query("select state,revision,cancelled_at is not null cancelled from sales_reminders where id=$1", [formReminder.id])).rows, [{ state: "cancelled", revision: 2, cancelled: true }]);
 
         const liveOperationId = "provider-browser-live-operation";
-        await pool.query(`insert into sales_provider_operations(operation_id,application_id,environment,provider_id,action_id,actor_id,related_record_type,related_record_id,idempotency_digest,payload_json,configuration_revision,authorization_revision,lifecycle_revision,scope_revision,state,attempt,next_attempt_at,accepted_at)
-          values($1,'p13-crm-browser','test','email.reference.v1','sales.email.send',$2,'sales.contact',$3,$4,'{}',1,1,0,1,'accepted',1,now(),now())`, [liveOperationId, managerId, 1, `sha256:${"4".repeat(64)}`]);
+        await pool.query(`insert into sales_provider_operations(operation_id,application_id,environment,provider_id,action_id,actor_id,related_record_type,related_record_id,idempotency_digest,payload_json,configuration_revision,authorization_revision,lifecycle_revision,scope_revision,state,attempt,next_attempt_at,effect_claim_id,effect_dispatched_at,provider_receipt_id,provider_receipt_at,accepted_at)
+          values($1,'p13-crm-browser','test','email.reference.v1','sales.email.send',$2,'sales.contact',$3,$4,'{}',1,1,0,1,'accepted',1,now(),'browser-live-effect-claim',now(),'reference-receipt-browser-live',now(),now())`, [liveOperationId, managerId, 1, `sha256:${"4".repeat(64)}`]);
         const liveEvent = { ...event, eventId: "p136-browser-live-event", operationId: liveOperationId, metadata: { providerMessageId: "p136-browser-live-message" } };
-        const liveSigned = webhook("p136-fixture-email-provider-secret", liveEvent); const beforeLive = await manager.page.getByText("message-delivered", { exact: false }).count();
+        const liveSigned = webhook("p136-fixture-email-webhook-secret", liveEvent); const beforeLive = await manager.page.getByText("message-delivered", { exact: false }).count();
         assert.deepEqual(await postWebhook(origin, liveSigned), { status: 202, body: { accepted: true, replay: false } });
         await manager.page.waitForFunction((before) => [...document.querySelectorAll("span")].filter((node) => node.textContent?.includes("message-delivered")).length > before, beforeLive, { timeout: 20_000 });
         assert.deepEqual(await postWebhook(origin, liveSigned), { status: 202, body: { accepted: true, replay: true } });

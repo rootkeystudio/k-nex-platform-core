@@ -8,7 +8,7 @@ Hot Applications  isolated signed bundles, live generation activation
 Theme Skins       data-only visual bundles, live generation activation
 ```
 
-Gates 0–12 established deterministic composition, authorized data/actions/tools, realtime/outbox, canonical UI documents, themes, Puck integration, a headless component system, release/fleet safety, isolated live applications, RBAC, system settings, extension administration, privileged operations, and a runnable generated customer workspace with custom internal dashboards. The selected product phase is CRM-first productization, with the coordinated release-train and customer-upgrade plan supplying the required P13.9 upgrade/backup/restore path.
+Gates 0–12 established deterministic composition, authorized data/actions/tools, realtime/outbox, canonical UI documents, themes, Puck integration, a headless component system, release/fleet safety, isolated live applications, RBAC, system settings, extension administration, privileged operations, and a runnable generated customer workspace with custom internal dashboards. The selected product phase is CRM-first productization, with the coordinated release-train and customer-upgrade plan supplying the P13.9 upgrade-preparation and restore path. Phase 13 delivers the CRM product, the generated application, and attested upgrade preparation; customer upgrade execution, restartable restore authority, and maintenance promotion are excluded by the P13.9 exclusion set in the [Phase 13 plan](./implementation/phase-13-crm-first-productization.md).
 
 ## Normative order
 
@@ -104,6 +104,6 @@ Gate 10  accepted RBAC, role templates, and extension authority
 Gate 11  accepted system settings and extension/operations administration
 Gate 12  accepted runnable generated workspace and custom internal dashboard builder
 Gate 13  CRM-first productization and pilot readiness
-P13.9    first executable coordinated release-train upgrade, protection, and restore proof
+P13.9    attested coordinated release-train upgrade preparation and fixture restore proof
 then     separately selected custom-object/CMS or other product breadth
 ```

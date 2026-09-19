@@ -40,6 +40,12 @@ K-Nex 1.0.0 application
 → create a protected backup of the upgraded state
 ```
 
+## Phase 13 scope against this ADR
+
+Phase 13 delivers only the preparation half of this design. The first-party `1.0.0 → 1.1.0` train is published and attested, the target generation is computed, and the transition is compiled and verified, so the customer repository is attested for upgrade. A customer-executed upgrade is not delivered. The upgrade CLI and System Updates surface of decision 3, the protection points of decision 8, the promotion path of decision 9, and the rollback semantics of decision 10 remain design-only and are the following phase's work.
+
+The five capabilities excluded from the Phase 13 outcome are stated once, in the P13.9 section of the [Phase 13 plan](../implementation/phase-13-crm-first-productization.md). No Phase 13 evidence may be read as satisfying the Validation section below, which still requires one real executed transition.
+
 ## Decision
 
 ### 1. Official first-party packages ship as one coordinated release train

@@ -163,7 +163,7 @@ test("the release record is one canonical completion receipt for both installati
   // Payload only ever runs migrations the registry hands it, so the admission
   // is bound there: every declared step, not only the release steps, and
   // through the platform's own guard rather than a generated copy of it.
-  assert.match(plan.files["src/migrations/index.ts"], /import \{ admitGeneratedReleaseStep \} from "@k-nex\/runtime";/u,
+  assert.match(plan.files["src/migrations/index.ts"], /import \{ admitGeneratedReleaseExecutable \} from "@k-nex\/runtime";/u,
     "The generated registry must admit steps through the platform guard.");
   for (const step of closure.migrations) {
     assert.match(plan.files["src/migrations/index.ts"], new RegExp(`\\{ name: "${step}", up: admitted\\("${step}", `, "u"),

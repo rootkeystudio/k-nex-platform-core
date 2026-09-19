@@ -44,7 +44,7 @@ export const salesReferenceCompilerBoundary = Object.freeze({
     ".env.example", ".gitignore", ".k-nex/application-plan.json", ".k-nex/migration-closure.json", ".k-nex/package-release-manifest.json", ".npmrc", "README.md", "compose.yaml", "k-nex-migrate.mjs", "k-nex.app.json", "next-env.d.ts", "next.config.ts", "package.json", "patches/@payloadcms__db-postgres@3.88.0.patch", "pnpm-lock.yaml", "pnpm-workspace.yaml",
     "src/app/(auth)/forbidden/page.tsx", "src/app/(auth)/login/page.tsx", "src/app/(payload)/api/[...slug]/route.ts", "src/app/(payload)/api/graphql-playground/route.ts", "src/app/(payload)/api/graphql/route.ts", "src/app/(workspace)/layout.tsx", "src/app/(workspace)/page.tsx",
     "src/app/(workspace)/system/access/assignments/page.tsx", "src/app/(workspace)/system/access/audit/page.tsx", "src/app/(workspace)/system/access/permissions/page.tsx", "src/app/(workspace)/system/access/roles/[roleId]/page.tsx", "src/app/(workspace)/system/access/roles/page.tsx", "src/app/(workspace)/system/extensions/[extensionId]/page.tsx", "src/app/(workspace)/system/extensions/page.tsx", "src/app/(workspace)/system/operations/[operationId]/page.tsx", "src/app/(workspace)/system/operations/page.tsx", "src/app/(workspace)/system/settings/[settingsId]/page.tsx", "src/app/(workspace)/system/settings/page.tsx", "src/app/(workspace)/system/themes/page.tsx", "src/app/(workspace)/system/themes/profiles/[profileId]/page.tsx", "src/app/(workspace)/system/workspace-pages/[pageId]/page.tsx", "src/app/(workspace)/system/workspace-pages/page.tsx", "src/app/(workspace)/workspace/pages/[pageId]/edit/page.tsx", "src/app/(workspace)/workspace/pages/[pageId]/page.tsx",
-    "src/app/api/health/route.ts", "src/app/api/k-nex/inventory/route.ts", "src/app/api/k-nex/navigation/revision/route.ts", "src/app/api/k-nex/navigation/sidebar/route.ts", "src/app/api/k-nex/workspace-folders/[folderId]/route.ts", "src/app/api/k-nex/workspace-folders/route.ts", "src/app/api/k-nex/workspace-pages/[pageId]/[operation]/route.ts", "src/app/api/k-nex/workspace-pages/[pageId]/actions/[actionId]/route.ts", "src/app/api/k-nex/workspace-pages/[pageId]/session/route.ts", "src/app/api/k-nex/workspace-pages/route.ts", "src/app/api/readiness/route.ts",
+    "src/app/api/health/route.ts", "src/app/api/k-nex/account/credentials/route.ts", "src/app/api/k-nex/inventory/route.ts", "src/app/api/k-nex/navigation/revision/route.ts", "src/app/api/k-nex/navigation/sidebar/route.ts", "src/app/api/k-nex/workspace-folders/[folderId]/route.ts", "src/app/api/k-nex/workspace-folders/route.ts", "src/app/api/k-nex/workspace-pages/[pageId]/[operation]/route.ts", "src/app/api/k-nex/workspace-pages/[pageId]/actions/[actionId]/route.ts", "src/app/api/k-nex/workspace-pages/[pageId]/session/route.ts", "src/app/api/k-nex/workspace-pages/route.ts", "src/app/api/readiness/route.ts",
     "src/app/api/system/access/assignments/[assignmentId]/revoke/route.ts", "src/app/api/system/access/assignments/route.ts", "src/app/api/system/access/grants/[grantId]/remove/route.ts", "src/app/api/system/access/roles/[roleId]/permissions/route.ts", "src/app/api/system/access/roles/route.ts", "src/app/api/system/extensions/[extensionId]/operations/[operationId]/execute/route.ts", "src/app/api/system/extensions/[extensionId]/plan/route.ts", "src/app/api/system/settings/[settingsId]/route.ts", "src/app/api/system/themes/profiles/[profileId]/preview/route.ts", "src/app/api/system/themes/profiles/[profileId]/publish/route.ts", "src/app/api/system/themes/profiles/[profileId]/rollback/route.ts", "src/app/api/system/themes/profiles/[profileId]/stage/route.ts",
     "src/app/components/k-nex-workspace-page-editor.tsx", "src/app/components/k-nex-workspace-page-runtime.tsx", "src/app/components/k-nex-workspace-shell.tsx", "src/app/components/login-form.tsx", "src/app/components/logout-button.tsx", "src/app/layout.tsx", "src/app/styles.css",
     "src/boot.ts", "src/k-nex-authority.ts", "src/k-nex-bootstrap-owner.ts", "src/k-nex-bootstrap-token.ts", "src/k-nex-doctor.ts", "src/k-nex-identity.ts", "src/k-nex-issue-bootstrap-token.ts", "src/k-nex-readiness.ts", "src/k-nex-realtime.ts", "src/k-nex-registry.ts", "src/k-nex-system-access.ts", "src/k-nex-system-extensions.ts", "src/k-nex-system-operations.ts", "src/k-nex-system-theme-settings.ts", "src/k-nex-theme-runtime.ts", "src/k-nex-users.ts", "src/k-nex-web.ts", "src/k-nex-worker.ts", "src/k-nex-workspace-navigation.ts", "src/k-nex-workspace-page-http.ts", "src/k-nex-workspace-pages.ts",
@@ -628,15 +628,37 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) process.on(signal, () => {
 `;
 }
 
-function payloadBaselineMigrationSource(): string {
+/**
+ * `payload migrate` selects migrations by reading this directory and never the
+ * registry beside it, so an admission applied in `src/migrations/index.ts`
+ * decides nothing about what the command executes. The first declared step
+ * therefore admits itself: it proves the executable closure that the launcher
+ * proved in a different process, and the ledger and release state this step may
+ * run against, before the first statement of the first migration.
+ *
+ * Three declared steps re-prove the closure rather than all nineteen: this one,
+ * the first a fresh installation executes; the release preflight, the first a
+ * release transition executes; and the completion step, which proves the closure
+ * it records. Cost is not the reason - one proof is about 0.25 s against a
+ * migration of about eight - the reason is that seven declared steps are domain
+ * migration templates this compiler does not author, and `payload migrate`
+ * executes those files directly.
+ */
+function payloadBaselineMigrationSource(applicationId: string, platformRelease: string, theme: SalesPresetTheme): string {
   return `import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import { sql, type MigrateDownArgs, type MigrateUpArgs } from "@payloadcms/db-postgres";
+import { admitGeneratedReleaseExecutable } from "@k-nex/runtime";
 
 const source = (path: string) => readFileSync(fileURLToPath(import.meta.resolve(path)), "utf8");
 
 export async function up({ db }: MigrateUpArgs): Promise<void> {
+  await admitGeneratedReleaseExecutable({
+    applicationId: ${JSON.stringify(applicationId)}, release: ${JSON.stringify(platformRelease)},
+    step: "20260827_000001_sales_baseline", theme: ${JSON.stringify(theme)},
+    execute: (statement) => db.execute(sql.raw(statement))
+  });
   await db.execute(sql.raw(source("@k-nex/module-sales/payload-baseline-up.sql")));
 }
 
@@ -718,13 +740,18 @@ const tupleClause = (state: { readonly predecessorRevision: number; readonly rev
  * holds the database authority across the whole set; this command refuses it
  * rather than performing an unfenced one.
  */
-function releasePreflightMigrationSource(applicationId: string, platformRelease: string): string {
+function releasePreflightMigrationSource(applicationId: string, platformRelease: string, theme: SalesPresetTheme): string {
   const installing = platformInstallingState(platformRelease);
   const complete = platformReleaseState(platformRelease);
   const source = platformTransitionSource(platformRelease);
   return `import { sql, type MigrateDownArgs, type MigrateUpArgs } from "@payloadcms/db-postgres";
+import { assertGeneratedExecutableClosure } from "@k-nex/runtime";
 
 export async function up({ db }: MigrateUpArgs): Promise<void> {
+  // An upgrade has already applied the first declared step, so this is where the
+  // target set of a release transition starts and where its executable closure
+  // is re-proved after the launcher proved it in a different process.
+  assertGeneratedExecutableClosure({ theme: ${JSON.stringify(theme)} });
   await db.execute(sql.raw(\`DO $$
 DECLARE admitted integer; transition integer;
 BEGIN
@@ -881,6 +908,13 @@ function migrationClosureDigest(files: Readonly<Record<string, string>>): { read
  * migration. The generated command therefore proves the executable closure
  * first and hands over to Payload only if it holds.
  *
+ * This launcher is inside the tree it measures. An operator who replaces it has
+ * replaced the trusted authority rather than defeated a proof, and the honest
+ * claim is the narrower one: a launcher that runs refuses a drifted closure,
+ * spawns the child without the bootstrap authority it just refused for itself,
+ * and is measured by the closure it records, so a substituted launcher cannot
+ * produce the receipt this one writes.
+ *
  * It ships as plain ESM rather than compiled output because it runs before the
  * application is built: a guard that only exists after a successful build is
  * not a guard on the first migration.
@@ -890,18 +924,71 @@ function migrateCommandSource(theme: SalesPresetTheme): string {
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { assertGeneratedExecutableClosure } from "@k-nex/runtime";
+import { assertGeneratedExecutableBootstrap, assertGeneratedExecutableClosure, sanitizedExecutableEnvironment } from "@k-nex/runtime";
 
+assertGeneratedExecutableBootstrap();
 const root = resolve(process.cwd());
 const closure = assertGeneratedExecutableClosure({ root, theme: ${JSON.stringify(theme)} });
-process.stdout.write(\`K_NEX_MIGRATE_ADMITTED \${closure.digest} \${closure.packages.length}\\n\`);
+// Flushed before the child is spawned: a pipe write left queued behind a
+// blocking spawn would put the admission after everything it admitted.
+await new Promise((flushed) => process.stdout.write(\`K_NEX_MIGRATE_ADMITTED \${closure.digest} \${closure.recorded} \${closure.packages.length}\\n\`, flushed));
 
 const payload = resolve(root, "node_modules/.bin/payload");
 if (!existsSync(payload)) throw new Error("This application cannot migrate: its Payload command is not installed.");
-const migration = spawnSync(payload, ["migrate"], { cwd: root, stdio: "inherit" });
+const migration = spawnSync(payload, ["migrate"], { cwd: root, stdio: "inherit", env: sanitizedExecutableEnvironment() });
 if (migration.error !== undefined) throw migration.error;
 process.exit(migration.status ?? 1);
 `;
+}
+
+/**
+ * `payload migrate` selects migrations by reading `src/migrations` and skips
+ * `index.ts`, so the registry's wrapper governs programmatic callers only. The
+ * admission that governs the command has to live in the declared step files
+ * the command actually loads, and it has to be on every step: a database whose
+ * ledger lost one row has exactly that step re-selected, and no earlier step
+ * runs to admit it. This wraps each emitted step once, at the point the step
+ * sources are assembled, so a new step cannot be added without one.
+ */
+/**
+ * The admission a declared step carries, applied to that step's implementation.
+ * It is exported because the fixture lineage keeps the same implementations
+ * without being a generated application: the factory's step is that file plus
+ * this, and a proof that compares them says so rather than pinning bytes.
+ */
+export function admittedMigrationSource(step: string, source: string): string {
+  if (source.includes("admitGeneratedReleaseExecutable(")) return source;
+  // Aliased so the admission a step carries cannot collide with whatever that
+  // step's own implementation already imports under those names.
+  const preamble = 'import { sql as kNexAdmissionSql } from "@payloadcms/db-postgres";\n' +
+    'import type { MigrateUpArgs as KNexAdmissionArgs } from "@payloadcms/db-postgres";\n' +
+    'import { admitGeneratedReleaseExecutable } from "@k-nex/runtime";\n';
+  const renamed = source
+    .replace(/export async function up\(/u, "async function admittedStep(")
+    .replace(/export const up = /u, "const admittedStep = ");
+  if (renamed === source) throw new Error(`The generated migration ${step} does not export an up step this release can admit.`);
+  return `${preamble}${renamed}\nexport async function up(args: KNexAdmissionArgs): Promise<void> {\n` +
+    `  await admitGeneratedReleaseExecutable({\n` +
+    `    step: ${JSON.stringify(step)},\n` +
+    `    execute: (statement: string) => args.db.execute(kNexAdmissionSql.raw(statement))\n` +
+    `  });\n  await admittedStep(args);\n}\n`;
+}
+
+/**
+ * `payload migrate` selects migrations by reading `src/migrations` and skips
+ * `index.ts`, so the registry's wrapper governs programmatic callers only. The
+ * admission that governs the command has to live in the declared step files the
+ * command actually loads, and it has to be on every step: a database whose
+ * ledger lost one row has exactly that step re-selected, and no earlier step
+ * runs to admit it.
+ */
+function admittedMigrationSources(files: Record<string, string>): void {
+  for (const step of declaredMigrationRegistry()) {
+    const path = `src/migrations/${step}.ts`;
+    const source = files[path];
+    if (source === undefined) throw new Error(`The generated application does not carry the declared migration ${step}.`);
+    files[path] = admittedMigrationSource(step, source);
+  }
 }
 
 function bootstrapMigrationSource(applicationId: string, platformRelease: string): string {
@@ -1024,7 +1111,7 @@ function planKnexApplication(options: CreateKnexApplicationOptions, includeRealt
     ...systemThemeSettingsApplicationFiles({ applicationId: options.applicationId }),
     ...systemOperationsApplicationFiles({ applicationId: options.applicationId }),
     ...workspacePageApplicationFiles({ applicationId: options.applicationId }),
-    ".env.example": "DATABASE_URL=\nK_NEX_ADMINISTRATION_OPERATOR_CA_CERT=\nK_NEX_ADMINISTRATION_OPERATOR_CLIENT_CERT=\nK_NEX_ADMINISTRATION_OPERATOR_CLIENT_KEY=\nK_NEX_ADMINISTRATION_OPERATOR_HOST=\nK_NEX_ADMINISTRATION_OPERATOR_IDENTITY=\nK_NEX_ADMINISTRATION_OPERATOR_PORT=\nK_NEX_ADMINISTRATION_OPERATOR_URI_SAN=\nK_NEX_ENVIRONMENT=\nK_NEX_GENERATION=\nK_NEX_OWNER_EMAIL=\nK_NEX_OWNER_PASSWORD=\nK_NEX_PROVIDER_SECRET_CALENDAR_REFERENCE=\nK_NEX_PROVIDER_SECRET_EMAIL_REFERENCE=\nK_NEX_PUBLIC_ORIGIN=\nK_NEX_REFERENCE_PROVIDER_ENDPOINT=\nPAYLOAD_SECRET=\n",
+    ".env.example": "DATABASE_URL=\nK_NEX_ADMINISTRATION_OPERATOR_CA_CERT=\nK_NEX_ADMINISTRATION_OPERATOR_CLIENT_CERT=\nK_NEX_ADMINISTRATION_OPERATOR_CLIENT_KEY=\nK_NEX_ADMINISTRATION_OPERATOR_HOST=\nK_NEX_ADMINISTRATION_OPERATOR_IDENTITY=\nK_NEX_ADMINISTRATION_OPERATOR_PORT=\nK_NEX_ADMINISTRATION_OPERATOR_URI_SAN=\nK_NEX_ENVIRONMENT=\nK_NEX_GENERATION=\nK_NEX_OWNER_EMAIL=\nK_NEX_OWNER_PASSWORD=\nK_NEX_PROVIDER_SECRET_CALENDAR_REFERENCE=\nK_NEX_PROVIDER_SECRET_EMAIL_REFERENCE=\nK_NEX_PUBLIC_ORIGIN=\nK_NEX_REFERENCE_PROVIDER_ENDPOINT=\nK_NEX_WEBHOOK_SECRET_CALENDAR_REFERENCE=\nK_NEX_WEBHOOK_SECRET_EMAIL_REFERENCE=\nPAYLOAD_SECRET=\n",
     [payloadPostgresPatchFilename]: payloadPostgresPatchSource(),
     "pnpm-workspace.yaml": generatedPnpmWorkspace(),
     ".k-nex/application-plan.json": json({
@@ -1073,7 +1160,7 @@ function planKnexApplication(options: CreateKnexApplicationOptions, includeRealt
     "src/k-nex-sales-communications.ts": communicationsHostSource(),
     "src/k-nex-sales-workflows.ts": crmWorkflowsHostSource(),
     "src/k-nex-sales-reports.ts": reportsHostSource(),
-    "src/migrations/20260827_000001_sales_baseline.ts": payloadBaselineMigrationSource(),
+    "src/migrations/20260827_000001_sales_baseline.ts": payloadBaselineMigrationSource(options.applicationId, release?.release.version ?? currentReleaseVersion, options.theme),
     "src/migrations/20260827_000002_knex_bootstrap.ts": bootstrapMigrationSource(options.applicationId, release?.release.version ?? currentReleaseVersion),
     "src/migrations/20260829_000007_runtime_extensions.ts": `import { kNexRuntimeExtensionSchemaMigrations, type CustomerPayloadMigration } from "@k-nex/payload-adapter";\n\nexport async function up(args: Parameters<CustomerPayloadMigration["up"]>[0]): Promise<void> {\n  for (const migration of kNexRuntimeExtensionSchemaMigrations) await migration.up(args);\n}\n\nexport async function down(args: Parameters<CustomerPayloadMigration["down"]>[0]): Promise<void> {\n  for (const migration of [...kNexRuntimeExtensionSchemaMigrations].reverse()) await migration.down(args);\n}\n`,
     "src/migrations/20260901_000019_authorization.ts": `import { kNexAuthorizationSchemaMigration } from "@k-nex/payload-adapter";\n\nexport const up = kNexAuthorizationSchemaMigration.up;\nexport const down = kNexAuthorizationSchemaMigration.down;\n`,
@@ -1090,9 +1177,9 @@ function planKnexApplication(options: CreateKnexApplicationOptions, includeRealt
     "src/migrations/20260908_000033_crm_workflows.ts": crmWorkflowsMigrationSource(),
     "src/migrations/20260908_000034_reports.ts": reportsMigrationSource(options.primaryCurrency === undefined ? {} : { primaryCurrency: options.primaryCurrency }),
     "src/migrations/20260909_000035_static_rebind_lock_protocol.ts": `import { kNexStaticRebindLockProtocolSchemaMigration } from "@k-nex/payload-adapter";\n\nexport const up = kNexStaticRebindLockProtocolSchemaMigration.up;\nexport const down = kNexStaticRebindLockProtocolSchemaMigration.down;\n`,
-    "src/migrations/20260905_000026_release_preflight.ts": releasePreflightMigrationSource(options.applicationId, release?.release.version ?? currentReleaseVersion),
+    "src/migrations/20260905_000026_release_preflight.ts": releasePreflightMigrationSource(options.applicationId, release?.release.version ?? currentReleaseVersion, options.theme),
     "src/migrations/20260909_000036_release_revision.ts": releaseRevisionMigrationSource(options.applicationId, release?.release.version ?? currentReleaseVersion, options.theme),
-    "src/migrations/index.ts": `import { sql, type MigrateUpArgs } from "@payloadcms/db-postgres";\nimport { admitGeneratedReleaseStep } from "@k-nex/runtime";\n\nimport * as baseline from "./20260827_000001_sales_baseline.js";\nimport * as bootstrap from "./20260827_000002_knex_bootstrap.js";\nimport * as runtimeExtensions from "./20260829_000007_runtime_extensions.js";\nimport * as authorization from "./20260901_000019_authorization.js";\nimport * as staticLifecycleAdmission from "./20260901_000022_static_lifecycle_admission.js";\nimport * as systemAdministration from "./20260902_000023_system_administration.js";\nimport * as workspacePages from "./20260903_000026_workspace_pages.js";\nimport * as eventOutbox from "./20260903_000027_event_outbox.js";\nimport * as workspaceSidebarPreferences from "./20260904_000028_workspace_sidebar_preferences.js";\nimport * as releasePreflight from "./20260905_000026_release_preflight.js";\nimport * as crmCore from "./20260905_000027_crm_core.js";\nimport * as attachmentUploadAdmissions from "./20260906_000029_attachment_upload_admissions.js";\nimport * as pipelineSavedViews from "./20260907_000030_pipeline_saved_views.js";\nimport * as dataMovement from "./20260907_000031_data_movement.js";\nimport * as communications from "./20260908_000032_communications.js";\nimport * as crmWorkflows from "./20260908_000033_crm_workflows.js";\nimport * as reports from "./20260908_000034_reports.js";\nimport * as staticRebindLockProtocol from "./20260909_000035_static_rebind_lock_protocol.js";\nimport * as releaseRevision from "./20260909_000036_release_revision.js";\n\n/**\n * Payload is handed the admitted step, never the bare implementation: there is\n * no path that executes a release migration without first proving the closure\n * that decides what this step is and the database state it may run against.\n */\nconst admitted = <Args extends { readonly db: MigrateUpArgs["db"] }>(step: string, up: (args: Args) => Promise<void>): ((args: Args) => Promise<void>) =>\n  async (args: Args): Promise<void> => {\n    await admitGeneratedReleaseStep({\n      applicationId: ${JSON.stringify(options.applicationId)}, release: ${JSON.stringify(release?.release.version ?? currentReleaseVersion)}, step,\n      execute: (statement) => args.db.execute(sql.raw(statement))\n    });\n    await up(args);\n  };\n\nexport const migrations = [\n  { name: "20260827_000001_sales_baseline", up: admitted("20260827_000001_sales_baseline", baseline.up), down: baseline.down },\n  { name: "20260827_000002_knex_bootstrap", up: admitted("20260827_000002_knex_bootstrap", bootstrap.up), down: bootstrap.down },\n  { name: "20260829_000007_runtime_extensions", up: admitted("20260829_000007_runtime_extensions", runtimeExtensions.up), down: runtimeExtensions.down },\n  { name: "20260901_000019_authorization", up: admitted("20260901_000019_authorization", authorization.up), down: authorization.down },\n  { name: "20260901_000022_static_lifecycle_admission", up: admitted("20260901_000022_static_lifecycle_admission", staticLifecycleAdmission.up), down: staticLifecycleAdmission.down },\n  { name: "20260902_000023_system_administration", up: admitted("20260902_000023_system_administration", systemAdministration.up), down: systemAdministration.down },\n  { name: "20260903_000026_workspace_pages", up: admitted("20260903_000026_workspace_pages", workspacePages.up), down: workspacePages.down },\n  { name: "20260903_000027_event_outbox", up: admitted("20260903_000027_event_outbox", eventOutbox.up), down: eventOutbox.down },\n  { name: "20260904_000028_workspace_sidebar_preferences", up: admitted("20260904_000028_workspace_sidebar_preferences", workspaceSidebarPreferences.up), down: workspaceSidebarPreferences.down },\n  { name: "20260905_000026_release_preflight", up: admitted("20260905_000026_release_preflight", releasePreflight.up), down: releasePreflight.down },\n  { name: "20260905_000027_crm_core", up: admitted("20260905_000027_crm_core", crmCore.up), down: crmCore.down },\n  { name: "20260906_000029_attachment_upload_admissions", up: admitted("20260906_000029_attachment_upload_admissions", attachmentUploadAdmissions.up), down: attachmentUploadAdmissions.down },\n  { name: "20260907_000030_pipeline_saved_views", up: admitted("20260907_000030_pipeline_saved_views", pipelineSavedViews.up), down: pipelineSavedViews.down },\n  { name: "20260907_000031_data_movement", up: admitted("20260907_000031_data_movement", dataMovement.up), down: dataMovement.down },\n  { name: "20260908_000032_communications", up: admitted("20260908_000032_communications", communications.up), down: communications.down },\n  { name: "20260908_000033_crm_workflows", up: admitted("20260908_000033_crm_workflows", crmWorkflows.up), down: crmWorkflows.down },\n  { name: "20260908_000034_reports", up: admitted("20260908_000034_reports", reports.up), down: reports.down },\n  { name: "20260909_000035_static_rebind_lock_protocol", up: admitted("20260909_000035_static_rebind_lock_protocol", staticRebindLockProtocol.up), down: staticRebindLockProtocol.down },\n  { name: "20260909_000036_release_revision", up: admitted("20260909_000036_release_revision", releaseRevision.up), down: releaseRevision.down }\n];\n`,
+    "src/migrations/index.ts": `import { sql, type MigrateUpArgs } from "@payloadcms/db-postgres";\nimport { admitGeneratedReleaseExecutable } from "@k-nex/runtime";\n\nimport * as baseline from "./20260827_000001_sales_baseline.js";\nimport * as bootstrap from "./20260827_000002_knex_bootstrap.js";\nimport * as runtimeExtensions from "./20260829_000007_runtime_extensions.js";\nimport * as authorization from "./20260901_000019_authorization.js";\nimport * as staticLifecycleAdmission from "./20260901_000022_static_lifecycle_admission.js";\nimport * as systemAdministration from "./20260902_000023_system_administration.js";\nimport * as workspacePages from "./20260903_000026_workspace_pages.js";\nimport * as eventOutbox from "./20260903_000027_event_outbox.js";\nimport * as workspaceSidebarPreferences from "./20260904_000028_workspace_sidebar_preferences.js";\nimport * as releasePreflight from "./20260905_000026_release_preflight.js";\nimport * as crmCore from "./20260905_000027_crm_core.js";\nimport * as attachmentUploadAdmissions from "./20260906_000029_attachment_upload_admissions.js";\nimport * as pipelineSavedViews from "./20260907_000030_pipeline_saved_views.js";\nimport * as dataMovement from "./20260907_000031_data_movement.js";\nimport * as communications from "./20260908_000032_communications.js";\nimport * as crmWorkflows from "./20260908_000033_crm_workflows.js";\nimport * as reports from "./20260908_000034_reports.js";\nimport * as staticRebindLockProtocol from "./20260909_000035_static_rebind_lock_protocol.js";\nimport * as releaseRevision from "./20260909_000036_release_revision.js";\n\n/**\n * Any caller handed this registry is handed the admitted step, never the bare\n * implementation. It is not the path \`payload migrate\` takes: that command\n * selects migrations by reading this directory and skips this file, so the\n * admission that governs the command is written into the declared steps\n * themselves. Both forms call the same platform guard, so neither is a\n * generated copy of it.\n */\nconst admitted = <Args extends { readonly db: MigrateUpArgs["db"] }>(step: string, up: (args: Args) => Promise<void>): ((args: Args) => Promise<void>) =>\n  async (args: Args): Promise<void> => {\n    await admitGeneratedReleaseExecutable({\n      step,\n      execute: (statement) => args.db.execute(sql.raw(statement))\n    });\n    await up(args);\n  };\n\nexport const migrations = [\n  { name: "20260827_000001_sales_baseline", up: admitted("20260827_000001_sales_baseline", baseline.up), down: baseline.down },\n  { name: "20260827_000002_knex_bootstrap", up: admitted("20260827_000002_knex_bootstrap", bootstrap.up), down: bootstrap.down },\n  { name: "20260829_000007_runtime_extensions", up: admitted("20260829_000007_runtime_extensions", runtimeExtensions.up), down: runtimeExtensions.down },\n  { name: "20260901_000019_authorization", up: admitted("20260901_000019_authorization", authorization.up), down: authorization.down },\n  { name: "20260901_000022_static_lifecycle_admission", up: admitted("20260901_000022_static_lifecycle_admission", staticLifecycleAdmission.up), down: staticLifecycleAdmission.down },\n  { name: "20260902_000023_system_administration", up: admitted("20260902_000023_system_administration", systemAdministration.up), down: systemAdministration.down },\n  { name: "20260903_000026_workspace_pages", up: admitted("20260903_000026_workspace_pages", workspacePages.up), down: workspacePages.down },\n  { name: "20260903_000027_event_outbox", up: admitted("20260903_000027_event_outbox", eventOutbox.up), down: eventOutbox.down },\n  { name: "20260904_000028_workspace_sidebar_preferences", up: admitted("20260904_000028_workspace_sidebar_preferences", workspaceSidebarPreferences.up), down: workspaceSidebarPreferences.down },\n  { name: "20260905_000026_release_preflight", up: admitted("20260905_000026_release_preflight", releasePreflight.up), down: releasePreflight.down },\n  { name: "20260905_000027_crm_core", up: admitted("20260905_000027_crm_core", crmCore.up), down: crmCore.down },\n  { name: "20260906_000029_attachment_upload_admissions", up: admitted("20260906_000029_attachment_upload_admissions", attachmentUploadAdmissions.up), down: attachmentUploadAdmissions.down },\n  { name: "20260907_000030_pipeline_saved_views", up: admitted("20260907_000030_pipeline_saved_views", pipelineSavedViews.up), down: pipelineSavedViews.down },\n  { name: "20260907_000031_data_movement", up: admitted("20260907_000031_data_movement", dataMovement.up), down: dataMovement.down },\n  { name: "20260908_000032_communications", up: admitted("20260908_000032_communications", communications.up), down: communications.down },\n  { name: "20260908_000033_crm_workflows", up: admitted("20260908_000033_crm_workflows", crmWorkflows.up), down: crmWorkflows.down },\n  { name: "20260908_000034_reports", up: admitted("20260908_000034_reports", reports.up), down: reports.down },\n  { name: "20260909_000035_static_rebind_lock_protocol", up: admitted("20260909_000035_static_rebind_lock_protocol", staticRebindLockProtocol.up), down: staticRebindLockProtocol.down },\n  { name: "20260909_000036_release_revision", up: admitted("20260909_000036_release_revision", releaseRevision.up), down: releaseRevision.down }\n];\n`,
     "src/payload.config.ts": payloadConfigSource(options.applicationId),
   };
   if (releaseManifest !== undefined) files[".k-nex/package-release-manifest.json"] = releaseManifest;
@@ -1109,7 +1196,11 @@ function planKnexApplication(options: CreateKnexApplicationOptions, includeRealt
   // Declared last, so it covers the manifest this plan actually writes: the
   // closure is a statement about the files on disk, and the guard that checks
   // it recomputes exactly this over the same directory.
-  files[".k-nex/migration-closure.json"] = json({ migrations: declaredMigrationRegistry(), ...migrationClosureDigest(files) });
+  admittedMigrationSources(files);
+  files[".k-nex/migration-closure.json"] = json({
+    applicationId: options.applicationId, release: release?.release.version ?? currentReleaseVersion, theme: options.theme,
+    migrations: declaredMigrationRegistry(), ...migrationClosureDigest(files)
+  });
   applySalesReferenceCompilerTestMutation(files);
   const salesFiles = Object.fromEntries([...salesReferenceCompilerPaths].flatMap((path) => files[path] === undefined ? [] : [[path, files[path]]]));
   const platformFiles = Object.fromEntries(Object.entries(files).filter(([path]) => !salesReferenceCompilerPaths.has(path)));

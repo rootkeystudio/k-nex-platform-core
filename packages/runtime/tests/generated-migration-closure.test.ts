@@ -36,7 +36,7 @@ function generatedApplication(options: { manifest?: string } = {}) {
   writeFileSync(join(root, "src/migrations/index.ts"), registrySource);
   if (options.manifest !== undefined) writeFileSync(join(root, ".k-nex/package-release-manifest.json"), options.manifest);
   const declared = computeGeneratedMigrationClosure(root, migrations);
-  writeFileSync(join(root, ".k-nex/migration-closure.json"), `${JSON.stringify({ migrations, ...declared }, null, 2)}\n`);
+  writeFileSync(join(root, ".k-nex/migration-closure.json"), `${JSON.stringify({ applicationId: "customer-alpha", release: "1.1.0", theme: "minimal", migrations, ...declared }, null, 2)}\n`);
   return { root, declared };
 }
 
@@ -115,7 +115,7 @@ describe("generated migration closure", () => {
 
   it("refuses a declared closure that is not a release migration closure", async () => {
     const application = generatedApplication();
-    writeFileSync(join(application.root, ".k-nex/migration-closure.json"), JSON.stringify({ migrations, digest: "not-a-digest", releaseManifestDigest: null }));
+    writeFileSync(join(application.root, ".k-nex/migration-closure.json"), JSON.stringify({ applicationId: "customer-alpha", release: "1.1.0", theme: "minimal", migrations, digest: "not-a-digest", releaseManifestDigest: null }));
     await denial(() => readGeneratedMigrationClosure(application.root));
 
     rmSync(join(application.root, ".k-nex/migration-closure.json"));

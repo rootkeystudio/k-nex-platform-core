@@ -333,6 +333,111 @@ export function createSalesMergeAuditTransition(input: Readonly<{ resourceId: st
     dataMovement: Object.freeze({ kind: "merge", role: input.role, lineageId: input.lineageId }) });
 }
 
+/**
+ * A merge redirects related business records that the merging actor frequently
+ * does not own.  The rewritable set is source code, not request input, so no
+ * caller can widen which table, column, or related-record type a merge touches.
+ */
+export const salesMergeRelationDescriptors = Object.freeze([
+  Object.freeze({ relationId: "sales_contacts.account_id", slug: "contacts-account", targetObjectType: "sales.object.account", table: "sales_contacts", column: "account_id", columnKind: "integer", relatedRecordType: null, invalidationEvent: "sales.event.contact-changed" }),
+  Object.freeze({ relationId: "sales_opportunities.account_id", slug: "opportunities-account", targetObjectType: "sales.object.account", table: "sales_opportunities", column: "account_id", columnKind: "integer", relatedRecordType: null, invalidationEvent: "sales.event.opportunity-changed" }),
+  Object.freeze({ relationId: "sales_leads.qualified_account_id", slug: "leads-qualified-account", targetObjectType: "sales.object.account", table: "sales_leads", column: "qualified_account_id", columnKind: "text", relatedRecordType: null, invalidationEvent: "sales.event.lead-changed" }),
+  Object.freeze({ relationId: "sales_activities.related_record_id where related_record_type=sales.account", slug: "activities-account", targetObjectType: "sales.object.account", table: "sales_activities", column: "related_record_id", columnKind: "text", relatedRecordType: "sales.account", invalidationEvent: "sales.event.timeline-changed" }),
+  Object.freeze({ relationId: "sales_notes.related_record_id where related_record_type=sales.account", slug: "notes-account", targetObjectType: "sales.object.account", table: "sales_notes", column: "related_record_id", columnKind: "text", relatedRecordType: "sales.account", invalidationEvent: "sales.event.timeline-changed" }),
+  Object.freeze({ relationId: "sales_attachment_references.related_record_id where related_record_type=sales.account", slug: "attachments-account", targetObjectType: "sales.object.account", table: "sales_attachment_references", column: "related_record_id", columnKind: "text", relatedRecordType: "sales.account", invalidationEvent: "sales.event.timeline-changed" }),
+  Object.freeze({ relationId: "sales_tasks.related_record_id where related_record_type=sales.account", slug: "tasks-account", targetObjectType: "sales.object.account", table: "sales_tasks", column: "related_record_id", columnKind: "text", relatedRecordType: "sales.account", invalidationEvent: "sales.event.task-changed" }),
+  Object.freeze({ relationId: "sales_opportunities.primary_contact_id", slug: "opportunities-contact", targetObjectType: "sales.object.contact", table: "sales_opportunities", column: "primary_contact_id", columnKind: "integer", relatedRecordType: null, invalidationEvent: "sales.event.opportunity-changed" }),
+  Object.freeze({ relationId: "sales_leads.qualified_contact_id", slug: "leads-qualified-contact", targetObjectType: "sales.object.contact", table: "sales_leads", column: "qualified_contact_id", columnKind: "text", relatedRecordType: null, invalidationEvent: "sales.event.lead-changed" }),
+  Object.freeze({ relationId: "sales_activities.related_record_id where related_record_type=sales.contact", slug: "activities-contact", targetObjectType: "sales.object.contact", table: "sales_activities", column: "related_record_id", columnKind: "text", relatedRecordType: "sales.contact", invalidationEvent: "sales.event.timeline-changed" }),
+  Object.freeze({ relationId: "sales_notes.related_record_id where related_record_type=sales.contact", slug: "notes-contact", targetObjectType: "sales.object.contact", table: "sales_notes", column: "related_record_id", columnKind: "text", relatedRecordType: "sales.contact", invalidationEvent: "sales.event.timeline-changed" }),
+  Object.freeze({ relationId: "sales_attachment_references.related_record_id where related_record_type=sales.contact", slug: "attachments-contact", targetObjectType: "sales.object.contact", table: "sales_attachment_references", column: "related_record_id", columnKind: "text", relatedRecordType: "sales.contact", invalidationEvent: "sales.event.timeline-changed" }),
+  Object.freeze({ relationId: "sales_tasks.related_record_id where related_record_type=sales.contact", slug: "tasks-contact", targetObjectType: "sales.object.contact", table: "sales_tasks", column: "related_record_id", columnKind: "text", relatedRecordType: "sales.contact", invalidationEvent: "sales.event.task-changed" })
+] as const);
+export type SalesMergeRelationDescriptor = typeof salesMergeRelationDescriptors[number];
+export type SalesMergeRelationId = SalesMergeRelationDescriptor["relationId"];
+/** One merge locks, rewrites, and invalidates at most this many related records; a larger impact set is denied before any mutation. */
+export const salesMergeImpactLimit = 2_000;
+
+export type SalesMergeRelationCapability = Readonly<{
+  kind: "sales.merge.relation-rewrite";
+  lineageId: string;
+  applicationId: string;
+  environment: string;
+  targetObjectType: SalesDedupeTarget;
+  winnerId: number;
+  loserId: number;
+  actorId: string;
+  authorizationRevision: number;
+  relationIds: readonly SalesMergeRelationId[];
+  issuedAt: string;
+  capabilityDigest: string;
+}>;
+
+/**
+ * The merging actor's own grants never reach a related record.  Once the winner
+ * and loser are locked and accepted, the host derives this one system capability
+ * and every related-record write must present it, so the widest authority a
+ * merge can ever exercise is redirecting these columns from that loser to that
+ * winner inside that application and environment.
+ */
+export function issueSalesMergeRelationCapability(input: Readonly<{ lineageId: string; applicationId: string; environment: string; targetObjectType: SalesDedupeTarget; winnerId: number; loserId: number; actorId: string; authorizationRevision: number; issuedAt: string }>): SalesMergeRelationCapability {
+  if (typeof input.lineageId !== "string" || input.lineageId.length < 1 || input.lineageId.length > 128 || !/^[a-zA-Z0-9][a-zA-Z0-9._:-]*$/u.test(input.lineageId) ||
+    typeof input.applicationId !== "string" || !applicationIdPattern.test(input.applicationId) || input.applicationId.length > 128 ||
+    typeof input.environment !== "string" || !environmentPattern.test(input.environment) || input.environment.length > 64 ||
+    typeof input.actorId !== "string" || !actorIdPattern.test(input.actorId) || input.actorId.length > 160 ||
+    typeof input.issuedAt !== "string" || !validAuditTimestamp(input.issuedAt) ||
+    (input.targetObjectType !== "sales.object.account" && input.targetObjectType !== "sales.object.contact") ||
+    !Number.isSafeInteger(input.winnerId) || input.winnerId < 1 || !Number.isSafeInteger(input.loserId) || input.loserId < 1 || input.winnerId === input.loserId ||
+    !Number.isSafeInteger(input.authorizationRevision) || input.authorizationRevision < 1 || input.authorizationRevision > 1_000_000_000) throw new SalesDataMovementError("ACTION_FORBIDDEN");
+  const relationIds = salesMergeRelationDescriptors.filter((descriptor) => descriptor.targetObjectType === input.targetObjectType).map(({ relationId }) => relationId as SalesMergeRelationId);
+  const body = Object.freeze({ kind: "sales.merge.relation-rewrite" as const, lineageId: input.lineageId, applicationId: input.applicationId, environment: input.environment, targetObjectType: input.targetObjectType,
+    winnerId: input.winnerId, loserId: input.loserId, actorId: input.actorId, authorizationRevision: input.authorizationRevision, relationIds: Object.freeze(relationIds), issuedAt: input.issuedAt });
+  return Object.freeze({ ...body, capabilityDigest: digest(canonicalJson(body)) });
+}
+
+/** Re-derives the capability from its own identity so a tampered relation set, winner, loser, or digest cannot authorize a write. */
+export function assertSalesMergeRelationCapability(capability: SalesMergeRelationCapability, demand: Readonly<{ relationId: SalesMergeRelationId; applicationId: string; environment: string; fromRelatedRecordId: string; toRelatedRecordId: string }>): SalesMergeRelationDescriptor {
+  const descriptor = salesMergeRelationDescriptors.find(({ relationId }) => relationId === demand.relationId);
+  if (capability === null || typeof capability !== "object" || capability.kind !== "sales.merge.relation-rewrite" || descriptor === undefined) throw new SalesDataMovementError("ACTION_FORBIDDEN");
+  const reissued = issueSalesMergeRelationCapability(capability);
+  if (reissued.capabilityDigest !== capability.capabilityDigest || !sameStrings(reissued.relationIds, capability.relationIds) || !capability.relationIds.includes(demand.relationId) ||
+    descriptor.targetObjectType !== capability.targetObjectType || demand.applicationId !== capability.applicationId || demand.environment !== capability.environment ||
+    demand.fromRelatedRecordId !== String(capability.loserId) || demand.toRelatedRecordId !== String(capability.winnerId)) throw new SalesDataMovementError("ACTION_FORBIDDEN");
+  return descriptor;
+}
+
+function sameStrings(left: readonly string[], right: readonly string[]): boolean {
+  return Array.isArray(right) && left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+export type SalesMergeRelationAudit = Readonly<{
+  actionId: "sales.merge.relation-rewrite";
+  resourceId: string;
+  applicationId: string;
+  environment: string;
+  relationId: SalesMergeRelationId;
+  fromRelatedRecordId: string;
+  toRelatedRecordId: string;
+  occurredAt: string;
+  actorId: string;
+  revision: number;
+  idempotencyKey: string;
+  derivedAuthority: Readonly<{ kind: "sales.merge.relation-rewrite"; lineageId: string; capabilityDigest: string }>;
+}>;
+
+/** Every rewritten related record carries who moved the relation, which merge caused it, and under which derived authority. */
+export function createSalesMergeRelationAuditTransition(input: Readonly<{ capability: SalesMergeRelationCapability; relationId: SalesMergeRelationId; resourceId: string; preRevision: number; occurredAt: string; fromRelatedRecordId: string; toRelatedRecordId: string }>): SalesMergeRelationAudit {
+  const capability = input.capability;
+  const descriptor = assertSalesMergeRelationCapability(capability, { relationId: input.relationId, applicationId: capability.applicationId, environment: capability.environment, fromRelatedRecordId: input.fromRelatedRecordId, toRelatedRecordId: input.toRelatedRecordId });
+  if (!Number.isSafeInteger(input.preRevision) || input.preRevision < 1 || input.preRevision >= 1_000_000_000) throw new SalesDataMovementError("ACTION_FORBIDDEN");
+  const idempotencyKey = `${capability.lineageId}-relation-${descriptor.slug}-${input.resourceId}`;
+  dataMovementAuditIdentity({ resourceId: input.resourceId, applicationId: capability.applicationId, environment: capability.environment, actorId: capability.actorId, idempotencyKey, occurredAt: input.occurredAt, revision: input.preRevision + 1 });
+  return Object.freeze({ actionId: "sales.merge.relation-rewrite", resourceId: input.resourceId, applicationId: capability.applicationId, environment: capability.environment,
+    relationId: input.relationId, fromRelatedRecordId: input.fromRelatedRecordId, toRelatedRecordId: input.toRelatedRecordId,
+    occurredAt: input.occurredAt, actorId: capability.actorId, revision: input.preRevision + 1, idempotencyKey,
+    derivedAuthority: Object.freeze({ kind: "sales.merge.relation-rewrite", lineageId: capability.lineageId, capabilityDigest: capability.capabilityDigest }) });
+}
+
 export type SalesImportMapping = Readonly<{ header: string; fieldId: string }>;
 export type SalesParsedImportRow = Readonly<{ oneBasedDataRow: number; values: Readonly<Record<string, string | number | null>>; rowDigest: string; state: "pending" }>;
 export type SalesImportDiagnostic = Readonly<{ oneBasedDataRow: number; code: "IMPORT_REQUIRED_VALUE" | "IMPORT_VALUE_INVALID" }>;

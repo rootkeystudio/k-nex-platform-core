@@ -101,12 +101,18 @@ function childExit(child) {
   return new Promise((resolve) => child.once("exit", (code, signal) => resolve({ code, signal })));
 }
 
+const referenceCapability = (providerId) => Object.freeze({ contractId: "k-nex.reference-provider.v1", version: 1, providerId, idempotency: "durable-key-scoped-exactly-once", idempotencyKeyFormat: "sha256-canonical-json-v1", reconciliation: "receipt-lookup-by-idempotency-key", durability: "survives-provider-restart" });
+const referenceReceipt = (idempotencyKey, duplicate = false) => Object.freeze({ providerReceiptId: `reference-receipt-${createHash("sha256").update(idempotencyKey).digest("hex").slice(0, 32)}`, idempotencyKey, duplicate });
+// Every admitted provider declares durable exactly-once plus receipt lookup; a
+// double that cannot answer both is not a provider this lane will call.
+const admittedTransport = (behaviour) => Object.freeze({ capability: referenceCapability, reconcile: behaviour.reconcile ?? (async () => null), invoke: async (input) => await behaviour.invoke(input) ?? referenceReceipt(input.idempotencyKey) });
+
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 test("P13.6 provider operations keep secret references opaque and make send/sync idempotency actor- and application-scoped", { timeout: 180_000 }, async () => {
   await database("p13_6_provider_operations", async (pool) => {
     const { GeneratedSalesCommunicationStore } = await import("../dist/src/k-nex-sales-communications.js");
-    await pool.query("insert into sales_provider_configurations(application_id,environment,provider_id,secret_reference,configured_by) values ($1,$2,$3,$4,'administrator'),($1,$2,$5,$6,'administrator'),('p13-other',$2,$3,$7,'administrator')", [applicationId, environment, emailProvider, "secret-ref:v1:email-reference:api", calendarProvider, "secret-ref:v1:calendar-reference:api", "secret-ref:v1:email-reference:other-api"]);
+    await pool.query("insert into sales_provider_configurations(application_id,environment,provider_id,secret_reference,webhook_secret_reference,configured_by) values ($1,$2,$3,$4,replace($4,':provider-api:',':webhook-signature:'),'administrator'),($1,$2,$5,$6,replace($6,':provider-api:',':webhook-signature:'),'administrator'),('p13-other',$2,$3,$7,replace($7,':provider-api:',':webhook-signature:'),'administrator')", [applicationId, environment, emailProvider, "secret-ref:v1:email-reference:provider-api:default", calendarProvider, "secret-ref:v1:calendar-reference:provider-api:default", "secret-ref:v1:email-reference:provider-api:other"]);
 
     const dispatch = async (actorId, intent, app = applicationId) => await transactionRequest(pool, `tx-${actorId}-${intent.idempotencyKey}-${app}`, async (request) => {
       const permissions = intent.actionId === "sales.email.send" ? ["sales.communications.email.send"] : ["sales.communications.calendar.sync"];
@@ -148,12 +154,12 @@ test("P13.6 provider operations keep secret references opaque and make send/sync
 test("P13.6 webhooks enforce body, signature, time, replay, application binding, and secret non-leak", { timeout: 180_000 }, async () => {
   await database("p13_6_webhooks", async (pool) => {
     const { acceptGeneratedSalesProviderWebhook } = await import("../dist/src/k-nex-sales-communications.js");
-    const secret = "fixture-webhook-signature-secret"; const reference = "secret-ref:v1:email-reference:webhook"; const resolved = [];
+    const secret = "fixture-webhook-signature-secret"; const reference = "secret-ref:v1:email-reference:webhook-signature:default"; const apiReference = "secret-ref:v1:email-reference:provider-api:default"; const resolved = [];
     const resolver = { async resolve(candidate, purpose) { resolved.push({ candidate, purpose }); assert.equal(candidate, reference); assert.equal(purpose, "webhook-signature"); return { value: secret }; } };
-    await pool.query("insert into sales_provider_configurations(application_id,environment,provider_id,secret_reference,configured_by) values ($1,$2,$3,$4,'administrator')", [applicationId, environment, emailProvider, reference]);
+    await pool.query("insert into sales_provider_configurations(application_id,environment,provider_id,secret_reference,webhook_secret_reference,configured_by) values ($1,$2,$3,$4,$5,'administrator')", [applicationId, environment, emailProvider, apiReference, reference]);
     const operationId = "provider-webhook-operation-001";
-    await pool.query(`insert into sales_provider_operations(operation_id,application_id,environment,provider_id,action_id,actor_id,related_record_type,related_record_id,idempotency_digest,payload_json,configuration_revision,authorization_revision,lifecycle_revision,scope_revision,state,attempt,next_attempt_at,accepted_at)
-      values($1,$2,$3,$4,'sales.email.send','recipient-a','sales.contact',17,$5,'{}',1,7,3,11,'accepted',1,now(),now())`, [operationId, applicationId, environment, emailProvider, `sha256:${"2".repeat(64)}`]);
+    await pool.query(`insert into sales_provider_operations(operation_id,application_id,environment,provider_id,action_id,actor_id,related_record_type,related_record_id,idempotency_digest,payload_json,configuration_revision,authorization_revision,lifecycle_revision,scope_revision,state,attempt,next_attempt_at,effect_claim_id,effect_dispatched_at,provider_receipt_id,provider_receipt_at,accepted_at)
+      values($1,$2,$3,$4,'sales.email.send','recipient-a','sales.contact',17,$5,'{}',1,7,3,11,'accepted',1,now(),'seeded-effect-claim',now(),'reference-receipt-seeded-001',now(),now())`, [operationId, applicationId, environment, emailProvider, `sha256:${"2".repeat(64)}`]);
     const event = { applicationId, environment, eventId: "p136-event-001", operationId, recipientId: "recipient-a", kind: "message-delivered", metadata: { providerMessageId: "opaque-provider-message" } };
     const valid = signedWebhook(secret, event);
     const invoke = async (request, app = applicationId) => await acceptGeneratedSalesProviderWebhook({ pool, resolver, providerId: emailProvider, applicationId: app, environment, ...request });
@@ -178,8 +184,8 @@ test("P13.6 webhooks enforce body, signature, time, replay, application binding,
     const externalId = (prefix) => `${prefix}${"._:-".repeat(80)}`.slice(0, 160);
     const longOperationId = externalId("O");
     const longEventId = externalId("E");
-    await pool.query(`insert into sales_provider_operations(operation_id,application_id,environment,provider_id,action_id,actor_id,related_record_type,related_record_id,idempotency_digest,payload_json,configuration_revision,authorization_revision,lifecycle_revision,scope_revision,state,attempt,next_attempt_at,accepted_at)
-      values($1,$2,$3,$4,'sales.email.send','recipient-a','sales.contact',17,$5,'{}',1,7,3,11,'accepted',0,now(),now())`, [longOperationId, applicationId, environment, emailProvider, `sha256:${"3".repeat(64)}`]);
+    await pool.query(`insert into sales_provider_operations(operation_id,application_id,environment,provider_id,action_id,actor_id,related_record_type,related_record_id,idempotency_digest,payload_json,configuration_revision,authorization_revision,lifecycle_revision,scope_revision,state,attempt,next_attempt_at,effect_claim_id,effect_dispatched_at,provider_receipt_id,provider_receipt_at,accepted_at)
+      values($1,$2,$3,$4,'sales.email.send','recipient-a','sales.contact',17,$5,'{}',1,7,3,11,'accepted',0,now(),'seeded-effect-claim-2',now(),'reference-receipt-seeded-002',now(),now())`, [longOperationId, applicationId, environment, emailProvider, `sha256:${"3".repeat(64)}`]);
     const longEvent = { applicationId, environment, eventId: longEventId, operationId: longOperationId, recipientId: "recipient-a", kind: "message-delivered", metadata: { providerMessageId: "long-provider-message" } };
     const longSigned = signedWebhook(secret, longEvent);
     assert.deepEqual(await invoke(longSigned), { accepted: true, replay: false }, "the bounded external-ID grammar permits noncanonical IDs at its 160-character limit");
@@ -192,8 +198,8 @@ test("P13.6 webhooks enforce body, signature, time, replay, application binding,
 
     const collisionOperationId = externalId("P");
     const collisionEventId = externalId("C");
-    await pool.query(`insert into sales_provider_operations(operation_id,application_id,environment,provider_id,action_id,actor_id,related_record_type,related_record_id,idempotency_digest,payload_json,configuration_revision,authorization_revision,lifecycle_revision,scope_revision,state,attempt,next_attempt_at,accepted_at)
-      values($1,$2,$3,$4,'sales.email.send','recipient-a','sales.contact',17,$5,'{}',1,7,3,11,'accepted',0,now(),now())`, [collisionOperationId, applicationId, environment, emailProvider, `sha256:${"4".repeat(64)}`]);
+    await pool.query(`insert into sales_provider_operations(operation_id,application_id,environment,provider_id,action_id,actor_id,related_record_type,related_record_id,idempotency_digest,payload_json,configuration_revision,authorization_revision,lifecycle_revision,scope_revision,state,attempt,next_attempt_at,effect_claim_id,effect_dispatched_at,provider_receipt_id,provider_receipt_at,accepted_at)
+      values($1,$2,$3,$4,'sales.email.send','recipient-a','sales.contact',17,$5,'{}',1,7,3,11,'accepted',0,now(),'seeded-effect-claim-2',now(),'reference-receipt-seeded-002',now(),now())`, [collisionOperationId, applicationId, environment, emailProvider, `sha256:${"4".repeat(64)}`]);
     const collisionEvent = { applicationId, environment, eventId: collisionEventId, operationId: collisionOperationId, recipientId: "recipient-a", kind: "message-delivered", metadata: { providerMessageId: "collision-provider-message" } };
     const collisionSigned = signedWebhook(secret, collisionEvent);
     const collisionOutboxId = `sales-webhook-${createHash("sha256").update(canonicalJson({ applicationId, environment, providerId: emailProvider, eventId: collisionEventId })).digest("hex")}`;
@@ -224,13 +230,13 @@ test("P13.6 provider outage retries are bounded, dead-lettered, and generation f
     await pool.query("insert into sales_current_authority_scopes values ($1,$2,'actor-a','active',11,'owned-or-assigned-team',false,'[\"team:actor-a\"]')", [applicationId, environment]);
     await pool.query("insert into sales_contacts values (17,$1,$2,'resolved-at-worker@example.test','actor-a','team:actor-a')", [applicationId, environment]);
     const activity = (await pool.query("insert into sales_activities(application_id,environment,owner_id,team_id,created_by,updated_by,audit,status,type,subject,actor_id,scheduled_at,related_record_id,related_record_type,revision) values ($1,$2,'actor-a','team:actor-a','actor-a','actor-a','[]','scheduled','email','Follow up','actor-a',now(), '17','sales.contact',1) returning id", [applicationId, environment])).rows[0];
-    await pool.query("insert into sales_provider_configurations(application_id,environment,provider_id,secret_reference,configured_by) values ($1,$2,$3,'secret-ref:v1:email-reference:api','administrator')", [applicationId, environment, emailProvider]);
+    await pool.query("insert into sales_provider_configurations(application_id,environment,provider_id,secret_reference,webhook_secret_reference,configured_by) values ($1,$2,$3,'secret-ref:v1:email-reference:provider-api:default','secret-ref:v1:email-reference:webhook-signature:default','administrator')", [applicationId, environment, emailProvider]);
     const queued = await transactionRequest(pool, "tx-worker", async (request) => await new GeneratedSalesCommunicationStore(request, authority("actor-a", ["sales.communications.email.send"])).dispatch({ actionId: "sales.email.send", idempotencyKey: "p136-worker-outage", relatedRecord: { type: "sales.contact", id: 17 }, payload: { subject: "Follow up", body: "Hello", activityId: activity.id, expectedRevision: 1 } }));
-    const resolver = { async resolve(reference, purpose) { assert.equal(reference, "secret-ref:v1:email-reference:api"); assert.equal(purpose, "provider-api"); return { value: "not-persisted-provider-token" }; }, async invoke(input) { attempts.push(input); throw new Error("fixture provider outage"); } };
+    const resolver = { async resolve(reference, purpose) { assert.equal(reference, "secret-ref:v1:email-reference:provider-api:default"); assert.equal(purpose, "provider-api"); return { value: "not-persisted-provider-token" }; }, async invoke(input) { attempts.push(input); throw new Error("fixture provider outage"); } };
     const attempts = [];
     {
       const stale = { applicationId, environment, activeExecutionGeneration: "sales-generation-1", fencingToken: 1, leaseOwner: "worker-1", promotionRevision: 1 };
-      const outageTransport = { async invoke(input) { attempts.push(input); throw new Error("fixture provider outage"); } };
+      const outageTransport = admittedTransport({ async invoke(input) { attempts.push(input); throw new Error("fixture provider outage"); } });
       assert.equal(await processGeneratedSalesCommunications(pool, stale, resolver, outageTransport), 0, "promoted-out generation must not claim work");
       assert.deepEqual((await pool.query("select state,attempt from sales_provider_operations where operation_id=$1", [queued.operationId])).rows, [{ state: "queued", attempt: 0 }]);
       const current = { applicationId, environment, activeExecutionGeneration: "sales-generation-2", fencingToken: 2, leaseOwner: "worker-2", promotionRevision: 2 };
@@ -246,10 +252,10 @@ test("P13.6 provider outage retries are bounded, dead-lettered, and generation f
       const serialized = JSON.stringify((await pool.query("select * from sales_provider_operations where operation_id=$1", [queued.operationId])).rows);
       assert.equal(serialized.includes("not-persisted-provider-token"), false);
 
-      await pool.query("insert into sales_provider_configurations(application_id,environment,provider_id,secret_reference,configured_by) values ($1,$2,$3,'secret-ref:v1:calendar-reference:api','administrator')", [applicationId, environment, calendarProvider]);
+      await pool.query("insert into sales_provider_configurations(application_id,environment,provider_id,secret_reference,webhook_secret_reference,configured_by) values ($1,$2,$3,'secret-ref:v1:calendar-reference:provider-api:default','secret-ref:v1:calendar-reference:webhook-signature:default','administrator')", [applicationId, environment, calendarProvider]);
       const calendarActivity = (await pool.query("insert into sales_activities(application_id,environment,owner_id,team_id,created_by,updated_by,audit,status,type,subject,actor_id,scheduled_at,related_record_id,related_record_type,revision) values ($1,$2,'actor-a','team:actor-a','actor-a','actor-a','[]','scheduled','meeting','Calendar sync','actor-a',now(), '17','sales.contact',1) returning id", [applicationId, environment])).rows[0];
       const calendarOperation = await transactionRequest(pool, "tx-calendar-worker", async (request) => await new GeneratedSalesCommunicationStore(request, authority("actor-a", ["sales.communications.calendar.sync"])).dispatch({ actionId: "sales.calendar.sync", idempotencyKey: "p136-calendar-worker", relatedRecord: { type: "sales.contact", id: 17 }, payload: { activityId: calendarActivity.id, expectedRevision: 1 } }));
-      const observed = []; const provider = createServer((request, response) => { observed.push({ key: request.headers["idempotency-key"], provider: request.headers["x-k-nex-provider"] }); request.resume(); response.writeHead(202).end(); }); await new Promise((resolve) => provider.listen(0, "127.0.0.1", resolve)); const address = provider.address(); assert.ok(address && typeof address === "object"); const generatedTransport = createGeneratedBoundedReferenceProviderTransport(`http://127.0.0.1:${address.port}/k-nex/reference-provider`);
+      const observed = []; const provider = createServer((request, response) => { const key = request.headers["idempotency-key"]; observed.push({ key, provider: request.headers["x-k-nex-provider"] }); request.resume(); response.writeHead(202, { "content-type": "application/json" }).end(JSON.stringify(referenceReceipt(String(key)))); }); await new Promise((resolve) => provider.listen(0, "127.0.0.1", resolve)); const address = provider.address(); assert.ok(address && typeof address === "object"); const generatedTransport = createGeneratedBoundedReferenceProviderTransport(`http://127.0.0.1:${address.port}/k-nex/reference-provider`);
       const generatedAdapter = createGeneratedEnvironmentProviderSecretResolver({ K_NEX_PROVIDER_SECRET_EMAIL_REFERENCE: "email-token-not-persisted", K_NEX_PROVIDER_SECRET_CALENDAR_REFERENCE: "calendar-token-not-persisted" });
       assert.equal(await processGeneratedSalesCommunications(pool, current, generatedAdapter, generatedTransport), 1);
       assert.deepEqual((await pool.query("select state,attempt,failure_code from sales_provider_operations where operation_id=$1", [calendarOperation.operationId])).rows, [{ state: "accepted", attempt: 0, failure_code: null }], "generated fixed adapter must accept the worker effect");
@@ -278,7 +284,7 @@ test("P13.6 absent or malformed provider host config dead-letters communications
   await database("p13_6_provider_host_config", async (pool) => {
     const { GeneratedSalesCommunicationStore, createGeneratedBoundedReferenceProviderTransport, createGeneratedEnvironmentProviderSecretResolver, processGeneratedSalesCommunications, processGeneratedSalesReminders } = await import("../dist/src/k-nex-sales-communications.js");
     await createWorkerPrerequisites(pool);
-    await pool.query("insert into sales_provider_configurations(application_id,environment,provider_id,secret_reference,configured_by) values ($1,$2,$3,'secret-ref:v1:email-reference:api','administrator')", [applicationId, environment, emailProvider]);
+    await pool.query("insert into sales_provider_configurations(application_id,environment,provider_id,secret_reference,webhook_secret_reference,configured_by) values ($1,$2,$3,'secret-ref:v1:email-reference:provider-api:default','secret-ref:v1:email-reference:webhook-signature:default','administrator')", [applicationId, environment, emailProvider]);
     const current = { applicationId, environment, activeExecutionGeneration: "sales-generation-2", fencingToken: 2, leaseOwner: "worker-2", promotionRevision: 2 };
     const resolver = createGeneratedEnvironmentProviderSecretResolver({ K_NEX_PROVIDER_SECRET_EMAIL_REFERENCE: "email-token-not-persisted" });
     const invalidEndpoints = [["absent", undefined], ["empty", ""], ["malformed", "not a provider URL"], ["non-loopback", "https://attacker.example/k-nex/reference-provider"]];
@@ -349,7 +355,7 @@ test("P13.6 provider admission linearizes promotion and revocation, while stale 
   await database("p13_6_worker_races", async (pool) => {
     const { GeneratedSalesCommunicationStore, processGeneratedSalesCommunications, createGeneratedEnvironmentProviderSecretResolver } = await import("../dist/src/k-nex-sales-communications.js");
     await createWorkerPrerequisites(pool);
-    await pool.query("insert into sales_provider_configurations(application_id,environment,provider_id,secret_reference,configured_by) values ($1,$2,$3,'secret-ref:v1:email-reference:api','administrator')", [applicationId, environment, emailProvider]);
+    await pool.query("insert into sales_provider_configurations(application_id,environment,provider_id,secret_reference,webhook_secret_reference,configured_by) values ($1,$2,$3,'secret-ref:v1:email-reference:provider-api:default','secret-ref:v1:email-reference:webhook-signature:default','administrator')", [applicationId, environment, emailProvider]);
     const dispatch = async (key, activityId) => await transactionRequest(pool, `tx-race-${key}`, async (request) => await new GeneratedSalesCommunicationStore(request, authority("actor-a", ["sales.communications.email.send"])).dispatch({ actionId: "sales.email.send", idempotencyKey: key, relatedRecord: { type: "sales.contact", id: 17 }, payload: { subject: key, body: "Race proof", activityId, expectedRevision: 1 } }));
     const resolver = createGeneratedEnvironmentProviderSecretResolver({ K_NEX_PROVIDER_SECRET_EMAIL_REFERENCE: "email-token-not-persisted" });
     const stale = { applicationId, environment, activeExecutionGeneration: "sales-generation-1", fencingToken: 1, leaseOwner: "worker-1", promotionRevision: 1 };
@@ -358,11 +364,11 @@ test("P13.6 provider admission linearizes promotion and revocation, while stale 
     const recoveryActivity = await workerActivity(pool, "Current generation recovery");
     const recovery = await dispatch("p136-worker-race-recovery", recoveryActivity.id);
     const staleKeys = [];
-    const staleTransport = { async invoke(input) { staleKeys.push(input.idempotencyKey); } };
+    const staleTransport = admittedTransport({ async invoke(input) { staleKeys.push(input.idempotencyKey); } });
     assert.equal(await processGeneratedSalesCommunications(pool, stale, resolver, staleTransport), 0, "stale generation must not claim a queued operation");
     assert.deepEqual(staleKeys, [], "stale generation must not invoke the provider");
     const observedKeys = [];
-    const externallyIdempotent = { async invoke(input) { observedKeys.push(input.idempotencyKey); } };
+    const externallyIdempotent = admittedTransport({ async invoke(input) { observedKeys.push(input.idempotencyKey); } });
     assert.equal(await processGeneratedSalesCommunications(pool, current, resolver, externallyIdempotent), 1);
     assert.equal(await processGeneratedSalesCommunications(pool, current, resolver, externallyIdempotent), 0, "accepted operation replay must not invoke the provider again");
     assert.deepEqual(observedKeys, [recovery.receipt.idempotencyDigest]);
@@ -374,7 +380,7 @@ test("P13.6 provider admission linearizes promotion and revocation, while stale 
     let releaseInvoke;
     const invokeStarted = new Promise((resolve) => { invokeStartedResolve = resolve; });
     const invokeRelease = new Promise((resolve) => { releaseInvoke = resolve; });
-    const barrierTransport = { async invoke(input) { invokeStartedResolve(input); await invokeRelease; observedKeys.push(input.idempotencyKey); } };
+    const barrierTransport = admittedTransport({ async invoke(input) { invokeStartedResolve(input); await invokeRelease; observedKeys.push(input.idempotencyKey); } });
     const processing = processGeneratedSalesCommunications(pool, current, resolver, barrierTransport);
     await invokeStarted;
     let updatesFinished = false;
@@ -383,17 +389,26 @@ test("P13.6 provider admission linearizes promotion and revocation, while stale 
       pool.query("update sales_provider_configurations set state='revoked',revoked_at=now(),revision=revision+1 where application_id=$1 and environment=$2 and provider_id=$3", [applicationId, environment, emailProvider])
     ]).finally(() => { updatesFinished = true; });
     await delay(50);
-    assert.equal(updatesFinished, false, "promotion/revocation must wait behind the admitted provider effect");
+    // The effect no longer runs inside the fence transaction, so an operator can
+    // promote and revoke while a bounded provider call is still in flight.
+    await promotionAndRevocation;
+    assert.equal(updatesFinished, true, "promotion and revocation must not queue behind an in-flight provider effect");
     releaseInvoke();
     await processing;
-    await promotionAndRevocation;
-    assert.deepEqual((await pool.query("select state,attempt from sales_provider_operations where operation_id=$1", [barrierOperation.operationId])).rows, [{ state: "accepted", attempt: 0 }], "the effect linearizes before the concurrent promotion and revocation");
-    assert.deepEqual((await pool.query("select status,revision from sales_activities where id=$1", [barrierActivity.id])).rows, [{ status: "completed", revision: 2 }]);
+    const fenced = (await pool.query("select state,attempt,provider_receipt_id,effect_dispatched_at from sales_provider_operations where operation_id=$1", [barrierOperation.operationId])).rows;
+    assert.equal(fenced.length, 1); assert.equal(fenced[0].state, "running", "a promoted-out worker leaves its claim reclaimable rather than terminal");
+    assert.match(String(fenced[0].provider_receipt_id), /^reference-receipt-[0-9a-f]{32}$/u, "the effect the provider already accepted survives as an opaque receipt");
+    assert.notEqual(fenced[0].effect_dispatched_at, null);
+    assert.deepEqual((await pool.query("select status,revision from sales_activities where id=$1", [barrierActivity.id])).rows, [{ status: "scheduled", revision: 1 }], "a promoted-out worker writes no local domain transition");
     assert.deepEqual((await pool.query("select active_execution_generation,fencing_token,promotion_revision from runtime_worker_generation_fences where application_id=$1 and environment=$2", [applicationId, environment])).rows, [{ active_execution_generation: "sales-generation-3", fencing_token: "3", promotion_revision: 3 }]);
     assert.deepEqual((await pool.query("select state,revision from sales_provider_configurations where application_id=$1 and environment=$2 and provider_id=$3", [applicationId, environment, emailProvider])).rows, [{ state: "revoked", revision: 2 }]);
     const beforeStaleRetry = observedKeys.length;
     assert.equal(await processGeneratedSalesCommunications(pool, stale, resolver, staleTransport), 0);
     assert.equal(observedKeys.length, beforeStaleRetry, "a stale worker remains unable to create a provider effect after promotion");
+    const promoted = { applicationId, environment, activeExecutionGeneration: "sales-generation-3", fencingToken: 3, leaseOwner: "worker-3", promotionRevision: 3 };
+    assert.equal(await processGeneratedSalesCommunications(pool, promoted, resolver, barrierTransport), 1, "the promoted generation reclaims the in-flight claim");
+    assert.equal(observedKeys.length, beforeStaleRetry, "a reclaimed operation whose receipt is durable is never sent a second time");
+    assert.deepEqual((await pool.query("select state,failure_code,provider_receipt_id is not null has_receipt from sales_provider_operations where operation_id=$1", [barrierOperation.operationId])).rows, [{ state: "dead-letter", failure_code: "PROVIDER_REVOKED", has_receipt: true }], "a revoked configuration stops the reclaim without pretending the effect never happened");
   });
 });
 
@@ -401,22 +416,22 @@ test("P13.6 provider receipt and timeline-outbox collisions roll back completion
   await database("p13_6_provider_collisions", async (pool) => {
     const { GeneratedSalesCommunicationStore, processGeneratedSalesCommunications, createGeneratedEnvironmentProviderSecretResolver } = await import("../dist/src/k-nex-sales-communications.js");
     await createWorkerPrerequisites(pool);
-    await pool.query("insert into sales_provider_configurations(application_id,environment,provider_id,secret_reference,configured_by) values ($1,$2,$3,'secret-ref:v1:email-reference:api','administrator')", [applicationId, environment, emailProvider]);
+    await pool.query("insert into sales_provider_configurations(application_id,environment,provider_id,secret_reference,webhook_secret_reference,configured_by) values ($1,$2,$3,'secret-ref:v1:email-reference:provider-api:default','secret-ref:v1:email-reference:webhook-signature:default','administrator')", [applicationId, environment, emailProvider]);
     const dispatch = async (key, activityId) => await transactionRequest(pool, `tx-collision-${key}`, async (request) => await new GeneratedSalesCommunicationStore(request, authority("actor-a", ["sales.communications.email.send"])).dispatch({ actionId: "sales.email.send", idempotencyKey: key, relatedRecord: { type: "sales.contact", id: 17 }, payload: { subject: key, body: "Collision proof", activityId, expectedRevision: 1 } }));
     const resolver = createGeneratedEnvironmentProviderSecretResolver({ K_NEX_PROVIDER_SECRET_EMAIL_REFERENCE: "email-token-not-persisted" });
     const current = { applicationId, environment, activeExecutionGeneration: "sales-generation-2", fencingToken: 2, leaseOwner: "worker-2", promotionRevision: 2 };
-    const transport = { async invoke() {} };
+    const transport = admittedTransport({ async invoke() {} });
 
     const receiptTarget = await workerActivity(pool, "Receipt collision target");
     const receiptOperation = await dispatch("p136-provider-receipt-collision", receiptTarget.id);
     const receiptOtherActivity = await workerActivity(pool, "Receipt collision preexisting receipt");
     const fakeReceiptDigest = `sha256:${"a".repeat(64)}`;
-    await pool.query("insert into sales_provider_activity_receipts(operation_id,activity_id,receipt_digest) values ($1,$2,$3)", [receiptOperation.operationId, receiptOtherActivity.id, fakeReceiptDigest]);
+    await pool.query("insert into sales_provider_activity_receipts(operation_id,activity_id,receipt_digest,provider_receipt_id) values ($1,$2,$3,'reference-receipt-collision-seed')", [receiptOperation.operationId, receiptOtherActivity.id, fakeReceiptDigest]);
     assert.equal(await processGeneratedSalesCommunications(pool, current, resolver, transport), 1);
     assert.deepEqual((await pool.query("select status,revision,occurred_at,provider_metadata from sales_activities where id=$1", [receiptTarget.id])).rows, [{ status: "scheduled", revision: 1, occurred_at: null, provider_metadata: null }], "receipt collision must roll back Activity completion");
     assert.deepEqual((await pool.query("select operation_id,activity_id,receipt_digest from sales_provider_activity_receipts where operation_id=$1", [receiptOperation.operationId])).rows, [{ operation_id: receiptOperation.operationId, activity_id: receiptOtherActivity.id, receipt_digest: fakeReceiptDigest }], "preexisting receipt must remain unchanged");
     assert.equal(Number((await pool.query("select count(*) count from k_nex_outbox where event_type='sales.event.timeline-changed' and payload->>'resourceId'=$1", [String(receiptTarget.id)])).rows[0].count), 0, "receipt collision must not emit a timeline event");
-    assert.deepEqual((await pool.query("select state,failure_code from sales_provider_operations where operation_id=$1", [receiptOperation.operationId])).rows, [{ state: "dead-letter", failure_code: "HOST_INVARIANT" }]);
+    assert.deepEqual((await pool.query("select state,failure_code from sales_provider_operations where operation_id=$1", [receiptOperation.operationId])).rows, [{ state: "dead-letter", failure_code: "PROVIDER_EFFECT_UNRECONCILED" }]);
 
     const outboxTarget = await workerActivity(pool, "Timeline outbox collision target");
     const outboxOperation = await dispatch("p136-provider-outbox-collision", outboxTarget.id);
@@ -427,7 +442,7 @@ test("P13.6 provider receipt and timeline-outbox collisions roll back completion
     assert.deepEqual((await pool.query("select status,revision,occurred_at,provider_metadata from sales_activities where id=$1", [outboxTarget.id])).rows, [{ status: "scheduled", revision: 1, occurred_at: null, provider_metadata: null }], "outbox collision must roll back Activity completion");
     assert.equal(Number((await pool.query("select count(*) count from sales_provider_activity_receipts where operation_id=$1", [outboxOperation.operationId])).rows[0].count), 0, "outbox collision must roll back the provider receipt");
     assert.deepEqual((await pool.query("select event_id,event_type,payload,status from k_nex_outbox where event_id=$1", [collisionEventId])).rows, collisionBefore, "outbox collision row must remain unchanged");
-    assert.deepEqual((await pool.query("select state,failure_code from sales_provider_operations where operation_id=$1", [outboxOperation.operationId])).rows, [{ state: "dead-letter", failure_code: "HOST_INVARIANT" }]);
+    assert.deepEqual((await pool.query("select state,failure_code from sales_provider_operations where operation_id=$1", [outboxOperation.operationId])).rows, [{ state: "dead-letter", failure_code: "PROVIDER_EFFECT_UNRECONCILED" }]);
   });
 });
 
@@ -436,28 +451,39 @@ test("P13.6 provider effect is externally idempotent across a spawned worker res
     const { GeneratedSalesCommunicationStore } = await import("../dist/src/k-nex-sales-communications.js");
     await createWorkerPrerequisites(pool);
     await pool.query("update runtime_worker_generation_fences set active_execution_generation='sales-generation-1',fencing_token=1,lease_owner='worker-1',promotion_revision=1 where application_id=$1 and environment=$2", [applicationId, environment]);
-    await pool.query("insert into sales_provider_configurations(application_id,environment,provider_id,secret_reference,configured_by) values ($1,$2,$3,'secret-ref:v1:email-reference:api','administrator')", [applicationId, environment, emailProvider]);
+    await pool.query("insert into sales_provider_configurations(application_id,environment,provider_id,secret_reference,webhook_secret_reference,configured_by) values ($1,$2,$3,'secret-ref:v1:email-reference:provider-api:default','secret-ref:v1:email-reference:webhook-signature:default','administrator')", [applicationId, environment, emailProvider]);
     const activity = await workerActivity(pool, "Spawned worker restart");
     const operation = await transactionRequest(pool, "tx-spawned-worker-restart", async (request) => await new GeneratedSalesCommunicationStore(request, authority("actor-a", ["sales.communications.email.send"])).dispatch({ actionId: "sales.email.send", idempotencyKey: "p136-spawned-worker-restart", relatedRecord: { type: "sales.contact", id: 17 }, payload: { subject: "Spawned worker restart", body: "One external effect", activityId: activity.id, expectedRevision: 1 } }));
 
-    const requests = [];
+    const effects = [];
+    const reconciliations = [];
     const externalEffectKeys = new Set();
     let firstRequestResolve;
     let releaseFirstRequest;
     const firstRequest = new Promise((resolve) => { firstRequestResolve = resolve; });
     const firstResponseRelease = new Promise((resolve) => { releaseFirstRequest = resolve; });
+    // The reference provider commits the effect and then loses its response to a
+    // killed worker, which is the only case a receipt lookup has to survive.
     const provider = createServer(async (request, response) => {
       assert.equal(request.url, "/k-nex/reference-provider");
       assert.equal(request.headers["x-k-nex-provider"], emailProvider);
       assert.equal(request.headers.authorization, "Bearer email-token-not-persisted");
       const key = request.headers["idempotency-key"];
       assert.equal(typeof key, "string");
-      requests.push(key);
-      const firstEffect = !externalEffectKeys.has(key);
-      externalEffectKeys.add(key);
       request.resume();
-      if (requests.length === 1) { firstRequestResolve(); await firstResponseRelease; }
-      response.writeHead(firstEffect ? 202 : 202).end();
+      const answer = (status, body) => response.writeHead(status, { "content-type": "application/json" }).end(JSON.stringify(body));
+      const receiptId = `reference-receipt-${createHash("sha256").update(String(key)).digest("hex").slice(0, 32)}`;
+      if (request.headers["x-k-nex-reconcile"] === "1") {
+        reconciliations.push(key);
+        if (!externalEffectKeys.has(key)) { response.writeHead(404).end(); return; }
+        answer(200, { providerReceiptId: receiptId, idempotencyKey: key, duplicate: true });
+        return;
+      }
+      effects.push(key);
+      const duplicate = externalEffectKeys.has(key);
+      externalEffectKeys.add(key);
+      if (effects.length === 1) { firstRequestResolve(); await firstResponseRelease; }
+      answer(202, { providerReceiptId: receiptId, idempotencyKey: key, duplicate });
     });
     await new Promise((resolve) => provider.listen(0, "127.0.0.1", resolve));
     const address = provider.address();
@@ -471,13 +497,13 @@ test("P13.6 provider effect is externally idempotent across a spawned worker res
     let promotionFinished = false;
     const promotion = pool.query("update runtime_worker_generation_fences set active_execution_generation='sales-generation-2',fencing_token=2,lease_owner='worker-2',promotion_revision=2 where application_id=$1 and environment=$2", [applicationId, environment]).finally(() => { promotionFinished = true; });
     await delay(50);
-    assert.equal(promotionFinished, false, "promotion must wait while the first worker holds the admitted-effect fence");
+    await promotion;
+    assert.equal(promotionFinished, true, "promotion must not wait on a worker that is inside a bounded provider call");
     firstWorker.kill("SIGKILL");
     const firstExit = await childExit(firstWorker);
     assert.equal(firstExit.signal, "SIGKILL", `first worker unexpectedly completed: ${firstStdout}${firstStderr}`);
     releaseFirstRequest();
-    await promotion;
-    assert.deepEqual((await pool.query("select state,worker_generation_id,worker_fencing_token from sales_provider_operations where operation_id=$1", [operation.operationId])).rows, [{ state: "running", worker_generation_id: "sales-generation-1", worker_fencing_token: "1" }]);
+    assert.deepEqual((await pool.query("select state,worker_generation_id,worker_fencing_token,provider_receipt_id,effect_dispatched_at is not null dispatched from sales_provider_operations where operation_id=$1", [operation.operationId])).rows, [{ state: "running", worker_generation_id: "sales-generation-1", worker_fencing_token: "1", provider_receipt_id: null, dispatched: true }], "a killed worker leaves a dispatch marker and no receipt, which is exactly the response-loss case");
 
     const currentFence = { applicationId, environment, activeExecutionGeneration: "sales-generation-2", fencingToken: 2, leaseOwner: "worker-2", promotionRevision: 2 };
     const secondWorker = spawnCommunicationWorker(connectionString, endpoint, currentFence);
@@ -485,10 +511,10 @@ test("P13.6 provider effect is externally idempotent across a spawned worker res
     secondWorker.stdout.on("data", (chunk) => { secondStdout += chunk; }); secondWorker.stderr.on("data", (chunk) => { secondStderr += chunk; });
     const secondExit = await childExit(secondWorker);
     assert.equal(secondExit.code, 0, `restarted worker failed: ${secondStdout}${secondStderr}`);
-    assert.equal(requests.length, 2, "the restarted worker retries the same provider request key");
-    assert.equal(externalEffectKeys.size, 1, "the reference provider deduplicates the externally observed effect by idempotency key");
-    assert.deepEqual(requests, [operation.receipt.idempotencyDigest, operation.receipt.idempotencyDigest]);
-    assert.deepEqual((await pool.query("select state,attempt,worker_generation_id from sales_provider_operations where operation_id=$1", [operation.operationId])).rows, [{ state: "accepted", attempt: 0, worker_generation_id: null }]);
+    assert.deepEqual(effects, [operation.receipt.idempotencyDigest], "the restarted worker must not send a second message for a dispatch that may already have landed");
+    assert.deepEqual(reconciliations, [operation.receipt.idempotencyDigest], "the restarted worker resolves the lost response by receipt lookup");
+    assert.equal(externalEffectKeys.size, 1, "exactly one external effect exists for this idempotency key");
+    assert.deepEqual((await pool.query("select state,attempt,worker_generation_id,provider_receipt_id is not null has_receipt from sales_provider_operations where operation_id=$1", [operation.operationId])).rows, [{ state: "accepted", attempt: 0, worker_generation_id: null, has_receipt: true }]);
     assert.deepEqual((await pool.query("select status,revision from sales_activities where id=$1", [activity.id])).rows, [{ status: "completed", revision: 2 }]);
     await new Promise((resolve, reject) => provider.close((error) => error ? reject(error) : resolve()));
   });
@@ -499,7 +525,7 @@ test("P13.6 promoted provider work rejects stale claims, retries a current failu
     const { GeneratedSalesCommunicationStore, createGeneratedEnvironmentProviderSecretResolver, processGeneratedSalesCommunications } = await import("../dist/src/k-nex-sales-communications.js");
     await createWorkerPrerequisites(pool);
     await pool.query("update runtime_worker_generation_fences set active_execution_generation='sales-generation-1',fencing_token=1,lease_owner='worker-1',promotion_revision=1 where application_id=$1 and environment=$2", [applicationId, environment]);
-    await pool.query("insert into sales_provider_configurations(application_id,environment,provider_id,secret_reference,configured_by) values ($1,$2,$3,'secret-ref:v1:email-reference:api','administrator')", [applicationId, environment, emailProvider]);
+    await pool.query("insert into sales_provider_configurations(application_id,environment,provider_id,secret_reference,webhook_secret_reference,configured_by) values ($1,$2,$3,'secret-ref:v1:email-reference:provider-api:default','secret-ref:v1:email-reference:webhook-signature:default','administrator')", [applicationId, environment, emailProvider]);
     const activity = await workerActivity(pool, "Promotion recovery");
     const operation = await transactionRequest(pool, "tx-p136-promoted-provider-recovery", async (request) => await new GeneratedSalesCommunicationStore(request, authority("actor-a", ["sales.communications.email.send"])).dispatch({ actionId: "sales.email.send", idempotencyKey: "p136-promoted-provider-recovery", relatedRecord: { type: "sales.contact", id: 17 }, payload: { subject: "Promotion recovery", body: "Exactly one current effect", activityId: activity.id, expectedRevision: 1 } }));
     await pool.query("update sales_provider_operations set state='running',worker_generation_id='sales-generation-1',worker_fencing_token=1,worker_promotion_revision=1,worker_lease_owner='worker-1' where operation_id=$1", [operation.operationId]);
@@ -509,14 +535,14 @@ test("P13.6 promoted provider work rejects stale claims, retries a current failu
     const stale = { applicationId, environment, activeExecutionGeneration: "sales-generation-1", fencingToken: 1, leaseOwner: "worker-1", promotionRevision: 1 };
     const current = { applicationId, environment, activeExecutionGeneration: "sales-generation-2", fencingToken: 2, leaseOwner: "worker-2", promotionRevision: 2 };
     const staleEffects = [];
-    assert.equal(await processGeneratedSalesCommunications(pool, stale, resolver, { async invoke(input) { staleEffects.push(input.idempotencyKey); } }), 0, "promoted-out worker cannot reclaim a stale running operation");
+    assert.equal(await processGeneratedSalesCommunications(pool, stale, resolver, admittedTransport({ async invoke(input) { staleEffects.push(input.idempotencyKey); } })), 0, "promoted-out worker cannot reclaim a stale running operation");
     assert.deepEqual(staleEffects, [], "stale provider worker must have zero external effects");
 
-    assert.equal(await processGeneratedSalesCommunications(pool, current, resolver, { async invoke() { throw new Error("current worker transient outage"); } }), 1, "current worker alone reclaims stale work");
+    assert.equal(await processGeneratedSalesCommunications(pool, current, resolver, admittedTransport({ async invoke() { throw new Error("current worker transient outage"); } })), 1, "current worker alone reclaims stale work");
     assert.deepEqual((await pool.query("select state,attempt,failure_code,worker_generation_id from sales_provider_operations where operation_id=$1", [operation.operationId])).rows, [{ state: "queued", attempt: 1, failure_code: "PROVIDER_OUTAGE", worker_generation_id: null }], "current failed attempt remains retryable without stale ownership");
     await pool.query("update sales_provider_operations set next_attempt_at=now() where operation_id=$1", [operation.operationId]);
     const currentEffects = [];
-    assert.equal(await processGeneratedSalesCommunications(pool, current, resolver, { async invoke(input) { currentEffects.push(input.idempotencyKey); } }), 1);
+    assert.equal(await processGeneratedSalesCommunications(pool, current, resolver, admittedTransport({ async invoke(input) { currentEffects.push(input.idempotencyKey); } })), 1);
     assert.deepEqual(currentEffects, [operation.receipt.idempotencyDigest], "recovery emits exactly one current-generation effect key");
     assert.deepEqual((await pool.query("select state,attempt,worker_generation_id from sales_provider_operations where operation_id=$1", [operation.operationId])).rows, [{ state: "accepted", attempt: 1, worker_generation_id: null }]);
   });
@@ -527,13 +553,13 @@ test("P13.6 provider claim holds its exact fence through promotion arbitration",
     const { GeneratedSalesCommunicationStore, createGeneratedEnvironmentProviderSecretResolver, processGeneratedSalesCommunications } = await import("../dist/src/k-nex-sales-communications.js");
     await createWorkerPrerequisites(pool);
     await pool.query("update runtime_worker_generation_fences set active_execution_generation='sales-generation-1',fencing_token=1,lease_owner='worker-1',promotion_revision=1 where application_id=$1 and environment=$2", [applicationId, environment]);
-    await pool.query("insert into sales_provider_configurations(application_id,environment,provider_id,secret_reference,configured_by) values ($1,$2,$3,'secret-ref:v1:email-reference:api','administrator')", [applicationId, environment, emailProvider]);
+    await pool.query("insert into sales_provider_configurations(application_id,environment,provider_id,secret_reference,webhook_secret_reference,configured_by) values ($1,$2,$3,'secret-ref:v1:email-reference:provider-api:default','secret-ref:v1:email-reference:webhook-signature:default','administrator')", [applicationId, environment, emailProvider]);
     const activity = await workerActivity(pool, "Claim/promotion arbitration");
     const operation = await transactionRequest(pool, "tx-p136-provider-claim-promotion", async (request) => await new GeneratedSalesCommunicationStore(request, authority("actor-a", ["sales.communications.email.send"])).dispatch({ actionId: "sales.email.send", idempotencyKey: "p136-provider-claim-promotion", relatedRecord: { type: "sales.contact", id: 17 }, payload: { subject: "Claim/promotion arbitration", body: "No stale side effect", activityId: activity.id, expectedRevision: 1 } }));
     await pool.query("create function public.p136_provider_claim_barrier() returns trigger language plpgsql as $$ begin perform pg_advisory_lock(13,61); perform pg_sleep(0.25); perform pg_advisory_unlock(13,61); return new; end; $$; create trigger p136_provider_claim_barrier before update of worker_generation_id on sales_provider_operations for each row when (old.state='queued' and new.state='running') execute function public.p136_provider_claim_barrier()");
     const oldFence = { applicationId, environment, activeExecutionGeneration: "sales-generation-1", fencingToken: 1, leaseOwner: "worker-1", promotionRevision: 1 };
     const effects = [];
-    const processing = processGeneratedSalesCommunications(pool, oldFence, createGeneratedEnvironmentProviderSecretResolver({ K_NEX_PROVIDER_SECRET_EMAIL_REFERENCE: "email-token-not-persisted" }), { async invoke(input) { effects.push(input.idempotencyKey); } });
+    const processing = processGeneratedSalesCommunications(pool, oldFence, createGeneratedEnvironmentProviderSecretResolver({ K_NEX_PROVIDER_SECRET_EMAIL_REFERENCE: "email-token-not-persisted" }), admittedTransport({ async invoke(input) { effects.push(input.idempotencyKey); } }));
     let claimAtBarrier = false;
     for (let attempt = 0; attempt < 50; attempt += 1) {
       const probe = (await pool.query("select pg_try_advisory_lock(13,61) acquired")).rows[0];
@@ -552,7 +578,7 @@ test("P13.6 provider claim holds its exact fence through promotion arbitration",
     assert.deepEqual((await pool.query("select state,worker_generation_id,worker_fencing_token from sales_provider_operations where operation_id=$1", [operation.operationId])).rows, [{ state: "running", worker_generation_id: "sales-generation-1", worker_fencing_token: "1" }], "claim committed before promotion leaves a fenced, reclaimable old-generation claim");
     const currentFence = { applicationId, environment, activeExecutionGeneration: "sales-generation-2", fencingToken: 2, leaseOwner: "worker-2", promotionRevision: 2 };
     const currentEffects = [];
-    assert.equal(await processGeneratedSalesCommunications(pool, currentFence, createGeneratedEnvironmentProviderSecretResolver({ K_NEX_PROVIDER_SECRET_EMAIL_REFERENCE: "email-token-not-persisted" }), { async invoke(input) { currentEffects.push(input.idempotencyKey); } }), 1, "new generation reclaims the old fenced claim");
+    assert.equal(await processGeneratedSalesCommunications(pool, currentFence, createGeneratedEnvironmentProviderSecretResolver({ K_NEX_PROVIDER_SECRET_EMAIL_REFERENCE: "email-token-not-persisted" }), admittedTransport({ async invoke(input) { currentEffects.push(input.idempotencyKey); } })), 1, "new generation reclaims the old fenced claim");
     assert.deepEqual(currentEffects, [operation.receipt.idempotencyDigest]);
     assert.deepEqual((await pool.query("select state,worker_generation_id,worker_fencing_token from sales_provider_operations where operation_id=$1", [operation.operationId])).rows, [{ state: "accepted", worker_generation_id: null, worker_fencing_token: null }]);
   });

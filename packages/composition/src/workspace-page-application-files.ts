@@ -171,7 +171,7 @@ function digest(value: unknown): \`sha256:\${string}\` {
 }
 
 function workspacePageHttpSource(): string {
-  return `import { kNexRequestContext } from "./k-nex-authority.js";
+  return `import { kNexRequestContext, readBoundedRequestBody, workspaceJsonRequestByteLimit } from "./k-nex-authority.js";
 import { bootKnexApplication } from "./boot.js";
 import { kNexIdentity } from "./k-nex-identity.js";
 
@@ -179,9 +179,14 @@ export async function openWorkspaceForm(request: Request, boundary: string) {
   if (request.headers.get("origin") !== kNexIdentity.publicOrigin.origin) throw new TypeError("Workspace form origin is invalid.");
   const contentType = request.headers.get("content-type") ?? "";
   if (!contentType.startsWith("application/x-www-form-urlencoded") && !contentType.startsWith("multipart/form-data")) throw new TypeError("Workspace form content type is invalid.");
+  // The form is decoded from an already bounded body, because formData() reads
+  // the socket itself and would otherwise hold this worker for as long as a
+  // client keeps writing.
+  const bytes = await readBoundedRequestBody(request, { maxBytes: workspaceJsonRequestByteLimit });
+  const form = await new Response(bytes, { headers: { "content-type": contentType } }).formData();
   const payload = await bootKnexApplication("workspace-web");
   const context = kNexRequestContext(new Headers(request.headers), boundary);
-  return Object.freeze({ payload, context, form: await request.formData() });
+  return Object.freeze({ payload, context, form });
 }
 
 ` + workspacePageHttpTailSource();
@@ -1962,10 +1967,7 @@ function workspacePageHttpTailSource(): string {
   return `export async function openWorkspaceJson(request: Request, boundary: string) {
   if (request.headers.get("origin") !== kNexIdentity.publicOrigin.origin) throw new TypeError("Workspace JSON origin is invalid.");
   if (!(request.headers.get("content-type") ?? "").startsWith("application/json")) throw new TypeError("Workspace JSON content type is invalid.");
-  const contentLength = Number(request.headers.get("content-length") ?? "0");
-  if (!Number.isSafeInteger(contentLength) || contentLength < 0 || contentLength > 1_048_576) throw new TypeError("Workspace JSON body is too large.");
-  const source = await request.text();
-  if (Buffer.byteLength(source) > 1_048_576) throw new TypeError("Workspace JSON body is too large.");
+  const source = Buffer.from(await readBoundedRequestBody(request, { maxBytes: workspaceJsonRequestByteLimit })).toString("utf8");
   const payload = await bootKnexApplication("workspace-web");
   const context = kNexRequestContext(new Headers(request.headers), boundary);
   return Object.freeze({ payload, context, body: JSON.parse(source) as unknown });

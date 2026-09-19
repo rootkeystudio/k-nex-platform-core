@@ -300,6 +300,7 @@ export class DataSourceGateway {
   async query(request: DataSourceGatewayRequest): Promise<DataSourceGatewayResponse> {
     const correlationId = bounded(request.correlationId, "unavailable", 128);
     let lease: QueryBudgetLease | undefined;
+    let releaseHandlerLease: (() => void) | undefined;
     try {
       const authenticated = await this.stages.authenticator.authenticate(request);
       const source = await this.stages.catalog.lookup(request.sourceId);
@@ -335,9 +336,25 @@ export class DataSourceGateway {
         return { ok: true, status: 200, body: cached };
       }
       const handlerResult = this.stages.dispatcher.dispatch(context);
+      // The concurrency budget has to cover the whole expensive path, not only
+      // the handler: schema and contract validation, redaction, the result
+      // budget, and serialization all run on handler output a trusted source
+      // controls the size of. Releasing at handler settlement let that work run
+      // outside the lease the caller was admitted under. The lease is also kept
+      // until an abandoned handler settles, so an aborted request cannot free
+      // capacity its dispatch is still consuming.
       const handlerLease = lease;
       lease = undefined;
-      const handlerSettled = Promise.resolve(handlerResult).finally(() => handlerLease?.release());
+      let handlerSettledOnce = false;
+      let pipelineFinished = false;
+      let leaseReleased = false;
+      const releaseWhenIdle = () => {
+        if (leaseReleased || !handlerSettledOnce || !pipelineFinished) return;
+        leaseReleased = true;
+        handlerLease?.release();
+      };
+      releaseHandlerLease = () => { pipelineFinished = true; releaseWhenIdle(); };
+      const handlerSettled = Promise.resolve(handlerResult).finally(() => { handlerSettledOnce = true; releaseWhenIdle(); });
       const dispatched = handlerSuccess(await dispatchWithSignal(handlerSettled, context.signal, request.signal));
       const sourceValid = this.stages.sourceSchema.validate(source.definition, dispatched.data);
       const contractValid = this.stages.outputContract.validate(source.definition.descriptor, sourceValid);
@@ -369,6 +386,7 @@ export class DataSourceGateway {
       const body = this.stages.problemDetails.serialize(error, correlationId);
       return { ok: false, status: body.status, body };
     } finally {
+      releaseHandlerLease?.();
       lease?.release();
     }
   }

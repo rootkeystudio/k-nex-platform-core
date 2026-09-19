@@ -30,6 +30,9 @@ const releaseRecordStep = "20260827_000002_knex_bootstrap";
 const releasePreflightStep = "20260905_000026_release_preflight";
 
 export interface GeneratedMigrationClosure {
+  readonly applicationId: string;
+  readonly release: string;
+  readonly theme: string;
   readonly migrations: readonly string[];
   readonly digest: string;
   readonly releaseManifestDigest: string | null;
@@ -91,12 +94,18 @@ export function readGeneratedMigrationClosure(root: string): GeneratedMigrationC
   }
   const declared = value as Partial<GeneratedMigrationClosure>;
   if (typeof declared !== "object" || declared === null || !Array.isArray(declared.migrations) ||
+    typeof declared.applicationId !== "string" || !/^[a-z][a-z0-9-]{2,127}$/u.test(declared.applicationId) ||
+    typeof declared.release !== "string" || !/^\d+\.\d+\.\d+$/u.test(declared.release) ||
+    typeof declared.theme !== "string" || !/^[a-z][a-z0-9-]{2,63}$/u.test(declared.theme) ||
     declared.migrations.some((name) => typeof name !== "string" || !/^[0-9a-z_]+$/u.test(name)) ||
     typeof declared.digest !== "string" || !/^[0-9a-f]{64}$/u.test(declared.digest) ||
     !(declared.releaseManifestDigest === null || typeof declared.releaseManifestDigest === "string" && /^sha256:[0-9a-f]{64}$/u.test(declared.releaseManifestDigest))) {
     fail("This application's declared migration closure is not a release migration closure.");
   }
   return Object.freeze({
+    applicationId: declared.applicationId,
+    release: declared.release,
+    theme: declared.theme,
     migrations: Object.freeze([...declared.migrations]),
     digest: declared.digest,
     releaseManifestDigest: declared.releaseManifestDigest ?? null

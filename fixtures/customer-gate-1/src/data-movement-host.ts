@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 
 import { canonicalJson } from "@k-nex/contracts";
 import { salesAccountsDescriptor, salesContactsDescriptor, salesLeadsDescriptor } from "@k-nex/module-sales-current/contracts";
-import { buildSalesExportCsv, createSalesDataMovementJobAudit, createSalesDataMovementJobOutbox, createSalesImportGenesisAudit, createSalesMergeAuditTransition, parseSalesImportCsv, salesDataMovementObjectEvent, salesDedupeMatch, type SalesImportMapping } from "@k-nex/module-sales-current/server";
+import { assertSalesMergeRelationCapability, buildSalesExportCsv, createSalesDataMovementJobAudit, createSalesDataMovementJobOutbox, createSalesImportGenesisAudit, createSalesMergeAuditTransition, createSalesMergeRelationAuditTransition, issueSalesMergeRelationCapability, parseSalesImportCsv, salesDataMovementObjectEvent, salesDedupeMatch, salesMergeImpactLimit, type SalesImportMapping, type SalesMergeRelationCapability, type SalesMergeRelationDescriptor, type SalesMergeRelationId } from "@k-nex/module-sales-current/server";
 import { activePayloadPostgresTransaction } from "@k-nex/payload-adapter";
 import { ActionGatewayError, DataSourceGatewayError } from "@k-nex/runtime";
 import { sql } from "@payloadcms/db-postgres";
@@ -22,6 +22,8 @@ const rows = (value: unknown): readonly Row[] => typeof value === "object" && va
 const safeId = (value: unknown): number => typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : typeof value === "string" && /^[1-9][0-9]{0,15}$/u.test(value) && Number.isSafeInteger(Number(value)) ? Number(value) : (() => { throw new ActionGatewayError("NOT_FOUND", 404, "Sales data-movement resource is unavailable."); })();
 const now = () => new Date().toISOString();
 const protectedFields = new Set(["email", "phone"]);
+type MergeRelationTransition = Readonly<{ id: number; revision: number; transition: ReturnType<typeof createSalesMergeRelationAuditTransition> }>;
+type MergeRelationImpact = Readonly<{ descriptor: SalesMergeRelationDescriptor; relationId: SalesMergeRelationId; transitions: readonly MergeRelationTransition[] }>;
 function cursor(after: number) { return Buffer.from(canonicalJson({ after }), "utf8").toString("base64url"); }
 function cursorAfter(value: string | undefined): number {
   if (value === undefined) return 0;
@@ -314,32 +316,18 @@ export class FixtureSalesDataMovementStore {
       if (account === undefined) actionError("ACTION_FORBIDDEN", 403, "Sales merge account is unavailable.");
     }
     const winnerPreDigest = digest(winner); const loserPreDigest = digest(loser); const committedAt = now(); const lineageId = `merge-${randomUUID()}`;
-    const relationCounts: Array<{ relationId: string; count: number }> = [];
-    const rewrite = async (relationId: string, statement: ReturnType<typeof sql>) => { const count = rows(await transaction.execute(statement)).length; relationCounts.push({ relationId, count }); };
-    if (input.targetObjectType === "sales.object.account") {
-      await rewrite("sales_contacts.account_id", sql`UPDATE sales_contacts SET account_id=${input.winnerId} WHERE application_id=${this.durable.context.applicationId} AND environment=${this.durable.context.environment} AND account_id=${input.loserId} RETURNING id`);
-      await rewrite("sales_opportunities.account_id", sql`UPDATE sales_opportunities SET account_id=${String(input.winnerId)} WHERE application_id=${this.durable.context.applicationId} AND environment=${this.durable.context.environment} AND account_id=${String(input.loserId)} RETURNING id`);
-      await rewrite("sales_leads.qualified_account_id", sql`UPDATE sales_leads SET qualified_account_id=${String(input.winnerId)} WHERE application_id=${this.durable.context.applicationId} AND environment=${this.durable.context.environment} AND qualified_account_id=${String(input.loserId)} RETURNING id`);
-      for (const [name, relation] of [["sales_activities", "sales_activities.related_record_id where related_record_type=sales.account"], ["sales_notes", "sales_notes.related_record_id where related_record_type=sales.account"], ["sales_attachment_references", "sales_attachment_references.related_record_id where related_record_type=sales.account"], ["sales_tasks", "sales_tasks.related_record_id where related_record_type=sales.account"]] as const) {
-        const statement = name === "sales_activities" ? sql`UPDATE sales_activities SET related_record_id=${String(input.winnerId)} WHERE application_id=${this.durable.context.applicationId} AND environment=${this.durable.context.environment} AND related_record_type='sales.account' AND related_record_id=${String(input.loserId)} RETURNING id`
-          : name === "sales_notes" ? sql`UPDATE sales_notes SET related_record_id=${String(input.winnerId)} WHERE application_id=${this.durable.context.applicationId} AND environment=${this.durable.context.environment} AND related_record_type='sales.account' AND related_record_id=${String(input.loserId)} RETURNING id`
-            : name === "sales_attachment_references" ? sql`UPDATE sales_attachment_references SET related_record_id=${String(input.winnerId)} WHERE application_id=${this.durable.context.applicationId} AND environment=${this.durable.context.environment} AND related_record_type='sales.account' AND related_record_id=${String(input.loserId)} RETURNING id`
-              : sql`UPDATE sales_tasks SET related_record_id=${String(input.winnerId)} WHERE application_id=${this.durable.context.applicationId} AND environment=${this.durable.context.environment} AND related_record_type='sales.account' AND related_record_id=${String(input.loserId)} RETURNING id`;
-        await rewrite(relation, statement);
-      }
-    } else {
-      await rewrite("sales_opportunities.primary_contact_id", sql`UPDATE sales_opportunities SET primary_contact_id=${String(input.winnerId)} WHERE application_id=${this.durable.context.applicationId} AND environment=${this.durable.context.environment} AND primary_contact_id=${String(input.loserId)} RETURNING id`);
-      await rewrite("sales_leads.qualified_contact_id", sql`UPDATE sales_leads SET qualified_contact_id=${String(input.winnerId)} WHERE application_id=${this.durable.context.applicationId} AND environment=${this.durable.context.environment} AND qualified_contact_id=${String(input.loserId)} RETURNING id`);
-      for (const [name, relation] of [["sales_activities", "sales_activities.related_record_id where related_record_type=sales.contact"], ["sales_notes", "sales_notes.related_record_id where related_record_type=sales.contact"], ["sales_attachment_references", "sales_attachment_references.related_record_id where related_record_type=sales.contact"], ["sales_tasks", "sales_tasks.related_record_id where related_record_type=sales.contact"]] as const) {
-        const statement = name === "sales_activities" ? sql`UPDATE sales_activities SET related_record_id=${String(input.winnerId)} WHERE application_id=${this.durable.context.applicationId} AND environment=${this.durable.context.environment} AND related_record_type='sales.contact' AND related_record_id=${String(input.loserId)} RETURNING id`
-          : name === "sales_notes" ? sql`UPDATE sales_notes SET related_record_id=${String(input.winnerId)} WHERE application_id=${this.durable.context.applicationId} AND environment=${this.durable.context.environment} AND related_record_type='sales.contact' AND related_record_id=${String(input.loserId)} RETURNING id`
-            : name === "sales_attachment_references" ? sql`UPDATE sales_attachment_references SET related_record_id=${String(input.winnerId)} WHERE application_id=${this.durable.context.applicationId} AND environment=${this.durable.context.environment} AND related_record_type='sales.contact' AND related_record_id=${String(input.loserId)} RETURNING id`
-              : sql`UPDATE sales_tasks SET related_record_id=${String(input.winnerId)} WHERE application_id=${this.durable.context.applicationId} AND environment=${this.durable.context.environment} AND related_record_type='sales.contact' AND related_record_id=${String(input.loserId)} RETURNING id`;
-        await rewrite(relation, statement);
-      }
-    }
+    // The merging actor's grants stop at the winner and loser. Related records
+    // belong to other owners and teams, so the redirect runs under one derived
+    // capability bound to this accepted pair, and every rewritten record records
+    // that authority in its own immutable history.
+    const capability = issueSalesMergeRelationCapability({ lineageId, applicationId: this.durable.context.applicationId, environment: this.durable.context.environment, targetObjectType: input.targetObjectType, winnerId: input.winnerId, loserId: input.loserId, actorId: this.durable.context.actorId, authorizationRevision: this.durable.authorizationRevision, issuedAt: committedAt });
+    const impacted = await this.lockMergeImpacts(capability, committedAt);
+    for (const relation of impacted) await this.rewriteMergeRelation(capability, relation);
+    const relationCounts = impacted.map(({ relationId, transitions }) => ({ relationId: relationId as string, count: transitions.length }));
+    const impacts = impacted.flatMap((relation) => relation.transitions.map(({ id, revision, transition }) => Object.freeze({ relationId: relation.relationId as string, tableName: relation.descriptor.table as string, recordId: id, preRevision: revision, postRevision: revision + 1, transitionDigest: digest(transition) })));
+    const impactDigest = digest(impacts);
     const winnerPostRevision = input.winnerExpectedRevision + 1; const loserPostRevision = input.loserExpectedRevision + 1;
-    const lineageBase = { lineageId, applicationId: this.durable.context.applicationId, environment: this.durable.context.environment, targetObjectType: input.targetObjectType, winnerId: input.winnerId, winnerPreRevision: input.winnerExpectedRevision, winnerPostRevision, loserId: input.loserId, loserPreRevision: input.loserExpectedRevision, loserPostRevision, matchKind, normalizerVersion: "node24.19-unicode17-v1", actorId: this.durable.context.actorId, authorizationRevision: this.durable.authorizationRevision, winnerPreDigest, loserPreDigest, rewrittenRelationCounts: relationCounts, committedAt };
+    const lineageBase = { lineageId, applicationId: this.durable.context.applicationId, environment: this.durable.context.environment, targetObjectType: input.targetObjectType, winnerId: input.winnerId, winnerPreRevision: input.winnerExpectedRevision, winnerPostRevision, loserId: input.loserId, loserPreRevision: input.loserExpectedRevision, loserPostRevision, matchKind, normalizerVersion: "node24.19-unicode17-v1", actorId: this.durable.context.actorId, authorizationRevision: this.durable.authorizationRevision, winnerPreDigest, loserPreDigest, rewrittenRelationCounts: relationCounts, relationCapabilityDigest: capability.capabilityDigest, impactCount: impacts.length, impactDigest, committedAt };
     const winnerTransition = createSalesMergeAuditTransition({ resourceId: String(input.winnerId), applicationId: this.durable.context.applicationId, environment: this.durable.context.environment, actorId: this.durable.context.actorId, idempotencyKey: `${lineageId}-survivor`, occurredAt: committedAt, preRevision: input.winnerExpectedRevision, role: "survivor", lineageId });
     const loserTransition = createSalesMergeAuditTransition({ resourceId: String(input.loserId), applicationId: this.durable.context.applicationId, environment: this.durable.context.environment, actorId: this.durable.context.actorId, idempotencyKey: `${lineageId}-merged`, occurredAt: committedAt, preRevision: input.loserExpectedRevision, role: "merged", lineageId });
     const winnerAudit = [...(winner.audit as unknown[]), winnerTransition];
@@ -347,11 +335,61 @@ export class FixtureSalesDataMovementStore {
     const winnerUpdated = rows(await transaction.execute(tableName === "sales_accounts" ? sql`UPDATE sales_accounts SET revision=${winnerPostRevision},updated_by=${this.durable.context.actorId},audit=${JSON.stringify(winnerAudit)}::jsonb,updated_at=now() WHERE id=${input.winnerId} AND revision=${input.winnerExpectedRevision} RETURNING *` : sql`UPDATE sales_contacts SET revision=${winnerPostRevision},updated_by=${this.durable.context.actorId},audit=${JSON.stringify(winnerAudit)}::jsonb,updated_at=now() WHERE id=${input.winnerId} AND revision=${input.winnerExpectedRevision} RETURNING *`))[0]!;
     const loserUpdated = rows(await transaction.execute(tableName === "sales_accounts" ? sql`UPDATE sales_accounts SET revision=${loserPostRevision},status='merged',merged_into_id=${String(input.winnerId)},merge_lineage=${JSON.stringify({ lineageId })}::jsonb,updated_by=${this.durable.context.actorId},audit=${JSON.stringify(loserAudit)}::jsonb,updated_at=now() WHERE id=${input.loserId} AND revision=${input.loserExpectedRevision} RETURNING *` : sql`UPDATE sales_contacts SET revision=${loserPostRevision},status='merged',merged_into_id=${String(input.winnerId)},merge_lineage=${JSON.stringify({ lineageId })}::jsonb,updated_by=${this.durable.context.actorId},audit=${JSON.stringify(loserAudit)}::jsonb,updated_at=now() WHERE id=${input.loserId} AND revision=${input.loserExpectedRevision} RETURNING *`))[0]!;
     const winnerPostDigest = digest(winnerUpdated); const loserPostDigest = digest(loserUpdated); const lineage = { ...lineageBase, winnerPostDigest, loserPostDigest }; const lineageDigest = digest(lineage);
-    await transaction.execute(sql`INSERT INTO sales_merge_lineage(lineage_id,application_id,environment,target_object_type,winner_id,winner_pre_revision,winner_post_revision,loser_id,loser_pre_revision,loser_post_revision,match_kind,normalizer_version,actor_id,authorization_revision,winner_pre_digest,winner_post_digest,loser_pre_digest,loser_post_digest,rewritten_relation_counts,lineage_digest,committed_at)
-      VALUES(${lineageId},${this.durable.context.applicationId},${this.durable.context.environment},${input.targetObjectType},${input.winnerId},${input.winnerExpectedRevision},${winnerPostRevision},${input.loserId},${input.loserExpectedRevision},${loserPostRevision},${matchKind},'node24.19-unicode17-v1',${this.durable.context.actorId},${this.durable.authorizationRevision},${winnerPreDigest},${winnerPostDigest},${loserPreDigest},${loserPostDigest},${JSON.stringify(relationCounts)}::jsonb,${lineageDigest},${committedAt})`);
-    await this.audit("sales.merge.commit", "winner", String(input.winnerId), { ...lineage, lineageDigest, resource: "winner" }); await this.audit("sales.merge.commit", "loser", String(input.loserId), { ...lineage, lineageDigest, resource: "loser" });
-    await this.objectOutbox(input.targetObjectType, String(input.winnerId), winnerPostRevision, winnerTransition.idempotencyKey, committedAt, lineageId);
+    const lineageRow = rows(await transaction.execute(sql`INSERT INTO sales_merge_lineage(lineage_id,application_id,environment,target_object_type,winner_id,winner_pre_revision,winner_post_revision,loser_id,loser_pre_revision,loser_post_revision,match_kind,normalizer_version,actor_id,authorization_revision,winner_pre_digest,winner_post_digest,loser_pre_digest,loser_post_digest,rewritten_relation_counts,relation_capability_digest,impact_count,impact_digest,lineage_digest,committed_at)
+      VALUES(${lineageId},${this.durable.context.applicationId},${this.durable.context.environment},${input.targetObjectType},${input.winnerId},${input.winnerExpectedRevision},${winnerPostRevision},${input.loserId},${input.loserExpectedRevision},${loserPostRevision},${matchKind},'node24.19-unicode17-v1',${this.durable.context.actorId},${this.durable.authorizationRevision},${winnerPreDigest},${winnerPostDigest},${loserPreDigest},${loserPostDigest},${JSON.stringify(relationCounts)}::jsonb,${capability.capabilityDigest},${impacts.length},${impactDigest},${lineageDigest},${committedAt}) RETURNING id`))[0]!;
+    // One merge advances this application's merge watermark exactly once. Every
+    // reader of an impacted collection converges by consuming that watermark and
+    // the per-record impact ledger it commits with.
+    const mergeWatermark = safeId(lineageRow.id);
+    if (impacts.length > 0) await transaction.execute(sql`INSERT INTO sales_merge_impacts(lineage_id,application_id,environment,merge_watermark,relation_id,table_name,record_id,pre_revision,post_revision,capability_digest,transition_digest,committed_at)
+      SELECT ${lineageId},${this.durable.context.applicationId},${this.durable.context.environment},${mergeWatermark},impact.relation_id,impact.table_name,impact.record_id,impact.pre_revision,impact.post_revision,${capability.capabilityDigest},impact.transition_digest,${committedAt}
+      FROM jsonb_to_recordset(${JSON.stringify(impacts.map(({ relationId, tableName, recordId, preRevision, postRevision, transitionDigest }) => ({ relation_id: relationId, table_name: tableName, record_id: recordId, pre_revision: preRevision, post_revision: postRevision, transition_digest: transitionDigest })))}::jsonb)
+      AS impact(relation_id text, table_name text, record_id bigint, pre_revision integer, post_revision integer, transition_digest text)`);
+    await this.audit("sales.merge.commit", "winner", String(input.winnerId), { ...lineage, lineageDigest, mergeWatermark, resource: "winner" }); await this.audit("sales.merge.commit", "loser", String(input.loserId), { ...lineage, lineageDigest, mergeWatermark, resource: "loser" });
+    await this.mergeOutbox(salesDataMovementObjectEvent(input.targetObjectType), winnerTransition.idempotencyKey, committedAt, { environment: this.durable.context.environment, winnerId: input.winnerId, revision: winnerPostRevision, lineageId, mergeWatermark });
+    // The loser keeps an open detail route and the related records keep open
+    // list and timeline routes; both are invalidated authoritatively here rather
+    // than left to a reader that happens to poll.
+    await this.mergeOutbox(salesDataMovementObjectEvent(input.targetObjectType), loserTransition.idempotencyKey, committedAt, { environment: this.durable.context.environment, loserId: input.loserId, mergedIntoId: input.winnerId, revision: loserPostRevision, lineageId, mergeWatermark });
+    for (const relation of impacted) {
+      if (relation.transitions.length === 0) continue;
+      await this.mergeOutbox(relation.descriptor.invalidationEvent, `${lineageId}-relation-${relation.descriptor.slug}`, committedAt, { environment: this.durable.context.environment, relationId: relation.relationId, count: relation.transitions.length, lineageId, mergeWatermark });
+    }
     return Object.freeze({ lineageId, lineageDigest, winnerId: input.winnerId, winnerRevision: winnerPostRevision, loserId: input.loserId, loserRevision: loserPostRevision, matchKind, rewrittenRelationCounts: Object.freeze(relationCounts) });
+  }
+  /**
+   * Locks every record the merge will touch before it writes anything. The fixed
+   * relation order makes concurrent merges serialize rather than deadlock, and
+   * locking first means no row can change between the revision its audit
+   * transition quotes and the revision the rewrite asserts.
+   */
+  private async lockMergeImpacts(capability: SalesMergeRelationCapability, occurredAt: string): Promise<readonly MergeRelationImpact[]> {
+    const transaction = await this.tx(); const impacted: MergeRelationImpact[] = []; let remaining = salesMergeImpactLimit;
+    for (const relationId of capability.relationIds) {
+      const descriptor = assertSalesMergeRelationCapability(capability, { relationId, applicationId: capability.applicationId, environment: capability.environment, fromRelatedRecordId: String(capability.loserId), toRelatedRecordId: String(capability.winnerId) });
+      const pointer = descriptor.columnKind === "integer" ? capability.loserId : String(capability.loserId);
+      const relatedType = descriptor.relatedRecordType === null ? sql`TRUE` : sql`related_record_type=${descriptor.relatedRecordType}`;
+      // Table and column names come from the closed compile-time relation set, never from request input.
+      const located = rows(await transaction.execute(sql`SELECT id,revision FROM ${sql.raw(descriptor.table)} WHERE application_id=${capability.applicationId} AND environment=${capability.environment} AND ${sql.raw(descriptor.column)}=${pointer} AND ${relatedType} ORDER BY id FOR UPDATE LIMIT ${remaining + 1}`));
+      if (located.length > remaining) actionError("ACTION_FORBIDDEN", 403, "Sales merge impact set exceeds its bounded contract.");
+      remaining -= located.length;
+      impacted.push(Object.freeze({ descriptor, relationId, transitions: Object.freeze(located.map((row) => {
+        const recordId = safeId(row.id); const preRevision = safeId(row.revision);
+        return Object.freeze({ id: recordId, revision: preRevision, transition: createSalesMergeRelationAuditTransition({ capability, relationId, resourceId: String(recordId), preRevision, occurredAt, fromRelatedRecordId: String(capability.loserId), toRelatedRecordId: String(capability.winnerId) }) });
+      })) }));
+    }
+    return Object.freeze(impacted);
+  }
+  /** A related record is a business record: the redirect carries its revision, its actor, and its immutable transition. */
+  private async rewriteMergeRelation(capability: SalesMergeRelationCapability, relation: MergeRelationImpact): Promise<void> {
+    if (relation.transitions.length === 0) return;
+    const transaction = await this.tx(); const descriptor = relation.descriptor;
+    const pointer = descriptor.columnKind === "integer" ? capability.winnerId : String(capability.winnerId);
+    const payload = JSON.stringify(relation.transitions.map(({ id, revision, transition }) => ({ id, revision, transition })));
+    const rewritten = rows(await transaction.execute(sql`UPDATE ${sql.raw(descriptor.table)} target SET ${sql.raw(descriptor.column)}=${pointer},revision=impact.revision+1,updated_by=${capability.actorId},updated_at=now(),audit=coalesce(target.audit,'[]'::jsonb)||impact.transition
+      FROM jsonb_to_recordset(${payload}::jsonb) AS impact(id bigint, revision integer, transition jsonb)
+      WHERE target.id=impact.id AND target.revision=impact.revision AND target.application_id=${capability.applicationId} AND target.environment=${capability.environment} RETURNING target.id`));
+    if (rewritten.length !== relation.transitions.length) actionError("STALE_RECORD", 409, "Sales merge record is stale.");
   }
   private async jobs(kind: "import" | "export", selectedFields: readonly string[]) {
     const transaction = await this.tx(); const result = kind === "import" ? rows(await transaction.execute(sql`SELECT id,target_object_type,state,accepted_rows,rejected_rows,revision FROM sales_import_jobs WHERE application_id=${this.durable.context.applicationId} AND environment=${this.durable.context.environment} AND actor_id=${this.durable.context.actorId} ORDER BY id DESC LIMIT 100`)) : rows(await transaction.execute(sql`SELECT id,target_object_type,state,row_count,revision FROM sales_export_jobs WHERE application_id=${this.durable.context.applicationId} AND environment=${this.durable.context.environment} AND actor_id=${this.durable.context.actorId} ORDER BY id DESC LIMIT 100`));
@@ -368,7 +406,7 @@ export class FixtureSalesDataMovementStore {
     await transaction.execute(sql`INSERT INTO sales_data_movement_audit(audit_id,application_id,environment,actor_id,action_id,resource_type,resource_id,evidence,digest) VALUES(${`audit-${randomUUID()}`},${job.application_id},${job.environment},${job.actor_id},${actionId},${`${kind}-job`},${String(jobId)},${JSON.stringify(audit)}::jsonb,${digest(audit)})`);
     const outbox = createSalesDataMovementJobOutbox({ ...audit, targetObjectType: job.target_object_type as Target, authorizationRevision: Number(job.authorization_revision), lifecycleRevision: Number(job.lifecycle_revision), scopeRevision: Number(job.scope_revision) }); await transaction.execute(sql`INSERT INTO k_nex_outbox(event_id,event_type,schema_version,message_class,occurred_at,application_id,plugin_id,actor_id,actor_type,correlation_id,idempotency_key,payload,retention_until) VALUES(${randomUUID()},${outbox.type},1,'durable-integration',${occurredAt},${job.application_id},'module.sales',${job.actor_id},'user',${idempotencyKey},${idempotencyKey},${JSON.stringify(outbox.payload)}::jsonb,${new Date(Date.now()+31_536_000_000).toISOString()}) ON CONFLICT DO NOTHING`);
   }
-  private async objectOutbox(target: MergeTarget, resourceId: string, revision: number, idempotencyKey: string, occurredAt: string, lineageId: string) { const transaction = await this.tx(); await transaction.execute(sql`INSERT INTO k_nex_outbox(event_id,event_type,schema_version,message_class,occurred_at,application_id,plugin_id,actor_id,actor_type,correlation_id,idempotency_key,payload,retention_until) VALUES(${randomUUID()},${salesDataMovementObjectEvent(target)},1,'durable-integration',${occurredAt},${this.durable.context.applicationId},'module.sales',${this.durable.context.actorId},'user',${idempotencyKey},${idempotencyKey},${JSON.stringify({ environment: this.durable.context.environment, winnerId: Number(resourceId), revision, lineageId })}::jsonb,${new Date(Date.now()+31_536_000_000).toISOString()}) ON CONFLICT DO NOTHING`); }
+  private async mergeOutbox(eventType: string, idempotencyKey: string, occurredAt: string, payload: Readonly<Record<string, unknown>>) { const transaction = await this.tx(); await transaction.execute(sql`INSERT INTO k_nex_outbox(event_id,event_type,schema_version,message_class,occurred_at,application_id,plugin_id,actor_id,actor_type,correlation_id,idempotency_key,payload,retention_until) VALUES(${randomUUID()},${eventType},1,'durable-integration',${occurredAt},${this.durable.context.applicationId},'module.sales',${this.durable.context.actorId},'user',${idempotencyKey},${idempotencyKey},${JSON.stringify(payload)}::jsonb,${new Date(Date.now()+31_536_000_000).toISOString()}) ON CONFLICT DO NOTHING`); }
 }
 
 function empty(fields: readonly string[]) { return table(fields, []); }

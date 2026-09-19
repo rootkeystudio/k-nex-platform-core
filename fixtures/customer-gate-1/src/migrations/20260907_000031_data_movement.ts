@@ -121,15 +121,29 @@ export async function up({ db }: MigrateUpArgs): Promise<void> {
       loser_id bigint NOT NULL, loser_pre_revision integer NOT NULL, loser_post_revision integer NOT NULL,
       match_kind text NOT NULL, normalizer_version text NOT NULL, actor_id text NOT NULL, authorization_revision integer NOT NULL,
       winner_pre_digest text NOT NULL, winner_post_digest text NOT NULL, loser_pre_digest text NOT NULL, loser_post_digest text NOT NULL,
-      rewritten_relation_counts jsonb NOT NULL, lineage_digest text NOT NULL, committed_at timestamptz NOT NULL, created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(),
+      rewritten_relation_counts jsonb NOT NULL, relation_capability_digest text NOT NULL, impact_count integer NOT NULL, impact_digest text NOT NULL,
+      lineage_digest text NOT NULL, committed_at timestamptz NOT NULL, created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(),
       UNIQUE(application_id,environment,target_object_type,loser_id),
       CHECK(target_object_type IN ('sales.object.account','sales.object.contact') AND winner_id<>loser_id AND
         winner_post_revision=winner_pre_revision+1 AND loser_post_revision=loser_pre_revision+1 AND
         match_kind IN ('account-name','contact-email','contact-phone','contact-email-and-phone') AND normalizer_version='node24.19-unicode17-v1' AND
         authorization_revision BETWEEN 1 AND 1000000000 AND jsonb_typeof(rewritten_relation_counts)='array' AND
+        relation_capability_digest ~ '^sha256:[0-9a-f]{64}$' AND impact_count BETWEEN 0 AND 2000 AND impact_digest ~ '^sha256:[0-9a-f]{64}$' AND
         winner_pre_digest ~ '^sha256:[0-9a-f]{64}$' AND winner_post_digest ~ '^sha256:[0-9a-f]{64}$' AND
         loser_pre_digest ~ '^sha256:[0-9a-f]{64}$' AND loser_post_digest ~ '^sha256:[0-9a-f]{64}$' AND lineage_digest ~ '^sha256:[0-9a-f]{64}$')
     );
+    CREATE TABLE sales_merge_impacts (
+      id bigserial PRIMARY KEY, lineage_id text NOT NULL REFERENCES sales_merge_lineage(lineage_id) ON DELETE RESTRICT,
+      application_id text NOT NULL, environment text NOT NULL, merge_watermark bigint NOT NULL,
+      relation_id text NOT NULL, table_name text NOT NULL, record_id bigint NOT NULL,
+      pre_revision integer NOT NULL, post_revision integer NOT NULL,
+      capability_digest text NOT NULL, transition_digest text NOT NULL, committed_at timestamptz NOT NULL, created_at timestamptz NOT NULL DEFAULT now(),
+      UNIQUE(lineage_id,relation_id,record_id),
+      CHECK(table_name IN ('sales_contacts','sales_opportunities','sales_leads','sales_activities','sales_notes','sales_attachment_references','sales_tasks') AND
+        record_id>0 AND merge_watermark>0 AND post_revision=pre_revision+1 AND pre_revision BETWEEN 1 AND 1000000000 AND
+        capability_digest ~ '^sha256:[0-9a-f]{64}$' AND transition_digest ~ '^sha256:[0-9a-f]{64}$')
+    );
+    CREATE INDEX sales_merge_impacts_watermark_idx ON sales_merge_impacts(application_id,environment,merge_watermark,id);
     ALTER TABLE payload_locked_documents_rels
       ADD COLUMN sales_import_jobs_id bigint REFERENCES sales_import_jobs(id) ON DELETE CASCADE,
       ADD COLUMN sales_import_rows_id bigint REFERENCES sales_import_rows(id) ON DELETE CASCADE,
@@ -154,6 +168,7 @@ export async function up({ db }: MigrateUpArgs): Promise<void> {
     CREATE TRIGGER sales_import_receipts_immutable BEFORE UPDATE OR DELETE ON sales_import_receipts FOR EACH ROW EXECUTE FUNCTION public.sales_data_movement_evidence_immutable();
     CREATE TRIGGER sales_export_receipts_immutable BEFORE UPDATE OR DELETE ON sales_export_receipts FOR EACH ROW EXECUTE FUNCTION public.sales_data_movement_evidence_immutable();
     CREATE TRIGGER sales_merge_lineage_immutable BEFORE UPDATE OR DELETE ON sales_merge_lineage FOR EACH ROW EXECUTE FUNCTION public.sales_data_movement_evidence_immutable();
+    CREATE TRIGGER sales_merge_impacts_immutable BEFORE UPDATE OR DELETE ON sales_merge_impacts FOR EACH ROW EXECUTE FUNCTION public.sales_data_movement_evidence_immutable();
     CREATE TRIGGER sales_data_movement_audit_immutable BEFORE UPDATE OR DELETE ON sales_data_movement_audit FOR EACH ROW EXECUTE FUNCTION public.sales_data_movement_evidence_immutable();
     CREATE FUNCTION public.sales_export_snapshot_payload_purge_only() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,public AS $$
       BEGIN

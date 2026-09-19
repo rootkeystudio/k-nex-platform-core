@@ -12,7 +12,7 @@ import { executeRegistration } from "../../runtime/src/registration-runtime.js";
 import { socketIoRealtimeProviderRegistration } from "../../realtime-socketio/src/server.js";
 import { salesRegistration } from "../../../modules/sales/src/server.js";
 import { applicationAuthFiles } from "../src/application-auth-files.js";
-import { applyCreateKnexApplication, isReleaseBeforeSalesReferenceExit, payloadPostgresPatchDigest, payloadPostgresPatchFilename, payloadPostgresPatchProvenance, payloadPostgresPatchSource, planCreateKnexApplication, planUpgradeTargetKnexApplication, salesReferenceCompilerBoundary, setSalesReferenceCompilerTestMutationForTests, type SourceApplicationManifestAuthority, type VerifiedSourceApplicationManifest } from "../src/index.js";
+import { admittedMigrationSource, applyCreateKnexApplication, isReleaseBeforeSalesReferenceExit, payloadPostgresPatchDigest, payloadPostgresPatchFilename, payloadPostgresPatchProvenance, payloadPostgresPatchSource, planCreateKnexApplication, planUpgradeTargetKnexApplication, salesReferenceCompilerBoundary, setSalesReferenceCompilerTestMutationForTests, type SourceApplicationManifestAuthority, type VerifiedSourceApplicationManifest } from "../src/index.js";
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -195,7 +195,7 @@ describe("create-knex-app", () => {
       ]
     });
 
-    expect(salesReferenceCompilerBoundary.platformPaths).toHaveLength(107);
+    expect(salesReferenceCompilerBoundary.platformPaths).toHaveLength(108);
     const options = { applicationId: "sales-boundary", applicationName: "Sales Boundary", theme: "minimal", database: "external", primaryCurrency: "USD" } as const;
     expect(() => planCreateKnexApplication(options)).not.toThrow();
     const expectRejectedPlan = (mutation: "add-sales-output" | "remove-sales-output" | "second-domain", error: RegExp): void => {
@@ -325,7 +325,7 @@ describe("create-knex-app", () => {
     expect(first.files["src/k-nex-realtime.ts"]).toContain('exactObject(JSON.parse(notification.payload), ["applicationId", "environment", "invalidation", "type"])');
     expect(first.files["src/k-nex-realtime.ts"]).toContain("envelope.applicationId !== kNexIdentity.applicationId || envelope.environment !== kNexIdentity.environment || envelope.type !== \"realtime\"");
     expect(first.files["src/k-nex-realtime.ts"]).toContain('envelope.type !== "realtime"');
-    expect(first.files["src/k-nex-realtime.ts"]).toContain("listener?.release(true)");
+    expect(first.files["src/k-nex-realtime.ts"]).toContain("notificationClient.release(true)");
     expect(first.files["src/k-nex-realtime.ts"]).toContain("await gateway.close().catch(() => undefined)");
     expect(first.files["src/k-nex-realtime.ts"]).toContain("await currentSalesGeneration(payload)");
     expect(first.files["src/k-nex-realtime.ts"]).toContain("sales_current_authority_scopes");
@@ -465,9 +465,9 @@ describe("create-knex-app", () => {
     expect(first.files["src/migrations/20260901_000019_authorization.ts"]).toContain("kNexAuthorizationSchemaMigration");
     expect(first.files["src/migrations/20260901_000022_static_lifecycle_admission.ts"]).toContain("kNexStaticLifecycleAdmissionSchemaMigration");
     expect(first.files["src/migrations/20260909_000035_static_rebind_lock_protocol.ts"]).toContain("kNexStaticRebindLockProtocolSchemaMigration");
-    expect(first.files["src/migrations/20260909_000035_static_rebind_lock_protocol.ts"]).toBe(readFileSync(
+    expect(first.files["src/migrations/20260909_000035_static_rebind_lock_protocol.ts"]).toBe(admittedMigrationSource("20260909_000035_static_rebind_lock_protocol", readFileSync(
       new URL("../../../fixtures/customer-gate-1/src/migrations/20260909_000035_static_rebind_lock_protocol.ts", import.meta.url), "utf8"
-    ));
+    )));
     expect(first.files["src/k-nex-bootstrap-owner.ts"]).toContain("insert into k_nex_system_settings_state(application_id,environment,settings_revision)");
     expect(first.files["src/k-nex-bootstrap-owner.ts"]).toContain('reportingCurrency: "USD"');
     expect(first.files["src/migrations/20260908_000034_reports.ts"]).toContain("configured_primary_currency text := 'USD'::text");
@@ -477,7 +477,9 @@ describe("create-knex-app", () => {
     expect(first.files["src/migrations/20260903_000027_event_outbox.ts"]).toContain("kNexEventOutboxSchemaMigration");
     expect(first.files["src/migrations/20260905_000027_crm_core.ts"]).toContain("maintenance-required: P13.2 CRM core rollback");
     expect(first.files["src/migrations/20260905_000027_crm_core.ts"]).toContain('CREATE TABLE "sales_accounts"');
-    expect(first.files["src/migrations/20260905_000027_crm_core.ts"]).toBe(readFileSync(new URL("../../../fixtures/customer-gate-1/src/migrations/20260905_000027_crm_core.ts", import.meta.url), "utf8"));
+    expect(first.files["src/migrations/20260905_000027_crm_core.ts"]).toBe(admittedMigrationSource("20260905_000027_crm_core", readFileSync(
+      new URL("../../../fixtures/customer-gate-1/src/migrations/20260905_000027_crm_core.ts", import.meta.url), "utf8"
+    )));
     const crmCore = first.files["src/migrations/20260905_000027_crm_core.ts"]!;
     expect(crmCore).toContain("function authorizationStateLockKey(applicationId: string): string");
     expect(crmCore).toContain("export function compareCanonicalAuthorizationStateLockKeys(left: string, right: string): number");
@@ -490,7 +492,9 @@ describe("create-knex-app", () => {
     expect(pipelineSavedViews).toContain("13f5fa89-b465-5a7a-a19d-74ed6c5d1ef4");
     expect(pipelineSavedViews).toContain("sales_pipeline_stage_translation_evidence");
     expect(pipelineSavedViews).toContain("maintenance-required: P13.4 opaque stage-ID cutover is forward-only");
-    expect(pipelineSavedViews).toBe(readFileSync(new URL("../../../fixtures/customer-gate-1/src/migrations/20260907_000030_pipeline_saved_views.ts", import.meta.url), "utf8"));
+    expect(pipelineSavedViews).toBe(admittedMigrationSource("20260907_000030_pipeline_saved_views", readFileSync(
+      new URL("../../../fixtures/customer-gate-1/src/migrations/20260907_000030_pipeline_saved_views.ts", import.meta.url), "utf8"
+    )));
     const dataMovement = first.files["src/migrations/20260907_000031_data_movement.ts"]!;
     expect(dataMovement).toContain("worker_generation_id text");
     expect(dataMovement).toContain("worker_fencing_token bigint");
@@ -498,22 +502,28 @@ describe("create-knex-app", () => {
     expect(dataMovement).not.toContain("sales_data_worker_generations");
     expect(dataMovement).toContain("sales_export_artifacts");
     expect(dataMovement).toContain("P13.5 durable data-movement evidence is forward-only");
-    expect(dataMovement).toBe(readFileSync(new URL("../../../fixtures/customer-gate-1/src/migrations/20260907_000031_data_movement.ts", import.meta.url), "utf8"));
+    expect(dataMovement).toBe(admittedMigrationSource("20260907_000031_data_movement", readFileSync(
+      new URL("../../../fixtures/customer-gate-1/src/migrations/20260907_000031_data_movement.ts", import.meta.url), "utf8"
+    )));
     const communications = first.files["src/migrations/20260908_000032_communications.ts"]!;
     expect(communications).toContain("sales_provider_configurations");
     expect(communications).toContain("sales_provider_webhook_events");
     expect(communications).toContain("sales_reminders");
     expect(communications).toContain("sales_notifications");
-    expect(communications).toBe(readFileSync(new URL("../../../fixtures/customer-gate-1/src/migrations/20260908_000032_communications.ts", import.meta.url), "utf8"));
+    expect(communications).toBe(admittedMigrationSource("20260908_000032_communications", readFileSync(
+      new URL("../../../fixtures/customer-gate-1/src/migrations/20260908_000032_communications.ts", import.meta.url), "utf8"
+    )));
     const workflows = first.files["src/migrations/20260908_000033_crm_workflows.ts"]!;
     expect(workflows).toContain("sales_workflow_executions");
     expect(workflows).toContain("sales_workflow_execution_audit");
-    expect(workflows).toBe(readFileSync(new URL("../../../fixtures/customer-gate-1/src/migrations/20260908_000033_crm_workflows.ts", import.meta.url), "utf8"));
+    expect(workflows).toBe(admittedMigrationSource("20260908_000033_crm_workflows", readFileSync(
+      new URL("../../../fixtures/customer-gate-1/src/migrations/20260908_000033_crm_workflows.ts", import.meta.url), "utf8"
+    )));
     const importUploadRoute = first.files["src/app/api/k-nex/sales/import-upload/route.ts"]!;
     expect(importUploadRoute).toContain("sales_import_uploads");
-    expect(importUploadRoute).toContain("async function boundedUploadBody(request: Request)");
-    expect(importUploadRoute).toContain("request.body.getReader()");
-    expect(importUploadRoute).toContain("total > importUploadRequestByteLimit");
+    expect(importUploadRoute).toContain("readBoundedRequestBody(request, { maxBytes: importUploadRequestByteLimit })");
+    expect(importUploadRoute).not.toContain(".getReader()");
+    expect(first.files["src/k-nex-authority.ts"]).toContain("total > limits.maxBytes");
     expect(importUploadRoute).toContain("uploaded[0] === 0xef && uploaded[1] === 0xbb && uploaded[2] === 0xbf ? uploaded.subarray(3) : uploaded");
     expect(importUploadRoute).toContain("createHash(\"sha256\").update(bytes)");
     expect(importUploadRoute).toContain("IMPORT_LIMIT_EXCEEDED");
@@ -566,8 +576,21 @@ describe("create-knex-app", () => {
     expect(first.files["src/k-nex-worker.ts"]).toContain("await processGeneratedSalesCommunications(pool, salesWorkerFence, providerSecrets, providerTransport)");
     expect(first.files["src/k-nex-worker.ts"]).toContain("await processGeneratedSalesReminders(pool, salesWorkerFence)");
     expect(first.files["src/k-nex-worker.ts"]!.indexOf("await processGeneratedSalesReminders(pool, salesWorkerFence)")).toBeLessThan(first.files["src/k-nex-worker.ts"]!.indexOf("await processGeneratedSalesCommunications(pool, salesWorkerFence, providerSecrets, providerTransport)"));
-    expect(first.files["src/k-nex-sales-communications.ts"]).toContain('return Object.freeze({ invoke: async (input) => { let origin: URL; try { origin = new URL(endpoint ?? ""); }');
+    expect(first.files["src/k-nex-sales-communications.ts"]).toContain('const boundedOrigin = (): URL => { let origin: URL; try { origin = new URL(endpoint ?? ""); }');
     expect(first.files["src/k-nex-sales-communications.ts"]).toContain("limit 4");
+    // The provider lane admits only a declared idempotency contract, keeps the
+    // effect out of the fence transaction, and files the two secret purposes in
+    // separate slots.
+    expect(first.files["src/k-nex-sales-communications.ts"]).toContain('capability(providerId: ProviderId): GeneratedSalesProviderIdempotencyCapability;');
+    expect(first.files["src/k-nex-sales-communications.ts"]).toContain('reconcile(input: Readonly<{ providerId: ProviderId; credential: string; idempotencyKey: string }>): Promise<GeneratedSalesProviderEffectReceipt | null>;');
+    expect(first.files["src/k-nex-sales-communications.ts"]).toContain("admittedProviderCapability(transport, providerId);");
+    expect(first.files["src/k-nex-sales-communications.ts"]).toContain("set provider_receipt_id=coalesce(provider_receipt_id,$1)");
+    expect(first.files["src/k-nex-sales-communications.ts"]).toContain('environment.K_NEX_WEBHOOK_SECRET_EMAIL_REFERENCE');
+    expect(first.files["src/k-nex-sales-communications.ts"]).toContain('select webhook_secret_reference,state from sales_provider_configurations');
+    expect(first.files["src/k-nex-sales-communications.ts"]).not.toContain("resolve: async (reference, _purpose)");
+    expect(first.files["src/k-nex-sales-data-movement.ts"]).toContain("private async lockMergeImpacts(capability: SalesMergeRelationCapability, occurredAt: string)");
+    expect(first.files["src/k-nex-sales-data-movement.ts"]).toContain("audit=coalesce(target.audit,'[]'::jsonb)||impact.transition");
+    expect(first.files["src/migrations/20260907_000031_data_movement.ts"]).toContain("CREATE TABLE sales_merge_impacts (");
     expect(first.files["src/k-nex-sales-routes.ts"]).toContain("function registeredRouteActionDescriptor(value: unknown): RegisteredRouteActionDescriptor | undefined");
     expect(first.files["src/k-nex-sales-routes.ts"]).toContain("binding !== undefined && binding.id === descriptor.id");
     expect(first.files["src/k-nex-worker.ts"]).not.toContain("staticRelease.authorizationGeneration");

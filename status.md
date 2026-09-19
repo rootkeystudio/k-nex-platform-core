@@ -57,15 +57,10 @@ Node 24.19/pnpm 11.9: every workspace unit suite PASS (Contracts 244, Compositio
 
 ## Out of Phase 13 acceptance
 
-Phase 13 claims the CRM product, its generated application, and the compiled, attested upgrade preparation. It does not claim a supervised production upgrade. These four are named here rather than implied by the proofs:
+Phase 13 delivers the CRM product, its generated application, and attested upgrade preparation: the customer repository is compiled, verified, and attested for the `1.0.0 → 1.1.0` transition. A customer-executed upgrade is not delivered. Phase 13 does not deliver customer upgrade execution, restartable restore authority, or maintenance promotion.
 
-1. **No shipped upgrade/deployment coordinator.** DeploymentSupervisor, the trusted build authority, backup orchestration, the migration adapter, gateway convergence, and the administration operator server are assembled only under `fixtures/customer-gate-1/static-deployment/`. There is no `k-nex app upgrade apply/status/rollback` and no System Updates flow.
-2. **No maintenance-window promotion, and no executable release transition.** `DeploymentSupervisor.deploy` refuses any plan containing an offline-required step, and every step of the accepted 1.0→1.1 set is offline-required, so the shipped supervisor cannot promote this transition. The generated migration command refuses it too, by design: it cannot hold the database authority across the whole set, so a database still on the predecessor is refused before any target migration rather than transitioned unfenced. Fresh installs record their own release directly and are unaffected. The P13.9 promotion journey exercises a hypothetical online transition.
-3. **The protection journey is the fixture lineage.** It proves physical backup, restore, fencing, and failure recovery against the hand-maintained fixture database, not against a database created by the generated 1.0 application and migrated by the generated 1.1 one.
-4. **Backup receipts are process-local and not application-bound.** `executeDatabaseBackup`/`executeCleanRestore` authorize through module-level `WeakMap`s, so a receipt cannot be re-authorized after an operator restart, and the proof uses a separate `backup.customer-gate-1` resource identity rather than the application's own.
-
-Durable worker effects are also still claimed by fence snapshot rather than `claimEffect`, so an old generation can begin work near promotion; that is a runtime hardening item rather than an acceptance claim.
+Five capabilities are excluded: a shipped upgrade/deployment coordinator, an executable maintenance-window release transition, a generated 1.0 database to generated 1.1 database transition journey, restartable application-bound backup receipts, and effect-level worker fencing. The P13.9 section of `docs/implementation/phase-13-crm-first-productization.md` states each of them exactly and is the normative source; this record names them rather than restating them, and claims nothing beyond the outcome above.
 
 ## Blockers
 
-Limited beta remains blocked by five consecutive business days, two active human users, closed Sev-1/Sev-2 evidence, observed RTO/RPO, and product/Sales/security/operations sign-offs. The four items above must either ship or stay excluded by explicit decision before any claim of a supervised customer upgrade.
+Limited beta remains blocked by five consecutive business days, two active human users, closed Sev-1/Sev-2 evidence, observed RTO/RPO, and product/Sales/security/operations sign-offs. The five excluded capabilities must either ship or stay excluded by explicit decision before any claim of a supervised customer upgrade.

@@ -167,6 +167,201 @@ export declare function createSalesMergeAuditTransition(input: Readonly<{
     role: "survivor" | "merged";
     lineageId: string;
 }>): SalesDataMovementObjectAudit;
+/**
+ * A merge redirects related business records that the merging actor frequently
+ * does not own.  The rewritable set is source code, not request input, so no
+ * caller can widen which table, column, or related-record type a merge touches.
+ */
+export declare const salesMergeRelationDescriptors: readonly [Readonly<{
+    relationId: "sales_contacts.account_id";
+    slug: "contacts-account";
+    targetObjectType: "sales.object.account";
+    table: "sales_contacts";
+    column: "account_id";
+    columnKind: "integer";
+    relatedRecordType: null;
+    invalidationEvent: "sales.event.contact-changed";
+}>, Readonly<{
+    relationId: "sales_opportunities.account_id";
+    slug: "opportunities-account";
+    targetObjectType: "sales.object.account";
+    table: "sales_opportunities";
+    column: "account_id";
+    columnKind: "integer";
+    relatedRecordType: null;
+    invalidationEvent: "sales.event.opportunity-changed";
+}>, Readonly<{
+    relationId: "sales_leads.qualified_account_id";
+    slug: "leads-qualified-account";
+    targetObjectType: "sales.object.account";
+    table: "sales_leads";
+    column: "qualified_account_id";
+    columnKind: "text";
+    relatedRecordType: null;
+    invalidationEvent: "sales.event.lead-changed";
+}>, Readonly<{
+    relationId: "sales_activities.related_record_id where related_record_type=sales.account";
+    slug: "activities-account";
+    targetObjectType: "sales.object.account";
+    table: "sales_activities";
+    column: "related_record_id";
+    columnKind: "text";
+    relatedRecordType: "sales.account";
+    invalidationEvent: "sales.event.timeline-changed";
+}>, Readonly<{
+    relationId: "sales_notes.related_record_id where related_record_type=sales.account";
+    slug: "notes-account";
+    targetObjectType: "sales.object.account";
+    table: "sales_notes";
+    column: "related_record_id";
+    columnKind: "text";
+    relatedRecordType: "sales.account";
+    invalidationEvent: "sales.event.timeline-changed";
+}>, Readonly<{
+    relationId: "sales_attachment_references.related_record_id where related_record_type=sales.account";
+    slug: "attachments-account";
+    targetObjectType: "sales.object.account";
+    table: "sales_attachment_references";
+    column: "related_record_id";
+    columnKind: "text";
+    relatedRecordType: "sales.account";
+    invalidationEvent: "sales.event.timeline-changed";
+}>, Readonly<{
+    relationId: "sales_tasks.related_record_id where related_record_type=sales.account";
+    slug: "tasks-account";
+    targetObjectType: "sales.object.account";
+    table: "sales_tasks";
+    column: "related_record_id";
+    columnKind: "text";
+    relatedRecordType: "sales.account";
+    invalidationEvent: "sales.event.task-changed";
+}>, Readonly<{
+    relationId: "sales_opportunities.primary_contact_id";
+    slug: "opportunities-contact";
+    targetObjectType: "sales.object.contact";
+    table: "sales_opportunities";
+    column: "primary_contact_id";
+    columnKind: "integer";
+    relatedRecordType: null;
+    invalidationEvent: "sales.event.opportunity-changed";
+}>, Readonly<{
+    relationId: "sales_leads.qualified_contact_id";
+    slug: "leads-qualified-contact";
+    targetObjectType: "sales.object.contact";
+    table: "sales_leads";
+    column: "qualified_contact_id";
+    columnKind: "text";
+    relatedRecordType: null;
+    invalidationEvent: "sales.event.lead-changed";
+}>, Readonly<{
+    relationId: "sales_activities.related_record_id where related_record_type=sales.contact";
+    slug: "activities-contact";
+    targetObjectType: "sales.object.contact";
+    table: "sales_activities";
+    column: "related_record_id";
+    columnKind: "text";
+    relatedRecordType: "sales.contact";
+    invalidationEvent: "sales.event.timeline-changed";
+}>, Readonly<{
+    relationId: "sales_notes.related_record_id where related_record_type=sales.contact";
+    slug: "notes-contact";
+    targetObjectType: "sales.object.contact";
+    table: "sales_notes";
+    column: "related_record_id";
+    columnKind: "text";
+    relatedRecordType: "sales.contact";
+    invalidationEvent: "sales.event.timeline-changed";
+}>, Readonly<{
+    relationId: "sales_attachment_references.related_record_id where related_record_type=sales.contact";
+    slug: "attachments-contact";
+    targetObjectType: "sales.object.contact";
+    table: "sales_attachment_references";
+    column: "related_record_id";
+    columnKind: "text";
+    relatedRecordType: "sales.contact";
+    invalidationEvent: "sales.event.timeline-changed";
+}>, Readonly<{
+    relationId: "sales_tasks.related_record_id where related_record_type=sales.contact";
+    slug: "tasks-contact";
+    targetObjectType: "sales.object.contact";
+    table: "sales_tasks";
+    column: "related_record_id";
+    columnKind: "text";
+    relatedRecordType: "sales.contact";
+    invalidationEvent: "sales.event.task-changed";
+}>];
+export type SalesMergeRelationDescriptor = typeof salesMergeRelationDescriptors[number];
+export type SalesMergeRelationId = SalesMergeRelationDescriptor["relationId"];
+/** One merge locks, rewrites, and invalidates at most this many related records; a larger impact set is denied before any mutation. */
+export declare const salesMergeImpactLimit = 2000;
+export type SalesMergeRelationCapability = Readonly<{
+    kind: "sales.merge.relation-rewrite";
+    lineageId: string;
+    applicationId: string;
+    environment: string;
+    targetObjectType: SalesDedupeTarget;
+    winnerId: number;
+    loserId: number;
+    actorId: string;
+    authorizationRevision: number;
+    relationIds: readonly SalesMergeRelationId[];
+    issuedAt: string;
+    capabilityDigest: string;
+}>;
+/**
+ * The merging actor's own grants never reach a related record.  Once the winner
+ * and loser are locked and accepted, the host derives this one system capability
+ * and every related-record write must present it, so the widest authority a
+ * merge can ever exercise is redirecting these columns from that loser to that
+ * winner inside that application and environment.
+ */
+export declare function issueSalesMergeRelationCapability(input: Readonly<{
+    lineageId: string;
+    applicationId: string;
+    environment: string;
+    targetObjectType: SalesDedupeTarget;
+    winnerId: number;
+    loserId: number;
+    actorId: string;
+    authorizationRevision: number;
+    issuedAt: string;
+}>): SalesMergeRelationCapability;
+/** Re-derives the capability from its own identity so a tampered relation set, winner, loser, or digest cannot authorize a write. */
+export declare function assertSalesMergeRelationCapability(capability: SalesMergeRelationCapability, demand: Readonly<{
+    relationId: SalesMergeRelationId;
+    applicationId: string;
+    environment: string;
+    fromRelatedRecordId: string;
+    toRelatedRecordId: string;
+}>): SalesMergeRelationDescriptor;
+export type SalesMergeRelationAudit = Readonly<{
+    actionId: "sales.merge.relation-rewrite";
+    resourceId: string;
+    applicationId: string;
+    environment: string;
+    relationId: SalesMergeRelationId;
+    fromRelatedRecordId: string;
+    toRelatedRecordId: string;
+    occurredAt: string;
+    actorId: string;
+    revision: number;
+    idempotencyKey: string;
+    derivedAuthority: Readonly<{
+        kind: "sales.merge.relation-rewrite";
+        lineageId: string;
+        capabilityDigest: string;
+    }>;
+}>;
+/** Every rewritten related record carries who moved the relation, which merge caused it, and under which derived authority. */
+export declare function createSalesMergeRelationAuditTransition(input: Readonly<{
+    capability: SalesMergeRelationCapability;
+    relationId: SalesMergeRelationId;
+    resourceId: string;
+    preRevision: number;
+    occurredAt: string;
+    fromRelatedRecordId: string;
+    toRelatedRecordId: string;
+}>): SalesMergeRelationAudit;
 export type SalesImportMapping = Readonly<{
     header: string;
     fieldId: string;

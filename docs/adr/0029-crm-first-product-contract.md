@@ -17,6 +17,12 @@ The limited-beta customer is one independently deployed application for a small 
 
 This is not a multi-vertical suite or enterprise CRM. Public CMS, marketing automation, telephony, accounting/ERP, payments, arbitrary workflow/query languages, unrestricted mailbox/network access, shared-database SaaS tenancy, multiple concurrent pipelines, territory/quota management, product catalogs, quotes/orders, and autonomous AI actions are non-goals for Gate 13.
 
+## Phase 13 delivery boundary
+
+Phase 13 delivers the CRM product contracted here, the generated application that runs it, and attested upgrade preparation: the customer repository is compiled, verified, and attested for the `1.0.0 → 1.1.0` transition defined by ADR-0028. A customer-executed upgrade is not delivered. Phase 13 does not deliver customer upgrade execution, restartable restore authority, or maintenance promotion.
+
+Backup and clean restore are proved against the fixture lineage, and operator restart of the generated web and worker is proved. The five capabilities excluded from the Phase 13 outcome are stated once, in the P13.9 section of the [Phase 13 plan](../implementation/phase-13-crm-first-productization.md); this ADR refers to that set and neither restates nor widens it. Every acceptance condition below that depends on an executed upgrade is a condition for a later limited-beta claim, not a description of delivered Phase 13 scope.
+
 ## Canonical sales process
 
 One process owns all Phase 13 journeys:
@@ -217,7 +223,7 @@ P13.2 must upgrade in place from the accepted Phase 12 Sales schema:
 - each existing `sales_tasks` table row (`sales-tasks` public collection ID) becomes exactly one canonical Task with the same stable ID and created/updated timestamps. Legacy `open`/`done` map to `open`/`completed`; absent due date and relation remain null; potential-revenue becomes migration evidence only and never opportunity revenue; private note becomes one authorized immutable Note related to the task. P13.2 replaces the current timestamp revision with an integer CAS revision for task and opportunity mutation;
 - old collections cease to be writable/readable product truth after cutover. Compatibility aliases, dual writes, shadow copies, and silent duplicate sources are forbidden.
 
-P13.9 must prove clean install, exact predecessor upgrade, backup/restore, and the declared rollback or maintenance boundary.
+P13.9 must prove clean install, exact predecessor data migration, backup and clean restore against the fixture lineage, and the declared rollback or maintenance boundary. Its release-transition evidence is attested preparation, not an executed upgrade.
 
 ## Exact predecessor identity decision
 

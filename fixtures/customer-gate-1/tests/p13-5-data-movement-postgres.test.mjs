@@ -184,11 +184,11 @@ test("P13.5 worker restarts exactly once, emits a partial artifact, fences revoc
       create table sales_accounts(id serial primary key,application_id text,environment text,owner_id text,team_id text,created_by text,updated_by text,revision integer default 1,audit jsonb default '[]',status text default 'active',name text,merged_into_id text,merge_lineage jsonb,updated_at timestamptz default now(),created_at timestamptz default now());
       create table sales_contacts(id serial primary key,application_id text,environment text,owner_id text,team_id text,created_by text,updated_by text,revision integer default 1,audit jsonb default '[]',status text default 'active',account_id integer,display_name text,email text,phone text,merged_into_id text,merge_lineage jsonb,updated_at timestamptz default now(),created_at timestamptz default now());
       create table sales_leads(id serial primary key,application_id text,environment text,owner_id text,team_id text,created_by text,updated_by text,revision integer default 1,audit jsonb default '[]',status text default 'new',archive_status text default 'active',display_name text,source text,email text,phone text,qualified_account_id text,qualified_contact_id text,updated_at timestamptz default now(),created_at timestamptz default now());
-      create table sales_opportunities(id serial primary key,application_id text,environment text,account_id text,primary_contact_id text);
-      create table sales_activities(id serial primary key,application_id text,environment text,related_record_type text,related_record_id text);
-      create table sales_notes(id serial primary key,application_id text,environment text,related_record_type text,related_record_id text);
-      create table sales_attachment_references(id serial primary key,application_id text,environment text,related_record_type text,related_record_id text);
-      create table sales_tasks(id serial primary key,application_id text,environment text,related_record_type text,related_record_id text);
+      create table sales_opportunities(id serial primary key,application_id text,environment text,owner_id text,team_id text,created_by text,updated_by text,revision integer default 1,audit jsonb default '[]'::jsonb,updated_at timestamptz default now(),account_id text,primary_contact_id text);
+      create table sales_activities(id serial primary key,application_id text,environment text,owner_id text,team_id text,created_by text,updated_by text,revision integer default 1,audit jsonb default '[]'::jsonb,updated_at timestamptz default now(),related_record_type text,related_record_id text);
+      create table sales_notes(id serial primary key,application_id text,environment text,owner_id text,team_id text,created_by text,updated_by text,revision integer default 1,audit jsonb default '[]'::jsonb,updated_at timestamptz default now(),related_record_type text,related_record_id text);
+      create table sales_attachment_references(id serial primary key,application_id text,environment text,owner_id text,team_id text,created_by text,updated_by text,revision integer default 1,audit jsonb default '[]'::jsonb,updated_at timestamptz default now(),related_record_type text,related_record_id text);
+      create table sales_tasks(id serial primary key,application_id text,environment text,owner_id text,team_id text,created_by text,updated_by text,revision integer default 1,audit jsonb default '[]'::jsonb,updated_at timestamptz default now(),related_record_type text,related_record_id text);
       create table k_nex_outbox(id bigserial primary key,event_id text unique,event_type text,schema_version integer,message_class text,occurred_at timestamptz,application_id text,plugin_id text,actor_id text,actor_type text,correlation_id text,idempotency_key text,payload jsonb,retention_until timestamptz);`);
     await up({ db: drizzle(pool) }); const { FixtureSalesDataMovementStore, processSalesDataMovement } = await import("../dist/src/data-movement-host.js");
     await pool.query("insert into k_nex_authorization_state(application_id,authorization_revision,lifecycle_revision) values ('customer-gate-1',1,0)");
@@ -297,9 +297,9 @@ test("P13.5 worker restarts exactly once, emits a partial artifact, fences revoc
       await session.query("insert into sales_accounts(application_id,environment,owner_id,team_id,created_by,updated_by,name) select 'customer-gate-1','production','worker-user','team:worker-user','worker-user','worker-user','same name' from generate_series(1,101)");
       const loser = (await session.query("insert into sales_accounts(application_id,environment,owner_id,team_id,created_by,updated_by,name) values ('customer-gate-1','production','worker-user','team:worker-user','worker-user','worker-user','same name') returning id,revision")).rows[0];
       await session.query("insert into sales_contacts(application_id,environment,owner_id,team_id,created_by,updated_by,account_id,display_name) values ('customer-gate-1','production','worker-user','team:worker-user','worker-user','worker-user',$1,'Relation')", [loser.id]);
-      await session.query("insert into sales_opportunities(application_id,environment,account_id) values ('customer-gate-1','production',$1)", [String(loser.id)]);
-      await session.query("insert into sales_leads(application_id,environment,qualified_account_id) values ('customer-gate-1','production',$1)", [String(loser.id)]);
-      for (const table of ["sales_activities", "sales_notes", "sales_attachment_references", "sales_tasks"]) await session.query(`insert into ${table}(application_id,environment,related_record_type,related_record_id) values ('customer-gate-1','production','sales.account',$1)`, [String(loser.id)]);
+      await session.query("insert into sales_opportunities(application_id,environment,owner_id,team_id,created_by,updated_by,account_id) values ('customer-gate-1','production','other-user','team:other-user','other-user','other-user',$1)", [String(loser.id)]);
+      await session.query("insert into sales_leads(application_id,environment,owner_id,team_id,created_by,updated_by,qualified_account_id) values ('customer-gate-1','production','other-user','team:other-user','other-user','other-user',$1)", [String(loser.id)]);
+      for (const table of ["sales_activities", "sales_notes", "sales_attachment_references", "sales_tasks"]) await session.query(`insert into ${table}(application_id,environment,owner_id,team_id,created_by,updated_by,related_record_type,related_record_id) values ('customer-gate-1','production','other-user','team:other-user','other-user','other-user','sales.account',$1)`, [String(loser.id)]);
       const candidates = await store.findDedupeCandidates({ input: { "target-object-type": "sales.object.account", id: winner.id, "expected-revision": winner.revision }, query: { cursor: { size: 100 } }, selectedFields: ["candidate-id", "candidate-revision", "match-kind"] });
       assert.equal(candidates.rows.length, 100); assert.equal(candidates.page.hasNext, true);
       const candidateTail = await store.findDedupeCandidates({ input: { "target-object-type": "sales.object.account", id: winner.id, "expected-revision": winner.revision }, query: { cursor: { size: 100, after: candidates.page.nextCursor } }, selectedFields: ["candidate-id", "candidate-revision", "match-kind"] });
@@ -314,7 +314,34 @@ test("P13.5 worker restarts exactly once, emits a partial artifact, fences revoc
       assert.deepEqual((await session.query("select status,merged_into_id,revision from sales_accounts where id=$1", [loser.id])).rows, [{ status: "merged", merged_into_id: String(winner.id), revision: loser.revision + 1 }]);
       assert.equal(Number((await session.query("select count(*) count from sales_merge_lineage where winner_id=$1 and loser_id=$2", [winner.id, loser.id])).rows[0].count), 1);
       assert.deepEqual((await session.query("select message_class,payload->>'environment' environment,(payload->>'winnerId')::integer winner_id,payload->>'lineageId' lineage_id from k_nex_outbox where idempotency_key=$1", [`${merged.lineageId}-survivor`])).rows, [{ message_class: "durable-integration", environment: "production", winner_id: winner.id, lineage_id: merged.lineageId }]);
-      assert.equal(Number((await session.query("select count(*) count from k_nex_outbox where idempotency_key=$1", [`${merged.lineageId}-merged`])).rows[0].count), 0);
+      assert.deepEqual((await session.query("select event_type,(payload->>'loserId')::integer loser_id,(payload->>'mergedIntoId')::integer merged_into_id,(payload->>'revision')::integer revision from k_nex_outbox where idempotency_key=$1", [`${merged.lineageId}-merged`])).rows, [{ event_type: "sales.event.account-changed", loser_id: loser.id, merged_into_id: winner.id, revision: loser.revision + 1 }], "an open loser detail route is invalidated authoritatively, not by polling");
+      const watermark = Number((await session.query("select id from sales_merge_lineage where lineage_id=$1", [merged.lineageId])).rows[0].id);
+      assert.deepEqual((await session.query("select relation_id,event_type,(payload->>'count')::integer count,(payload->>'mergeWatermark')::integer watermark from (select payload->>'relationId' relation_id,event_type,payload from k_nex_outbox where idempotency_key like $1) rewrites order by relation_id", [`${merged.lineageId}-relation-%`])).rows, [
+        { relation_id: "sales_activities.related_record_id where related_record_type=sales.account", event_type: "sales.event.timeline-changed", count: 1, watermark },
+        { relation_id: "sales_attachment_references.related_record_id where related_record_type=sales.account", event_type: "sales.event.timeline-changed", count: 1, watermark },
+        { relation_id: "sales_contacts.account_id", event_type: "sales.event.contact-changed", count: 1, watermark },
+        { relation_id: "sales_leads.qualified_account_id", event_type: "sales.event.lead-changed", count: 1, watermark },
+        { relation_id: "sales_notes.related_record_id where related_record_type=sales.account", event_type: "sales.event.timeline-changed", count: 1, watermark },
+        { relation_id: "sales_opportunities.account_id", event_type: "sales.event.opportunity-changed", count: 1, watermark },
+        { relation_id: "sales_tasks.related_record_id where related_record_type=sales.account", event_type: "sales.event.task-changed", count: 1, watermark }
+      ], "every rewritten collection is invalidated at one monotonic merge watermark");
+      // A related record the merging actor does not own is still a business
+      // record: its revision moves, its actor is recorded, and its history
+      // explains which merge moved the relation under which derived authority.
+      const impacts = (await session.query("select relation_id,table_name,record_id,pre_revision,post_revision,capability_digest,merge_watermark from sales_merge_impacts where lineage_id=$1 order by relation_id", [merged.lineageId])).rows;
+      assert.equal(impacts.length, 7); assert.equal(impacts.every((impact) => impact.pre_revision === 1 && impact.post_revision === 2 && Number(impact.merge_watermark) === watermark), true);
+      const lineageRow = (await session.query("select relation_capability_digest,impact_count,impact_digest from sales_merge_lineage where lineage_id=$1", [merged.lineageId])).rows[0];
+      assert.equal(lineageRow.impact_count, 7); assert.match(lineageRow.impact_digest, /^sha256:[0-9a-f]{64}$/u);
+      assert.equal(impacts.every(({ capability_digest }) => capability_digest === lineageRow.relation_capability_digest), true, "one narrowly scoped capability authorizes the whole impact set");
+      for (const table of ["sales_opportunities", "sales_activities", "sales_notes", "sales_attachment_references", "sales_tasks"]) {
+        const related = (await session.query(`select revision,updated_by,owner_id,audit->-1 transition from ${table} limit 1`)).rows[0];
+        assert.equal(related.revision, 2, `${table} must leave optimistic concurrency behind for a stale editor`);
+        assert.equal(related.updated_by, "worker-user"); assert.equal(related.owner_id, "other-user");
+        assert.equal(related.transition.actionId, "sales.merge.relation-rewrite");
+        assert.equal(related.transition.fromRelatedRecordId, String(loser.id)); assert.equal(related.transition.toRelatedRecordId, String(winner.id));
+        assert.equal(related.transition.derivedAuthority.lineageId, merged.lineageId);
+        assert.equal(related.transition.derivedAuthority.capabilityDigest, lineageRow.relation_capability_digest);
+      }
       await session.query("commit");
 
       await session.query("begin");

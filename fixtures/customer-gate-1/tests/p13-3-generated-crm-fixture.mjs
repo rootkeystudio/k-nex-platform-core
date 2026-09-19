@@ -62,13 +62,28 @@ async function unusedPort() {
   return address.port;
 }
 
-async function startReferenceProvider() {
-  const accepted = new Map();
+/**
+ * The bundled reference provider is the only admitted provider family, so it has
+ * to keep the promise the transport contract declares: its idempotency store is
+ * on disk and survives a provider restart, and it answers a receipt lookup so a
+ * worker that lost the response reconciles instead of sending twice.
+ */
+export async function startReferenceProvider(storeDirectory = mkdtempSync(resolve(tmpdir(), "p13-reference-provider-"))) {
+  const storePath = resolve(storeDirectory, "receipts.json");
+  const load = () => { try { return JSON.parse(readFileSync(storePath, "utf8")); } catch { return {}; } };
+  const receiptFor = (key) => `reference-receipt-${createHash("sha256").update(key).digest("hex").slice(0, 32)}`;
   const server = createHttpServer((request, response) => {
     if (request.method !== "POST" || request.url !== "/k-nex/reference-provider") { request.resume(); response.writeHead(404).end(); return; }
     const key = request.headers["idempotency-key"];
     const provider = request.headers["x-k-nex-provider"];
     if (typeof key !== "string" || !/^sha256:[0-9a-f]{64}$/u.test(key) || (provider !== "email.reference.v1" && provider !== "calendar.reference.v1")) { request.resume(); response.writeHead(400).end(); return; }
+    const answer = (status, body) => response.writeHead(status, { "content-type": "application/json" }).end(JSON.stringify(body));
+    if (request.headers["x-k-nex-reconcile"] === "1") {
+      request.resume();
+      const known = load()[key];
+      request.on("end", () => known === undefined ? response.writeHead(404).end() : answer(200, { providerReceiptId: receiptFor(key), idempotencyKey: key, duplicate: true }));
+      return;
+    }
     const chunks = []; let size = 0; let rejected = false;
     request.on("data", (chunk) => {
       size += chunk.length;
@@ -78,15 +93,17 @@ async function startReferenceProvider() {
     request.on("end", () => {
       if (rejected) return;
       const digest = createHash("sha256").update(Buffer.concat(chunks)).digest("hex");
-      const previous = accepted.get(key);
+      const accepted = load();
+      const previous = accepted[key];
       if (previous !== undefined && previous !== `${provider}:${digest}`) { response.writeHead(409).end(); return; }
-      accepted.set(key, `${provider}:${digest}`);
-      response.writeHead(202).end();
+      accepted[key] = `${provider}:${digest}`;
+      writeFileSync(storePath, JSON.stringify(accepted));
+      answer(202, { providerReceiptId: receiptFor(key), idempotencyKey: key, duplicate: previous !== undefined });
     });
   });
   await new Promise((resolveListen, reject) => server.once("error", reject).listen(0, "127.0.0.1", resolveListen));
   const address = server.address(); assert.ok(address && typeof address !== "string");
-  return Object.freeze({ endpoint: `http://127.0.0.1:${address.port}/k-nex/reference-provider`, server });
+  return Object.freeze({ endpoint: `http://127.0.0.1:${address.port}/k-nex/reference-provider`, server, storeDirectory, storePath });
 }
 
 async function until(check, failure, child) {
@@ -384,7 +401,7 @@ export async function withGeneratedCrmBrowserFixture(runBrowser) {
     referenceProvider = await startReferenceProvider();
     const operatorUriSan = `spiffe://k-nex.test/applications/${applicationId}/environments/${environmentName}/administration`; const operatorCredential = issueDoctorCredential(directory, operatorUriSan);
     const staticSourceCommit = "a".repeat(40); const staticApplicationDigest = `sha256:${"b".repeat(64)}`;
-    const environment = { ...process.env, DATABASE_URL: databaseUrl.toString(), K_NEX_ENVIRONMENT: environmentName, K_NEX_GENERATION: "sales-generation-1", K_NEX_SOURCE_COMMIT: staticSourceCommit, K_NEX_APPLICATION_DIGEST: staticApplicationDigest, K_NEX_PUBLIC_ORIGIN: `http://127.0.0.1:${port}`, PAYLOAD_SECRET: randomBytes(32).toString("hex"), K_NEX_PROVIDER_SECRET_EMAIL_REFERENCE: "p136-fixture-email-provider-secret", K_NEX_PROVIDER_SECRET_CALENDAR_REFERENCE: "p136-fixture-calendar-provider-secret", K_NEX_REFERENCE_PROVIDER_ENDPOINT: referenceProvider.endpoint, K_NEX_ADMINISTRATION_OPERATOR_HOST: "127.0.0.1", K_NEX_ADMINISTRATION_OPERATOR_PORT: String(operatorPort), K_NEX_ADMINISTRATION_OPERATOR_CLIENT_CERT: operatorCredential.certificate, K_NEX_ADMINISTRATION_OPERATOR_CLIENT_KEY: operatorCredential.key, K_NEX_ADMINISTRATION_OPERATOR_CA_CERT: operatorCredential.certificate, K_NEX_ADMINISTRATION_OPERATOR_URI_SAN: operatorUriSan, K_NEX_ADMINISTRATION_OPERATOR_IDENTITY: "fixture.p13-doctor" };
+    const environment = { ...process.env, DATABASE_URL: databaseUrl.toString(), K_NEX_ENVIRONMENT: environmentName, K_NEX_GENERATION: "sales-generation-1", K_NEX_SOURCE_COMMIT: staticSourceCommit, K_NEX_APPLICATION_DIGEST: staticApplicationDigest, K_NEX_PUBLIC_ORIGIN: `http://127.0.0.1:${port}`, PAYLOAD_SECRET: randomBytes(32).toString("hex"), K_NEX_PROVIDER_SECRET_EMAIL_REFERENCE: "p136-fixture-email-provider-secret", K_NEX_PROVIDER_SECRET_CALENDAR_REFERENCE: "p136-fixture-calendar-provider-secret", K_NEX_WEBHOOK_SECRET_EMAIL_REFERENCE: "p136-fixture-email-webhook-secret", K_NEX_WEBHOOK_SECRET_CALENDAR_REFERENCE: "p136-fixture-calendar-webhook-secret", K_NEX_REFERENCE_PROVIDER_ENDPOINT: referenceProvider.endpoint, K_NEX_ADMINISTRATION_OPERATOR_HOST: "127.0.0.1", K_NEX_ADMINISTRATION_OPERATOR_PORT: String(operatorPort), K_NEX_ADMINISTRATION_OPERATOR_CLIENT_CERT: operatorCredential.certificate, K_NEX_ADMINISTRATION_OPERATOR_CLIENT_KEY: operatorCredential.key, K_NEX_ADMINISTRATION_OPERATOR_CA_CERT: operatorCredential.certificate, K_NEX_ADMINISTRATION_OPERATOR_URI_SAN: operatorUriSan, K_NEX_ADMINISTRATION_OPERATOR_IDENTITY: "fixture.p13-doctor" };
     const origin = `http://127.0.0.1:${port}`;
     applicationBackendSnapshot = async () => {
       const result = await administrator.query({
@@ -498,7 +515,7 @@ export async function withGeneratedCrmBrowserFixture(runBrowser) {
     stage("worker-ready");
     stage("browser-callback-start");
     const runDoctor = () => run("pnpm", ["knex:doctor"], { cwd: application, env: environment, stdio: "pipe" });
-    await runBrowser({ application, origin, personas, records, pool, environment, connectionString: databaseUrl.toString(), applicationOutput: () => output, workerOutput: () => workerOutput, workerProcess: () => worker, startWorker, stopWorker, acknowledgeAbnormalWorkerExit, startWeb, stopWeb, restoreToCleanDatabase, issueAttachmentUploadReceipt, runDoctor });
+    await runBrowser({ application, origin, personas, records, pool, environment, connectionString: databaseUrl.toString(), applicationOutput: () => output, workerOutput: () => workerOutput, workerProcess: () => worker, startWorker, stopWorker, acknowledgeAbnormalWorkerExit, startWeb, stopWeb, restoreToCleanDatabase, issueAttachmentUploadReceipt, runDoctor, referenceProviderStore: () => referenceProvider.storePath });
     stage("browser-callback-complete");
   } catch (error) {
     primaryFailure = error;

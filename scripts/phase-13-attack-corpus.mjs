@@ -123,8 +123,13 @@ const proofs = [
   ]),
   nodeProof("data-movement", [
     "tests/p13-5-data-movement-postgres.test.mjs",
-    "tests/p13-5-generated-data-movement-browser-postgres.test.mjs"
+    "tests/p13-5-generated-data-movement-browser-postgres.test.mjs",
+    "tests/p13-c-merge-impact-set-postgres.test.mjs"
   ], [
+    "P13.C merge capability refuses every binding it was not issued for",
+    "P13.C merge rollback and replay leave the whole impact set byte-identical",
+    "P13.C a stale editor of a rewritten related record loses optimistic concurrency",
+    "P13.C an impact set larger than its bound is denied before any mutation",
     "P13.5 parser rejects malformed, oversized, formula, and protected-field input",
     "P13.5 fixture upload cancels chunked requests at the byte bound before authorization or database work",
     "P13.5 fixture upload times out stalled requests before authorization or database work",
@@ -136,8 +141,14 @@ const proofs = [
   ]),
   nodeProof("communications", [
     "tests/p13-6-communications-postgres.test.mjs",
-    "tests/p13-6-generated-communications-browser-postgres.test.mjs"
+    "tests/p13-6-generated-communications-browser-postgres.test.mjs",
+    "tests/p13-c-provider-idempotency-contract-postgres.test.mjs",
+    "tests/p13-c-provider-secret-purpose-postgres.test.mjs"
   ], [
+    "P13.C the bundled reference provider keeps a durable idempotency store across a restart",
+    "P13.C an undeclared provider capability never reaches the network",
+    "P13.C a provider that rejects a duplicate key never completes the local transition",
+    "P13.C a provider credential and a webhook signing key cannot satisfy each other",
     "P13.6 provider operations keep secret references opaque and make send/sync idempotency actor- and application-scoped",
     "P13.6 webhooks enforce body, signature, time, replay, application binding, and secret non-leak",
     "P13.6 provider outage retries are bounded, dead-lettered, and generation fenced",
@@ -182,16 +193,18 @@ const proofs = [
     "P13.9 upgrades the exact Phase-12 Sales predecessor and restores its current-v1 truth into a clean PostgreSQL database",
     "P13.9 protects source with an exact 1.0 process, fences target promotion, and emits immutable recovery evidence",
     "P13.9 generated Chromium proves physical Postgres restore preserves current CRM product",
-    "P13.9 generated migrate command refuses drifted package bytes before the first migration statement",
+    "P13.9 generated migrate command proves the code it runs, and names what it cannot prove",
     "the release record is one canonical completion receipt for both installation histories",
     "a completed release keeps proving its migration closure or stops being served"
   ]),
   nodeProof("fixture-readiness", [
     "tests/p13-10-limited-beta-fixture-postgres.test.mjs",
-    "tests/p13-10-generated-fixture-browser-postgres.test.mjs"
+    "tests/p13-10-generated-fixture-browser-postgres.test.mjs",
+    "tests/p13-b-generated-ingress-and-credential-recovery-postgres.test.mjs"
   ], [
     "P13.10 fixture-only real PostgreSQL evidence proves representative data, bounded import/report replay, independent metrics, reminders, and controlled DB timings",
-    "P13.10 generated fixture proves controlled browser readiness before and after restore"
+    "P13.10 generated fixture proves controlled browser readiness before and after restore",
+    "P13.B generated ingress readers are bounded, the realtime bridge recovers, and owner credentials are recoverable"
   ])
 ];
 
@@ -239,7 +252,8 @@ const attackProofs = {
   "P13-ATK-06": [
     evidence("data-movement", "P13.5 worker restarts exactly once, emits a partial artifact, fences revocation, purges payloads, and publishes snapshot-only CSV"),
     evidence("data-movement", "P13.5 generated Chromium completes accessible imports, request-local merge, and export download journeys"),
-    evidence("fixture-readiness", "P13.10 fixture-only real PostgreSQL evidence proves representative data, bounded import/report replay, independent metrics, reminders, and controlled DB timings")
+    evidence("fixture-readiness", "P13.10 fixture-only real PostgreSQL evidence proves representative data, bounded import/report replay, independent metrics, reminders, and controlled DB timings"),
+    evidence("fixture-readiness", "P13.B generated ingress readers are bounded, the realtime bridge recovers, and owner credentials are recoverable")
   ],
   "P13-ATK-07": [
     evidence("data-movement", "P13.5 generated Chromium completes accessible imports, request-local merge, and export download journeys"),
@@ -284,7 +298,7 @@ const attackProofs = {
     evidence("upgrade-restore", "P13.9 generated Chromium proves physical Postgres restore preserves current CRM product"),
     evidence("upgrade-restore", "the release record is one canonical completion receipt for both installation histories"),
     evidence("upgrade-restore", "a completed release keeps proving its migration closure or stops being served"),
-    evidence("upgrade-restore", "P13.9 generated migrate command refuses drifted package bytes before the first migration statement")
+    evidence("upgrade-restore", "P13.9 generated migrate command proves the code it runs, and names what it cannot prove")
   ]
 };
 
@@ -368,7 +382,7 @@ const evidenceClasses = [
   { id: "import-export", evidence: [evidence("data-movement", "P13.5 generated Chromium completes accessible imports, request-local merge, and export download journeys")] },
   { id: "communication-adapter", evidence: [evidence("communications", "P13.6 generated HTTP and Chromium prove webhook bounds and recipient-only notification journeys")] },
   { id: "reports", evidence: [evidence("reports", "P13.8 real PG processes exact closed seven-report catalog with one fenced artifact/audit/outbox chain")] },
-  { id: "backup-restore-upgrade", evidence: [evidence("upgrade-restore", "P13.9 upgrades the exact Phase-12 Sales predecessor and restores its current-v1 truth into a clean PostgreSQL database"), evidence("upgrade-restore", "P13.9 protects source with an exact 1.0 process, fences target promotion, and emits immutable recovery evidence"), evidence("upgrade-restore", "P13.9 generated Chromium proves physical Postgres restore preserves current CRM product"), evidence("upgrade-restore", "a completed release keeps proving its migration closure or stops being served"), evidence("upgrade-restore", "P13.9 generated migrate command refuses drifted package bytes before the first migration statement")] },
+  { id: "backup-restore-upgrade", evidence: [evidence("upgrade-restore", "P13.9 upgrades the exact Phase-12 Sales predecessor and restores its current-v1 truth into a clean PostgreSQL database"), evidence("upgrade-restore", "P13.9 protects source with an exact 1.0 process, fences target promotion, and emits immutable recovery evidence"), evidence("upgrade-restore", "P13.9 generated Chromium proves physical Postgres restore preserves current CRM product"), evidence("upgrade-restore", "a completed release keeps proving its migration closure or stops being served"), evidence("upgrade-restore", "P13.9 generated migrate command proves the code it runs, and names what it cannot prove")] },
   { id: "worker-realtime-recovery", evidence: [evidence("crm-recovery", "P13.3 generated browser receives opaque Socket.IO invalidations, resyncs after a host loss, and drops revoked current authority"), evidence("workflows", "P13.7 generated HTTP action and restarted worker preserve one durable workflow effect"), evidence("fixture-readiness", "P13.10 fixture-only real PostgreSQL evidence proves representative data, bounded import/report replay, independent metrics, reminders, and controlled DB timings")] },
   { id: "representative-six-stage-dataset", evidence: [evidence("fixture-readiness", "P13.10 fixture-only real PostgreSQL evidence proves representative data, bounded import/report replay, independent metrics, reminders, and controlled DB timings")] },
   { id: "ten-thousand-row-import-replay", evidence: [evidence("fixture-readiness", "P13.10 fixture-only real PostgreSQL evidence proves representative data, bounded import/report replay, independent metrics, reminders, and controlled DB timings")] },

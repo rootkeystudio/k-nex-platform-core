@@ -38,7 +38,7 @@ export const payloadSecret = required("PAYLOAD_SECRET");
 function usersSource(): string {
   return `import type { CollectionConfig } from "payload";
 
-import { authorizePayloadUser } from "./k-nex-authority.js";
+import { admittedCredentialChange, authorizePayloadUser } from "./k-nex-authority.js";
 import { kNexIdentity } from "./k-nex-identity.js";
 
 export const usersCollection: CollectionConfig = {
@@ -57,14 +57,19 @@ export const usersCollection: CollectionConfig = {
     update: ({ id, req }) => req.user?.collection === "users" && String(req.user.id) === String(id)
   },
   hooks: {
-    // Self-update is the only update path, and this application ships no
-    // credential-change journey: no current-password challenge, no verified
-    // reset, no administrative recovery. Allowing the sign-in identity to be
-    // rewritten through it would turn one stolen session into permanent
-    // account takeover that the owner cannot undo, so credentials may only be
-    // established by owner bootstrap until that journey exists.
-    beforeChange: [({ data, operation }) => {
-      if (operation === "update" && (data.email !== undefined || data.password !== undefined)) {
+    // Self-update is the only update path, and a session alone must never move
+    // a sign-in identity through it: that would turn one stolen session into
+    // permanent account takeover. Credentials move only through the journeys in
+    // k-nex-authority, each of which names the principal and the exact fields it
+    // is changing and proves possession of the current password or an
+    // operator-issued recovery grant first.
+    beforeChange: [({ data, operation, originalDoc }) => {
+      // Payload merges the stored document into data before this runs, so the
+      // unchanged email arrives on every update. Only a moved sign-in identity
+      // needs an admission; a password never reaches data unless it was sent.
+      const stored = originalDoc as Record<string, unknown> | undefined;
+      const credentialFields = (["email", "password"] as const).filter((field) => data[field] !== undefined && (field === "password" || data[field] !== stored?.[field]));
+      if (operation === "update" && credentialFields.length > 0 && !admittedCredentialChange(String(stored?.id ?? ""), credentialFields)) {
         throw new Error("Sign-in credentials cannot be changed through a record update.");
       }
       return data;
@@ -77,9 +82,10 @@ export const usersCollection: CollectionConfig = {
 }
 
 function authoritySource(): string {
-  return `import { randomUUID } from "node:crypto";
+  return `import { AsyncLocalStorage } from "node:async_hooks";
+import { createHash, randomUUID } from "node:crypto";
 
-import { canonicalJson } from "@k-nex/contracts";
+import { AuthorizationDecisionAuditSchema, canonicalJson } from "@k-nex/contracts";
 import { PostgresAuthorizationStore, type RuntimeExtensionPool } from "@k-nex/payload-adapter";
 import {
   CurrentAuthorityAdapter,
@@ -99,6 +105,95 @@ import { kNexIdentity } from "./k-nex-identity.js";
 import { kNexSalesRegistry } from "./k-nex-registry.js";
 
 export interface KnexRequestContext { readonly headers: Headers; readonly correlationId: string; }
+
+export type KnexRequestBodyRefusal = "declared-length" | "missing-body" | "too-large" | "timed-out";
+
+export class KnexRequestBodyError extends Error {
+  readonly refusal: KnexRequestBodyRefusal;
+  constructor(refusal: KnexRequestBodyRefusal) {
+    super("Request body was refused: " + refusal);
+    this.name = "KnexRequestBodyError";
+    this.refusal = refusal;
+  }
+}
+
+const requestBodyIdleTimeoutMs = 1_000;
+const requestBodyDeadlineMs = 30_000;
+export const providerWebhookRequestByteLimit = 65_536;
+export const workspaceJsonRequestByteLimit = 1_048_576;
+// 16 MiB of CSV plus an optional three-byte BOM, base64 expansion, and closed JSON envelope.
+export const importUploadRequestByteLimit = 22_369_920;
+type BoundedBodyRequest = Readonly<{ headers: Headers; body?: ReadableStream<Uint8Array> | null }>;
+
+/** Resolves the read or the bound, whichever comes first, and never twice. */
+async function readBoundedChunk(reader: ReadableStreamDefaultReader<Uint8Array>, idleTimeoutMs: number, deadline: number): Promise<ReadableStreamReadResult<Uint8Array>> {
+  const remaining = deadline - performance.now();
+  if (remaining <= 0) throw new KnexRequestBodyError("timed-out");
+  const timeoutMs = Math.min(idleTimeoutMs, remaining);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await new Promise<ReadableStreamReadResult<Uint8Array>>((resolve, reject) => {
+      let settled = false;
+      const finish = (callback: () => void) => { if (settled) return; settled = true; callback(); };
+      timer = setTimeout(() => finish(() => reject(new KnexRequestBodyError("timed-out"))), timeoutMs);
+      void reader.read().then((value) => finish(() => resolve(value)), (error: unknown) => finish(() => reject(error)));
+    });
+  } finally { if (timer !== undefined) clearTimeout(timer); }
+}
+
+/**
+ * Every generated ingress path reads its body through here. Signature and
+ * session checks can only run once a body has arrived, so a limit that counts
+ * bytes but never time lets one unauthenticated client hold a worker for as
+ * long as it keeps the socket open: a body that trickles, a body that never
+ * ends, and an oversize body drained to EOF all cost nothing to send.
+ */
+export async function readBoundedRequestBody(request: BoundedBodyRequest, limits: Readonly<{ maxBytes: number; idleTimeoutMs?: number; deadlineMs?: number }>): Promise<Uint8Array<ArrayBuffer>> {
+  const declaredLength = request.headers.get("content-length");
+  if (declaredLength !== null && (!/^[0-9]+$/u.test(declaredLength) || Number(declaredLength) > limits.maxBytes)) throw new KnexRequestBodyError("declared-length");
+  const body = request.body;
+  if (body === null || body === undefined) throw new KnexRequestBodyError("missing-body");
+  const idleTimeoutMs = limits.idleTimeoutMs ?? requestBodyIdleTimeoutMs;
+  const deadline = performance.now() + (limits.deadlineMs ?? requestBodyDeadlineMs);
+  const reader = body.getReader();
+  let cancelled = false;
+  const cancel = (): void => {
+    if (cancelled) return;
+    cancelled = true;
+    try { void reader.cancel().catch(() => undefined); } catch { /* a stream that refuses cancellation is already gone */ }
+  };
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  let oversize = false;
+  try {
+    while (true) {
+      const next = await readBoundedChunk(reader, idleTimeoutMs, deadline);
+      if (next.done) break;
+      total += next.value.byteLength;
+      if (total > limits.maxBytes) {
+        // An oversize body is drained rather than reset, because cancelling a
+        // request stream makes some HTTP runtimes destroy the connection before
+        // the refusal is written. The drain answers to the same idle timeout and
+        // deadline as the read it replaces, and retains nothing.
+        if (!oversize) { oversize = true; chunks.length = 0; }
+        continue;
+      }
+      chunks.push(next.value);
+    }
+  } catch (error) {
+    cancel();
+    throw oversize ? new KnexRequestBodyError("too-large") : error;
+  } finally { reader.releaseLock(); }
+  if (oversize) throw new KnexRequestBodyError("too-large");
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+  return bytes;
+}
+
+export function boundedRequestBodyText(bytes: Uint8Array): string {
+  return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+}
 
 const runtimes = new WeakMap<Payload, ReturnType<typeof createRuntime>>();
 type CachedPayloadAuthentication = Promise<Awaited<ReturnType<Payload["auth"]>>>;
@@ -259,6 +354,122 @@ export async function reauthenticateCurrentUser(payload: Payload, context: KnexR
   } catch { return false; }
 }
 
+export class KnexCredentialError extends Error {
+  readonly code: "CREDENTIAL_INPUT_INVALID" | "CREDENTIAL_SESSION_REQUIRED" | "CREDENTIAL_REAUTHENTICATION_REQUIRED" | "CREDENTIAL_EMAIL_TAKEN" | "CREDENTIAL_RECOVERY_TARGET_INVALID";
+  constructor(code: KnexCredentialError["code"]) { super("Credential change was refused: " + code); this.name = "KnexCredentialError"; this.code = code; }
+}
+
+export type KnexCredentialField = "email" | "password";
+const credentialFieldNames = Object.freeze(["email", "password"] as const);
+type CredentialAdmission = Readonly<{ userId: string; fields: readonly KnexCredentialField[]; operation: "credential-change" | "owner-credential-recovery" }>;
+/**
+ * Credential writes are admitted for the duration of one call and only for the
+ * principal and fields that call named. A request-scoped flag would be a second
+ * way to change a sign-in identity; this is the only one.
+ */
+const credentialAdmissions = new AsyncLocalStorage<CredentialAdmission>();
+
+/** The users collection asks this, so an ordinary record update still cannot move a credential. */
+export function admittedCredentialChange(userId: string, fields: readonly string[]): boolean {
+  const admission = credentialAdmissions.getStore();
+  return admission !== undefined && admission.userId === userId && fields.length > 0 &&
+    fields.every((field) => (admission.fields as readonly string[]).includes(field));
+}
+
+function credentialText(value: unknown, minimum: number, maximum: number): string {
+  if (typeof value !== "string" || value.length < minimum || value.length > maximum) throw new KnexCredentialError("CREDENTIAL_INPUT_INVALID");
+  return value;
+}
+
+function credentialChange(value: Record<string, unknown>): Readonly<{ email?: string; password?: string }> {
+  const email = value.email === undefined ? undefined : credentialText(value.email, 3, 254);
+  const password = value.password === undefined ? undefined : credentialText(value.password, 12, 128);
+  if (email !== undefined && !/^\\S+@\\S+\\.\\S+$/u.test(email) || email === undefined && password === undefined) throw new KnexCredentialError("CREDENTIAL_INPUT_INVALID");
+  return Object.freeze({ ...(email === undefined ? {} : { email }), ...(password === undefined ? {} : { password }) });
+}
+
+type CredentialAuditPool = { query(text: string, values?: readonly unknown[]): Promise<unknown> };
+
+async function recordCredentialAudit(payload: Payload, input: Readonly<{ userId: string; actor: Readonly<{ kind: "user" | "service"; id: string }>; operation: CredentialAdmission["operation"]; correlationId: string }>): Promise<string> {
+  const state = await kNexAuthority(payload).store.readState(kNexIdentity.applicationId, kNexIdentity.environment);
+  if (state === undefined) throw new Error("Authorization state is unavailable.");
+  const auditId = input.operation + "-" + createHash("sha256").update(canonicalJson([kNexIdentity.applicationId, kNexIdentity.environment, input.operation, input.userId, input.correlationId])).digest("hex").slice(0, 32);
+  const audit = AuthorizationDecisionAuditSchema.parse({
+    schemaVersion: 1, auditId, decisionId: auditId + ".decision", correlationId: input.correlationId,
+    applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment,
+    permissionId: "system.role-assignments.manage", owner: { kind: "platform", namespace: "system" },
+    principal: input.actor, effectiveActor: input.actor,
+    scope: { kind: "application", resource: "system.role-assignments" },
+    operation: input.operation, target: input.userId,
+    authorizationRevision: state.authorizationRevision, lifecycleRevision: state.lifecycleRevision,
+    outcome: "allow", reason: "granted", approval: "not-required", reauthentication: "satisfied"
+  });
+  await (payload.db.pool as unknown as CredentialAuditPool).query(
+    "insert into k_nex_authorization_audit (audit_id,application_id,environment,permission_id,outcome,reason,authorization_revision,lifecycle_revision,audit_json) values ($1,$2,$3,'system.role-assignments.manage','allow','granted',$4,$5,$6::jsonb) on conflict (audit_id) do nothing",
+    [auditId, kNexIdentity.applicationId, kNexIdentity.environment, state.authorizationRevision, state.lifecycleRevision, JSON.stringify(audit)]
+  );
+  return auditId;
+}
+
+/** Clears every live session in the same write that moves the credential, so no cookie outlives it. */
+async function applyCredentialChange(payload: Payload, admission: CredentialAdmission, change: Readonly<{ email?: string; password?: string }>): Promise<void> {
+  await credentialAdmissions.run(admission, async () => payload.update({
+    collection: "users", id: admission.userId, overrideAccess: true, data: { ...change, sessions: [] }
+  }));
+  requestAuthentications.delete(payload);
+}
+
+async function credentialEmailIsFree(payload: Payload, email: string | undefined, userId: string): Promise<boolean> {
+  if (email === undefined) return true;
+  const existing = await payload.find({ collection: "users", overrideAccess: true, limit: 2, where: { email: { equals: email } } });
+  return existing.docs.every((document) => String((document as { id: unknown }).id) === userId);
+}
+
+/**
+ * The self-service half of the credential journey. It proves possession of the
+ * current password rather than trusting the session, because a stolen session
+ * is exactly the thing a credential change has to survive.
+ */
+export async function changeCurrentUserCredentials(payload: Payload, context: KnexRequestContext, input: unknown): Promise<Readonly<{ userId: string; auditId: string; changed: readonly KnexCredentialField[] }>> {
+  if (input === null || typeof input !== "object" || Array.isArray(input)) throw new KnexCredentialError("CREDENTIAL_INPUT_INVALID");
+  const value = input as Record<string, unknown>;
+  if (Object.keys(value).some((key) => key !== "currentPassword" && key !== "email" && key !== "password")) throw new KnexCredentialError("CREDENTIAL_INPUT_INVALID");
+  const currentPassword = credentialText(value.currentPassword, 1, 1_024);
+  const change = credentialChange(value);
+  const current = (await currentPayloadAuthentication(payload, context)).user;
+  if (typeof current !== "object" || current === null || !("id" in current) || !("collection" in current) || current.collection !== "users") throw new KnexCredentialError("CREDENTIAL_SESSION_REQUIRED");
+  const userId = String(current.id);
+  if (change.password === currentPassword) throw new KnexCredentialError("CREDENTIAL_INPUT_INVALID");
+  if (!await reauthenticateCurrentUser(payload, context, currentPassword)) throw new KnexCredentialError("CREDENTIAL_REAUTHENTICATION_REQUIRED");
+  if (!await credentialEmailIsFree(payload, change.email, userId)) throw new KnexCredentialError("CREDENTIAL_EMAIL_TAKEN");
+  const changed = credentialFieldNames.filter((field) => change[field] !== undefined);
+  await applyCredentialChange(payload, { userId, fields: changed, operation: "credential-change" }, change);
+  const auditId = await recordCredentialAudit(payload, { userId, actor: { kind: "user", id: userId }, operation: "credential-change", correlationId: context.correlationId });
+  return Object.freeze({ userId, auditId, changed });
+}
+
+/**
+ * The operator half. It is bounded to the principal the committed bootstrap
+ * receipt names, so a recovery grant re-establishes the existing owner's
+ * sign-in identity and cannot mint authority for anyone else.
+ */
+export async function recoverProtectedOwnerCredential(payload: Payload, receipt: Readonly<{ ownerPrincipal: Readonly<{ kind: string; id: string }>; state: string }>, operatorIdentity: string, input: unknown): Promise<Readonly<{ userId: string; auditId: string }>> {
+  if (receipt.state !== "committed" || receipt.ownerPrincipal.kind !== "user") throw new KnexCredentialError("CREDENTIAL_RECOVERY_TARGET_INVALID");
+  if (input === null || typeof input !== "object" || Array.isArray(input)) throw new KnexCredentialError("CREDENTIAL_INPUT_INVALID");
+  const value = input as Record<string, unknown>;
+  if (Object.keys(value).sort().join("\\0") !== "email\\0password") throw new KnexCredentialError("CREDENTIAL_INPUT_INVALID");
+  const change = credentialChange(value);
+  if (change.email === undefined || change.password === undefined) throw new KnexCredentialError("CREDENTIAL_INPUT_INVALID");
+  const userId = receipt.ownerPrincipal.id;
+  const owner = await payload.findByID({ collection: "users", id: userId, overrideAccess: true, disableErrors: true });
+  if (owner === null || owner === undefined) throw new KnexCredentialError("CREDENTIAL_RECOVERY_TARGET_INVALID");
+  if (!await credentialEmailIsFree(payload, change.email, userId)) throw new KnexCredentialError("CREDENTIAL_EMAIL_TAKEN");
+  const correlationId = "owner-credential-recovery-" + randomUUID();
+  await applyCredentialChange(payload, { userId, fields: credentialFieldNames, operation: "owner-credential-recovery" }, change);
+  const auditId = await recordCredentialAudit(payload, { userId, actor: { kind: "service", id: operatorIdentity }, operation: "owner-credential-recovery", correlationId });
+  return Object.freeze({ userId, auditId });
+}
+
 export async function authorizePayloadUser(payload: Payload, user: unknown, permissionId: string, resource: string): Promise<boolean> {
   const trusted = session(user, \`payload-access-\${randomUUID()}\`);
   if (trusted === undefined) return false;
@@ -333,6 +544,29 @@ function tokenClaims(token: string) {
   return { digest: digest(token), expiresAt: value.expiresAt };
 }
 
+/**
+ * Recovery grants are a different authority from first-owner bootstrap, so they
+ * are a different token: the prefix and the purpose claim are inside the signed
+ * material, and neither parser will read the other's token. They share the
+ * issued-token ledger, whose one-live-token index keeps at most one grant open.
+ */
+function recoveryTokenClaims(token: string) {
+  const parts = token.split(".");
+  if (parts.length !== 3 || parts[0] !== "knr1") throw new Error("Credential recovery token is invalid.");
+  const expected = signature(parts[1]!);
+  const actual = Buffer.from(parts[2]!, "base64url");
+  if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) throw new Error("Credential recovery token is invalid.");
+  const value = JSON.parse(Buffer.from(parts[1]!, "base64url").toString("utf8")) as Record<string, unknown>;
+  if (Object.keys(value).sort().join("\\0") !== "applicationId\\0environment\\0expiresAt\\0issuedAt\\0nonce\\0purpose\\0schemaVersion" || value.schemaVersion !== 1 ||
+    value.purpose !== "credential-recovery" || value.applicationId !== kNexIdentity.applicationId || value.environment !== kNexIdentity.environment ||
+    typeof value.nonce !== "string" || !/^[0-9a-f]{48}$/u.test(value.nonce) || typeof value.issuedAt !== "string" || typeof value.expiresAt !== "string") throw new Error("Credential recovery token identity is invalid.");
+  const issuedAt = Date.parse(value.issuedAt);
+  const expiresAt = Date.parse(value.expiresAt);
+  const now = Date.now();
+  if (!Number.isFinite(issuedAt) || !Number.isFinite(expiresAt) || expiresAt <= now || issuedAt > now + 30_000 || expiresAt - issuedAt !== lifetimeMs) throw new Error("Credential recovery token is expired or invalid.");
+  return { digest: digest(token), expiresAt: value.expiresAt };
+}
+
 function fileArgument(argv: readonly string[], flag: "--output" | "--token-file"): string {
   const index = argv.indexOf(flag);
   if (index < 0 || index !== argv.length - 2 || !argv[index + 1]) throw new Error(\`Use \${flag} <private-token-file>.\`);
@@ -372,6 +606,43 @@ export function readBootstrapToken(argv: readonly string[]) {
   const token = readFileSync(path, "utf8").trim();
   if (token.length < 80 || token.length > 2_048) throw new Error("Bootstrap token is invalid.");
   return Object.freeze({ path, token, ...tokenClaims(token) });
+}
+
+export async function issueCredentialRecoveryToken(payload: Payload, argv: readonly string[]): Promise<void> {
+  const output = fileArgument(argv, "--output");
+  const issuedAt = new Date();
+  const expiresAt = new Date(issuedAt.valueOf() + lifetimeMs);
+  const claims = { schemaVersion: 1, purpose: "credential-recovery", applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment, issuedAt: issuedAt.toISOString(), expiresAt: expiresAt.toISOString(), nonce: randomBytes(24).toString("hex") };
+  const encoded = Buffer.from(canonicalJson(claims)).toString("base64url");
+  const token = \`knr1.\${encoded}.\${signature(encoded).toString("base64url")}\`;
+  const client = await (payload.db.pool as { connect(): Promise<BootstrapTokenClient> }).connect();
+  let wrote = false;
+  try {
+    await client.query("begin");
+    await client.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [canonicalJson([kNexIdentity.applicationId, kNexIdentity.environment, "owner-bootstrap-token"])]);
+    // Recovery re-establishes an owner that already exists; it is not a second
+    // way to create the first one.
+    const receipt = await client.query("select 1 from k_nex_authorization_bootstrap_receipts where application_id=$1", [kNexIdentity.applicationId]);
+    if (receipt.rowCount !== 1) throw new Error("Credential recovery requires a bootstrapped owner.");
+    await client.query("update k_nex_owner_bootstrap_tokens set consumed_at=now() where application_id=$1 and environment=$2 and consumed_at is null", [kNexIdentity.applicationId, kNexIdentity.environment]);
+    await client.query("insert into k_nex_owner_bootstrap_tokens (application_id, environment, token_digest, expires_at) values ($1,$2,$3,$4)", [kNexIdentity.applicationId, kNexIdentity.environment, digest(token), expiresAt.toISOString()]);
+    writeFileSync(output, \`\${token}\\n\`, { encoding: "utf8", flag: "wx", mode: 0o600 });
+    wrote = true;
+    await client.query("commit");
+  } catch (error) {
+    try { await client.query("rollback"); } catch {}
+    if (wrote) try { unlinkSync(output); } catch {}
+    throw error;
+  } finally { client.release(); }
+}
+
+export function readCredentialRecoveryToken(argv: readonly string[]) {
+  const path = fileArgument(argv, "--token-file");
+  const stat = lstatSync(path);
+  if (!stat.isFile() || stat.isSymbolicLink() || (stat.mode & 0o077) !== 0) throw new Error("Credential recovery token file must be private, regular, and not a symlink.");
+  const token = readFileSync(path, "utf8").trim();
+  if (token.length < 80 || token.length > 2_048) throw new Error("Credential recovery token is invalid.");
+  return Object.freeze({ path, token, ...recoveryTokenClaims(token) });
 }
 
 export async function acquireBootstrapLock(payload: Payload) {
@@ -438,8 +709,9 @@ import { AuthorizationDecisionAuditSchema, canonicalJson, type BootstrapReceipt 
 import { bootstrapFirstOwner, currentProtectedPlatformRoleBaselineRelease, protectedRoleBootstrapId } from "@k-nex/runtime";
 
 import { bootKnexApplication } from "./boot.js";
-import { acquireBootstrapLock, assertIssuedBootstrapToken, consumeBootstrapToken, readBootstrapToken, releaseBootstrapLock } from "./k-nex-bootstrap-token.js";
-import { kNexAuthority, shutdownKnexApplication } from "./k-nex-authority.js";
+import { acquireBootstrapLock, assertIssuedBootstrapToken, consumeBootstrapToken, readBootstrapToken, readCredentialRecoveryToken, releaseBootstrapLock } from "./k-nex-bootstrap-token.js";
+import { assertAdministrationOperatorConfiguration, administrationOperatorIdentity } from "./k-nex-readiness.js";
+import { kNexAuthority, recoverProtectedOwnerCredential, shutdownKnexApplication } from "./k-nex-authority.js";
 import { kNexIdentity } from "./k-nex-identity.js";
 import { kNexSalesRegistry } from "./k-nex-registry.js";
 import { bootstrapApplicationTheme } from "./k-nex-theme-runtime.js";
@@ -525,11 +797,42 @@ async function ensureInitialSalesOwner(payload: Awaited<ReturnType<typeof bootKn
   if (scope?.record_scope !== "application-sales-scope" || scope.application_wide !== true || scope.mutation_allowed !== true || JSON.stringify(scope.authorized_team_ids) !== "[]" || scope.revision !== 1) throw new Error("Initial Sales scope authority is incomplete.");
 }
 
+const argv = process.argv.slice(2);
+const recovering = argv[0] === "--recover-credential";
 const email = process.env.K_NEX_OWNER_EMAIL;
 const password = process.env.K_NEX_OWNER_PASSWORD;
 if (!email || !/^\\S+@\\S+\\.\\S+$/u.test(email) || !password || password.length < 12 || password.length > 128) throw new Error("K_NEX_OWNER_EMAIL and a 12-128 character K_NEX_OWNER_PASSWORD are required.");
 
-const token = readBootstrapToken(process.argv.slice(2));
+if (recovering) {
+  // Losing owner credentials must not require touching the database by hand,
+  // and it must not be reachable from a session either. Recovery needs the
+  // administration operator credentials this deployment configured, a one-shot
+  // grant a separate privileged command issued, and the committed bootstrap
+  // receipt that decides which principal the owner is.
+  assertAdministrationOperatorConfiguration();
+  const recoveryToken = readCredentialRecoveryToken(argv.slice(1));
+  const recoveryPayload = await bootKnexApplication("owner-credential-recovery");
+  let recoveryLock: Awaited<ReturnType<typeof acquireBootstrapLock>> | undefined;
+  try {
+    recoveryLock = await acquireBootstrapLock(recoveryPayload);
+    await assertIssuedBootstrapToken(recoveryLock, recoveryToken);
+    const receipt = await kNexAuthority(recoveryPayload).store.readProtectedRoleBaselineReceipt(kNexIdentity.applicationId);
+    if (receipt === undefined || receipt.protectedBaselineVersion !== currentProtectedPlatformRoleBaselineRelease.version || receipt.protectedBaselineDigest !== currentProtectedPlatformRoleBaselineRelease.digest) {
+      throw new Error("Credential recovery requires the committed protected owner receipt of this baseline.");
+    }
+    // The grant is spent before the credential moves, so a failure here costs a
+    // fresh operator-issued token instead of leaving a replayable one.
+    await consumeBootstrapToken(recoveryLock, recoveryToken);
+    const recovered = await recoverProtectedOwnerCredential(recoveryPayload, receipt, administrationOperatorIdentity(), { email, password });
+    console.log(\`K_NEX_OWNER_CREDENTIAL_RECOVERED \${recovered.userId} \${recovered.auditId}\`);
+  } finally {
+    try { if (recoveryLock !== undefined) await releaseBootstrapLock(recoveryLock); }
+    finally { await shutdownKnexApplication(recoveryPayload); }
+  }
+  process.exit(0);
+}
+
+const token = readBootstrapToken(argv);
 const payload = await bootKnexApplication("owner-bootstrap");
 let bootstrapLock: Awaited<ReturnType<typeof acquireBootstrapLock>> | undefined;
 try {
@@ -567,13 +870,18 @@ process.exit(0);
 
 function issueTokenSource(): string {
   return `import { bootKnexApplication } from "./boot.js";
-import { issueBootstrapToken } from "./k-nex-bootstrap-token.js";
+import { issueBootstrapToken, issueCredentialRecoveryToken } from "./k-nex-bootstrap-token.js";
 import { shutdownKnexApplication } from "./k-nex-authority.js";
 
+const argv = process.argv.slice(2);
+const recovery = argv[0] === "--recovery";
+// The mode is the first argument or absent; a stray --recovery elsewhere is a
+// mistake, not a request, and issuing the wrong grant is not recoverable.
+if (!recovery && argv.includes("--recovery")) throw new Error("Use --recovery as the first argument to issue a credential recovery token.");
 const payload = await bootKnexApplication("bootstrap-token-issuer");
 try {
-  await issueBootstrapToken(payload, process.argv.slice(2));
-  console.log("K_NEX_BOOTSTRAP_TOKEN_ISSUED");
+  if (recovery) { await issueCredentialRecoveryToken(payload, argv.slice(1)); console.log("K_NEX_CREDENTIAL_RECOVERY_TOKEN_ISSUED"); }
+  else { await issueBootstrapToken(payload, argv); console.log("K_NEX_BOOTSTRAP_TOKEN_ISSUED"); }
 } finally { await shutdownKnexApplication(payload); }
 process.exit(0);
 `;
@@ -1598,12 +1906,14 @@ function salesProviderWebhookRouteSource(providerId: "email.reference.v1" | "cal
   return `import { createGeneratedEnvironmentProviderSecretResolver, acceptGeneratedSalesProviderWebhook } from "../../../../../../../k-nex-sales-communications.js";
 import { bootKnexApplication } from "../../../../../../../boot.js";
 import { kNexIdentity } from "../../../../../../../k-nex-identity.js";
+import { providerWebhookRequestByteLimit, readBoundedRequestBody } from "../../../../../../../k-nex-authority.js";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 const providerId = ${JSON.stringify(providerId)};
-async function bodyOf(request: Request) { const length = request.headers.get("content-length"); if (length !== null && (!/^[0-9]+$/u.test(length) || Number(length)>65536) || request.body===null) throw new Error("WEBHOOK_INVALID"); const reader=request.body.getReader(); const chunks: Uint8Array[]=[]; let total=0; try { while (true) { const next=await reader.read(); if (next.done) break; total+=next.value.byteLength; if (total>65536) throw new Error("WEBHOOK_INVALID"); chunks.push(next.value); } } finally { reader.releaseLock(); } const body=new Uint8Array(total); let offset=0; for (const chunk of chunks) { body.set(chunk,offset); offset+=chunk.byteLength; } return body; }
-export async function POST(request: Request) { try { const payload=await bootKnexApplication("provider-webhook"); const result=await acceptGeneratedSalesProviderWebhook({ pool: payload.db.pool as never, resolver: createGeneratedEnvironmentProviderSecretResolver(), providerId, applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment, signature: request.headers.get("x-k-nex-signature"), timestamp: request.headers.get("x-k-nex-timestamp"), body: await bodyOf(request) }); return Response.json(result,{status:202,headers:{"cache-control":"no-store"}}); } catch (error) { const status=error instanceof Error && "status" in error && typeof error.status==="number" ? error.status : 400; return Response.json({code:"WEBHOOK_INVALID",status},{status,headers:{"cache-control":"no-store"}}); } }
+// The body is read before the signature can be checked, so the read is what has
+// to be bounded: this endpoint admits anyone who can open a socket.
+export async function POST(request: Request) { try { const body=await readBoundedRequestBody(request,{ maxBytes: providerWebhookRequestByteLimit }); const payload=await bootKnexApplication("provider-webhook"); const result=await acceptGeneratedSalesProviderWebhook({ pool: payload.db.pool as never, resolver: createGeneratedEnvironmentProviderSecretResolver(), providerId, applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment, signature: request.headers.get("x-k-nex-signature"), timestamp: request.headers.get("x-k-nex-timestamp"), body }); return Response.json(result,{status:202,headers:{"cache-control":"no-store"}}); } catch (error) { const status=error instanceof Error && "status" in error && typeof error.status==="number" ? error.status : 400; return Response.json({code:"WEBHOOK_INVALID",status},{status,headers:{"cache-control":"no-store"}}); } }
 `;
 }
 
@@ -1612,7 +1922,7 @@ function salesImportUploadRouteSource(): string {
 
 import type { RuntimeExtensionPool } from "@k-nex/payload-adapter";
 
-import { currentPayloadAuthentication, currentSalesGeneration, kNexRequestContext } from "../../../../../k-nex-authority.js";
+import { KnexRequestBodyError, boundedRequestBodyText, currentPayloadAuthentication, currentSalesGeneration, importUploadRequestByteLimit, kNexRequestContext, readBoundedRequestBody } from "../../../../../k-nex-authority.js";
 import { bootKnexApplication } from "../../../../../boot.js";
 import { kNexIdentity } from "../../../../../k-nex-identity.js";
 import { workspaceSalesPermissions } from "../../../../../k-nex-sales-workspace.js";
@@ -1621,33 +1931,9 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 const importByteLimit = 16_777_216;
-// 16 MiB of CSV plus an optional three-byte BOM, base64 expansion, and closed JSON envelope.
-const importUploadRequestByteLimit = 22_369_920;
-
-async function boundedUploadBody(request: Request): Promise<Uint8Array> {
-  const declaredLength = request.headers.get("content-length");
-  if (declaredLength !== null && (!/^[0-9]+$/u.test(declaredLength) || Number(declaredLength) > importUploadRequestByteLimit)) throw new RangeError("upload body is too large");
-  if (request.body === null) throw new TypeError("upload body is missing");
-  const reader = request.body.getReader(); const chunks: Uint8Array[] = []; let total = 0;
-  try {
-    while (true) {
-      const next = await reader.read(); if (next.done) break;
-      total += next.value.byteLength;
-      // Drain an oversize chunked body without retaining it: cancelling a request stream
-      // makes some HTTP runtimes reset the connection before the frozen 400 response.
-      if (total > importUploadRequestByteLimit) continue;
-      chunks.push(next.value);
-    }
-  } finally { reader.releaseLock(); }
-  if (total > importUploadRequestByteLimit) throw new RangeError("upload body is too large");
-  const output = new Uint8Array(total); let offset = 0;
-  for (const chunk of chunks) { output.set(chunk, offset); offset += chunk.byteLength; }
-  return output;
-}
 
 function decodeUpload(bytes: Uint8Array): Record<string, unknown> {
-  const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  const body = JSON.parse(text) as unknown;
+  const body = JSON.parse(boundedRequestBodyText(bytes)) as unknown;
   if (body === null || typeof body !== "object" || Array.isArray(body)) throw new TypeError("upload body is invalid");
   return body as Record<string, unknown>;
 }
@@ -1655,7 +1941,7 @@ function decodeUpload(bytes: Uint8Array): Record<string, unknown> {
 export async function POST(request: Request) {
   try {
     if (request.headers.get("origin") !== kNexIdentity.publicOrigin.origin || !(request.headers.get("content-type") ?? "").startsWith("application/json")) throw new TypeError();
-    const body = decodeUpload(await boundedUploadBody(request));
+    const body = decodeUpload(await readBoundedRequestBody(request, { maxBytes: importUploadRequestByteLimit }));
     if (Object.keys(body).sort().join("\\0") !== "artifactId\\0bytesBase64\\0contentType" || typeof body.artifactId !== "string" || body.artifactId.length < 1 || body.artifactId.length > 128 || body.contentType !== "text/csv" || typeof body.bytesBase64 !== "string") throw new TypeError();
     if (body.bytesBase64.length > 22_369_628) throw new RangeError("upload bytes are too large");
     if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u.test(body.bytesBase64)) throw new TypeError();
@@ -1680,7 +1966,7 @@ export async function POST(request: Request) {
     const inserted = await pool.query<{ artifact_id: string }>("WITH current_authority AS ( SELECT a.application_id FROM k_nex_authorization_state a JOIN sales_current_authority_scopes s ON s.application_id=a.application_id AND s.environment=$3 AND s.principal_id=$4 AND s.state='active' AND s.mutation_allowed=true AND s.revision=$10 JOIN k_nex_extension_authorization_generations x ON x.application_id=a.application_id AND x.delivery_class='platform-plugin' AND x.extension_id='module.sales' AND x.state='current' AND x.authorization_generation=$11 AND x.runtime_generation_ids=$12::jsonb AND x.authorization_revision=$13 AND x.lifecycle_revision=$14 JOIN k_nex_role_assignments r ON r.application_id=a.application_id AND r.subject_kind='user' AND r.subject_id=$4 AND r.state='active' JOIN k_nex_role_permission_grants g ON g.application_id=r.application_id AND g.role_id=r.role_id AND g.permission_id='sales.imports.execute' AND g.owner_kind='extension' AND g.owner_delivery_class=x.delivery_class AND g.owner_extension_id=x.extension_id AND g.owner_generation=x.authorization_generation WHERE a.application_id=$2 AND a.authorization_revision=$8 AND a.lifecycle_revision=$9 AND NOT EXISTS (SELECT 1 FROM k_nex_permission_catalog_snapshots c WHERE c.application_id=a.application_id AND c.owner_kind='extension' AND c.owner_delivery_class=x.delivery_class AND c.owner_extension_id=x.extension_id AND c.owner_generation=x.authorization_generation AND c.state IN ('inactive-extension-disabled','inactive-extension-not-ready')) ORDER BY r.assignment_id,g.grant_id LIMIT 1 FOR SHARE OF a,s,r,g,x ) INSERT INTO sales_import_uploads(artifact_id,application_id,environment,actor_id,bytes,digest,byte_length,expires_at) SELECT $1,$2,$3,$4,$5,$6,$7,now()+interval '30 days' FROM current_authority RETURNING artifact_id", [body.artifactId, kNexIdentity.applicationId, kNexIdentity.environment, actorId, bytes, digest, bytes.length, generation.state.authorizationRevision, generation.state.lifecycleRevision, scopeRevision, activeGeneration.owner.generation, JSON.stringify(activeGeneration.runtimeGenerationIds), activeGeneration.authorizationRevision, activeGeneration.lifecycleRevision]);
     if (inserted.rows.length !== 1) return Response.json({ code: "ACTION_FORBIDDEN" }, { status: 403, headers: { "cache-control": "no-store" } });
     return Response.json({ uploadArtifactId: body.artifactId, sha256: digest, byteLength: bytes.length, contentType: "text/csv" }, { status: 201, headers: { "cache-control": "no-store" } });
-  } catch (error) { return Response.json({ code: error instanceof RangeError ? "IMPORT_LIMIT_EXCEEDED" : "IMPORT_UPLOAD_BINDING_INVALID" }, { status: 400, headers: { "cache-control": "no-store" } }); }
+  } catch (error) { return Response.json({ code: error instanceof RangeError || error instanceof KnexRequestBodyError && (error.refusal === "declared-length" || error.refusal === "too-large") ? "IMPORT_LIMIT_EXCEEDED" : "IMPORT_UPLOAD_BINDING_INVALID" }, { status: 400, headers: { "cache-control": "no-store" } }); }
 }
 `;
 }
@@ -1958,6 +2244,33 @@ export default async function WorkspaceLayout({ children }: Readonly<{ children:
 `;
 }
 
+function accountCredentialsRouteSource(): string {
+  return `import { changeCurrentUserCredentials, KnexCredentialError } from "../../../../../k-nex-authority.js";
+import { openWorkspaceJson, workspaceMutationError } from "../../../../../k-nex-workspace-page-http.js";
+
+export const dynamic = "force-dynamic";
+
+/**
+ * The only HTTP surface that moves a sign-in identity. It proves the current
+ * password rather than the session, because a stolen session is exactly what a
+ * credential change has to survive, and it answers with the refusal code alone
+ * so a caller cannot learn which half of a credential pair was wrong.
+ */
+export async function POST(request: Request) {
+  try {
+    const { payload, context, body } = await openWorkspaceJson(request, "account-credential-change");
+    return Response.json(await changeCurrentUserCredentials(payload, context, body), { headers: { "cache-control": "no-store" } });
+  } catch (error) {
+    if (!(error instanceof KnexCredentialError)) return workspaceMutationError(error);
+    const status = error.code === "CREDENTIAL_SESSION_REQUIRED" ? 401
+      : error.code === "CREDENTIAL_REAUTHENTICATION_REQUIRED" ? 403
+      : error.code === "CREDENTIAL_EMAIL_TAKEN" ? 409 : 400;
+    return Response.json({ code: error.code }, { status, headers: { "cache-control": "no-store" } });
+  }
+}
+`;
+}
+
 function inventoryRouteSource(): string {
   return `import { headers as getHeaders } from "next/headers";
 
@@ -1991,7 +2304,7 @@ export async function GET() {
   try {
     const payload = await bootKnexApplication("readiness");
     const readiness = await reconcileKnexReadiness(payload);
-    return Response.json({ schemaVersion: 1, status: "ready", applicationId: readiness.applicationId, authorizationRevision: readiness.authorizationRevision, lifecycleRevision: readiness.lifecycleRevision }, { headers: { "cache-control": "no-store" } });
+    return Response.json({ schemaVersion: 1, status: "ready", applicationId: readiness.applicationId, authorizationRevision: readiness.authorizationRevision, lifecycleRevision: readiness.lifecycleRevision, realtime: readiness.realtime ?? null }, { headers: { "cache-control": "no-store" } });
   } catch {
     return Response.json({ schemaVersion: 1, status: "not-ready" }, { status: 503, headers: { "cache-control": "no-store" } });
   }
@@ -2016,6 +2329,7 @@ import type { Payload } from "payload";
 
 import { kNexAuthority } from "./k-nex-authority.js";
 import { kNexIdentity } from "./k-nex-identity.js";
+import { currentKnexRealtimeBridgeHealth, realtimeBridgeDegradation } from "./k-nex-realtime.js";
 import { kNexSalesRegistry, kNexThemePresentation } from "./k-nex-registry.js";
 import { bootstrapApplicationTheme, resolveApplicationTheme } from "./k-nex-theme-runtime.js";
 import { migrations } from "./migrations/index.js";
@@ -2086,6 +2400,7 @@ const expectedRouteSources = Object.freeze([
   "src/app/(workspace)/workspace/pages/[pageId]/edit/page.tsx",
   "src/app/(workspace)/workspace/pages/[pageId]/page.tsx",
   "src/app/api/health/route.ts",
+  "src/app/api/k-nex/account/credentials/route.ts",
   "src/app/api/k-nex/inventory/route.ts",
   "src/app/api/k-nex/navigation/revision/route.ts",
   "src/app/api/k-nex/navigation/sidebar/route.ts",
@@ -2156,7 +2471,12 @@ function administrationOperatorCredential(name: string): Buffer {
   try { return readFileSync(requiredAdministrationOperatorConfiguration(name)); }
   catch { return fail("Administration operator credential is unreadable."); }
 }
-function assertAdministrationOperatorConfiguration(): void {
+/** The deployment-owned operator identity, read only after its configuration proved usable. */
+export function administrationOperatorIdentity(): string {
+  assertAdministrationOperatorConfiguration();
+  return requiredAdministrationOperatorConfiguration("K_NEX_ADMINISTRATION_OPERATOR_IDENTITY");
+}
+export function assertAdministrationOperatorConfiguration(): void {
   const port = Number(requiredAdministrationOperatorConfiguration("K_NEX_ADMINISTRATION_OPERATOR_PORT"));
   const hostname = requiredAdministrationOperatorConfiguration("K_NEX_ADMINISTRATION_OPERATOR_HOST");
   const certificate = administrationOperatorCredential("K_NEX_ADMINISTRATION_OPERATOR_CLIENT_CERT");
@@ -2388,7 +2708,14 @@ export async function reconcileKnexReadiness(payload: Payload) {
       generation.lifecycleRevision < kNexSalesRegistry.authorizationGeneration.lifecycleRevision || generation.lifecycleRevision > expected.lifecycleRevision
     )) fail("Sales authorization generation mismatch.");
   });
-  return Object.freeze({ applicationId: kNexIdentity.applicationId, authorizationRevision: state.authorizationRevision, lifecycleRevision: state.lifecycleRevision });
+  // A process that never started the invalidation bridge has none to be
+  // degraded; a process that did must still be carrying a live one, because a
+  // dead LISTEN silently stops feeding every realtime subscriber while the
+  // server keeps answering that it is ready.
+  const realtime = currentKnexRealtimeBridgeHealth();
+  const degraded = realtimeBridgeDegradation(realtime, Date.now());
+  if (degraded !== undefined) fail(degraded);
+  return Object.freeze({ applicationId: kNexIdentity.applicationId, authorizationRevision: state.authorizationRevision, lifecycleRevision: state.lifecycleRevision, realtime });
 }
 `;
 }
@@ -2424,6 +2751,43 @@ import { kNexSalesRegistry } from "./k-nex-registry.js";
 const channel = "k_nex_runtime_invalidation";
 type NotificationClient = { query(text: string): Promise<unknown>; on(event: "notification", listener: (message: Readonly<{ channel: string; payload?: string }>) => void): void; on(event: "error" | "end", listener: () => void): void; release(destroy?: boolean): void; };
 type OpaqueInvalidation = Readonly<{ topic: string; source: string; event: string; correlation: string; dedupe: string }>;
+type RealtimeBridgePool = { connect(): Promise<NotificationClient>; query(text: string, values?: readonly unknown[]): Promise<{ rows: readonly Record<string, unknown>[] }> };
+
+export type KnexRealtimeBridgeHealth = Readonly<{
+  state: "connected" | "reconnecting" | "closed";
+  /** Increments once per successful LISTEN, so a resubscribe is observable. */
+  connection: number;
+  /** Highest delivered Sales outbox row this bridge has published or resynchronised past. */
+  watermark: number;
+  synchronizedAt: number;
+  degradedSince: number | undefined;
+}>;
+
+const realtimeBridgeHealthKey = Symbol.for("k-nex.realtime.bridge-health");
+type RealtimeBridgeHealthHost = typeof globalThis & { [realtimeBridgeHealthKey]?: KnexRealtimeBridgeHealth };
+
+/**
+ * Published on the realm rather than this module, because the readiness route
+ * is compiled into the Next server graph while the bridge is started from the
+ * host entrypoint: same process, two module instances.
+ */
+export function currentKnexRealtimeBridgeHealth(): KnexRealtimeBridgeHealth | undefined {
+  return (globalThis as RealtimeBridgeHealthHost)[realtimeBridgeHealthKey];
+}
+
+const realtimeBridgeReconnectDelayMs = 250;
+const realtimeBridgeSynchronizeIntervalMs = 1_000;
+export const realtimeBridgeDegradedGraceMs = 5_000;
+export const realtimeBridgeSynchronizationStaleMs = 60_000;
+
+/** The exact predicate readiness uses, so a degraded bridge is refused the same way everywhere. */
+export function realtimeBridgeDegradation(health: KnexRealtimeBridgeHealth | undefined, now: number): string | undefined {
+  if (health === undefined) return undefined;
+  if (health.state === "closed") return "Sales realtime invalidation bridge is closed.";
+  if (health.state === "reconnecting" && now - (health.degradedSince ?? now) > realtimeBridgeDegradedGraceMs) return "Sales realtime invalidation bridge is not listening.";
+  if (now - health.synchronizedAt > realtimeBridgeSynchronizationStaleMs) return "Sales realtime invalidation bridge has not synchronised.";
+  return undefined;
+}
 
 function exactObject(value: unknown, keys: readonly string[]): Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value) || Object.keys(value).sort().join("\\0") !== [...keys].sort().join("\\0")) throw new TypeError("Realtime invalidation is invalid.");
@@ -2518,46 +2882,157 @@ export async function startKnexRealtime(payload: Payload, httpServer: Server) {
       return !deadline.signal.aborted && user !== null && typeof user === "object" && "id" in user && "collection" in user && user.collection === "users" && String(user.id) === session.actor.id;
     }
   });
-  const pool = payload.db.pool as unknown as { connect(): Promise<NotificationClient> };
-  let listener: NotificationClient | undefined;
-  try { listener = await pool.connect();
-  const activeListener = listener;
+  const pool = payload.db.pool as unknown as RealtimeBridgePool;
   let closed = false;
+  let listener: NotificationClient | undefined;
+  let connecting: Promise<void> | undefined;
+  let synchronizing: Promise<void> | undefined;
+  let closing: Promise<void> | undefined;
+  let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+  let synchronizationQueued = false;
+  let state: KnexRealtimeBridgeHealth["state"] = "reconnecting";
+  let connection = 0;
+  let watermark = 0;
+  let synchronizedAt = Date.now();
+  let degradedSince: number | undefined = Date.now();
+  // Only a reconnect can have lost notifications. No subscriber predates the
+  // first LISTEN, so the position this bridge starts from is not a gap.
+  let missedNotifications = false;
   const publications = new Set<Promise<void>>();
+  const releasedClients = new WeakSet<object>();
+  const recordHealth = (): void => {
+    (globalThis as RealtimeBridgeHealthHost)[realtimeBridgeHealthKey] = Object.freeze({ state, connection, watermark, synchronizedAt, degradedSince });
+  };
+  recordHealth();
   const publish = (event: OpaqueInvalidation): void => {
     const operation = gateway.publish({ channel: { topicId: event.topic, params: {} }, correlationId: event.correlation, message: event, messageClass: "reconstructible-invalidation" })
       .then(() => undefined, () => undefined).finally(() => publications.delete(operation));
     publications.add(operation);
   };
-  activeListener.on("notification", (notification) => {
-    if (closed || notification.channel !== channel || notification.payload === undefined) return;
-    try {
-      const envelope = exactObject(JSON.parse(notification.payload), ["applicationId", "environment", "invalidation", "type"]);
-      if (envelope.applicationId !== kNexIdentity.applicationId || envelope.environment !== kNexIdentity.environment || envelope.type !== "realtime") return;
-      publish(opaque(envelope.invalidation, String((envelope.invalidation as Record<string, unknown> | null)?.topic), String((envelope.invalidation as Record<string, unknown> | null)?.source), String((envelope.invalidation as Record<string, unknown> | null)?.event)));
-    } catch { /* Untrusted notifications never alter realtime state. */ }
-  });
-  activeListener.on("error", () => { /* Polling remains the authoritative fallback after a bridge fault. */ });
-  activeListener.on("end", () => { /* Pool shutdown owns final listener disposal. */ });
-  await activeListener.query("LISTEN k_nex_runtime_invalidation");
-  return Object.freeze({
-    gateway,
-    async close(): Promise<void> {
-      if (closed) return;
-      closed = true;
-      await gateway.close();
-      await Promise.allSettled([...pendingAuthorizations]);
-      await activeListener.query("UNLISTEN k_nex_runtime_invalidation").catch(() => undefined);
-      activeListener.release(true);
-      await Promise.allSettled([...publications]);
-      credentialHeaders.clear();
+  const release = (notificationClient: NotificationClient): void => {
+    if (releasedClients.has(notificationClient)) return;
+    releasedClients.add(notificationClient);
+    notificationClient.release(true);
+    if (listener === notificationClient) listener = undefined;
+  };
+  /**
+   * A lost LISTEN loses every notification sent while it was gone, and the
+   * subscribers it feeds have no way to know that. The authoritative position is
+   * read from the database rather than inferred from the bridge's own history.
+   * A position that moved across a gap is the evidence that notifications were
+   * missed, and every topic is invalidated once so subscribers converge; a
+   * position that moved while the bridge was listening was already delivered.
+   */
+  const synchronize = async (): Promise<void> => {
+    const result = await pool.query("select coalesce(max(id),0)::text as watermark from k_nex_outbox where application_id=$1 and plugin_id='module.sales' and status='delivered'", [kNexIdentity.applicationId]);
+    const authoritative = Number(result.rows[0]?.watermark);
+    if (!Number.isSafeInteger(authoritative) || authoritative < 0) throw new TypeError("Realtime invalidation watermark is invalid.");
+    if (authoritative > watermark) {
+      const gap = missedNotifications;
+      watermark = authoritative;
+      missedNotifications = false;
+      if (gap) {
+        const marker = "realtime-resynchronisation-" + String(watermark);
+        for (const descriptor of salesRealtimeTopicDescriptors) publish(Object.freeze({ topic: descriptor.id, source: descriptor.sourceId, event: descriptor.eventId, correlation: marker, dedupe: marker }));
+      }
     }
-  });
+    synchronizedAt = Date.now();
+    recordHealth();
+  };
+  const synchronizeBackground = (): void => {
+    if (closed) return;
+    if (synchronizing !== undefined) { synchronizationQueued = true; return; }
+    const operation = Promise.resolve().then(synchronize).then(() => undefined, () => undefined);
+    synchronizing = operation;
+    void operation.then(() => {
+      if (synchronizing === operation) synchronizing = undefined;
+      if (synchronizationQueued && !closed) { synchronizationQueued = false; synchronizeBackground(); }
+    });
+  };
+  const scheduleReconnect = (): void => {
+    if (closed) return;
+    state = "reconnecting";
+    missedNotifications = true;
+    degradedSince ??= Date.now();
+    recordHealth();
+    reconnectTimer = setTimeout(() => { if (!closed) { connecting = connect(false); void connecting.catch(() => undefined); } }, realtimeBridgeReconnectDelayMs);
+  };
+  const connect = async (strict: boolean): Promise<void> => {
+    if (closed) return;
+    let notificationClient: NotificationClient | undefined;
+    try {
+      notificationClient = await pool.connect();
+      listener = notificationClient;
+      if (closed) { release(notificationClient); return; }
+      let finished = false;
+      const reconnect = (): void => {
+        if (finished || closed) return;
+        finished = true;
+        if (notificationClient !== undefined) release(notificationClient);
+        scheduleReconnect();
+      };
+      notificationClient.on("notification", (notification) => {
+        if (closed || notification.channel !== channel || notification.payload === undefined) return;
+        try {
+          const envelope = exactObject(JSON.parse(notification.payload), ["applicationId", "environment", "invalidation", "type"]);
+          if (envelope.applicationId !== kNexIdentity.applicationId || envelope.environment !== kNexIdentity.environment || envelope.type !== "realtime") return;
+          publish(opaque(envelope.invalidation, String((envelope.invalidation as Record<string, unknown> | null)?.topic), String((envelope.invalidation as Record<string, unknown> | null)?.source), String((envelope.invalidation as Record<string, unknown> | null)?.event)));
+        } catch { /* Untrusted notifications never alter realtime state. */ }
+        synchronizeBackground();
+      });
+      notificationClient.on("error", reconnect);
+      notificationClient.on("end", reconnect);
+      await notificationClient.query("LISTEN k_nex_runtime_invalidation");
+      if (closed) { await notificationClient.query("UNLISTEN k_nex_runtime_invalidation").catch(() => undefined); release(notificationClient); return; }
+      connection += 1;
+      state = "connected";
+      degradedSince = undefined;
+      recordHealth();
+      synchronizeBackground();
+    } catch (error) {
+      if (notificationClient !== undefined) release(notificationClient);
+      if (strict) throw error;
+      scheduleReconnect();
+    }
+  };
+  const synchronizeTimer = setInterval(synchronizeBackground, realtimeBridgeSynchronizeIntervalMs);
+  try {
+    connecting = connect(true);
+    await connecting;
   } catch (error) {
-    listener?.release(true);
+    clearInterval(synchronizeTimer);
+    state = "closed";
+    recordHealth();
     await gateway.close().catch(() => undefined);
     throw error;
   }
+  return Object.freeze({
+    gateway,
+    async close(): Promise<void> {
+      if (closing !== undefined) return closing;
+      closed = true;
+      synchronizationQueued = false;
+      state = "closed";
+      degradedSince ??= Date.now();
+      recordHealth();
+      clearInterval(synchronizeTimer);
+      if (reconnectTimer !== undefined) clearTimeout(reconnectTimer);
+      closing = (async () => {
+        await connecting?.catch(() => undefined);
+        await gateway.close();
+        await Promise.allSettled([...pendingAuthorizations]);
+        const active = listener;
+        if (active !== undefined) {
+          await active.query("UNLISTEN k_nex_runtime_invalidation").catch(() => undefined);
+          release(active);
+        }
+        await Promise.allSettled([...publications]);
+        await synchronizing;
+        credentialHeaders.clear();
+      })();
+      return closing;
+    }
+  });
 }
 `;
 }
@@ -2780,6 +3255,7 @@ export function applicationAuthFiles(options: ApplicationAuthFilesOptions): Read
     "src/app/(workspace)/sales/imports/page.tsx": salesRoutePageSource("sales.route.imports", "sales/imports"),
     "src/app/(workspace)/sales/exports/page.tsx": salesRoutePageSource("sales.route.exports", "sales/exports"),
     "src/app/(workspace)/sales/reports/page.tsx": salesRoutePageSource("sales.route.reports", "sales/reports"),
+    "src/app/api/k-nex/account/credentials/route.ts": accountCredentialsRouteSource(),
     "src/app/api/k-nex/inventory/route.ts": inventoryRouteSource(),
     "src/app/api/k-nex/navigation/revision/route.ts": navigationRevisionRouteSource(),
     "src/app/api/k-nex/navigation/sidebar/route.ts": navigationSidebarPreferenceRouteSource(),

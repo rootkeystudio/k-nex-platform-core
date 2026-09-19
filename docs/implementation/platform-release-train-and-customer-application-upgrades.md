@@ -3,7 +3,7 @@
 - **Status:** selected design plan; implementation evidence not yet claimed
 - **Architecture decision:** [`ADR-0028`](../adr/0028-coordinated-platform-release-train-and-customer-application-upgrades.md)
 - **Entry:** Gate 12 accepted runnable customer application and external administration operator
-- **First required product consumer:** Phase 13 P13.9 upgrade/backup/restore evidence
+- **First required product consumer:** Phase 13 P13.9, which consumes the preparation half of this plan only; Phase 13 delivers attested upgrade preparation and not a customer-executed upgrade
 - **Purpose:** let an administrator move an existing generated K-Nex application from one supported product release to another through one coherent core/plugin train, deterministic repository regeneration, reviewed customer migrations, protected deployment, and final-state backup
 - **Does not block:** Phase 13 CRM product work before P13.9, provided new migrations and package contracts remain compatible with this plan
 - **Out of scope:** shared-database SaaS fleet mutation, arbitrary dependency-range resolution, production package installation in the web process, automatic customer-code rewriting, automatic destructive restore, or a public marketplace certification program
@@ -1044,7 +1044,7 @@ The evidence must include real PostgreSQL, packed customer repository, exact gen
 
 ## 18. Gate 13 integration
 
-Phase 13 P13.9 remains the first product requirement for this plan. Its “version upgrade” proof should be interpreted as:
+Phase 13 P13.9 remains the first product requirement for this plan, but Gate 13 makes no product-upgrade claim. Phase 13 delivers attested upgrade preparation only:
 
 ```text
 accepted Phase 12 product release
@@ -1052,11 +1052,12 @@ accepted Phase 12 product release
 → coordinated core + Sales target train
 → existing generated repository reconciliation
 → representative CRM migration
-→ protected deployment
-→ post-upgrade backup and restore evidence
+→ compiled, verified, attested transition
 ```
 
-A same-platform neutral plugin fixture is useful unit evidence but is not sufficient for the Gate 13 product-upgrade claim.
+Protected deployment, post-upgrade backup, and restore evidence for an executed transition belong to the following phase, with the rest of U1–U8. The five capabilities excluded from the Phase 13 outcome are stated once, in the P13.9 section of the [Phase 13 plan](./phase-13-crm-first-productization.md).
+
+A same-platform neutral plugin fixture is useful unit evidence but is not sufficient for a product-upgrade claim in any phase that later makes one.
 
 P13.1–P13.8 may proceed while U1–U4 are prepared, provided CRM migrations:
 

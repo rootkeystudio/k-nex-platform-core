@@ -3,6 +3,7 @@
 - **Status:** selected following-phase plan; implementation is frozen until Gate 12 is accepted
 - **Entry:** Phase 12 runnable customer application, workspace shell, custom-page builder, page ACL, and Sales Kanban proof accepted
 - **P13.9 release/upgrade authority:** [ADR-0028](../adr/0028-coordinated-platform-release-train-and-customer-application-upgrades.md) and its [implementation plan](./platform-release-train-and-customer-application-upgrades.md)
+- **Outcome:** CRM product, generated application, and attested upgrade preparation; the five capabilities excluded from that outcome are named once, in P13.9
 - **Purpose:** turn `module.sales` from a platform reference into a coherent daily-use CRM product without opening multiple verticals
 - **Product strategy:** CRM first; prove one usable product on the accepted platform before public CMS breadth, logistics, restaurant, inventory, budgeting, commerce, or marketplace expansion
 - **Persisted identity:** keep `module.sales`; do not rename the installed domain merely to signal productization
@@ -25,10 +26,12 @@ import/export controlled data
 receive reminders/notifications
 connect bounded email/calendar adapters
 run reports and forecasts
-survive application upgrade, backup, restore, and operator restart
+survive backup, clean restore, and operator restart of the generated web and worker
 ```
 
 The phase is successful only if the daily workflow is coherent. Adding many disconnected collections is not productization.
+
+Phase 13 delivers the CRM product, the generated application that runs it, and attested upgrade preparation. Attested upgrade preparation means the customer repository is compiled, verified, and attested for the `1.0.0 → 1.1.0` transition; a customer-executed upgrade is not delivered. Phase 13 does not deliver customer upgrade execution, restartable restore authority, or maintenance promotion. The exact excluded capabilities are named once, in P13.9 below, which is the normative source for them. No other section of this plan, no result document, and no status record may state a wider outcome.
 
 ## 2. Target user and initial workflow
 
@@ -302,6 +305,8 @@ data export
 support/runbook exercise
 ```
 
+The upgrade evidence in that list is the predecessor data migration from the accepted Phase 12 Sales state plus the attested release preparation named in P13.9. It is not a customer-executed release promotion, and the backup and restore drill runs against the fixture lineage rather than a database created by the generated 1.0 application.
+
 The result must state whether evidence came from a controlled fixture, internal dogfood, or a real external pilot. A fixture is not labeled as a customer.
 
 Production claims require explicit SLO/RTO/RPO targets and observed evidence; deterministic test budgets alone are not production capacity.
@@ -457,7 +462,10 @@ Acceptance:
 Not in P13.9, deferred to the following phase. P13.9 claims the compiled,
 attested upgrade preparation and a physical backup/restore/restart fixture. It
 does not claim a supervised production upgrade, and no P13.9 proof may be read
-as one:
+as one. These five capabilities are the complete Phase 13 exclusion set. This
+list is normative: `status.md`, the Phase 13 result, and ADR-0028 and ADR-0029
+refer to it rather than restating it, and nothing outside it is excluded from
+the Phase 13 outcome.
 
 - **a shipped upgrade/deployment coordinator.** DeploymentSupervisor, the
   trusted build authority, backup orchestration, the migration adapter, gateway
@@ -561,11 +569,13 @@ import/export
 communication adapter
 report
 backup/restore
-version upgrade
+predecessor data migration and attested release preparation
 worker/realtime recovery
 ```
 
 One exact-head cumulative Gate 0–13 run and one declared pilot/dogfood evidence record are required before a limited beta claim.
+
+The closeout records the outcome stated in section 1 and no more. It must not describe the release preparation as an executed upgrade, and it must carry the P13.9 exclusion set by reference.
 
 ## 12. Required attacks
 
@@ -600,7 +610,7 @@ custom dashboard used to expand CRM data authority
 5. Dashboard/page access can widen CRM data authority.
 6. Current Sales data cannot be upgraded without silent loss or a declared maintenance procedure.
 7. Import/retry can create duplicate logical records.
-8. A limited beta cannot be operated, restored, and upgraded through the accepted customer-application boundary.
+8. A limited beta cannot be operated and restored through the accepted customer-application boundary, or its next release cannot be compiled, verified, and attested for upgrade.
 9. The phase starts a second vertical or public CMS before CRM evidence closes.
 
 ## 14. Gate decision
