@@ -173,11 +173,14 @@ const providerReceiptByteLimit = 4_096;
  * A receipt arrives from a process this host does not run, so it is read on the
  * same terms as inbound ingress rather than decoded whole.  The 10s call abort
  * bounds time, but a chunked or length-less response is only bounded in bytes
- * if the cap is applied while the body streams, so the shared ingress reader
- * does it here too: one cap, an idle timeout, a total deadline, cancellation,
- * and nothing retained once the cap is crossed.
+ * if the cap is applied while the body streams, so the shared reader does it
+ * here too: one cap, an idle timeout, a total deadline, and nothing retained
+ * once the cap is crossed.  It reads in "cancel" mode because there is no
+ * client connection to hold a refusal open on: once the cap is crossed the
+ * receipt is already refused, and draining the rest would only let a provider
+ * this host does not run decide how long a worker keeps reading.
  */
-const providerReceiptReadLimits = Object.freeze({ maxBytes: providerReceiptByteLimit, idleTimeoutMs: 1_000, deadlineMs: 5_000 });
+const providerReceiptReadLimits = Object.freeze({ maxBytes: providerReceiptByteLimit, idleTimeoutMs: 1_000, deadlineMs: 5_000, overLimit: "cancel" as const });
 async function boundedJson(response: Response): Promise<unknown> {
   let bytes: Uint8Array;
   // An oversize, over-declared, or absent body breaks the receipt contract and

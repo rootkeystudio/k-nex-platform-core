@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { request as httpRequest } from "node:http";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -90,6 +90,63 @@ function inProcessProbe(application, environment, script, extraEnvironment = {})
   return line.startsWith("PROBE_OK ") ? { ok: true, value: JSON.parse(line.slice("PROBE_OK ".length)) } : { ok: false, code: line.slice("PROBE_ERR ".length) };
 }
 
+/**
+ * Runs a probe alongside the test instead of ahead of it, so two credential
+ * journeys can be in flight at once and the test decides when each one moves.
+ */
+function startProbe(application, environment, script, extraEnvironment = {}) {
+  const child = spawn(process.execPath, ["--input-type=module", "-e", script], { cwd: application, env: { ...environment, ...extraEnvironment }, stdio: ["ignore", "pipe", "pipe"] });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.setEncoding("utf8").on("data", (chunk) => { stdout += chunk; });
+  child.stderr.setEncoding("utf8").on("data", (chunk) => { stderr += chunk; });
+  const exited = new Promise((settle) => child.on("close", (code) => settle(code)));
+  return {
+    output: () => stdout,
+    async result() {
+      const code = await exited;
+      assert.equal(code, 0, `${stdout}\n${stderr}`);
+      // The hold marker is a PROBE_ line too, so only the outcome counts here.
+      const line = stdout.split("\n").find((candidate) => candidate.startsWith("PROBE_OK ") || candidate.startsWith("PROBE_ERR "));
+      assert.ok(line !== undefined, `${stdout}\n${stderr}`);
+      return line.startsWith("PROBE_OK ") ? { ok: true, value: JSON.parse(line.slice("PROBE_OK ".length)) } : { ok: false, code: line.slice("PROBE_ERR ".length) };
+    }
+  };
+}
+
+/**
+ * Holds one credential journey at a named point until the test releases it, so
+ * a second journey can be proved to be waiting on the first rather than merely
+ * observed to have lost a race. Nothing generated is instrumented: both holds
+ * wrap the Payload surface the journey already uses, one before it can take the
+ * credential lock and one after it has.
+ */
+const credentialRaceScript = `
+import { existsSync } from "node:fs";
+import { bootKnexApplication } from "./dist/boot.js";
+import { changeCurrentUserCredentials, kNexRequestContext, shutdownKnexApplication } from "./dist/k-nex-authority.js";
+const payload = await bootKnexApplication("credential-change");
+const holdAt = process.env.PROBE_HOLD_AT;
+const release = process.env.PROBE_RELEASE_FILE;
+const hold = async (at) => {
+  if (holdAt !== at || release === undefined) return;
+  console.log("PROBE_HELD " + at);
+  const deadline = Date.now() + 180_000;
+  while (!existsSync(release) && Date.now() < deadline) await new Promise((settle) => setTimeout(settle, 50));
+};
+const begin = payload.db.beginTransaction.bind(payload.db);
+payload.db.beginTransaction = async (...args) => { await hold("transaction-begin"); return begin(...args); };
+const update = payload.update.bind(payload);
+payload.update = async (args) => { await hold("credential-write"); return update(args); };
+try {
+  const headers = new Headers({ cookie: process.env.PROBE_COOKIE });
+  const result = await changeCurrentUserCredentials(payload, kNexRequestContext(headers, "credential-change"), JSON.parse(process.env.PROBE_INPUT));
+  console.log("PROBE_OK " + JSON.stringify(result));
+} catch (error) { console.log("PROBE_ERR " + (error?.code ?? error?.message ?? String(error))); }
+finally { await shutdownKnexApplication(payload); }
+process.exit(0);
+`;
+
 const credentialChangeScript = `
 import { bootKnexApplication } from "./dist/boot.js";
 import { changeCurrentUserCredentials, kNexRequestContext, shutdownKnexApplication } from "./dist/k-nex-authority.js";
@@ -117,9 +174,9 @@ const die = (at) => { if (boundary === at) { console.log("PROBE_DIED " + at); pr
 function instrument(payload) {
   const update = payload.update.bind(payload);
   const commit = payload.db.commitTransaction.bind(payload.db);
-  // Reauthentication logs in, and a login commits a transaction of its own. The
-  // credential write is the journey's only payload.update, so it is what arms
-  // the commit boundaries.
+  // The credential write is the journey's only payload.update, so it is what
+  // arms the commit boundaries: the password proof reaches the database through
+  // Payload's own login, which never takes this path.
   let writing = false;
   payload.update = async (args) => {
     writing = true;
@@ -407,6 +464,97 @@ test("P13.B generated ingress readers are bounded, the realtime bridge recovers,
       assert.notEqual(replayed.status, 0, "A consumed recovery grant must not be replayable.");
       assert.notEqual((await login(origin, personas.owner.email, "replayed-recovery-password-1")).status, 200);
       assert.equal((await pool.query("select count(*)::int count from k_nex_owner_bootstrap_tokens where consumed_at is null")).rows[0].count, 0);
+
+      // -------- one credential boundary, under contention --------
+      // Sessions are rows, so "no session was left behind" is a count rather
+      // than a guess about what a discarded login token did.
+      assert.equal((await pool.query("select count(*)::int count from information_schema.tables where table_schema='public' and table_name='users_sessions'")).rows[0].count, 1,
+        "The generated users collection must keep its sessions in users_sessions.");
+      const ownerSessions = async () => (await pool.query("select count(*)::int count from users_sessions where _parent_id=$1", [owner.userId])).rows[0].count;
+      let currentPassword = "operator-recovered-password-1";
+
+      // A correct password whose change is then refused must leave nothing
+      // durable behind. The proof used to be a login of its own, so its session
+      // survived the transaction that refused the change it was proving.
+      const refusalCookie = await login(origin, personas.owner.email, currentPassword);
+      assert.equal(refusalCookie.status, 200);
+      const sessionsBeforeRefusal = await ownerSessions();
+      assert.ok(sessionsBeforeRefusal >= 1, `The owner must hold a live session to count: ${sessionsBeforeRefusal}`);
+      const takenEmail = inProcessProbe(application, environment, credentialChangeScript, {
+        PROBE_COOKIE: refusalCookie.cookie,
+        PROBE_INPUT: JSON.stringify({ currentPassword, email: personas.manager.email })
+      });
+      assert.deepEqual(takenEmail, { ok: false, code: "CREDENTIAL_EMAIL_TAKEN" });
+      assert.equal(await ownerSessions(), sessionsBeforeRefusal, "A correct password refused by a taken email must leave the durable session count byte-identical.");
+
+      boundaryProbe(application, environment, credentialBoundaryScript, "after-write", {
+        PROBE_COOKIE: refusalCookie.cookie,
+        PROBE_INPUT: JSON.stringify({ currentPassword, password: "rolled-back-password-1" })
+      });
+      assert.equal(await ownerSessions(), sessionsBeforeRefusal, "A rolled-back credential change must leave the durable session count byte-identical.");
+      assert.notEqual((await login(origin, personas.owner.email, "rolled-back-password-1")).status, 200);
+
+      // Two self-service changes presenting the same old password. The first
+      // holds the boundary open; the second has to prove its password against
+      // what that boundary leaves behind, not against what it read before.
+      const firstContender = await login(origin, personas.owner.email, currentPassword);
+      const secondContender = await login(origin, personas.owner.email, currentPassword);
+      assert.equal(firstContender.status, 200);
+      assert.equal(secondContender.status, 200);
+      const contenderRelease = resolve(directory, "contender.release");
+      const holding = startProbe(application, environment, credentialRaceScript, {
+        PROBE_COOKIE: firstContender.cookie, PROBE_HOLD_AT: "credential-write", PROBE_RELEASE_FILE: contenderRelease,
+        PROBE_INPUT: JSON.stringify({ currentPassword, password: "contender-one-password-1" })
+      });
+      await eventually(() => holding.output().includes("PROBE_HELD credential-write") || undefined,
+        "The first contender never reached its credential write.", 180_000);
+      const challenging = startProbe(application, environment, credentialRaceScript, {
+        PROBE_COOKIE: secondContender.cookie,
+        PROBE_INPUT: JSON.stringify({ currentPassword, password: "contender-two-password-1" })
+      });
+      // The second contender is not queued behind the row it wants to write: it
+      // is queued behind the lock the first one took before reading anything.
+      await eventually(async () => (await pool.query("select count(*)::int count from pg_stat_activity where datname=current_database() and wait_event_type='Lock' and wait_event='advisory'")).rows[0].count >= 1 || undefined,
+        "The second credential change never queued behind the credential lock.", 180_000);
+      assert.equal(await ownerSessions(), sessionsBeforeRefusal + 2, "An uncommitted credential boundary must not publish the session its proof opened.");
+      writeFileSync(contenderRelease, "release", { encoding: "utf8" });
+      const firstResult = await holding.result();
+      const secondResult = await challenging.result();
+      assert.equal(firstResult.ok, true, JSON.stringify(firstResult));
+      assert.deepEqual(secondResult, { ok: false, code: "CREDENTIAL_REAUTHENTICATION_REQUIRED" },
+        "A password proved before a competing change must not still be spendable after it.");
+      assert.notEqual((await login(origin, personas.owner.email, "contender-two-password-1")).status, 200, "Only one of two contenders may commit.");
+      assert.notEqual((await login(origin, personas.owner.email, currentPassword)).status, 200);
+      currentPassword = "contender-one-password-1";
+      assert.equal((await login(origin, personas.owner.email, currentPassword)).status, 200);
+      assert.equal(await credentialAudits(), 3, "Exactly one of two contenders may leave a credential audit.");
+
+      // An operator recovery racing a self-service change that already holds
+      // the old password: recovery must not be undone by that older proof.
+      const raceTokenFile = resolve(directory, "race-recovery.token");
+      const raceIssued = operatorProbe(application, environment, ["knex:issue-bootstrap-token", "--recovery", "--output", raceTokenFile]);
+      assert.equal(raceIssued.status, 0, `${raceIssued.stdout}\n${raceIssued.stderr}`);
+      const racingCookie = await login(origin, personas.owner.email, currentPassword);
+      assert.equal(racingCookie.status, 200);
+      const staleRelease = resolve(directory, "stale.release");
+      const stalest = startProbe(application, environment, credentialRaceScript, {
+        PROBE_COOKIE: racingCookie.cookie, PROBE_HOLD_AT: "transaction-begin", PROBE_RELEASE_FILE: staleRelease,
+        PROBE_INPUT: JSON.stringify({ currentPassword, password: "stale-proof-password-1" })
+      });
+      // Held before it can open a transaction, which is exactly where a journey
+      // that proved the password first would already be holding one.
+      await eventually(() => stalest.output().includes("PROBE_HELD transaction-begin") || undefined,
+        "The racing credential change never started.", 180_000);
+      const raced = operatorProbe(application, environment,
+        ["knex:bootstrap-owner", "--recover-credential", "--token-file", raceTokenFile],
+        { K_NEX_OWNER_EMAIL: personas.owner.email, K_NEX_OWNER_PASSWORD: "raced-recovery-password-1" });
+      assert.equal(raced.status, 0, `${raced.stdout}\n${raced.stderr}`);
+      writeFileSync(staleRelease, "release", { encoding: "utf8" });
+      assert.deepEqual(await stalest.result(), { ok: false, code: "CREDENTIAL_REAUTHENTICATION_REQUIRED" },
+        "An operator recovery must not be overwritten by a password proved before it ran.");
+      assert.equal((await login(origin, personas.owner.email, "raced-recovery-password-1")).status, 200, "The recovered credential must be the one that survives.");
+      assert.notEqual((await login(origin, personas.owner.email, "stale-proof-password-1")).status, 200);
+      assert.equal(await credentialAudits(), 3, "A refused stale proof must not leave a credential audit.");
     } finally { rmSync(directory, { recursive: true, force: true }); }
   });
 });

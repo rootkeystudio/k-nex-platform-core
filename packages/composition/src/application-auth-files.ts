@@ -148,8 +148,14 @@ async function readBoundedChunk(reader: ReadableStreamDefaultReader<Uint8Array>,
  * bytes but never time lets one unauthenticated client hold a worker for as
  * long as it keeps the socket open: a body that trickles, a body that never
  * ends, and an oversize body drained to EOF all cost nothing to send.
+ *
+ * "overLimit" is the one thing an inbound request and an outbound response do
+ * not share. A server still has to write its refusal on the client's
+ * connection, so an inbound body is drained; a response to a call this host
+ * made has no such connection to preserve, so it is cut off at the chunk that
+ * crosses the cap instead of being read and discarded to EOF or the deadline.
  */
-export async function readBoundedRequestBody(request: BoundedBodyRequest, limits: Readonly<{ maxBytes: number; idleTimeoutMs?: number; deadlineMs?: number }>): Promise<Uint8Array<ArrayBuffer>> {
+export async function readBoundedRequestBody(request: BoundedBodyRequest, limits: Readonly<{ maxBytes: number; idleTimeoutMs?: number; deadlineMs?: number; overLimit?: "drain" | "cancel" }>): Promise<Uint8Array<ArrayBuffer>> {
   const declaredLength = request.headers.get("content-length");
   if (declaredLength !== null && (!/^[0-9]+$/u.test(declaredLength) || Number(declaredLength) > limits.maxBytes)) throw new KnexRequestBodyError("declared-length");
   const body = request.body;
@@ -172,11 +178,16 @@ export async function readBoundedRequestBody(request: BoundedBodyRequest, limits
       if (next.done) break;
       total += next.value.byteLength;
       if (total > limits.maxBytes) {
-        // An oversize body is drained rather than reset, because cancelling a
-        // request stream makes some HTTP runtimes destroy the connection before
-        // the refusal is written. The drain answers to the same idle timeout and
-        // deadline as the read it replaces, and retains nothing.
         if (!oversize) { oversize = true; chunks.length = 0; }
+        // Nothing is owed to the far end of a response, and the answer is
+        // already known, so the stream is reset on the crossing chunk rather
+        // than given the rest of the deadline to keep this worker reading.
+        if (limits.overLimit === "cancel") throw new KnexRequestBodyError("too-large");
+        // An oversize request body is drained rather than reset, because
+        // cancelling a request stream makes some HTTP runtimes destroy the
+        // connection before the refusal is written. The drain answers to the
+        // same idle timeout and deadline as the read it replaces, and retains
+        // nothing.
         continue;
       }
       chunks.push(next.value);
@@ -345,6 +356,13 @@ export function kNexRequestContext(headers: Headers, boundary: string): KnexRequ
   return Object.freeze({ headers, correlationId: \`\${boundary}-\${randomUUID()}\` });
 }
 
+/**
+ * Step-up reauthentication for journeys that change something other than the
+ * sign-in identity. It logs in on a transaction of its own, so it is not the
+ * authority a credential change can use: that proof has to live and die with
+ * the write it authorizes, which is why the credential journey proves the
+ * password inside its own transaction instead of calling this.
+ */
 export async function reauthenticateCurrentUser(payload: Payload, context: KnexRequestContext, password: string): Promise<boolean> {
   if (typeof password !== "string" || password.length < 1 || password.length > 1024) return false;
   try {
@@ -399,6 +417,8 @@ type CredentialChangeIntent = Readonly<{
   actor: Readonly<{ kind: "user" | "service"; id: string }>;
   correlationId: string;
   grant?: KnexCredentialRecoveryGrant;
+  /** Self-service only, and proved inside the transaction rather than ahead of it. */
+  currentPassword?: string;
 }>;
 
 function credentialAuditRecord(state: CredentialAuthorizationState, intent: CredentialChangeIntent) {
@@ -421,12 +441,53 @@ function affectedRows(result: unknown): number {
   return Number(count);
 }
 
+// PostgreSQL advisory locks are two integers in one space shared by the whole
+// database, so credential changes claim a fixed half of their own and hash the
+// principal into the other. A hash collision costs two unrelated credential
+// changes their parallelism and nothing else, because the lock only orders
+// them.
+const credentialLockNamespace = 1_802_658_915;
+function credentialLockKey(userId: string): number {
+  return createHash("sha256").update(canonicalJson([kNexIdentity.applicationId, kNexIdentity.environment, userId])).digest().readInt32BE(0);
+}
+
 /**
- * The grant, the credential, the session revocation and the audit are one
- * PostgreSQL transaction. A credential that has moved therefore always carries
- * exactly one audit, and a failure anywhere leaves the previous sign-in
- * identity, the live sessions and an unspent recovery grant exactly as they
- * were: the outcome the caller reports is the outcome the database holds.
+ * One request per Payload call on this transaction. Payload mutates whatever
+ * request it is handed, and a failed login rolls that transaction back and
+ * strips the id from the request it was given, so the request the credential
+ * write depends on is never the one a read or a proof borrowed.
+ */
+function credentialRequest(payload: Payload, transactionId: number | string): PayloadRequest {
+  return { payload, transactionID: transactionId } as unknown as PayloadRequest;
+}
+
+/**
+ * Possession is proved on the credential transaction, so the session Payload
+ * opens to check a password belongs to the change that password authorizes:
+ * it is cleared by the same write on the way through and rolled back with
+ * everything else on any other outcome. Payload stays the password authority;
+ * what moves is when its work becomes durable.
+ */
+async function provenCredentialPossession(payload: Payload, transactionId: number | string, userId: string, email: string, password: string): Promise<boolean> {
+  try {
+    const login = await payload.login({ collection: "users", data: { email, password }, overrideAccess: false, req: credentialRequest(payload, transactionId) });
+    return login.user !== null && login.user !== undefined && String(login.user.id) === userId;
+  } catch { return false; }
+}
+
+async function credentialEmailIsFree(payload: Payload, request: PayloadRequest, email: string | undefined, userId: string): Promise<boolean> {
+  if (email === undefined) return true;
+  const existing = await payload.find({ collection: "users", overrideAccess: true, limit: 2, where: { email: { equals: email } }, req: request });
+  return existing.docs.every((document) => String((document as { id: unknown }).id) === userId);
+}
+
+/**
+ * The lock, the proof of the current password, the grant, the credential, the
+ * session revocation and the audit are one PostgreSQL transaction. A credential
+ * that has moved therefore always carries exactly one audit; a failure anywhere
+ * leaves the previous sign-in identity, the live sessions, an unspent recovery
+ * grant and the session count exactly as they were; and no password proof can
+ * be captured before a competing change and spent after it.
  */
 async function commitCredentialChange(payload: Payload, intent: CredentialChangeIntent): Promise<string> {
   // Read outside the boundary: the transaction holds one pooled client, and the
@@ -434,11 +495,27 @@ async function commitCredentialChange(payload: Payload, intent: CredentialChange
   const state = await kNexAuthority(payload).store.readState(kNexIdentity.applicationId, kNexIdentity.environment);
   if (state === undefined) throw new Error("Authorization state is unavailable.");
   const audit = credentialAuditRecord(state, intent);
+  const userId = intent.admission.userId;
   const transactionId = await payload.db.beginTransaction();
   if (transactionId === null || transactionId === undefined) throw new Error("A credential change requires a database transaction.");
-  const request = { payload, transactionID: transactionId } as unknown as PayloadRequest;
+  const request = credentialRequest(payload, transactionId);
   try {
     const transaction = await activePayloadPostgresTransaction(request);
+    // Every credential path takes this before it reads or proves anything, so
+    // two contenders serialize and the second proves its password against the
+    // credential current at its own commit rather than the one it read before
+    // the first ran. It locks the principal advisorily rather than the users
+    // row because Payload counts a failed login attempt on a connection of its
+    // own, which a held row lock would block against the very transaction
+    // waiting for that login to answer.
+    await transaction.execute(sql\`select pg_advisory_xact_lock(\${credentialLockNamespace},\${credentialLockKey(userId)})\`);
+    const locked = await payload.findByID({ collection: "users", id: userId, overrideAccess: true, disableErrors: true, req: credentialRequest(payload, transactionId) });
+    const lockedEmail = typeof locked === "object" && locked !== null && "email" in locked && typeof locked.email === "string" ? locked.email : undefined;
+    if (lockedEmail === undefined) throw new KnexCredentialError(intent.admission.operation === "owner-credential-recovery" ? "CREDENTIAL_RECOVERY_TARGET_INVALID" : "CREDENTIAL_SESSION_REQUIRED");
+    // The sign-in identity the proof is checked against is the locked one, not
+    // the one the caller's session was issued for.
+    if (intent.currentPassword !== undefined && !await provenCredentialPossession(payload, transactionId, userId, lockedEmail, intent.currentPassword)) throw new KnexCredentialError("CREDENTIAL_REAUTHENTICATION_REQUIRED");
+    if (!await credentialEmailIsFree(payload, credentialRequest(payload, transactionId), intent.change.email, userId)) throw new KnexCredentialError("CREDENTIAL_EMAIL_TAKEN");
     if (intent.grant !== undefined) {
       const consumed = await transaction.execute(sql\`update k_nex_owner_bootstrap_tokens set consumed_at=now() where application_id=\${kNexIdentity.applicationId} and environment=\${kNexIdentity.environment} and token_digest=\${intent.grant.digest} and expires_at=\${intent.grant.expiresAt} and consumed_at is null and expires_at>now()\`);
       if (affectedRows(consumed) !== 1) throw new KnexCredentialError("CREDENTIAL_RECOVERY_GRANT_UNAVAILABLE");
@@ -446,7 +523,7 @@ async function commitCredentialChange(payload: Payload, intent: CredentialChange
     // Payload carries the transaction on the request, so the credential columns
     // and the session rows it clears are the same uncommitted unit of work.
     await credentialAdmissions.run(intent.admission, async () => payload.update({
-      collection: "users", id: intent.admission.userId, overrideAccess: true, data: { ...intent.change, sessions: [] }, req: request
+      collection: "users", id: userId, overrideAccess: true, data: { ...intent.change, sessions: [] }, req: request
     }));
     await transaction.execute(sql\`insert into k_nex_authorization_audit (audit_id,application_id,environment,permission_id,outcome,reason,authorization_revision,lifecycle_revision,audit_json) values (\${audit.auditId},\${kNexIdentity.applicationId},\${kNexIdentity.environment},'system.role-assignments.manage','allow','granted',\${state.authorizationRevision},\${state.lifecycleRevision},\${JSON.stringify(audit)}::jsonb) on conflict (audit_id) do nothing\`);
     await payload.db.commitTransaction(transactionId);
@@ -458,16 +535,11 @@ async function commitCredentialChange(payload: Payload, intent: CredentialChange
   return audit.auditId;
 }
 
-async function credentialEmailIsFree(payload: Payload, email: string | undefined, userId: string): Promise<boolean> {
-  if (email === undefined) return true;
-  const existing = await payload.find({ collection: "users", overrideAccess: true, limit: 2, where: { email: { equals: email } } });
-  return existing.docs.every((document) => String((document as { id: unknown }).id) === userId);
-}
-
 /**
  * The self-service half of the credential journey. It proves possession of the
  * current password rather than trusting the session, because a stolen session
- * is exactly the thing a credential change has to survive.
+ * is exactly the thing a credential change has to survive. The session only
+ * names the principal; the proof itself happens inside the one transaction.
  */
 export async function changeCurrentUserCredentials(payload: Payload, context: KnexRequestContext, input: unknown): Promise<Readonly<{ userId: string; auditId: string; changed: readonly KnexCredentialField[] }>> {
   if (input === null || typeof input !== "object" || Array.isArray(input)) throw new KnexCredentialError("CREDENTIAL_INPUT_INVALID");
@@ -479,12 +551,10 @@ export async function changeCurrentUserCredentials(payload: Payload, context: Kn
   if (typeof current !== "object" || current === null || !("id" in current) || !("collection" in current) || current.collection !== "users") throw new KnexCredentialError("CREDENTIAL_SESSION_REQUIRED");
   const userId = String(current.id);
   if (change.password === currentPassword) throw new KnexCredentialError("CREDENTIAL_INPUT_INVALID");
-  if (!await reauthenticateCurrentUser(payload, context, currentPassword)) throw new KnexCredentialError("CREDENTIAL_REAUTHENTICATION_REQUIRED");
-  if (!await credentialEmailIsFree(payload, change.email, userId)) throw new KnexCredentialError("CREDENTIAL_EMAIL_TAKEN");
   const changed = credentialFieldNames.filter((field) => change[field] !== undefined);
   const auditId = await commitCredentialChange(payload, {
     admission: { userId, fields: changed, operation: "credential-change" }, change,
-    actor: { kind: "user", id: userId }, correlationId: context.correlationId
+    actor: { kind: "user", id: userId }, correlationId: context.correlationId, currentPassword
   });
   return Object.freeze({ userId, auditId, changed });
 }
@@ -495,7 +565,9 @@ export async function changeCurrentUserCredentials(payload: Payload, context: Kn
  * sign-in identity and cannot mint authority for anyone else. It spends the
  * grant itself rather than being handed an already-spent one, because a grant
  * that is consumed outside this boundary is lost by every failure that leaves
- * the credential untouched.
+ * the credential untouched. It takes the same lock on the same principal as a
+ * self-service change, so a recovery is never overwritten by a password proof
+ * captured before it ran.
  */
 export async function recoverProtectedOwnerCredential(payload: Payload, receipt: Readonly<{ ownerPrincipal: Readonly<{ kind: string; id: string }>; state: string }>, operatorIdentity: string, grant: KnexCredentialRecoveryGrant, input: unknown): Promise<Readonly<{ userId: string; auditId: string }>> {
   if (receipt.state !== "committed" || receipt.ownerPrincipal.kind !== "user") throw new KnexCredentialError("CREDENTIAL_RECOVERY_TARGET_INVALID");
@@ -506,9 +578,6 @@ export async function recoverProtectedOwnerCredential(payload: Payload, receipt:
   const change = credentialChange(value);
   if (change.email === undefined || change.password === undefined) throw new KnexCredentialError("CREDENTIAL_INPUT_INVALID");
   const userId = receipt.ownerPrincipal.id;
-  const owner = await payload.findByID({ collection: "users", id: userId, overrideAccess: true, disableErrors: true });
-  if (owner === null || owner === undefined) throw new KnexCredentialError("CREDENTIAL_RECOVERY_TARGET_INVALID");
-  if (!await credentialEmailIsFree(payload, change.email, userId)) throw new KnexCredentialError("CREDENTIAL_EMAIL_TAKEN");
   const auditId = await commitCredentialChange(payload, {
     admission: { userId, fields: credentialFieldNames, operation: "owner-credential-recovery" }, change,
     actor: { kind: "service", id: operatorIdentity }, correlationId: "owner-credential-recovery-" + randomUUID(),
@@ -3004,7 +3073,10 @@ export async function startKnexRealtime(payload: Payload, httpServer: Server) {
    * rather than inferred from the bridge's own history, but reading it is not
    * what closes a gap: only a full-topic resynchronisation that every topic
    * accepted lets the watermark move past the notifications nobody received.
-   * A position that moved with no gap open was already delivered.
+   * A position that moved with no gap open was already delivered, but only once
+   * every publication has settled: a publication still in flight can still
+   * become a gap at or below this position, and its rejection would arrive
+   * after a watermark that already claimed the position had been exported.
    */
   const synchronize = async (): Promise<void> => {
     const result = await pool.query("select coalesce(max(id),0)::text as watermark from k_nex_outbox where application_id=$1 and plugin_id='module.sales' and status='delivered'", [kNexIdentity.applicationId]);
@@ -3015,13 +3087,14 @@ export async function startKnexRealtime(payload: Payload, httpServer: Server) {
       const marker = "realtime-resynchronisation-" + String(authoritative);
       const resynchronised = await Promise.all(salesRealtimeTopicDescriptors.map((descriptor) =>
         publish(Object.freeze({ topic: descriptor.id, source: descriptor.sourceId, event: descriptor.eventId, correlation: marker, dedupe: marker }))));
-      // A refused resynchronisation leaves the gap, the watermark and the
-      // degraded state exactly as they were, so the next tick tries again.
-      if (resynchronised.every((published) => published) && gapGeneration === observed && !closed) {
+      // A refused or unsettled resynchronisation leaves the gap, the watermark
+      // and the degraded state exactly as they were, so the next tick tries
+      // again.
+      if (resynchronised.every((published) => published) && gapGeneration === observed && publications.size === 0 && !closed) {
         watermark = Math.max(watermark, authoritative);
         missedNotifications = false;
       }
-    } else if (authoritative > watermark) watermark = authoritative;
+    } else if (authoritative > watermark && publications.size === 0) watermark = authoritative;
     synchronizedAt = Date.now();
     recordHealth();
   };

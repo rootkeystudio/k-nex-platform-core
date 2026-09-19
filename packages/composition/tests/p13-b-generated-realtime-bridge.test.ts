@@ -41,6 +41,9 @@ export const defineRealtimeTopic = (topic) => topic;
 export const createCurrentAuthorityTarget = (value) => value;
 export const createSocketIoMemoryGateway = () => Object.freeze({
   publish: async (input) => {
+    // A gateway that answers later than the bridge's own synchronisation is the
+    // ordering a refusal-on-call stub can never reach.
+    if (control().holdPublications) return new Promise((settle, fail) => control().held.push({ input, settle: () => { control().published.push(input); settle(); }, fail }));
     if (control().refusePublications) { control().refused.push(input); throw new Error("realtime gateway refused the publication"); }
     control().published.push(input);
   },
@@ -57,13 +60,18 @@ let bridge: BridgeModule;
 
 type Publication = { channel: { topicId: string }; correlationId: string; message: unknown };
 
+type HeldPublication = { input: Publication; settle(): void; fail(reason: unknown): void };
+
 type Control = {
   published: Publication[];
   refused: Publication[];
   refusePublications: boolean;
+  holdPublications: boolean;
+  held: HeldPublication[];
   gatewayClosed: number;
   listeners: FakeListener[];
   watermark: number;
+  watermarkReads: number;
   connectFailures: number;
 };
 
@@ -72,7 +80,7 @@ function control(): Control {
 }
 
 function freshControl(): Control {
-  const value: Control = { published: [], refused: [], refusePublications: false, gatewayClosed: 0, listeners: [], watermark: 0, connectFailures: 0 };
+  const value: Control = { published: [], refused: [], refusePublications: false, holdPublications: false, held: [], gatewayClosed: 0, listeners: [], watermark: 0, watermarkReads: 0, connectFailures: 0 };
   (globalThis as typeof globalThis & { __kNexGeneratedRealtimeBridge: Control }).__kNexGeneratedRealtimeBridge = value;
   return value;
 }
@@ -111,6 +119,7 @@ function fakePool(state: Control) {
       };
     },
     async query(_text: string, _values?: readonly unknown[]) {
+      state.watermarkReads += 1;
       return { rows: [{ watermark: String(state.watermark) }] };
     }
   };
@@ -242,6 +251,59 @@ it("holds the watermark and degrades readiness when a publication is refused wit
     expect(resynchronisations()).toHaveLength(settled);
     expect(bridge.currentKnexRealtimeBridgeHealth()!.state).toBe("connected");
   } finally { await started.close(); }
+});
+
+/**
+ * The finding this closes: the notification callback starts the publication and
+ * synchronises immediately, so a gateway that answered after the watermark
+ * query had already returned used to let the watermark claim a position whose
+ * invalidation was never accepted. The rejection degraded health afterwards,
+ * but the position had already been exported.
+ */
+it("refuses to advance the watermark past a publication that has not settled, and never passes the one that is refused late", { timeout: 30_000 }, async () => {
+  const state = freshControl();
+  state.watermark = 5;
+  const started = await bridge.startKnexRealtime({ db: { pool: fakePool(state) } }, undefined);
+  try {
+    await settle(() => bridge.currentKnexRealtimeBridgeHealth()?.watermark === 5, "bridge did not synchronise its first watermark");
+    expect(bridge.currentKnexRealtimeBridgeHealth()!.state).toBe("connected");
+
+    state.holdPublications = true;
+    state.listeners[0]!.notify(invalidation("accounts", "p13b-unsettled-invalidation"));
+    await settle(() => state.held.length === 1, "the notification never reached the gateway");
+
+    // The authoritative position moves on and the bridge keeps reading it while
+    // the publication behind that position is still unanswered.
+    state.watermark = 9;
+    const readsBefore = state.watermarkReads;
+    await settle(() => state.watermarkReads > readsBefore + 1, "the bridge stopped synchronising while a publication was in flight");
+    expect(bridge.currentKnexRealtimeBridgeHealth()!.watermark).toBe(5);
+    expect(bridge.currentKnexRealtimeBridgeHealth()!.state).toBe("connected");
+    expect(state.published).toEqual([]);
+
+    // Only now is it refused, long after the synchronisation that read past it.
+    state.held[0]!.fail(new Error("realtime gateway refused the publication late"));
+    await settle(() => bridge.currentKnexRealtimeBridgeHealth()!.state === "degraded", "a late publication rejection did not degrade the bridge");
+    expect(bridge.currentKnexRealtimeBridgeHealth()!.watermark).toBe(5);
+
+    // The resynchronisation it now owes is held too, so the watermark stays put
+    // until every publication that position depends on has actually landed.
+    await settle(() => state.held.length === 3, "the bridge did not publish the resynchronisation it owes");
+    expect(bridge.currentKnexRealtimeBridgeHealth()!.watermark).toBe(5);
+    state.holdPublications = false;
+    for (const publication of state.held.slice(1)) publication.settle();
+
+    await settle(() => bridge.currentKnexRealtimeBridgeHealth()!.watermark === 9, "the bridge did not adopt the position once its resynchronisation landed");
+    expect(bridge.currentKnexRealtimeBridgeHealth()!.state).toBe("connected");
+    expect(resynchronisations().map(({ channel }) => channel.topicId).sort()).toEqual(["sales.topic.accounts", "sales.topic.contacts"]);
+    expect(resynchronisations().every(({ correlationId }) => correlationId === "realtime-resynchronisation-9")).toBe(true);
+  } finally {
+    // close() waits for every publication, so a failed assertion above must not
+    // leave one held or the failure arrives as a timeout instead.
+    state.holdPublications = false;
+    for (const publication of state.held.splice(0)) publication.settle();
+    await started.close();
+  }
 });
 
 it("keeps retrying a listener connection the pool refuses, and reports the bridge degraded while it is gone", async () => {

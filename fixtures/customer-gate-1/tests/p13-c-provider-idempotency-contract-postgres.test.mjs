@@ -217,9 +217,11 @@ test("P13.C an oversized provider receipt is refused by byte count before it is 
         const transport = createGeneratedBoundedReferenceProviderTransport(provider.endpoint);
         const startedAt = Date.now();
         assert.equal(await processGeneratedSalesCommunications(pool, current, resolver, transport), 1, `${label} must still be claimed and resolved`);
-        // The bound is the byte count, reached while the body streams, so the
-        // refusal never waits on the 10s call abort to stop the allocation.
-        assert.ok(Date.now() - startedAt < 8_000, `${label} must be refused on the byte bound, not the call abort`);
+        // The bound is the byte count, reached while the body streams: the read
+        // is reset on the chunk that crosses it, so a refusal that waited out
+        // the five-second read deadline would mean the stream was drained
+        // instead of cancelled.
+        assert.ok(Date.now() - startedAt < 3_000, `${label} must be refused on the crossing chunk, not on the read deadline`);
         // A provider that breaks the receipt contract is stating a permanent
         // fact about its own output, so the operation is terminal, not retried.
         const state = await operationState(pool, queued.operationId);

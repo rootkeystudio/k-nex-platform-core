@@ -19,7 +19,7 @@ type StoredGrant = { digest: string; expiresAt: string; consumed: boolean };
  * The boundaries the credential journey has to survive, named in the order the
  * one transaction crosses them.
  */
-type CredentialBoundary = "grant-consumed" | "credential-written" | "sessions-revoked" | "audit-written" | "before-commit" | "after-commit";
+type CredentialBoundary = "credential-locked" | "possession-proved" | "grant-consumed" | "credential-written" | "sessions-revoked" | "audit-written" | "before-commit" | "after-commit";
 
 type Control = {
   users: Map<string, StoredUser>;
@@ -27,7 +27,8 @@ type Control = {
   session: string | undefined;
   updates: UpdateCall[];
   audits: Statement[];
-  logins: Array<{ email: string; password: string }>;
+  locks: Statement[];
+  logins: Array<{ email: string; password: string; transactionID: unknown }>;
   hookRefusals: string[];
   transactions: Array<{ id: string; outcome: "open" | "committed" | "rolled-back" }>;
   crossed: CredentialBoundary[];
@@ -100,6 +101,11 @@ function payloadDouble(): Record<string, unknown> {
           db: {
             async execute(statement: Statement) {
               const text = statementText(statement);
+              if (text.includes("pg_advisory_xact_lock")) {
+                control().locks.push(statement);
+                cross("credential-locked");
+                return { rowCount: 1 };
+              }
               if (text.includes("update k_nex_owner_bootstrap_tokens")) {
                 const grant = control().grants.get(String(statement.values[2]));
                 if (grant === undefined || grant.consumed || grant.expiresAt !== statement.values[3]) return { rowCount: 0 };
@@ -124,16 +130,24 @@ function payloadDouble(): Record<string, unknown> {
       const user = id === undefined ? undefined : control().users.get(id);
       return { user: user === undefined ? null : { id: user.id, email: user.email, collection: "users" } };
     },
-    async login({ data }: { data: { email: string; password: string } }) {
-      control().logins.push(data);
+    // Payload's login opens a durable session on the user it verified. Handed a
+    // transaction it joins that unit of work; handed none it commits on its
+    // own, which is exactly the side effect a refused change must not leave.
+    async login({ data, req }: { data: { email: string; password: string }; req?: { transactionID?: unknown } }) {
+      control().logins.push({ ...data, transactionID: req?.transactionID });
       const match = [...control().users.values()].find((user) => user.email === data.email && user.password === data.password);
       if (match === undefined) throw new Error("invalid credentials");
+      const open = req?.transactionID === undefined ? undefined : staged.get(String(req.transactionID));
+      if (open === undefined) match.sessions += 1; else open.push(() => { match.sessions += 1; });
+      cross("possession-proved");
       return { user: { id: match.id, email: match.email, collection: "users" } };
     },
-    async find({ where }: { where: { email: { equals: string } } }) {
+    async find({ where, req }: { where: { email: { equals: string } }; req?: { transactionID?: unknown } }) {
+      openTransaction(req?.transactionID);
       return { docs: [...control().users.values()].filter((user) => user.email === where.email.equals).map(({ id }) => ({ id })) };
     },
-    async findByID({ id }: { id: string }) {
+    async findByID({ id, req }: { id: string; req?: { transactionID?: unknown } }) {
+      openTransaction(req?.transactionID);
       const user = control().users.get(String(id));
       return user === undefined ? null : { id: user.id, email: user.email };
     },
@@ -227,7 +241,7 @@ beforeEach(() => {
       ["2", { id: "2", email: "second@alpha.example.test", password: "second-password-1234", sessions: 1 }]
     ]),
     grants: new Map([[grantDigest, { digest: grantDigest, expiresAt: grantExpiresAt, consumed: false }]]),
-    session: "1", updates: [], audits: [], logins: [], hookRefusals: [], transactions: [], crossed: [], fault: undefined
+    session: "1", updates: [], audits: [], locks: [], logins: [], hookRefusals: [], transactions: [], crossed: [], fault: undefined
   };
 });
 
@@ -299,11 +313,14 @@ it("changes a credential after the current password, revokes every session, and 
   const result = await authority.changeCurrentUserCredentials(payloadDouble(), context(), { currentPassword: "owner-password-1234", email: "renamed@alpha.example.test", password: "brand-new-password-1" });
   expect(result.userId).toBe("1");
   expect([...result.changed]).toEqual(["email", "password"]);
-  expect(control().logins).toEqual([{ email: "owner@alpha.example.test", password: "owner-password-1234" }]);
+  expect(control().logins).toEqual([{ email: "owner@alpha.example.test", password: "owner-password-1234", transactionID: "credential-transaction-1" }]);
   expect(control().updates).toHaveLength(1);
   expect(control().updates[0]).toMatchObject({ collection: "users", id: "1", overrideAccess: true });
   expect(control().updates[0]!.data).toEqual({ email: "renamed@alpha.example.test", password: "brand-new-password-1", sessions: [] });
   expect(control().hookRefusals).toEqual([]);
+  // The session the proof opened is cleared by the same write, so a change that
+  // committed nets no new session either.
+  expect(ownerState().sessions).toBe(0);
   expect(auditValue()).toMatchObject({
     auditId: result.auditId, operation: "credential-change", target: "1",
     principal: { kind: "user", id: "1" }, effectiveActor: { kind: "user", id: "1" },
@@ -350,14 +367,20 @@ it("recovers the owner credential only against a committed receipt, and audits t
     .rejects.toMatchObject({ code: "CREDENTIAL_RECOVERY_GRANT_UNAVAILABLE" });
   expect(control().updates).toEqual([]);
   expect(ownerState()).toMatchObject({ email: "owner@alpha.example.test", password: "owner-password-1234", audits: 0, grantConsumed: false });
+  // A missing target, a taken email and an unissued grant are all decided
+  // behind the lock and write nothing; the rest never reach the database.
+  expect(control().crossed).toEqual(["credential-locked", "credential-locked", "credential-locked"]);
+  expect(control().transactions.every(({ outcome }) => outcome === "rolled-back")).toBe(true);
+  control().crossed.length = 0;
 
   const recovered = await authority.recoverProtectedOwnerCredential(payloadDouble(), receipt, "fixture.p13-operator", grant(), { email: "recovered@alpha.example.test", password: "recovered-password-1" });
   expect(recovered.userId).toBe("1");
   // Recovery never asks for, and never checks, the lost password.
   expect(control().logins).toEqual([]);
   expect(control().updates[0]!.data).toEqual({ email: "recovered@alpha.example.test", password: "recovered-password-1", sessions: [] });
-  // The grant is spent on the transaction that moved the credential, not before it.
-  expect(control().crossed).toEqual(["grant-consumed", "credential-written", "sessions-revoked", "audit-written", "before-commit", "after-commit"]);
+  // The grant is spent on the transaction that moved the credential, not before
+  // it, and it is spent behind the same lock a self-service change takes.
+  expect(control().crossed).toEqual(["credential-locked", "grant-consumed", "credential-written", "sessions-revoked", "audit-written", "before-commit", "after-commit"]);
   expect(ownerState()).toEqual({ email: "recovered@alpha.example.test", password: "recovered-password-1", sessions: 0, audits: 1, grantConsumed: true });
   expect(auditValue()).toMatchObject({
     auditId: recovered.auditId, operation: "owner-credential-recovery", target: "1",
@@ -381,7 +404,7 @@ it("refuses to replay a spent recovery grant, and leaves the credential where th
  * transaction crosses is failed in turn, and the only two outcomes allowed are
  * "nothing happened" and "everything happened, exactly once".
  */
-for (const boundary of ["credential-written", "sessions-revoked", "audit-written", "before-commit"] as const) {
+for (const boundary of ["credential-locked", "credential-written", "sessions-revoked", "audit-written", "before-commit"] as const) {
   it(`rolls back the whole credential journey when it fails at ${boundary}`, async () => {
     const before = ownerState();
     failAt(boundary);
@@ -392,7 +415,7 @@ for (const boundary of ["credential-written", "sessions-revoked", "audit-written
   });
 }
 
-for (const boundary of ["grant-consumed", "credential-written", "sessions-revoked", "audit-written", "before-commit"] as const) {
+for (const boundary of ["credential-locked", "grant-consumed", "credential-written", "sessions-revoked", "audit-written", "before-commit"] as const) {
   it(`rolls back the whole owner recovery when it fails at ${boundary}`, async () => {
     const before = ownerState();
     failAt(boundary);
@@ -420,12 +443,54 @@ it("changes a credential and writes its audit on one transaction, never on the p
   const payload = payloadDouble();
   (payload as { db: Record<string, unknown> }).db.pool = { query() { throw new Error("A credential change must not write outside its transaction."); } };
   const result = await authority.changeCurrentUserCredentials(payload, context(), { currentPassword: "owner-password-1234", password: "brand-new-password-1" });
-  expect(control().crossed).toEqual(["credential-written", "sessions-revoked", "audit-written", "before-commit", "after-commit"]);
+  expect(control().crossed).toEqual(["credential-locked", "possession-proved", "credential-written", "sessions-revoked", "audit-written", "before-commit", "after-commit"]);
   expect(control().transactions).toEqual([{ id: "credential-transaction-1", outcome: "committed" }]);
   expect((control().updates[0] as { req?: { transactionID?: unknown } }).req?.transactionID).toBe("credential-transaction-1");
   // Self-service never touches a recovery grant.
   expect(ownerState().grantConsumed).toBe(false);
   expect(auditValue()).toMatchObject({ auditId: result.auditId });
+});
+
+/**
+ * The finding this closes: the password proof was a login of its own, so a
+ * correct password whose change was then refused still left a committed session
+ * behind, and the proof was captured before the transaction that spends it.
+ */
+it("proves the current password on the credential transaction and leaves no session behind when the change is refused", async () => {
+  const before = ownerState();
+  await expect(authority.changeCurrentUserCredentials(payloadDouble(), context(), { currentPassword: "owner-password-1234", email: "second@alpha.example.test" }))
+    .rejects.toMatchObject({ code: "CREDENTIAL_EMAIL_TAKEN" });
+  expect(control().logins).toEqual([{ email: "owner@alpha.example.test", password: "owner-password-1234", transactionID: "credential-transaction-1" }]);
+  // The proof ran behind the lock and on the transaction, so the session it
+  // opened went back with everything else the refusal discarded.
+  expect(control().crossed).toEqual(["credential-locked", "possession-proved"]);
+  expect(control().transactions.map(({ outcome }) => outcome)).toEqual(["rolled-back"]);
+  expect(control().updates).toEqual([]);
+  expect(ownerState()).toEqual(before);
+  expect(ownerState().sessions).toBe(3);
+});
+
+it("locks the same principal on every credential path before it reads, proves, or writes anything", async () => {
+  await authority.changeCurrentUserCredentials(payloadDouble(), context(), { currentPassword: "owner-password-1234", password: "brand-new-password-1" });
+  const selfService = control().locks.map(({ values }) => [...values]);
+  expect(selfService).toHaveLength(1);
+  expect(control().crossed[0]).toBe("credential-locked");
+
+  control().locks.length = 0;
+  control().crossed.length = 0;
+  await authority.recoverProtectedOwnerCredential(payloadDouble(), { state: "committed", ownerPrincipal: { kind: "user", id: "1" } }, "fixture.p13-operator", grant(), { email: "recovered@alpha.example.test", password: "recovered-password-1" });
+  expect(control().crossed[0]).toBe("credential-locked");
+  // Operator recovery contends for the very same lock, which is what stops a
+  // self-service proof captured before a recovery from committing after it.
+  expect(control().locks.map(({ values }) => [...values])).toEqual(selfService);
+
+  // A different principal is a different key, so unrelated credential changes
+  // never serialize behind each other.
+  control().session = "2";
+  control().locks.length = 0;
+  await authority.changeCurrentUserCredentials(payloadDouble(), context(), { currentPassword: "second-password-1234", password: "second-new-password-1" });
+  expect(control().locks[0]!.values[0]).toEqual(selfService[0]![0]);
+  expect(control().locks[0]!.values[1]).not.toEqual(selfService[0]![1]);
 });
 
 it("keeps the operator recovery grant out of reach of an ordinary session", () => {

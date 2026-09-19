@@ -198,7 +198,7 @@ async function boundedChunk(reader: ReadableStreamDefaultReader<Uint8Array>, idl
  * known.  A byte cap alone is not enough, because a body that trickles, a body
  * that never ends, and an oversize body all cost the sender nothing.
  */
-async function readBoundedBody(source: BoundedBodySource, limits: Readonly<{ maxBytes: number; deadlineMs: number }>): Promise<Uint8Array> {
+async function readBoundedBody(source: BoundedBodySource, limits: Readonly<{ maxBytes: number; deadlineMs: number; overLimit?: "drain" | "cancel" }>): Promise<Uint8Array> {
   const declared = source.headers.get("content-length");
   if (declared !== null && (!/^[0-9]+$/u.test(declared) || Number(declared) > limits.maxBytes)) throw new BoundedBodyError("declared-length");
   const body = source.body;
@@ -220,11 +220,15 @@ async function readBoundedBody(source: BoundedBodySource, limits: Readonly<{ max
       if (next.done) break;
       total += next.value.byteLength;
       if (total > limits.maxBytes) {
-        // An oversize body is drained rather than reset, because cancelling an
-        // inbound stream makes some HTTP runtimes destroy the connection before
-        // the refusal is written. The drain answers to the same idle timeout and
-        // deadline as the read it replaces, and retains nothing.
         if (!oversize) { oversize = true; chunks.length = 0; }
+        // Nothing is owed to the far end of a response, and the answer is
+        // already known, so the stream is reset on the crossing chunk rather
+        // than given the rest of the deadline to keep this worker reading.
+        if (limits.overLimit === "cancel") throw new BoundedBodyError("too-large");
+        // An inbound oversize body is drained rather than reset, because
+        // cancelling that stream makes some HTTP runtimes destroy the
+        // connection before the refusal is written. The drain answers to the
+        // same idle timeout and deadline as the read it replaces.
         continue;
       }
       chunks.push(next.value);
@@ -245,7 +249,7 @@ async function boundedJson(response: Response): Promise<unknown> {
   // An oversize, over-declared, or absent body breaks the receipt contract and
   // is terminal.  A stalled one says nothing about the effect, so it stays an
   // outage the operation reconciles by receipt lookup instead of resending.
-  try { bytes = await readBoundedBody(response, { maxBytes: providerReceiptByteLimit, deadlineMs: 5_000 }); }
+  try { bytes = await readBoundedBody(response, { maxBytes: providerReceiptByteLimit, deadlineMs: 5_000, overLimit: "cancel" }); }
   catch (error) { if (error instanceof BoundedBodyError && error.refusal !== "timed-out") throw new ProviderHostInvariantError("Provider receipt is invalid."); throw new Error("Provider transport failed."); }
   try { return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)); } catch { throw new ProviderHostInvariantError("Provider receipt is invalid."); }
 }

@@ -79,6 +79,9 @@ beforeAll(async () => {
   // The reader under proof is the shipped one: the host reaches it only through
   // the import it declares, so a local copy would make this test vacuous.
   expect(communications).toContain('readBoundedRequestBody(response, providerReceiptReadLimits)');
+  // A provider response is read on the mode that resets at the cap, not the one
+  // that drains so an inbound client can still be told why it was refused.
+  expect(communications).toContain('overLimit: "cancel" as const');
   expect(communications).not.toMatch(/@k-nex\/|@payloadcms\//u);
   writeFileSync(join(directory, "communications.mjs"), transpile(communications));
   const module = await import(pathToFileURL(join(directory, "communications.mjs")).href) as { createGeneratedBoundedReferenceProviderTransport(value: string): Transport };
@@ -117,9 +120,18 @@ it("admits a length-less provider receipt that stays inside the byte bound", asy
   expect(fetched).toHaveLength(1);
 });
 
-it("refuses a length-less provider receipt over the byte bound and never adopts the receipt inside it", async () => {
+/**
+ * The finding this closes: the receipt read reused the inbound reader, which
+ * keeps draining past the cap so a server can still write its refusal on the
+ * client's connection. There is no client here, so a 4 KiB cap used to buy the
+ * provider the rest of the deadline to keep a worker reading and discarding.
+ */
+it("cancels a length-less provider receipt at the chunk that crosses the byte bound, without reading to the end", async () => {
   let pulls = 0;
   let cancelled = false;
+  const receiptBytes = encode(JSON.stringify(admissibleReceipt)).byteLength;
+  // The pull on which the running total first exceeds the 4 KiB bound.
+  const crossing = 1 + Math.ceil((4_096 - receiptBytes + 1) / 1_024);
   stubFetch(() => respond(new ReadableStream<Uint8Array>({
     pull(controller) {
       pulls += 1;
@@ -132,13 +144,14 @@ it("refuses a length-less provider receipt over the byte bound and never adopts 
     cancel() { cancelled = true; }
   }, { highWaterMark: 0, size() { return 1; } })));
   await expect(invoke()).rejects.toThrow("Provider receipt is invalid.");
-  // A body that ends on its own is drained, and the bytes past the bound are
-  // dropped as they arrive rather than held until the total is known.
-  expect(cancelled).toBe(false);
-  expect(pulls).toBe(10);
+  // The stream is reset where the answer became known; the bytes it was still
+  // willing to send are never read, and nothing inside the bound is adopted.
+  expect(cancelled).toBe(true);
+  expect(pulls).toBe(crossing);
+  expect(crossing).toBeLessThan(10);
 });
 
-it("refuses an oversized chunked provider receipt that keeps streaming, on its own deadline", async () => {
+it("cancels an oversized chunked provider receipt on its crossing chunk rather than on the read deadline", async () => {
   let streamed = 0;
   let cancelled = false;
   let clock = 0;
@@ -151,11 +164,12 @@ it("refuses an oversized chunked provider receipt that keeps streaming, on its o
   const originalNow = performance.now.bind(performance);
   performance.now = () => clock;
   try { await expect(invoke()).rejects.toThrow("Provider receipt is invalid."); } finally { performance.now = originalNow; }
-  // Twenty 64 KiB chunks cross the 4 KiB bound on the first one and keep
-  // coming; the read ends on the 5s deadline, not on the provider's goodwill,
-  // and the refusal is the byte bound rather than the outer call abort.
+  // The first 64 KiB chunk already crosses the 4 KiB bound, so that is where
+  // the read ends: one chunk, no EOF, and nowhere near the 5s deadline the
+  // drain used to spend on a body this host had already refused.
   expect(cancelled).toBe(true);
-  expect(streamed).toBe(20 * 65_536);
+  expect(streamed).toBe(65_536);
+  expect(clock).toBeLessThan(5_000);
 });
 
 it("refuses an over-declared provider receipt length without reading the body at all", async () => {
@@ -217,11 +231,15 @@ it("refuses a provider receipt with no body at all", async () => {
 });
 
 it("bounds a reconciliation receipt on the same terms as an invocation receipt", async () => {
+  let pulls = 0;
   let cancelled = false;
+  // Left open, because a source that closes itself on the crossing chunk can
+  // never be cancelled and would make the cancellation unobservable.
   stubFetch(() => respond(new ReadableStream<Uint8Array>({
-    pull(controller) { controller.enqueue(new Uint8Array(8_192)); controller.close(); },
+    pull(controller) { pulls += 1; controller.enqueue(new Uint8Array(8_192)); },
     cancel() { cancelled = true; }
-  })));
+  }, { highWaterMark: 0, size() { return 1; } })));
   await expect(transport.reconcile({ providerId: "calendar.reference.v1", credential: "outbound-credential", idempotencyKey })).rejects.toThrow("Provider receipt is invalid.");
-  expect(cancelled).toBe(false);
+  expect(cancelled).toBe(true);
+  expect(pulls).toBe(1);
 });
