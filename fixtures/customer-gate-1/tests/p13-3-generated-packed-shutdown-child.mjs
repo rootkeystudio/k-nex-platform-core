@@ -74,6 +74,26 @@ if (Number.isSafeInteger(port) && port > 0) {
     child.once("close", (code, signal) => { exit = { code, signal }; });
     resolveProcess({ child, output: () => output, exited: () => exit });
   });
+  // A host this driver killed can still be holding its listening socket when
+  // the next one binds, which is the driver racing its own scaffolding rather
+  // than the product retaining a port: that claim is assertPortReleased's, and
+  // it is asserted separately. One bounded retry keeps this race out of the
+  // proofs it would otherwise redden.
+  const startHost = async () => {
+    for (let attempt = 0; ; attempt += 1) {
+      const instance = await start();
+      const settled = await new Promise((resolve) => {
+        const timer = setTimeout(() => resolve(false), 2_000);
+        const poll = setInterval(() => {
+          if (instance.exited() === undefined) return;
+          clearInterval(poll); clearTimeout(timer); resolve(true);
+        }, 25);
+        setTimeout(() => clearInterval(poll), 2_000);
+      });
+      if (!settled || attempt >= 1 || !/EADDRINUSE/u.test(instance.output())) return instance;
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+    }
+  };
   const waitForHttp = async (instance) => {
     const until = Date.now() + 30_000;
     let last;
@@ -105,7 +125,7 @@ if (Number.isSafeInteger(port) && port > 0) {
     instance.child.kill("SIGKILL");
     throw new Error(`${message}\n${instance.output()}`);
   };
-  const first = await start();
+  const first = await startHost();
   await waitForHttp(first);
   const firstExit = await stop(first, "SIGTERM");
   assert.deepEqual(firstExit, { code: 0, signal: null }, first.output());
@@ -113,7 +133,7 @@ if (Number.isSafeInteger(port) && port > 0) {
     () => assert.fail("Generated web host admitted HTTP after shutdown."),
     () => undefined
   );
-  const second = await start();
+  const second = await startHost();
   await waitForHttp(second);
   const secondExit = await stop(second, "SIGINT");
   assert.deepEqual(secondExit, { code: 0, signal: null }, second.output());
@@ -134,7 +154,7 @@ if (Number.isSafeInteger(port) && port > 0) {
   const realtimePath = resolve(customerDirectory, "dist/k-nex-realtime.js");
   const realtimeSource = readFileSync(realtimePath, "utf8");
   writeFileSync(realtimePath, `export async function startKnexRealtime() { return { close: async () => { throw new Error("P13_3_INJECTED_CLOSE_FAILURE"); } }; }\n`);
-  const rejectedClose = await start();
+  const rejectedClose = await startHost();
   await waitForHttp(rejectedClose);
   rejectedClose.child.kill("SIGTERM");
   const rejectedExit = await waitForExit(rejectedClose, 10_000, "Generated web host did not exit after its rejected close stage.");
@@ -175,7 +195,7 @@ if (Number.isSafeInteger(port) && port > 0) {
     const query = await payload.db.pool.query("select 1::int as value");
     if (query.rows[0]?.value !== 1) throw new Error("P13_3_ADMITTED_QUERY_RESULT_INVALID");
     console.log("P13_3_ADMITTED_QUERY_SUCCESS");`));
-  const admittedTail = await start();
+  const admittedTail = await startHost();
   await waitForHttp(admittedTail);
   const admittedResponse = await fetch(`http://127.0.0.1:${port}/__k-nex-admitted-tail`);
   assert.equal(await admittedResponse.text(), "P13_3_ADMITTED_RESPONSE_FINISHED");
@@ -191,7 +211,7 @@ if (Number.isSafeInteger(port) && port > 0) {
     await new Promise(() => {});`).replace("const gracefulShutdownMs = 30_000;", "const gracefulShutdownMs = 150;");
   assert.notEqual(admittedNeverSource, webSource, "Generated web host admitted handler deadline seam changed.");
   writeFileSync(webPath, admittedNeverSource);
-  const admittedNever = await start();
+  const admittedNever = await startHost();
   await waitForHttp(admittedNever);
   assert.equal(await fetch(`http://127.0.0.1:${port}/__k-nex-admitted-never`).then((response) => response.text()), "P13_3_ADMITTED_NEVER_STARTED");
   const admittedNeverStartedAt = Date.now();
@@ -208,7 +228,7 @@ if (Number.isSafeInteger(port) && port > 0) {
     while (!(await import("node:fs")).existsSync(${JSON.stringify(rejectedReleasePath)})) await new Promise((resolveWait) => setTimeout(resolveWait, 10));
     while (!stopping) await new Promise((resolveWait) => setTimeout(resolveWait, 10));
     throw new Error("P13_3_INJECTED_ADMITTED_HANDLER_FAILURE");`));
-  const rejectedHandler = await start();
+  const rejectedHandler = await startHost();
   await waitForHttp(rejectedHandler);
   assert.equal(await fetch(`http://127.0.0.1:${port}/__k-nex-admitted-reject`).then((response) => response.text()), "P13_3_ADMITTED_REJECTION_STARTED");
   const rejectedHandlerExitPromise = stop(rejectedHandler, "SIGTERM");
@@ -271,7 +291,7 @@ if (Number.isSafeInteger(port) && port > 0) {
   );
   assert.notEqual(handleFreeNeverWebSource, shortGraceWebSource, "Generated web host shutdown completion seam changed.");
   writeFileSync(webPath, handleFreeNeverWebSource);
-  const neverSettles = await start();
+  const neverSettles = await startHost();
   await waitForHttp(neverSettles);
   const neverStartedAt = Date.now();
   neverSettles.child.kill("SIGTERM");
@@ -283,7 +303,7 @@ if (Number.isSafeInteger(port) && port > 0) {
 
   writeFileSync(webPath, shortGraceWebSource);
   writeFileSync(realtimePath, `export async function startKnexRealtime() { return { close: async () => { throw new Error("P13_3_INJECTED_SETTLED_CLOSE_FAILURE"); } }; }\n`);
-  const settledRejection = await start();
+  const settledRejection = await startHost();
   await waitForHttp(settledRejection);
   const rejectionStartedAt = Date.now();
   settledRejection.child.kill("SIGTERM");
