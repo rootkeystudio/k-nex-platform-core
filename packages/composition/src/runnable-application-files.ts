@@ -100,7 +100,7 @@ pnpm start
 import { REST_DELETE, REST_GET, REST_OPTIONS, REST_PATCH, REST_POST, REST_PUT } from "@payloadcms/next/routes";
 
 import { bootKnexApplication } from "../../../../boot.js";
-import { credentialSensitiveRestOperation, readCredentialSensitiveRestRequest, refusedCredentialRestOperation, withCredentialAuthority } from "../../../../k-nex-authority.js";
+import { credentialAuthorityRefusal, credentialSensitiveRestOperation, credentialSensitiveRestPrincipal, readCredentialSensitiveRestRequest, refusedCredentialRestOperation, withCredentialAuthority } from "../../../../k-nex-authority.js";
 
 type PayloadRestContext = Readonly<{ params: Promise<{ slug?: string[] }> }>;
 
@@ -112,42 +112,43 @@ export const PATCH = REST_PATCH(config);
 export const PUT = REST_PUT(config);
 export const OPTIONS = REST_OPTIONS(config);
 
+function credentialRefusal(status: number, message: string): Response {
+  return Response.json({ errors: [{ message }] }, { status, headers: { "cache-control": "no-store" } });
+}
+
 /**
  * Payload verifies a password before it opens the transaction that writes the
  * session, and builds that write out of the user document it read beforehand,
  * so an ordinary sign-in can commit a session, and stale user fields with it,
  * against a credential an operator recovery already replaced. This route is
- * ours, so the delegated call is held inside the same credential authority the
- * credential journeys take, for the whole of the call rather than for its
+ * ours, so the delegated call is held inside the credential authority for the
+ * principal it is deciding about, for the whole of the call rather than for its
  * write. Every other method and every other path is delegated untouched.
+ *
+ * There is no GraphQL route in this product, so this is the only surface the
+ * Payload auth operations are reachable from: /api/graphql falls through to
+ * this catch-all, which has no collection by that name and answers 404.
  */
 export async function POST(request: Request, context: PayloadRestContext): Promise<Response> {
   const params = await context.params;
-  if (refusedCredentialRestOperation(params.slug)) {
-    return Response.json({ errors: [{ message: "Credentials are issued by the operator recovery command, not by a password reset." }] },
-      { status: 403, headers: { "cache-control": "no-store" } });
-  }
+  const refused = refusedCredentialRestOperation(params.slug);
+  if (refused !== undefined) return credentialRefusal(403, refused);
   if (!credentialSensitiveRestOperation(params.slug)) return restPost(request, context);
-  let delegated: Request;
+  let admitted: Awaited<ReturnType<typeof readCredentialSensitiveRestRequest>>;
   // Read before the authority is taken, and handed on as the bytes the client
   // sent: a body that trickles must not be able to hold every sign-in and every
-  // credential change in the application behind it.
-  try { delegated = await readCredentialSensitiveRestRequest(request); }
-  catch { return Response.json({ errors: [{ message: "Request body was refused." }] }, { status: 400, headers: { "cache-control": "no-store" } }); }
+  // credential change for this account behind it.
+  try { admitted = await readCredentialSensitiveRestRequest(request); }
+  catch { return credentialRefusal(400, "Request body was refused."); }
   const payload = await bootKnexApplication("credential-authority");
-  return withCredentialAuthority(payload, async () => restPost(delegated, context));
+  try {
+    const principal = await credentialSensitiveRestPrincipal(payload, params.slug![1]!, admitted, request.signal);
+    return await withCredentialAuthority(payload, principal, async (signal) => restPost(admitted.delegate(signal), context), request.signal);
+  } catch (error) {
+    const refusal = credentialAuthorityRefusal(error);
+    return credentialRefusal(refusal.status, refusal.message);
+  }
 }
-`,
-    "src/app/(payload)/api/graphql/route.ts": `import config from "@payload-config";
-import { GRAPHQL_POST, REST_OPTIONS } from "@payloadcms/next/routes";
-
-export const POST = GRAPHQL_POST(config);
-export const OPTIONS = REST_OPTIONS(config);
-`,
-    "src/app/(payload)/api/graphql-playground/route.ts": `import config from "@payload-config";
-import { GRAPHQL_PLAYGROUND_GET } from "@payloadcms/next/routes";
-
-export const GET = GRAPHQL_PLAYGROUND_GET(config);
 `,
     "src/app/(workspace)/page.tsx": workspacePageSource(options.applicationName),
     "src/app/layout.tsx": workspaceLayoutSource(options.applicationName),

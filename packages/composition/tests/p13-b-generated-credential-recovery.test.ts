@@ -7,6 +7,7 @@ import ts from "typescript";
 import { afterAll, beforeAll, beforeEach, expect, it } from "vitest";
 
 import { applicationAuthFiles } from "../src/application-auth-files.js";
+import { salesReferenceCompilerBoundary } from "../src/application-factory.js";
 import { runnableApplicationFiles } from "../src/runnable-application-files.js";
 
 const generated = applicationAuthFiles({ applicationId: "customer-alpha", applicationName: "Customer Alpha", theme: "minimal" });
@@ -30,6 +31,9 @@ type Control = {
   updates: UpdateCall[];
   audits: Statement[];
   locks: Statement[];
+  sessionLocks: Array<{ text: string; values: readonly unknown[] }>;
+  unlocks: Array<{ collection: string; email: string; overrideAccess: boolean; openTransactions: number }>;
+  sessionLockReleases: boolean[];
   logins: Array<{ email: string; password: string; transactionID: unknown }>;
   hookRefusals: string[];
   transactions: Array<{ id: string; outcome: "open" | "committed" | "rolled-back" }>;
@@ -40,6 +44,9 @@ type Control = {
 type AuthorityModule = {
   changeCurrentUserCredentials(payload: unknown, context: unknown, input: unknown): Promise<{ userId: string; auditId: string; changed: readonly string[] }>;
   recoverProtectedOwnerCredential(payload: unknown, receipt: unknown, operatorIdentity: string, grant: unknown, input: unknown): Promise<{ userId: string; auditId: string }>;
+  reauthenticateCurrentUser(payload: unknown, context: unknown, password: string): Promise<boolean>;
+  withCredentialAuthority<T>(payload: unknown, principal: string, run: (signal: AbortSignal) => Promise<T>, signal?: AbortSignal): Promise<T>;
+  credentialAuthorityPrincipal(kind: "user" | "email" | "session", value: string): string;
   kNexRequestContext(headers: Headers, boundary: string): { headers: Headers; correlationId: string };
   admittedCredentialChange(userId: string, fields: readonly string[]): boolean;
 };
@@ -50,6 +57,7 @@ type DelegatedRestCall = Readonly<{ method: string; slug: readonly string[]; bod
 type RestControl = {
   delegated: DelegatedRestCall[];
   statements: Array<{ text: string; values: readonly unknown[] }>;
+  lookups: Array<{ kind: "find" | "auth"; email?: unknown }>;
   boots: string[];
   connects: number;
   releases: boolean[];
@@ -118,6 +126,20 @@ function payloadDouble(): Record<string, unknown> {
   return {
     db: {
       sessions,
+      // The session-level half of the authority, which everything that proves a
+      // credential holds for the whole of its operation.
+      pool: {
+        options: { max: 10 },
+        async connect() {
+          return {
+            async query(text: string, values?: readonly unknown[]) {
+              control().sessionLocks.push(Object.freeze({ text, values: Object.freeze([...(values ?? [])]) }));
+              return { rowCount: 1 };
+            },
+            release(destroy?: boolean) { control().sessionLockReleases.push(destroy === true); }
+          };
+        }
+      },
       async beginTransaction() {
         const id = "credential-transaction-" + String(control().transactions.length + 1);
         const effects: Array<() => void> = [];
@@ -167,6 +189,12 @@ function payloadDouble(): Record<string, unknown> {
       if (open === undefined) match.sessions += 1; else open.push(() => { match.sessions += 1; });
       cross("possession-proved");
       return { user: { id: match.id, email: match.email, collection: "users" } };
+    },
+    // Payload's own reset of the failed-attempt count, which a rolled-back
+    // proof would otherwise have discarded along with the session it opened.
+    async unlock(call: { collection: string; data: { email?: string }; overrideAccess: boolean }) {
+      control().unlocks.push({ collection: call.collection, email: String(call.data.email), overrideAccess: call.overrideAccess, openTransactions: staged.size });
+      return true;
     },
     async find({ where, req }: { where: { email: { equals: string } }; req?: { transactionID?: unknown } }) {
       openTransaction(req?.transactionID);
@@ -270,9 +298,14 @@ export const REST_PUT = delegate("PUT");
 export const REST_OPTIONS = delegate("OPTIONS");
 export async function bootKnexApplication(key) {
   control().boots.push(key);
+  // The principal a sign-in or a refresh is deciding about is resolved out of
+  // the same users the credential journeys are proved against, so the key one
+  // takes can be compared with the key the other takes.
+  const credentials = () => globalThis.__kNexGeneratedCredentials;
   return {
     db: {
       pool: {
+        options: { max: 10 },
         async connect() {
           control().connects += 1;
           return {
@@ -286,6 +319,16 @@ export async function bootKnexApplication(key) {
           };
         }
       }
+    },
+    async find({ where }) {
+      control().lookups.push(Object.freeze({ kind: "find", email: where?.email?.equals }));
+      return { docs: [...credentials().users.values()].filter((user) => user.email === where?.email?.equals).map(({ id }) => ({ id })) };
+    },
+    async auth() {
+      control().lookups.push(Object.freeze({ kind: "auth" }));
+      const id = credentials().session;
+      const user = id === undefined ? undefined : credentials().users.get(id);
+      return { user: user === undefined ? null : { id: user.id, email: user.email, collection: "users" } };
     }
   };
 }
@@ -300,7 +343,7 @@ export async function bootKnexApplication(key) {
   // One entry point, so the collection hook, the generated REST route and the
   // assertions observe the same authority module instance rather than three
   // loaders' copies of it.
-  writeFileSync(join(directory, "probe.mjs"), 'export { admittedCredentialChange, changeCurrentUserCredentials, kNexRequestContext, recoverProtectedOwnerCredential } from "./authority.mjs";\nexport { usersCollection } from "./users.mjs";\nexport * as rest from "./rest.mjs";\n');
+  writeFileSync(join(directory, "probe.mjs"), 'export { admittedCredentialChange, changeCurrentUserCredentials, credentialAuthorityPrincipal, kNexRequestContext, reauthenticateCurrentUser, recoverProtectedOwnerCredential, withCredentialAuthority } from "./authority.mjs";\nexport { usersCollection } from "./users.mjs";\nexport * as rest from "./rest.mjs";\n');
   const probe = await import(pathToFileURL(join(directory, "probe.mjs")).href) as AuthorityModule & UsersModule & { rest: RestModule };
   authority = probe;
   users = probe;
@@ -318,10 +361,10 @@ beforeEach(() => {
       ["2", { id: "2", email: "second@alpha.example.test", password: "second-password-1234", sessions: 1 }]
     ]),
     grants: new Map([[grantDigest, { digest: grantDigest, expiresAt: grantExpiresAt, consumed: false }]]),
-    session: "1", updates: [], audits: [], locks: [], logins: [], hookRefusals: [], transactions: [], crossed: [], fault: undefined
+    session: "1", updates: [], audits: [], locks: [], sessionLocks: [], sessionLockReleases: [], unlocks: [], logins: [], hookRefusals: [], transactions: [], crossed: [], fault: undefined
   };
   (globalThis as typeof globalThis & { __kNexGeneratedRest: RestControl }).__kNexGeneratedRest = {
-    delegated: [], statements: [], boots: [], connects: 0, releases: [], authorityHeld: false
+    delegated: [], statements: [], lookups: [], boots: [], connects: 0, releases: [], authorityHeld: false
   };
 });
 
@@ -578,7 +621,7 @@ it("proves the current password on the credential transaction and leaves no sess
   expect(ownerState().sessions).toBe(3);
 });
 
-it("takes one application credential authority on every credential path before it reads, proves, or writes anything", async () => {
+it("takes one credential authority per principal on every credential path before it reads, proves, or writes anything", async () => {
   await authority.changeCurrentUserCredentials(payloadDouble(), context(), { currentPassword: "owner-password-1234", password: "brand-new-password-1" });
   const selfService = control().locks.map(({ values }) => [...values]);
   expect(selfService).toHaveLength(1);
@@ -586,20 +629,24 @@ it("takes one application credential authority on every credential path before i
 
   control().locks.length = 0;
   control().crossed.length = 0;
+  // Recovery rewrites the sign-in identity, so it takes the key on the user id
+  // rather than on the address: the same key a self-service change for that
+  // principal takes, which is what stops a proof captured before a recovery
+  // from committing after it.
   await authority.recoverProtectedOwnerCredential(payloadDouble(), { state: "committed", ownerPrincipal: { kind: "user", id: "1" } }, "fixture.p13-operator", grant(), { email: "recovered@alpha.example.test", password: "recovered-password-1" });
   expect(control().crossed[0]).toBe("credential-locked");
-  // Operator recovery contends for the very same lock, which is what stops a
-  // self-service proof captured before a recovery from committing after it.
   expect(control().locks.map(({ values }) => [...values])).toEqual(selfService);
 
-  // A different principal is the same key. An authentication does not know
-  // whose credential it is deciding until its body has been resolved, and a
-  // recovery moves the sign-in identity itself, so there is no principal the
-  // two sides could have agreed on: the authority is the application's.
+  // Another principal is another key. One key for the whole application made
+  // every sign-in in the product queue behind every other one, which is a
+  // denial-of-service boundary an unauthenticated caller could reach.
   control().session = "2";
   control().locks.length = 0;
   await authority.changeCurrentUserCredentials(payloadDouble(), context(), { currentPassword: "second-password-1234", password: "second-new-password-1" });
-  expect(control().locks.map(({ values }) => [...values])).toEqual(selfService);
+  const second = control().locks.map(({ values }) => [...values]);
+  expect(second).toHaveLength(1);
+  expect(second[0]![0]).toBe(selfService[0]![0]);
+  expect(second[0]![1]).not.toBe(selfService[0]![1]);
 });
 
 /**
@@ -617,50 +664,98 @@ it("holds the credential authority across the whole delegated Payload sign-in", 
   expect(restControl().boots).toEqual(["credential-authority"]);
   expect(restControl().delegated).toEqual([{ method: "POST", slug: ["users", "login"], body, authorityHeld: true }]);
   // Acquired before the delegated call and released only after it answered, so
-  // a credential change waits for the sign-in it would otherwise overtake.
+  // a credential change waits for the sign-in it would otherwise overtake. The
+  // lock wait is bounded by a statement timeout the connection does not keep.
   expect(restControl().statements.map(({ text }) => text)).toEqual([
-    "select pg_advisory_lock($1,$2)", "select pg_advisory_unlock($1,$2)"
+    "select set_config('statement_timeout',$1,false)",
+    "select pg_advisory_lock($1,$2)",
+    "select set_config('statement_timeout','0',false)",
+    "select pg_advisory_unlock($1,$2)"
   ]);
   expect(restControl().authorityHeld).toBe(false);
   // The connection goes back to the pool: it is only destroyed when the unlock
-  // could not be confirmed.
+  // could not be confirmed or the lock bound was never handed back.
   expect(restControl().releases).toEqual([false]);
 
-  // The same key the credential transaction takes, which is the whole point:
-  // two different keys would serialize nothing.
-  const authorityValues = restControl().statements[0]!.values;
+  // The sign-in named its principal by the address in its body, so it is the
+  // same key the credential transaction for that user takes. Two different keys
+  // would serialize nothing.
+  expect(restControl().lookups).toEqual([{ kind: "find", email: "owner@alpha.example.test" }]);
+  const authorityValues = restControl().statements[1]!.values;
   await authority.changeCurrentUserCredentials(payloadDouble(), context(), { currentPassword: "owner-password-1234", password: "brand-new-password-1" });
   expect(control().locks.map(({ values }) => [...values])).toEqual([[...authorityValues]]);
 });
 
-it("serializes every Payload auth operation that mints a session or moves a credential, and nothing else", async () => {
-  for (const operation of ["login", "refresh-token", "first-register"]) {
+/**
+ * The finding this closes: one key for the whole application meant a complete,
+ * unauthenticated sign-in request for any address queued every other sign-in,
+ * every credential change and the operator recovery behind it.
+ */
+it("takes the credential authority on the account a sign-in names, and on a key of its own when the address is unknown", async () => {
+  const signIn = async (email: string) => {
+    restControl().statements.length = 0;
+    const response = await restPost("/api/users/login", { headers: { "content-type": "application/json" }, body: JSON.stringify({ email, password: "whatever-1234" }) });
+    expect(response.status).toBe(200);
+    const lock = restControl().statements.find(({ text }) => text.includes("pg_advisory_lock"));
+    expect(lock).toBeDefined();
+    return [...lock!.values] as [number, number];
+  };
+  const owner = await signIn("owner@alpha.example.test");
+  const second = await signIn("second@alpha.example.test");
+  // Payload lowercases and trims before it resolves a sign-in, so the key has
+  // to be taken on the address the delegated call will actually look up.
+  const shouted = await signIn("  OWNER@Alpha.Example.Test ");
+  const unknown = await signIn("nobody@alpha.example.test");
+  const alsoUnknown = await signIn("someone-else@alpha.example.test");
+
+  expect(owner).toEqual(shouted);
+  expect(owner[0]).toBe(second[0]);
+  expect(new Set([owner[1], second[1], unknown[1], alsoUnknown[1]]).size).toBe(4);
+  // An address nobody holds is queued and locked exactly like one somebody
+  // does, so how a request is treated here never says which addresses exist.
+  expect(restControl().delegated).toHaveLength(5);
+  expect(restControl().delegated.every(({ authorityHeld }) => authorityHeld)).toBe(true);
+});
+
+it("serializes every Payload auth operation that mints a session, refuses the ones this product does not admit, and touches nothing else", async () => {
+  for (const operation of ["login", "refresh-token"]) {
     await restPost(`/api/users/${operation}`, { headers: { "content-type": "application/json" }, body: "{}" });
   }
-  expect(restControl().connects).toBe(3);
+  expect(restControl().connects).toBe(2);
   expect(restControl().delegated.every(({ authorityHeld }) => authorityHeld)).toBe(true);
+  // A sign-in with no address to resolve is still locked, on the key that
+  // absence of an address gets; a refresh has no address at all, so its
+  // principal comes from the session it presents.
+  expect(restControl().lookups).toEqual([{ kind: "auth" }]);
 
   // A logout, an ordinary collection write and another collection's login-like
   // path are delegated untouched: serializing them would buy nothing and cost
-  // every request in the application.
+  // every request for that account.
   for (const path of ["/api/users/logout", "/api/users", "/api/users/login/extra", "/api/sales-accounts/login"]) {
     await restPost(path, { headers: { "content-type": "application/json" }, body: "{}" });
   }
-  expect(restControl().connects).toBe(3);
-  expect(restControl().delegated.slice(3).every(({ authorityHeld }) => authorityHeld)).toBe(false);
-  expect(restControl().delegated).toHaveLength(7);
+  expect(restControl().connects).toBe(2);
+  expect(restControl().delegated.slice(2).every(({ authorityHeld }) => authorityHeld)).toBe(false);
+  expect(restControl().delegated).toHaveLength(6);
 
   // Payload's own password reset writes the credential straight through the
-  // database adapter, so the admission on the users collection never sees it.
-  // Ordering a write that answers to nothing only makes it punctual, so the two
-  // endpoints that reach it are refused instead.
-  for (const operation of ["forgot-password", "reset-password"]) {
+  // database adapter, so the admission on the users collection never sees it,
+  // and first-register creates an account with access overridden and logs it
+  // straight in, outside the operator token, the receipt, the owner assignment
+  // and the audit. Ordering a write that answers to nothing only makes it
+  // punctual, so all three are refused instead.
+  const refusals = new Map([
+    ["first-register", "The first owner is created by the operator bootstrap command, not by registration."],
+    ["forgot-password", "Credentials are issued by the operator recovery command, not by a password reset."],
+    ["reset-password", "Credentials are issued by the operator recovery command, not by a password reset."]
+  ]);
+  for (const [operation, message] of refusals) {
     const refused = await restPost(`/api/users/${operation}`, { headers: { "content-type": "application/json" }, body: "{}" });
     expect(refused.status).toBe(403);
-    expect(await refused.json()).toEqual({ errors: [{ message: "Credentials are issued by the operator recovery command, not by a password reset." }] });
+    expect(await refused.json()).toEqual({ errors: [{ message }] });
   }
-  expect(restControl().connects).toBe(3);
-  expect(restControl().delegated).toHaveLength(7);
+  expect(restControl().connects).toBe(2);
+  expect(restControl().delegated).toHaveLength(6);
 });
 
 it("refuses a sign-in body past the credential bound before it can hold the authority", async () => {
@@ -675,6 +770,142 @@ it("refuses a sign-in body past the credential bound before it can hold the auth
   expect(restControl().delegated).toEqual([]);
   expect(restControl().connects).toBe(0);
   expect(restControl().statements).toEqual([]);
+});
+
+/**
+ * The finding this closes: reauthentication proved the password with a login of
+ * its own outside any transaction, so every settings and theme confirmation
+ * left a live session behind that nobody held a token for.
+ */
+it("proves a reauthentication on a transaction that is always rolled back, and leaves the sessions byte-identical", async () => {
+  const payload = payloadDouble();
+  const before = ownerState();
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    expect(await authority.reauthenticateCurrentUser(payload, context(), "owner-password-1234")).toBe(true);
+    expect(await authority.reauthenticateCurrentUser(payload, context(), "not-the-password")).toBe(false);
+  }
+  expect(ownerState()).toEqual(before);
+  expect(ownerState().sessions).toBe(3);
+  // Every proof was taken on a transaction, and no transaction survived.
+  expect(control().logins).toHaveLength(6);
+  expect(control().logins.every(({ transactionID }) => transactionID !== undefined)).toBe(true);
+  expect(control().transactions).toHaveLength(6);
+  expect(control().transactions.every(({ outcome }) => outcome === "rolled-back")).toBe(true);
+  expect(control().updates).toEqual([]);
+  expect(control().audits).toEqual([]);
+  // Payload counts a failed attempt on a connection of its own and clears the
+  // count on the transaction, so a rolled-back proof keeps every failure and
+  // discards every reset. Each proof restores what a sign-in would have, and
+  // does it after the rollback rather than inside it.
+  expect(control().unlocks).toEqual(Array.from({ length: 3 }, () => ({
+    collection: "users", email: "owner@alpha.example.test", overrideAccess: true, openTransactions: 0
+  })));
+  // It is still an authentication, so it is still ordered against this
+  // principal's credential changes for the whole of its run.
+  expect(control().sessionLocks.filter(({ text }) => text.includes("pg_advisory_lock"))).toHaveLength(6);
+  expect(control().sessionLockReleases).toEqual(Array.from({ length: 6 }, () => false));
+});
+
+function authorityPoolDouble(): Record<string, unknown> {
+  return { db: { pool: { options: { max: 10 }, async connect() {
+    return { async query() { return { rowCount: 1 }; }, release() { /* the gate is what this test is about */ } };
+  } } } };
+}
+
+/**
+ * The finding this closes: the in-process queue in front of the authority was an
+ * unbounded promise chain with no deadline and no way out, so complete public
+ * sign-in requests accumulated in memory, a client that had already
+ * disconnected still ran, and one account's password check could hold every
+ * other account's sign-in.
+ */
+it("bounds the queue on one principal's credential authority, refuses past it, and admits another principal straight away", async () => {
+  const payload = authorityPoolDouble();
+  const owner = authority.credentialAuthorityPrincipal("user", "1");
+  const second = authority.credentialAuthorityPrincipal("user", "2");
+  let release!: () => void;
+  const holding = new Promise<void>((settle) => { release = settle; });
+  let held = false;
+  const holder = authority.withCredentialAuthority(payload, owner, async () => { held = true; await holding; return "held"; });
+  while (!held) await new Promise((settle) => setTimeout(settle, 1));
+
+  const queued = Array.from({ length: 7 }, (_unused, index) => authority.withCredentialAuthority(payload, owner, async () => index));
+  // The eighth place in the queue belongs to a client that then goes away.
+  const abandoning = new AbortController();
+  let abandonedRan = false;
+  const abandoned = authority.withCredentialAuthority(payload, owner, async () => { abandonedRan = true; }, abandoning.signal);
+  await expect(authority.withCredentialAuthority(payload, owner, async () => "refused")).rejects.toMatchObject({ refusal: "busy" });
+
+  // A caller that gives up leaves the queue where it stands rather than at the
+  // head of it, so the place it vacates is immediately somebody else's and the
+  // work it asked for is never done later on its behalf.
+  abandoning.abort();
+  await expect(abandoned).rejects.toMatchObject({ refusal: "aborted" });
+  const readmitted = authority.withCredentialAuthority(payload, owner, async () => "readmitted");
+
+  // Another account is not behind any of this, which is the whole finding: one
+  // account's password check must not be every account's sign-in.
+  expect(await authority.withCredentialAuthority(payload, second, async () => "unblocked")).toBe("unblocked");
+
+  release();
+  expect(await holder).toBe("held");
+  expect(await Promise.all(queued)).toEqual([0, 1, 2, 3, 4, 5, 6]);
+  expect(await readmitted).toBe("readmitted");
+  expect(abandonedRan).toBe(false);
+});
+
+it("never admits a caller whose client has already gone", async () => {
+  const payload = authorityPoolDouble();
+  const owner = authority.credentialAuthorityPrincipal("user", "1");
+  const gone = AbortSignal.abort();
+  let ran = false;
+  await expect(authority.withCredentialAuthority(payload, owner, async () => { ran = true; }, gone)).rejects.toMatchObject({ refusal: "aborted" });
+  expect(ran).toBe(false);
+  // The gate it did not enter is not a gate it left broken.
+  expect(await authority.withCredentialAuthority(payload, owner, async () => "after")).toBe("after");
+});
+
+it("hands the delegated operation a signal that its caller's disconnect aborts", async () => {
+  const payload = authorityPoolDouble();
+  const owner = authority.credentialAuthorityPrincipal("user", "1");
+  const disconnecting = new AbortController();
+  let delegated!: AbortSignal;
+  const running = authority.withCredentialAuthority(payload, owner, async (signal) => {
+    delegated = signal;
+    await new Promise<void>((settle) => signal.addEventListener("abort", () => settle(), { once: true }));
+    return "stopped";
+  }, disconnecting.signal);
+  while (delegated === undefined) await new Promise((settle) => setTimeout(settle, 1));
+  expect(delegated.aborted).toBe(false);
+  disconnecting.abort();
+  expect(delegated.aborted).toBe(true);
+  expect(await running).toBe("stopped");
+});
+
+/**
+ * The finding this closes: the generated application served a bare
+ * GRAPHQL_POST, and Payload publishes login, refresh, forgot-password and
+ * reset-password as mutations for every auth collection whose resolvers call
+ * the same operations the REST endpoints do. That reached every credential
+ * operation without passing the credential authority or the REST refusals, and
+ * it cannot be policed by operation name: aliases, variables, fragments,
+ * multiple operations and batching all defeat that. Nothing in this product
+ * uses a GraphQL API, so the surface is not generated at all.
+ */
+it("generates no GraphQL surface, and declares the users collection out of the schema", () => {
+  const emitted = Object.keys({ ...generated, ...runnable });
+  expect(emitted.filter((path) => /graphql/iu.test(path))).toEqual([]);
+  expect(salesReferenceCompilerBoundary.platformPaths.filter((path) => /graphql/iu.test(path))).toEqual([]);
+  for (const source of Object.values({ ...generated, ...runnable })) {
+    expect(source).not.toContain("GRAPHQL_POST");
+    expect(source).not.toContain("GRAPHQL_PLAYGROUND_GET");
+  }
+  // The route inventory the generated application checks itself against names
+  // no such route either, so one that reappeared would fail the application's
+  // own readiness check rather than be served quietly.
+  expect(generated["src/k-nex-readiness.ts"]).not.toContain("graphql");
+  // Belt and braces: a route added later still finds no schema to publish.
+  expect(generated["src/k-nex-users.ts"]).toContain("graphQL: false");
 });
 
 it("keeps the operator recovery grant out of reach of an ordinary session", () => {

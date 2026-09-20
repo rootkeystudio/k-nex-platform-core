@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { request as httpRequest } from "node:http";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
+
+import pg from "pg";
 
 import { withGeneratedCrmBrowserFixture } from "./p13-3-generated-crm-fixture.mjs";
 
@@ -25,6 +28,15 @@ async function currentUser(origin, cookie) {
   const response = await fetch(`${origin}/api/users/me`, { headers: { cookie } });
   const body = await response.json().catch(() => undefined);
   return body?.user?.id === undefined ? undefined : String(body.user.id);
+}
+
+async function unusedPort() {
+  const server = createServer();
+  await new Promise((settle, reject) => server.once("error", reject).listen(0, "127.0.0.1", settle));
+  const address = server.address();
+  assert.ok(address && typeof address !== "string");
+  await new Promise((settle, reject) => server.close((error) => error ? reject(error) : settle()));
+  return address.port;
 }
 
 async function eventually(check, failure, timeoutMs = 30_000) {
@@ -155,6 +167,27 @@ try {
   const headers = new Headers(process.env.PROBE_COOKIE === undefined ? {} : { cookie: process.env.PROBE_COOKIE });
   const result = await changeCurrentUserCredentials(payload, kNexRequestContext(headers, "credential-change"), JSON.parse(process.env.PROBE_INPUT));
   console.log("PROBE_OK " + JSON.stringify(result));
+} catch (error) { console.log("PROBE_ERR " + (error?.code ?? error?.message ?? String(error))); }
+finally { await shutdownKnexApplication(payload); }
+process.exit(0);
+`;
+
+/**
+ * Runs the generated step-up reauthentication the settings and theme journeys
+ * call, as many times as it is asked to, so what it leaves behind can be
+ * counted rather than argued about.
+ */
+const reauthenticationScript = `
+import { bootKnexApplication } from "./dist/boot.js";
+import { kNexRequestContext, reauthenticateCurrentUser, shutdownKnexApplication } from "./dist/k-nex-authority.js";
+const payload = await bootKnexApplication("reauthentication");
+try {
+  const outcomes = [];
+  for (const password of JSON.parse(process.env.PROBE_PASSWORDS)) {
+    const headers = new Headers({ cookie: process.env.PROBE_COOKIE });
+    outcomes.push(await reauthenticateCurrentUser(payload, kNexRequestContext(headers, "reauthentication"), password));
+  }
+  console.log("PROBE_OK " + JSON.stringify(outcomes));
 } catch (error) { console.log("PROBE_ERR " + (error?.code ?? error?.message ?? String(error))); }
 finally { await shutdownKnexApplication(payload); }
 process.exit(0);
@@ -308,6 +341,54 @@ test("P13.B generated ingress readers are bounded, the realtime bridge recovers,
     const healthStartedAt = Date.now();
     assert.equal((await fetch(`${origin}/api/health`)).ok, true, `Generated host must stay healthy after bounded ingress refusals.\n${applicationOutput()}`);
     assert.ok(Date.now() - healthStartedAt < 5_000, "Generated host must still answer promptly after bounded ingress refusals.");
+
+    // -------- no GraphQL credential surface --------
+    // Payload publishes login, refresh, forgot-password and reset-password as
+    // GraphQL mutations for every auth collection, and its resolvers call the
+    // same operations the REST endpoints do. A GraphQL route therefore reached
+    // every credential operation without passing the credential authority or
+    // the REST refusals, and policing it by operation name would fail open on
+    // aliases, variables, fragments and batching. The route is not generated at
+    // all, so there is nothing to police.
+    const ownerSessionCount = async (userId) => (await pool.query("select count(*)::int count from users_sessions where _parent_id=$1", [userId])).rows[0].count;
+    const sessionsBeforeGraphql = await ownerSessionCount(owner.userId);
+    const graphqlAttempts = [
+      // Named, aliased, variable-driven, fragment-carrying and batched forms of
+      // the same auth mutations, none of which an operation-name filter catches.
+      { query: "mutation { loginUser(email: \"a@b.test\", password: \"x\") { token } }" },
+      { query: "mutation Anything($e: String!, $p: String!) { session: loginUser(email: $e, password: $p) { token user { ...Who } } } fragment Who on User { id email }", variables: { e: personas.owner.email, p: personas.owner.password } },
+      { query: "mutation { refreshTokenUser { token } }" },
+      { query: "mutation { forgotPasswordUser(email: \"owner@p13-browser.example.test\") }" },
+      { query: "mutation { resetPasswordUser(token: \"anything\", password: \"attacker-password-1\") { token } }" },
+      { query: "query { Users { docs { id email } } }" }
+    ];
+    for (const attempt of graphqlAttempts) {
+      const response = await fetch(`${origin}/api/graphql`, {
+        method: "POST", headers: { "content-type": "application/json", cookie: owner.cookie, origin },
+        body: JSON.stringify(attempt)
+      });
+      const text = await response.text();
+      assert.equal(response.status, 404, `A GraphQL auth mutation must not be served: ${JSON.stringify(attempt)} -> ${response.status} ${text}`);
+      assert.equal(response.headers.get("set-cookie"), null, "A refused GraphQL request must not set a session cookie.");
+      assert.equal(/"token"|"data"/u.test(text), false, `A refused GraphQL request must not carry a result: ${text}`);
+    }
+    // The REST catch-all is what answers the path the route used to own, so the
+    // refusal is Payload's own "no such route" rather than a handler of ours.
+    const graphqlFallthrough = await fetch(`${origin}/api/graphql`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+    assert.equal(graphqlFallthrough.status, 404);
+    assert.match(await graphqlFallthrough.text(), /Route not found/u);
+    for (const path of ["/api/graphql", "/api/graphql-playground"]) {
+      assert.equal((await fetch(`${origin}${path}`, { headers: { cookie: owner.cookie } })).status, 404, `${path} must not be served.`);
+    }
+    assert.equal(await ownerSessionCount(owner.userId), sessionsBeforeGraphql, "No GraphQL attempt may mint a session.");
+    assert.equal((await login(origin, personas.owner.email, personas.owner.password)).status, 200,
+      "A refused GraphQL reset-password must leave the credential exactly where it was.");
+    assert.notEqual((await login(origin, personas.owner.email, "attacker-password-1")).status, 200);
+    // Asserted after the behaviour rather than before it, so reverting the
+    // removal is answered by what the route does, not only by what it is.
+    for (const source of ["src/app/(payload)/api/graphql/route.ts", "src/app/(payload)/api/graphql-playground/route.ts"]) {
+      assert.equal(existsSync(resolve(application, source)), false, `The generated product must not emit ${source}.`);
+    }
 
     // -------- realtime invalidation bridge --------
     const readiness = async () => {
@@ -673,6 +754,311 @@ test("P13.B generated ingress readers are bounded, the realtime bridge recovers,
       assert.notEqual((await login(origin, personas.owner.email, "email-only-contender-password-1")).status, 200);
       assert.notEqual((await login(origin, personas.owner.email, currentPassword)).status, 200, "The moved email must be the only sign-in identity.");
       assert.equal((await login(origin, movedEmail, currentPassword)).status, 200, "An email-only change must leave the password working under the new email.");
+
+      // -------- reauthentication proves, and leaves nothing --------
+      // The finding this closes: the step-up proof was a login of its own
+      // outside any transaction, so every settings and theme confirmation left
+      // a live session behind that nobody held a token for.
+      const sessionRows = async () => JSON.stringify((await pool.query("select * from users_sessions order by id")).rows);
+      const settingsCookie = await login(origin, movedEmail, currentPassword);
+      assert.equal(settingsCookie.status, 200);
+      const sessionsBeforeReauthentication = await sessionRows();
+      const settingsChange = async (password) => {
+        const response = await fetch(`${origin}/api/system/settings/system.general`, {
+          method: "POST", redirect: "manual",
+          headers: { "content-type": "application/x-www-form-urlencoded", cookie: settingsCookie.cookie, origin },
+          body: new URLSearchParams({ password, values: JSON.stringify({ siteName: "P13 CRM Browser", reportingCurrency: "USD", reportingTimezone: "UTC" }) })
+        });
+        return response.status;
+      };
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        assert.equal(await settingsChange(currentPassword), 303, "A settings change with the current password must be admitted.");
+        assert.notEqual(await settingsChange("not-the-current-password"), 303, "A settings change must refuse a password it cannot prove.");
+      }
+      // The same primitive the theme journeys call, driven directly so the
+      // proof is of the reauthentication rather than of one route's plumbing.
+      const reauthenticated = inProcessProbe(application, environment, reauthenticationScript, {
+        PROBE_COOKIE: settingsCookie.cookie,
+        PROBE_PASSWORDS: JSON.stringify([currentPassword, "not-the-current-password", currentPassword, currentPassword, "wrong-again", currentPassword])
+      });
+      assert.deepEqual(reauthenticated, { ok: true, value: [true, false, true, true, false, true] });
+      assert.equal(await sessionRows(), sessionsBeforeReauthentication,
+        "Repeated settings and theme reauthentication must leave the user's sessions byte-identical.");
+      assert.equal(await currentUser(origin, settingsCookie.cookie), owner.userId, "A verification-only proof must leave the caller's own session alone.");
+
+      // -------- one account's sign-in is not every account's sign-in --------
+      // The finding this closes: one advisory key for the whole application
+      // meant a complete, unauthenticated sign-in request for any address
+      // serialized every other sign-in, every credential change and the
+      // operator recovery behind it, on an unbounded in-process queue with no
+      // deadline and no way out.
+      // pg_locks reports the key as an unsigned oid; the generated authority
+      // takes it as a signed int4, so it has to be read back as one.
+      const advisoryHolders = async () => (await pool.query(
+        "select objid from pg_locks where locktype='advisory' and granted and objsubid=2 and classid=1802658915 and database=(select oid from pg_database where datname=current_database())"
+      )).rows.map((row) => Number(row.objid) > 2_147_483_647 ? Number(row.objid) - 4_294_967_296 : Number(row.objid));
+      const managerId = String((await pool.query("select id from users where email=$1", [personas.manager.email])).rows[0].id);
+      let flood;
+      let ownerAuthorityKey;
+      const floodHolder = await pool.connect();
+      let floodRowHeld = false;
+      try {
+        await floodHolder.query("begin");
+        await floodHolder.query("select id from users where id=$1 for update", [owner.userId]);
+        floodRowHeld = true;
+        flood = Array.from({ length: 40 }, () => login(origin, movedEmail, currentPassword).catch(() => ({ status: 0 })));
+        // Waited for as one condition rather than asserted after another: the
+        // generated worker holds row locks of its own, so "somebody is waiting
+        // on a row" is not by itself this sign-in.
+        const held = await eventually(async () => {
+          const holders = await advisoryHolders();
+          return holders.length >= 1 && await lockWaiters(["transactionid", "tuple"]) >= 1 ? holders : undefined;
+        }, "No flooded sign-in parked inside the credential authority.", 60_000);
+        assert.equal(held.length, 1, `Exactly one flooded sign-in may park a pooled connection on the authority: ${JSON.stringify(held)}`);
+        ownerAuthorityKey = held[0];
+
+        // Another account, while forty requests for this one are in flight.
+        const bystanderStartedAt = Date.now();
+        const bystander = await login(origin, personas.manager.email, personas.manager.password);
+        assert.equal(bystander.status, 200, `A different account must sign in while one account is flooded.\n${applicationOutput()}`);
+        assert.ok(Date.now() - bystanderStartedAt < 5_000, `A different account's sign-in must not wait for the flood: ${Date.now() - bystanderStartedAt}ms`);
+        assert.equal(await currentUser(origin, bystander.cookie), managerId);
+
+        await floodHolder.query("commit");
+        floodRowHeld = false;
+      } finally {
+        if (floodRowHeld) await floodHolder.query("rollback").catch(() => undefined);
+        floodHolder.release();
+      }
+      const flooded = await Promise.all(flood);
+      const floodStatuses = flooded.map(({ status }) => status);
+      assert.equal(floodStatuses.every((status) => status === 200 || status === 429), true,
+        `A flooded account's sign-ins must be answered or refused, never left hanging: ${JSON.stringify(floodStatuses)}`);
+      assert.ok(floodStatuses.filter((status) => status === 429).length >= 25,
+        `A bounded queue must refuse the excess rather than accumulate it: ${JSON.stringify(floodStatuses)}`);
+      assert.ok(floodStatuses.includes(200), `The flood must not refuse the account outright: ${JSON.stringify(floodStatuses)}`);
+
+      // -------- a client that goes away is not executed on its behalf --------
+      const sessionsBeforeAbandon = await ownerSessions();
+      const abandonHolder = await pool.connect();
+      let abandonRowHeld = false;
+      let parked;
+      let abandonedFailure;
+      try {
+        await abandonHolder.query("begin");
+        await abandonHolder.query("select id from users where id=$1 for update", [owner.userId]);
+        abandonRowHeld = true;
+        parked = login(origin, movedEmail, currentPassword);
+        await eventually(async () => (await advisoryHolders()).includes(ownerAuthorityKey) && await lockWaiters(["transactionid", "tuple"]) >= 1 || undefined,
+          "The parked sign-in never reached the session write it commits.", 60_000);
+        const abandoning = new AbortController();
+        const abandoned = fetch(`${origin}/api/users/login`, {
+          method: "POST", headers: { "content-type": "application/json" }, signal: abandoning.signal,
+          body: JSON.stringify({ email: movedEmail, password: currentPassword })
+        }).catch((error) => { abandonedFailure = error; return undefined; });
+        // Queued behind the parked sign-in, then disconnected: the request must
+        // leave the queue rather than be run later on a client that has gone.
+        await new Promise((settle) => setTimeout(settle, 1_000));
+        abandoning.abort();
+        assert.equal(await abandoned, undefined, "An abandoned sign-in must not be answered.");
+        assert.ok(abandonedFailure !== undefined);
+        await new Promise((settle) => setTimeout(settle, 1_000));
+        await abandonHolder.query("commit");
+        abandonRowHeld = false;
+      } finally {
+        if (abandonRowHeld) await abandonHolder.query("rollback").catch(() => undefined);
+        abandonHolder.release();
+      }
+      assert.equal((await parked).status, 200, "A sign-in that waited its turn must still be answered.");
+      assert.equal(await ownerSessions(), sessionsBeforeAbandon + 1,
+        "An abandoned sign-in must not open a session after its client has gone.");
+
+      // -------- a holder that dies does not keep the authority --------
+      const dying = await pool.connect();
+      // This connection is about to be terminated on purpose, so the fatal it
+      // receives belongs to the test rather than to the process.
+      dying.on("error", () => undefined);
+      let dyingPid;
+      try {
+        dyingPid = Number((await dying.query("select pg_backend_pid() pid")).rows[0].pid);
+        await dying.query("select pg_advisory_lock($1,$2)", [1_802_658_915, ownerAuthorityKey]);
+        assert.deepEqual(await advisoryHolders(), [ownerAuthorityKey]);
+        const blocked = login(origin, movedEmail, currentPassword);
+        await eventually(async () => await lockWaiters(["advisory"]) >= 1 || undefined,
+          "The sign-in never queued behind the authority a foreign holder took.", 30_000);
+        await pool.query("select pg_terminate_backend($1)", [dyingPid]);
+        const resumedAt = Date.now();
+        assert.equal((await blocked).status, 200, "A sign-in must proceed once the holder that died releases the authority.");
+        assert.ok(Date.now() - resumedAt < 10_000, "A dead holder's authority must be free at once, not on a deadline.");
+      } finally { dying.release(true); }
+
+      // -------- the operator recovery is not behind another account --------
+      // The recovery contends for the owner's key, so a sign-in for a different
+      // account cannot be in front of it however long that sign-in takes.
+      const contentionTokenFile = resolve(directory, "contention-recovery.token");
+      const contentionIssued = operatorProbe(application, environment, ["knex:issue-bootstrap-token", "--recovery", "--output", contentionTokenFile]);
+      assert.equal(contentionIssued.status, 0, `${contentionIssued.stdout}\n${contentionIssued.stderr}`);
+      const contentionAuditsBefore = await recoveryAudits();
+      const managerHolder = await pool.connect();
+      let managerRowHeld = false;
+      let parkedManager;
+      let parkedManagerFailure;
+      try {
+        await managerHolder.query("begin");
+        await managerHolder.query("select id from users where id=$1 for update", [managerId]);
+        managerRowHeld = true;
+        parkedManager = login(origin, personas.manager.email, personas.manager.password)
+          .catch((error) => { parkedManagerFailure = error; return { status: 0 }; });
+        // The whole of the sign-in is inside its own principal's authority, not
+        // only the row it is about to write, which is what a recovery for a
+        // different principal must not be behind.
+        const managerHeld = await eventually(async () => {
+          const holders = await advisoryHolders();
+          return holders.length >= 1 && !holders.includes(ownerAuthorityKey) && await lockWaiters(["transactionid", "tuple"]) >= 1 ? holders : undefined;
+        }, "The manager sign-in never parked inside its own credential authority.", 60_000);
+        assert.ok(await heldCredentialAuthority() >= 1, "A parked sign-in must be holding its own principal's credential authority.");
+        assert.equal(managerHeld.includes(ownerAuthorityKey), false, "A manager sign-in must not be holding the owner's credential authority.");
+        const recoveringUnderContention = startProbe(application, environment, recoveryBoundaryScript, {
+          PROBE_TOKEN_FILE: contentionTokenFile,
+          PROBE_OPERATOR: environment.K_NEX_ADMINISTRATION_OPERATOR_IDENTITY,
+          PROBE_EMAIL: movedEmail,
+          PROBE_PASSWORD: "recovered-under-contention-password-1"
+        });
+        const contended = await recoveringUnderContention.result();
+        assert.equal(contended.ok, true, `An operator recovery must make progress while another account is signing in.\n${JSON.stringify(contended)}`);
+        assert.equal(await recoveryAudits(), contentionAuditsBefore + 1);
+        await managerHolder.query("commit");
+        managerRowHeld = false;
+      } finally {
+        if (managerRowHeld) await managerHolder.query("rollback").catch(() => undefined);
+        managerHolder.release();
+      }
+      assert.equal((await parkedManager).status, 200, `The parked manager sign-in must still be answered: ${parkedManagerFailure}`);
+      currentPassword = "recovered-under-contention-password-1";
+      assert.equal((await login(origin, movedEmail, currentPassword)).status, 200, "The recovery that ran under contention must be the credential that survives.");
+
+      // -------- an operation that will not finish loses the authority --------
+      // Every holder parks one pooled connection, so a sign-in that never ends
+      // would otherwise take a share of the pool out of the product for good.
+      const stuckHolder = await pool.connect();
+      let stuckRowHeld = false;
+      let stuck;
+      try {
+        await stuckHolder.query("begin");
+        await stuckHolder.query("select id from users where id=$1 for update", [owner.userId]);
+        stuckRowHeld = true;
+        const stuckStartedAt = Date.now();
+        stuck = fetch(`${origin}/api/users/login`, {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ email: movedEmail, password: currentPassword })
+        });
+        const refused = await stuck;
+        assert.equal(refused.status, 503, `A sign-in past the operation deadline must be refused, not held: ${refused.status}`);
+        assert.ok(Date.now() - stuckStartedAt < 30_000, `The operation deadline must be a deadline: ${Date.now() - stuckStartedAt}ms`);
+        // The authority and the pooled connection carrying it are both back,
+        // which is the whole point of having a deadline at all.
+        await eventually(async () => (await advisoryHolders()).includes(ownerAuthorityKey) ? undefined : true,
+          "An abandoned operation must not keep the credential authority.", 30_000);
+        const afterDeadline = await login(origin, personas.manager.email, personas.manager.password);
+        assert.equal(afterDeadline.status, 200, "A refused operation must leave the pool share it held behind it.");
+        await stuckHolder.query("commit");
+        stuckRowHeld = false;
+      } finally {
+        if (stuckRowHeld) await stuckHolder.query("rollback").catch(() => undefined);
+        stuckHolder.release();
+      }
     } finally { rmSync(directory, { recursive: true, force: true }); }
+
+    // -------- a migrated database is not an open registration --------
+    // The finding this closes: first-register creates an account with access
+    // checks overridden and logs it straight in, so a migrated application
+    // started before knex:bootstrap-owner accepted an unauthenticated caller as
+    // its first account, outside the one-shot operator token, the protected
+    // role baseline receipt, the owner assignment and the audit. Serializing it
+    // only made that punctual.
+    const bootstrapless = "p13b_bootstrapless";
+    await pool.query(`drop database if exists ${bootstrapless}`);
+    await pool.query(`create database ${bootstrapless}`);
+    const bootstraplessUrl = new URL(environment.DATABASE_URL);
+    bootstraplessUrl.pathname = `/${bootstrapless}`;
+    const bootstraplessPort = await unusedPort();
+    const bootstraplessOrigin = `http://127.0.0.1:${bootstraplessPort}`;
+    const bootstraplessEnvironment = { ...environment, DATABASE_URL: bootstraplessUrl.toString(), K_NEX_PUBLIC_ORIGIN: bootstraplessOrigin };
+    const bootstraplessPool = new pg.Pool({ connectionString: bootstraplessUrl.toString(), max: 4 });
+    const counts = async () => {
+      const rows = await bootstraplessPool.query(`select
+        (select count(*)::int from users) users,
+        (select count(*)::int from users_sessions) sessions,
+        (select count(*)::int from k_nex_role_assignments where role_id='system.role.owner') owners,
+        (select count(*)::int from k_nex_authorization_bootstrap_receipts) receipts,
+        (select count(*)::int from k_nex_authorization_audit) audits`);
+      return rows.rows[0];
+    };
+    let bootstraplessHost;
+    let bootstraplessOutput = "";
+    try {
+      const migrated = spawnSync("pnpm", ["knex:migrate"], { cwd: application, env: bootstraplessEnvironment, encoding: "utf8" });
+      assert.equal(migrated.status, 0, `${migrated.stdout}\n${migrated.stderr}`);
+      const migratedCounts = await counts();
+      assert.deepEqual({ users: migratedCounts.users, sessions: migratedCounts.sessions, owners: migratedCounts.owners, receipts: migratedCounts.receipts },
+        { users: 0, sessions: 0, owners: 0, receipts: 0 },
+        `A migrated database must start with no owner of any kind: ${JSON.stringify(migratedCounts)}`);
+
+      bootstraplessHost = spawn(process.execPath, ["dist/k-nex-web.js"], {
+        cwd: application, env: { ...bootstraplessEnvironment, PORT: String(bootstraplessPort) }, stdio: ["ignore", "pipe", "pipe"]
+      });
+      bootstraplessHost.stdout.setEncoding("utf8").on("data", (chunk) => { bootstraplessOutput += chunk; });
+      bootstraplessHost.stderr.setEncoding("utf8").on("data", (chunk) => { bootstraplessOutput += chunk; });
+      await eventually(async () => (await fetch(`${bootstraplessOrigin}/api/health`)).ok || undefined,
+        `A migrated application must start before it is bootstrapped.\n${bootstraplessOutput}`, 120_000);
+
+      for (const body of [
+        { email: "attacker@p13.example.test", password: "attacker-first-owner-1" },
+        { email: "ATTACKER@P13.example.test", password: "attacker-first-owner-1" }
+      ]) {
+        const registered = await fetch(`${bootstraplessOrigin}/api/users/first-register`, {
+          method: "POST", headers: { "content-type": "application/json", origin: bootstraplessOrigin }, body: JSON.stringify(body)
+        });
+        assert.equal(registered.status, 403, `An unauthenticated first-register must be refused: ${await registered.clone().text()}`);
+        assert.deepEqual(await registered.json(), { errors: [{ message: "The first owner is created by the operator bootstrap command, not by registration." }] });
+        assert.equal(registered.headers.get("set-cookie"), null, "A refused first-register must not mint a session.");
+      }
+      assert.deepEqual(await counts(), migratedCounts,
+        "A refused first-register must leave no account, no session, no owner assignment, no receipt and no audit.");
+      assert.notEqual((await login(bootstraplessOrigin, "attacker@p13.example.test", "attacker-first-owner-1")).status, 200);
+
+      // The operator flow is the only way in, and it still is.
+      const bootstraplessToken = mkdtempSync(join(tmpdir(), "p13b-bootstrapless-"));
+      try {
+        const tokenFile = resolve(bootstraplessToken, "owner.token");
+        const issued = spawnSync("pnpm", ["knex:issue-bootstrap-token", "--output", tokenFile], { cwd: application, env: bootstraplessEnvironment, encoding: "utf8" });
+        assert.equal(issued.status, 0, `${issued.stdout}\n${issued.stderr}`);
+        const bootstrapped = spawnSync("pnpm", ["knex:bootstrap-owner", "--token-file", tokenFile], {
+          cwd: application, encoding: "utf8",
+          env: { ...bootstraplessEnvironment, K_NEX_OWNER_EMAIL: "first-owner@p13.example.test", K_NEX_OWNER_PASSWORD: "first-owner-password-1" }
+        });
+        assert.equal(bootstrapped.status, 0, `${bootstrapped.stdout}\n${bootstrapped.stderr}`);
+        assert.match(bootstrapped.stdout, /K_NEX_OWNER_BOOTSTRAP_PASS/u);
+        const bootstrappedCounts = await counts();
+        assert.equal(bootstrappedCounts.users, 1, "The operator bootstrap must create exactly one owner.");
+        assert.equal(bootstrappedCounts.receipts, 1, "The operator bootstrap must commit exactly one protected owner receipt.");
+        assert.equal(bootstrappedCounts.owners, 1, "The operator bootstrap must assign the owner role exactly once.");
+        assert.equal((await login(bootstraplessOrigin, "first-owner@p13.example.test", "first-owner-password-1")).status, 200);
+        // Still refused once an owner exists, and still for the same reason.
+        const afterOwner = await fetch(`${bootstraplessOrigin}/api/users/first-register`, {
+          method: "POST", headers: { "content-type": "application/json", origin: bootstraplessOrigin },
+          body: JSON.stringify({ email: "second-owner@p13.example.test", password: "second-owner-password-1" })
+        });
+        assert.equal(afterOwner.status, 403);
+        assert.equal((await counts()).users, 1, "A refused first-register must not add an account after bootstrap either.");
+      } finally { rmSync(bootstraplessToken, { recursive: true, force: true }); }
+    } finally {
+      if (bootstraplessHost !== undefined) {
+        bootstraplessHost.kill("SIGTERM");
+        await new Promise((settle) => bootstraplessHost.once("close", settle));
+      }
+      await bootstraplessPool.end().catch(() => undefined);
+      await pool.query(`drop database if exists ${bootstrapless} with (force)`).catch(() => undefined);
+    }
   });
 });
