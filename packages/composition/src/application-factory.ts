@@ -404,6 +404,7 @@ function payloadConfigSource(applicationId: string): string {
 import { buildConfig } from "payload";
 import { withTrustedSalesTaskCreateIdAdmission } from "@k-nex/payload-adapter";
 
+import { kNexConnectionTimeoutMs, kNexStatementTimeoutMs } from "./k-nex-authority.js";
 import { kNexSalesRegistry } from "./k-nex-registry.js";
 import { payloadSecret } from "./k-nex-identity.js";
 import { usersCollection } from "./k-nex-users.js";
@@ -414,7 +415,14 @@ const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("DATABASE_URL is required.");
 
 export default buildConfig({
-  db: postgresAdapter({ pool: { connectionString: databaseUrl }, prodMigrations: migrations, push: false, allowIDOnCreate: true }),
+  // The credential authority answers a client that waited too long, and then
+  // keeps holding the lock until the call it admitted is terminal, because
+  // abandoning a Fetch signal does not roll a Payload query back. That hold is
+  // only bounded if the database work is: node-postgres sends both of these in
+  // the connection's startup packet, so every pooled connection this
+  // application opens carries the statement bound, no delegated query can hang
+  // past it, and no caller waits for a pooled connection forever either.
+  db: postgresAdapter({ pool: { connectionString: databaseUrl, connectionTimeoutMillis: kNexConnectionTimeoutMs, statement_timeout: kNexStatementTimeoutMs }, prodMigrations: migrations, push: false, allowIDOnCreate: true }),
   collections: [usersCollection, ...kNexSalesRegistry.collections].map(withTrustedSalesTaskCreateIdAdmission),
   endpoints: [...generatedSalesProviderWebhookEndpoints("${applicationId}", process.env.K_NEX_ENVIRONMENT ?? "", createGeneratedEnvironmentProviderSecretResolver())],
   custom: { kNexApplicationId: "${applicationId}", kNexEnvironment: process.env.K_NEX_ENVIRONMENT },

@@ -162,6 +162,12 @@ export function generatedReleaseStepStatement(input: {
     "DO $$",
     `DECLARE applied text[]; state text; step text := '${input.step}';`,
     "BEGIN",
+    // The application bounds every statement its pool issues, which is what
+    // lets a credential authority be released only once the work behind it is
+    // terminal. A migration is the one thing that legitimately runs longer than
+    // a request, so it lifts that bound for its own transaction and nothing
+    // else, here rather than through an environment a deployment could set.
+    "  PERFORM set_config('statement_timeout', '0', true);",
     `  PERFORM pg_advisory_xact_lock(hashtext('k-nex/release-revision/${input.applicationId}'));`,
     "  IF to_regclass('public.payload_migrations') IS NULL THEN",
     "    applied := ARRAY[]::text[];",

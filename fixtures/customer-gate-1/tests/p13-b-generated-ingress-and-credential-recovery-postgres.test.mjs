@@ -945,36 +945,387 @@ test("P13.B generated ingress readers are bounded, the realtime bridge recovers,
       currentPassword = "recovered-under-contention-password-1";
       assert.equal((await login(origin, movedEmail, currentPassword)).status, 200, "The recovery that ran under contention must be the credential that survives.");
 
-      // -------- an operation that will not finish loses the authority --------
-      // Every holder parks one pooled connection, so a sign-in that never ends
-      // would otherwise take a share of the pool out of the product for good.
+      // -------- a logout is a credential decision, not a session delete --------
+      // The finding this closes: Payload's logout authenticates, reads the whole
+      // user document with its sessions, filters one session out of that
+      // snapshot in memory and writes the document back. A logout whose read
+      // crossed an operator recovery therefore wrote the sessions that recovery
+      // had just revoked back over it. It is parked here past its read and on
+      // the write it commits, which is exactly where that snapshot is stale.
+      const logoutTokenFile = resolve(directory, "logout-recovery.token");
+      const logoutIssued = operatorProbe(application, environment, ["knex:issue-bootstrap-token", "--recovery", "--output", logoutTokenFile]);
+      assert.equal(logoutIssued.status, 0, `${logoutIssued.stdout}\n${logoutIssued.stderr}`);
+      const logoutAuditsBefore = await recoveryAudits();
+      const signedOut = await login(origin, movedEmail, currentPassword);
+      const staying = await login(origin, movedEmail, currentPassword);
+      assert.equal(signedOut.status, 200);
+      assert.equal(staying.status, 200);
+      const sessionsBeforeLogout = await ownerSessions();
+      assert.ok(sessionsBeforeLogout >= 2, `Two live owner sessions are needed to tell a logout from a revocation: ${sessionsBeforeLogout}`);
+
+      const logoutHolder = await pool.connect();
+      let logoutRowHeld = false;
+      let parkedLogout;
+      let logoutRecovery;
+      try {
+        await logoutHolder.query("begin");
+        await logoutHolder.query("select id from users where id=$1 for update", [owner.userId]);
+        logoutRowHeld = true;
+        parkedLogout = fetch(`${origin}/api/users/logout`, { method: "POST", headers: { cookie: signedOut.cookie, origin } });
+        // The generated worker holds row locks of its own, so "somebody is
+        // waiting on a row" is not by itself this logout: the whole of it has
+        // to be inside the authority of the account it is deciding about, which
+        // is the finding, so both are waited for as one condition.
+        await eventually(async () => (await advisoryHolders()).includes(ownerAuthorityKey) && await lockWaiters(["transactionid", "tuple"]) >= 1 || undefined,
+          "The logout never reached the session write it commits while holding the credential authority of the account it is deciding about.", 60_000);
+        // Past its read of the sessions and before that read is durable, which
+        // is the window the recovery used to be overwritten in.
+        assert.equal(await ownerSessions(), sessionsBeforeLogout, "A parked logout must not have published its session write.");
+        assert.ok(await heldCredentialAuthority() >= 1,
+          "A parked logout must be holding the credential authority, not only the row it is about to write.");
+
+        logoutRecovery = startProbe(application, environment, recoveryBoundaryScript, {
+          PROBE_TOKEN_FILE: logoutTokenFile,
+          PROBE_OPERATOR: environment.K_NEX_ADMINISTRATION_OPERATOR_IDENTITY,
+          PROBE_EMAIL: movedEmail,
+          PROBE_PASSWORD: "logout-race-recovered-password-1"
+        });
+        await eventually(async () => await lockWaiters(["advisory"]) >= 1 || undefined,
+          "The operator recovery never queued behind the credential authority a logout holds.", 120_000);
+        assert.equal(await recoveryAudits(), logoutAuditsBefore, "A queued recovery must not have committed behind a logout.");
+        await logoutHolder.query("commit");
+        logoutRowHeld = false;
+      } finally {
+        if (logoutRowHeld) await logoutHolder.query("rollback").catch(() => undefined);
+        logoutHolder.release();
+      }
+      const loggedOut = await parkedLogout;
+      assert.equal(loggedOut.status, 200, `A logout that waited its turn must still be answered: ${await loggedOut.clone().text()}`);
+      const logoutRecovered = await logoutRecovery.result();
+      assert.equal(logoutRecovered.ok, true, JSON.stringify(logoutRecovered));
+      // The logout ran wholly before the recovery, so it is allowed to have
+      // removed its own session; what it must not do is write the sessions the
+      // recovery revoked back over it.
+      assert.equal(await ownerSessions(), 0, "No session a logout read before a recovery may survive that recovery.");
+      assert.equal(await currentUser(origin, staying.cookie), undefined, "A recovery after a logout must still revoke every remaining session.");
+      assert.equal(await recoveryAudits(), logoutAuditsBefore + 1, "The recovery a logout queued must leave exactly one further audit.");
+      assert.equal((await pool.query("select count(*)::int count from users where id=$1 and email=$2", [owner.userId, movedEmail])).rows[0].count, 1,
+        "The recovered email must be byte-identical to the one the operator supplied.");
+      currentPassword = "logout-race-recovered-password-1";
+      assert.equal((await login(origin, movedEmail, currentPassword)).status, 200,
+        "The recovered password must be byte-identical to the one the operator supplied.");
+
+      // -------- one canonical parse for the key and the authentication --------
+      // The finding this closes: the authority read the address with JSON.parse
+      // and fell back to an unresolved key when that threw, but Payload's
+      // internal POST endpoints also parse multipart and take an operation's
+      // arguments from a _payload field. A bounded multipart sign-in therefore
+      // authenticated a real user while holding an unrelated lock.
+      const multipartTokenFile = resolve(directory, "multipart-recovery.token");
+      const multipartIssued = operatorProbe(application, environment, ["knex:issue-bootstrap-token", "--recovery", "--output", multipartTokenFile]);
+      assert.equal(multipartIssued.status, 0, `${multipartIssued.stdout}\n${multipartIssued.stderr}`);
+      const multipartAuditsBefore = await recoveryAudits();
+      const sessionsBeforeEncoding = await ownerSessions();
+      const multipartBody = [
+        "--knexboundary",
+        'Content-Disposition: form-data; name="_payload"',
+        "",
+        JSON.stringify({ email: movedEmail, password: currentPassword }),
+        "--knexboundary--",
+        ""
+      ].join("\r\n");
+      const encoded = await fetch(`${origin}/api/users/login`, {
+        method: "POST", headers: { "content-type": "multipart/form-data; boundary=knexboundary", origin }, body: multipartBody
+      });
+      assert.equal(encoded.status, 415, `A multipart credential operation must be refused: ${await encoded.clone().text()}`);
+      assert.equal(encoded.headers.get("set-cookie"), null, "A refused encoding must not mint a session.");
+      assert.equal(await ownerSessions(), sessionsBeforeEncoding, "A refused multipart sign-in must not open a session.");
+      assert.deepEqual(await advisoryHolders(), [], "A refused encoding must not have taken any credential authority.");
+
+      const afterEncoding = operatorProbe(application, environment,
+        ["knex:bootstrap-owner", "--recover-credential", "--token-file", multipartTokenFile],
+        { K_NEX_OWNER_EMAIL: movedEmail, K_NEX_OWNER_PASSWORD: "multipart-race-recovered-password-1" });
+      assert.equal(afterEncoding.status, 0, `${afterEncoding.stdout}\n${afterEncoding.stderr}`);
+      assert.equal(await recoveryAudits(), multipartAuditsBefore + 1);
+      assert.equal(await ownerSessions(), 0, "A refused multipart sign-in must leave no session on the far side of a recovery either.");
+      currentPassword = "multipart-race-recovered-password-1";
+      assert.equal((await login(origin, movedEmail, currentPassword)).status, 200);
+      const afterEncodingSessions = await ownerSessions();
+
+      // -------- a principal that cannot be resolved is not an unknown one -----
+      // The finding this closes: the address-to-user lookup treated every
+      // database error as "not found", so a request took the key an unknown
+      // address gets and the delegated call then ran a lookup of its own, which
+      // could succeed. The lookup is a plain read of users, so an exclusive lock
+      // on that table is what a real failure looks like from outside: the
+      // statement timeout this application declares on its own pool ends it, and
+      // the request has to be refused rather than run under somebody else's key.
+      const unresolvable = await pool.connect();
+      let usersTableHeld = false;
+      let unresolvableAt;
+      let unresolved;
+      try {
+        await unresolvable.query("begin");
+        await unresolvable.query("lock table users in access exclusive mode");
+        usersTableHeld = true;
+        unresolvableAt = Date.now();
+        unresolved = await fetch(`${origin}/api/users/login`, {
+          method: "POST", headers: { "content-type": "application/json", origin },
+          body: JSON.stringify({ email: movedEmail, password: currentPassword })
+        });
+        await unresolvable.query("rollback");
+        usersTableHeld = false;
+      } finally {
+        if (usersTableHeld) await unresolvable.query("rollback").catch(() => undefined);
+        unresolvable.release();
+      }
+      assert.equal(unresolved.status, 503, `A sign-in whose principal cannot be resolved must be refused: ${unresolved.status} ${await unresolved.clone().text()}`);
+      assert.deepEqual(await unresolved.json(), { errors: [{ message: "The credential authority could not resolve the account this request names." }] });
+      assert.equal(unresolved.headers.get("set-cookie"), null, "A refusal must not mint a session.");
+      // The refusal is the database bound rather than a guess: nothing else in
+      // this application would have ended that read at all.
+      assert.ok(Date.now() - unresolvableAt >= 20_000 && Date.now() - unresolvableAt < 90_000,
+        `The statement bound the generated pool declares must be what ends an unresolvable lookup: ${Date.now() - unresolvableAt}ms`);
+      assert.equal(await ownerSessions(), afterEncodingSessions, "A refused sign-in must not open a session.");
+      assert.equal((await login(origin, movedEmail, currentPassword)).status, 200,
+        "A refused lookup must leave the credential exactly where it was.");
+      assert.deepEqual(await advisoryHolders(), [], "A request refused before the lock must leave no credential authority behind.");
+
+      // -------- an address that moved is not the account the key named --------
+      // The mapping is read before the lock, so an address reassigned between
+      // the lookup and the lock left the delegated authentication resolving a
+      // different user than the one whose key was held. The key is taken on the
+      // manager here and the address is moved under it, so the delegated call
+      // must not run under the key the stale mapping chose.
+      const managerParked = await pool.connect();
+      let managerParkedRow = false;
+      let managerAuthorityKey;
+      try {
+        await managerParked.query("begin");
+        await managerParked.query("select id from users where id=$1 for update", [managerId]);
+        managerParkedRow = true;
+        const discovering = login(origin, personas.manager.email, personas.manager.password).catch(() => ({ status: 0 }));
+        const discovered = await eventually(async () => {
+          const holders = await advisoryHolders();
+          return holders.length === 1 && !holders.includes(ownerAuthorityKey) && await lockWaiters(["transactionid", "tuple"]) >= 1 ? holders : undefined;
+        }, "The manager sign-in never parked inside its own credential authority.", 60_000);
+        managerAuthorityKey = discovered[0];
+        await managerParked.query("commit");
+        managerParkedRow = false;
+        assert.equal((await discovering).status, 200);
+      } finally {
+        if (managerParkedRow) await managerParked.query("rollback").catch(() => undefined);
+        managerParked.release();
+      }
+      assert.notEqual(managerAuthorityKey, ownerAuthorityKey);
+
+      const managerSessions = async () => (await pool.query("select count(*)::int count from users_sessions where _parent_id=$1", [managerId])).rows[0].count;
+      const credentialBytes = async () => JSON.stringify((await pool.query("select id,hash,salt from users order by id")).rows);
+      const moving = await pool.connect();
+      const delegatedRowHolder = await pool.connect();
+      let movingKeyHeld = false;
+      let delegatedRowHeld = false;
+      let movedLogin;
+      let holdersDuringDelegation;
+      const bytesBeforeMove = await credentialBytes();
+      const managerSessionsBeforeMove = await managerSessions();
+      const ownerSessionsBeforeMove = await ownerSessions();
+      try {
+        // Held from outside so the sign-in is queued at exactly the point the
+        // finding names: past its principal lookup, before its authority.
+        await moving.query("select pg_advisory_lock($1,$2)", [1_802_658_915, managerAuthorityKey]);
+        movingKeyHeld = true;
+        movedLogin = fetch(`${origin}/api/users/login`, {
+          method: "POST", headers: { "content-type": "application/json", origin },
+          body: JSON.stringify({ email: personas.manager.email, password: personas.manager.password })
+        });
+        await eventually(async () => await lockWaiters(["advisory"]) >= 1 || undefined,
+          "The sign-in never queued behind the credential authority its lookup chose.", 60_000);
+        // The address the queued sign-in named now belongs to the owner. A
+        // delegated call let through on the manager's key would be deciding
+        // about the owner's credential while holding somebody else's authority.
+        await pool.query("update users set email=$1 where id=$2", ["reassigned-manager@p13.example.test", managerId]);
+        await pool.query("update users set email=$1 where id=$2", [personas.manager.email, owner.userId]);
+        // Payload counts a failed attempt against the account the address
+        // resolves to, so holding that row parks the delegated call where the
+        // authority it is running under can be read rather than inferred.
+        await delegatedRowHolder.query("begin");
+        await delegatedRowHolder.query("select id from users where id=$1 for update", [owner.userId]);
+        delegatedRowHeld = true;
+        await moving.query("select pg_advisory_unlock($1,$2)", [1_802_658_915, managerAuthorityKey]);
+        movingKeyHeld = false;
+        // Taking the key the stale mapping named is how the move is discovered
+        // at all, so that key is expected for as long as the re-read takes. The
+        // state under test is the delegated one: parked on the row of the
+        // account the address resolves to now. A sign-in that stayed on the
+        // stale key would park there holding it, and never reach this.
+        holdersDuringDelegation = await eventually(async () => {
+          const holders = await advisoryHolders();
+          return holders.length >= 1 && !holders.includes(managerAuthorityKey) && await lockWaiters(["transactionid", "tuple"]) >= 1 ? holders : undefined;
+        }, `A delegated sign-in must leave the authority the stale mapping named (manager ${managerAuthorityKey}, owner ${ownerAuthorityKey}).`, 60_000);
+        await delegatedRowHolder.query("commit");
+        delegatedRowHeld = false;
+      } finally {
+        if (movingKeyHeld) await moving.query("select pg_advisory_unlock($1,$2)", [1_802_658_915, managerAuthorityKey]).catch(() => undefined);
+        if (delegatedRowHeld) await delegatedRowHolder.query("rollback").catch(() => undefined);
+        moving.release();
+        delegatedRowHolder.release();
+      }
+      // The key the stale mapping chose is not the key the delegated call ran
+      // under: it was given back, and the account the address resolves to now
+      // is the one whose authority the authentication is happening inside.
+      assert.equal(holdersDuringDelegation.includes(ownerAuthorityKey), true,
+        `A delegated sign-in must run under the authority of the account its address resolves to (owner ${ownerAuthorityKey}): ${JSON.stringify(holdersDuringDelegation)}`);
+      const movedAnswer = await movedLogin;
+      assert.notEqual(movedAnswer.status, 200,
+        "A sign-in must not authenticate the account an address moved to on the credentials of the account it moved from.");
+      assert.equal(movedAnswer.headers.get("set-cookie"), null, "A refused sign-in must not mint a session.");
+      assert.equal(await managerSessions(), managerSessionsBeforeMove, "A sign-in whose address moved must not open a session for the account it named.");
+      assert.equal(await ownerSessions(), ownerSessionsBeforeMove, "A sign-in whose address moved must not open a session for the account it moved to.");
+      await eventually(async () => (await advisoryHolders()).length === 0 || undefined,
+        "A sign-in whose address moved must give back every authority it took.", 30_000);
+      await pool.query("update users set email=$1 where id=$2", [movedEmail, owner.userId]);
+      await pool.query("update users set email=$1 where id=$2", [personas.manager.email, managerId]);
+      assert.equal(await credentialBytes(), bytesBeforeMove,
+        "No credential byte may move outside the authority of the account it belongs to.");
+
+      // -------- an operation that will not finish keeps the authority ---------
+      // The finding this closes: the deadline aborted the delegated call's
+      // request signal, waited a grace period and then destroyed the connection
+      // carrying the lock. That is a response deadline, not a database
+      // cancellation boundary: aborting a Fetch signal does not make a Payload
+      // query rollback-complete, so the abandoned sign-in could still commit a
+      // session after the caller had its refusal and after a recovery had taken
+      // the authority it gave back. The authority is now held until the
+      // delegated call is terminal, and what makes it terminal is the statement
+      // bound every connection of this application carries.
+      const deadlineTokenFile = resolve(directory, "deadline-recovery.token");
+      const deadlineIssued = operatorProbe(application, environment, ["knex:issue-bootstrap-token", "--recovery", "--output", deadlineTokenFile]);
+      assert.equal(deadlineIssued.status, 0, `${deadlineIssued.stdout}\n${deadlineIssued.stderr}`);
+      const deadlineAuditsBefore = await recoveryAudits();
+      const sessionsBeforeDeadline = await ownerSessions();
       const stuckHolder = await pool.connect();
       let stuckRowHeld = false;
-      let stuck;
+      let deadlineRecovery;
+      let abandonedAt;
       try {
         await stuckHolder.query("begin");
         await stuckHolder.query("select id from users where id=$1 for update", [owner.userId]);
         stuckRowHeld = true;
         const stuckStartedAt = Date.now();
-        stuck = fetch(`${origin}/api/users/login`, {
-          method: "POST", headers: { "content-type": "application/json" },
+        const refused = await fetch(`${origin}/api/users/login`, {
+          method: "POST", headers: { "content-type": "application/json", origin },
           body: JSON.stringify({ email: movedEmail, password: currentPassword })
         });
-        const refused = await stuck;
         assert.equal(refused.status, 503, `A sign-in past the operation deadline must be refused, not held: ${refused.status}`);
         assert.ok(Date.now() - stuckStartedAt < 30_000, `The operation deadline must be a deadline: ${Date.now() - stuckStartedAt}ms`);
-        // The authority and the pooled connection carrying it are both back,
-        // which is the whole point of having a deadline at all.
-        await eventually(async () => (await advisoryHolders()).includes(ownerAuthorityKey) ? undefined : true,
-          "An abandoned operation must not keep the credential authority.", 30_000);
-        const afterDeadline = await login(origin, personas.manager.email, personas.manager.password);
-        assert.equal(afterDeadline.status, 200, "A refused operation must leave the pool share it held behind it.");
+        assert.equal(refused.headers.get("set-cookie"), null, "A refused sign-in must not answer with a session.");
+        // The client has its refusal and the delegated sign-in is still able to
+        // commit, so the authority must still be that sign-in's. This is the
+        // whole finding: handing it on here is what let an abandoned login
+        // outlive the recovery that took its place.
+        assert.equal((await advisoryHolders()).includes(ownerAuthorityKey), true,
+          "An abandoned sign-in must keep the credential authority until it is terminal.");
+
+        deadlineRecovery = startProbe(application, environment, recoveryBoundaryScript, {
+          PROBE_TOKEN_FILE: deadlineTokenFile,
+          PROBE_OPERATOR: environment.K_NEX_ADMINISTRATION_OPERATOR_IDENTITY,
+          PROBE_EMAIL: movedEmail,
+          PROBE_PASSWORD: "deadline-race-recovered-password-1"
+        });
+        await eventually(async () => await lockWaiters(["advisory"]) >= 1 || undefined,
+          "The operator recovery never queued behind the authority the abandoned sign-in holds.", 120_000);
+        assert.equal(await recoveryAudits(), deadlineAuditsBefore, "A queued recovery must not have committed.");
+
+        // The row this sign-in is parked on is still held, so nothing this test
+        // does releases it: the authority comes back only when the database
+        // itself ends the abandoned statement, which is the bound the generated
+        // pool declares. Waited for without touching the holder on purpose.
+        //
+        // The queue draining is that release. The key is the same one either
+        // way, so the holder alone says nothing; a recovery that has stopped
+        // waiting can only have stopped because it was handed the authority the
+        // abandoned sign-in was still holding when its client was refused.
+        abandonedAt = Date.now();
+        await eventually(async () =>
+          await lockWaiters(["advisory"]) === 0 && (await advisoryHolders()).includes(ownerAuthorityKey) || undefined,
+        "An abandoned sign-in must become terminal on the statement bound rather than be waited on forever.", 120_000);
+        assert.ok(Date.now() - abandonedAt < 90_000, `The abandoned sign-in must end on the statement bound: ${Date.now() - abandonedAt}ms`);
+        assert.equal(await ownerSessions(), sessionsBeforeDeadline,
+          "An abandoned sign-in must roll back rather than commit the session it was writing.");
+
         await stuckHolder.query("commit");
         stuckRowHeld = false;
       } finally {
         if (stuckRowHeld) await stuckHolder.query("rollback").catch(() => undefined);
         stuckHolder.release();
       }
+      const deadlineRecovered = await deadlineRecovery.result();
+      assert.equal(deadlineRecovered.ok, true, JSON.stringify(deadlineRecovered));
+      assert.equal(await recoveryAudits(), deadlineAuditsBefore + 1, "The recovery must commit exactly one audit once the authority is its own.");
+      assert.equal(await ownerSessions(), 0, "An abandoned sign-in must leave no session on the far side of the recovery that followed it.");
+      assert.notEqual((await login(origin, movedEmail, currentPassword)).status, 200, "The recovered-over password must stop working.");
+      currentPassword = "deadline-race-recovered-password-1";
+      const afterDeadline = await login(origin, movedEmail, currentPassword);
+      assert.equal(afterDeadline.status, 200, "The recovered password must be byte-identical to the one the operator supplied.");
+      assert.equal(await ownerSessions(), 1, "A sign-in against the current credential must create exactly one usable session.");
+      assert.equal((await login(origin, personas.manager.email, personas.manager.password)).status, 200,
+        "A refused operation must leave the pool share it held behind it.");
+
+      // -------- a lockout is not another account's to clear --------
+      // The finding this closes: the generated users collection declared no
+      // access.unlock, and Payload defaults that to any authenticated session,
+      // so any low-privilege account could clear the owner's max-login-attempt
+      // lockout on a mutation the credential authority never saw. Kept last,
+      // because it deliberately locks the owner out.
+      const bystanderSession = await login(origin, personas.manager.email, personas.manager.password);
+      assert.equal(bystanderSession.status, 200);
+      const lockState = async () => (await pool.query("select login_attempts::int login_attempts,lock_until from users where id=$1", [owner.userId])).rows[0];
+      const unlockAttempt = async (cookie) => {
+        const response = await fetch(`${origin}/api/users/unlock`, {
+          method: "POST", headers: { "content-type": "application/json", origin, ...(cookie === undefined ? {} : { cookie }) },
+          body: JSON.stringify({ email: movedEmail })
+        });
+        return { status: response.status, body: await response.json().catch(() => undefined) };
+      };
+      for (let attempt = 0; attempt < 6; attempt += 1) {
+        assert.notEqual((await login(origin, movedEmail, "not-the-owner-password-1")).status, 200);
+      }
+      const locked = await lockState();
+      assert.ok(locked.lock_until !== null, `Repeated failed sign-ins must lock the account: ${JSON.stringify(locked)}`);
+      assert.notEqual((await login(origin, movedEmail, currentPassword)).status, 200,
+        "A locked account must refuse even the correct password.");
+
+      for (const cookie of [undefined, bystanderSession.cookie, afterDeadline.cookie]) {
+        const refusedUnlock = await unlockAttempt(cookie);
+        assert.equal(refusedUnlock.status, 403, `An unlock must be refused whoever asks: ${JSON.stringify(refusedUnlock)}`);
+        assert.deepEqual(refusedUnlock.body, { errors: [{ message: "A locked account is released by its lockout expiry or by the operator recovery command, not by an unlock request." }] });
+      }
+      assert.ok((await lockState()).lock_until !== null, "A refused unlock must leave the lockout exactly where it was.");
+      assert.notEqual((await login(origin, movedEmail, currentPassword)).status, 200,
+        "A refused unlock must leave the owner locked out.");
+
+      // The internal verification-only reauthentication passes overrideAccess,
+      // which Payload checks before the collection's access, so it still clears
+      // what a sign-in would have cleared and still opens no session.
+      await pool.query("update users set login_attempts=0, lock_until=null where id=$1", [owner.userId]);
+      const reauthenticationCookie = await login(origin, movedEmail, currentPassword);
+      assert.equal(reauthenticationCookie.status, 200, "The owner must be usable again once the lockout is cleared.");
+      const sessionsBeforeInternalUnlock = JSON.stringify((await pool.query("select * from users_sessions order by id")).rows);
+      assert.notEqual((await login(origin, movedEmail, "not-the-owner-password-1")).status, 200);
+      assert.notEqual((await login(origin, movedEmail, "not-the-owner-password-1")).status, 200);
+      assert.equal((await lockState()).login_attempts, 2, "Two mistyped sign-ins must be counted.");
+      const internallyUnlocked = inProcessProbe(application, environment, reauthenticationScript, {
+        PROBE_COOKIE: reauthenticationCookie.cookie,
+        PROBE_PASSWORDS: JSON.stringify([currentPassword])
+      });
+      assert.deepEqual(internallyUnlocked, { ok: true, value: [true] });
+      assert.equal((await lockState()).login_attempts, 0,
+        "A successful internal reauthentication must still restore the login-attempt state a sign-in would have.");
+      assert.equal(JSON.stringify((await pool.query("select * from users_sessions order by id")).rows), sessionsBeforeInternalUnlock,
+        "A verification-only reauthentication must create no session.");
+      assert.equal((await unlockAttempt(reauthenticationCookie.cookie)).status, 403,
+        "The internal path staying open must not open the public one.");
     } finally { rmSync(directory, { recursive: true, force: true }); }
 
     // -------- a migrated database is not an open registration --------

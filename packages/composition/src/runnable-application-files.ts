@@ -100,7 +100,7 @@ pnpm start
 import { REST_DELETE, REST_GET, REST_OPTIONS, REST_PATCH, REST_POST, REST_PUT } from "@payloadcms/next/routes";
 
 import { bootKnexApplication } from "../../../../boot.js";
-import { credentialAuthorityRefusal, credentialSensitiveRestOperation, credentialSensitiveRestPrincipal, readCredentialSensitiveRestRequest, refusedCredentialRestOperation, withCredentialAuthority } from "../../../../k-nex-authority.js";
+import { credentialAuthorityRefusal, credentialSensitiveRestMediaType, credentialSensitiveRestOperation, readCredentialSensitiveRestRequest, refusedCredentialRestOperation, withCredentialSensitiveRestAuthority } from "../../../../k-nex-authority.js";
 
 type PayloadRestContext = Readonly<{ params: Promise<{ slug?: string[] }> }>;
 
@@ -118,12 +118,14 @@ function credentialRefusal(status: number, message: string): Response {
 
 /**
  * Payload verifies a password before it opens the transaction that writes the
- * session, and builds that write out of the user document it read beforehand,
- * so an ordinary sign-in can commit a session, and stale user fields with it,
- * against a credential an operator recovery already replaced. This route is
- * ours, so the delegated call is held inside the credential authority for the
- * principal it is deciding about, for the whole of the call rather than for its
- * write. Every other method and every other path is delegated untouched.
+ * session, builds that write out of the user document it read beforehand, and
+ * builds a logout's session write out of a snapshot it read the same way, so an
+ * ordinary sign-in can commit a session, and stale user fields with it, against
+ * a credential an operator recovery already replaced, and a logout can write
+ * the sessions that recovery revoked back over it. This route is ours, so the
+ * delegated call is held inside the credential authority for the principal it
+ * is deciding about, for the whole of the call rather than for its write. Every
+ * other method and every other path is delegated untouched.
  *
  * There is no GraphQL route in this product, so this is the only surface the
  * Payload auth operations are reachable from: /api/graphql falls through to
@@ -140,10 +142,16 @@ export async function POST(request: Request, context: PayloadRestContext): Promi
   // credential change for this account behind it.
   try { admitted = await readCredentialSensitiveRestRequest(request); }
   catch { return credentialRefusal(400, "Request body was refused."); }
+  // Refused before anything is looked up. Payload also parses multipart and
+  // takes an operation's arguments from a _payload field, so a second
+  // encoding is a second parse, and the account the authority keys on is only
+  // the account the delegated call authenticates while there is just one.
+  if (!credentialSensitiveRestMediaType(admitted)) {
+    return credentialRefusal(415, "A credential operation is accepted as application/json only.");
+  }
   const payload = await bootKnexApplication("credential-authority");
   try {
-    const principal = await credentialSensitiveRestPrincipal(payload, params.slug![1]!, admitted, request.signal);
-    return await withCredentialAuthority(payload, principal, async (signal) => restPost(admitted.delegate(signal), context), request.signal);
+    return await withCredentialSensitiveRestAuthority(payload, params.slug![1]!, admitted, async (signal) => restPost(admitted.delegate(signal), context), request.signal);
   } catch (error) {
     const refusal = credentialAuthorityRefusal(error);
     return credentialRefusal(refusal.status, refusal.message);

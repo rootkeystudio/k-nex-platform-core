@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import ts from "typescript";
-import { afterAll, beforeAll, beforeEach, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, expect, it, vi } from "vitest";
 
 import { applicationAuthFiles } from "../src/application-auth-files.js";
 import { salesReferenceCompilerBoundary } from "../src/application-factory.js";
@@ -51,7 +51,12 @@ type AuthorityModule = {
   admittedCredentialChange(userId: string, fields: readonly string[]): boolean;
 };
 
-type UsersModule = { usersCollection: { hooks: { beforeChange: Array<(args: Record<string, unknown>) => unknown> } } };
+type UsersModule = {
+  usersCollection: {
+    access: { unlock: (args: { req: { user?: Record<string, unknown> } }) => unknown };
+    hooks: { beforeChange: Array<(args: Record<string, unknown>) => unknown> };
+  };
+};
 
 type DelegatedRestCall = Readonly<{ method: string; slug: readonly string[]; body: string | null; authorityHeld: boolean }>;
 type RestControl = {
@@ -62,6 +67,10 @@ type RestControl = {
   connects: number;
   releases: boolean[];
   authorityHeld: boolean;
+  /** Fails or moves the principal a lookup is about to answer, by its position. */
+  onLookup: ((index: number) => void) | undefined;
+  /** Holds the delegated Payload call open past the authority's response deadline. */
+  holdDelegated: Promise<void> | undefined;
 };
 
 type RestModule = { POST(request: Request, context: { params: Promise<{ slug?: string[] }> }): Promise<Response> };
@@ -288,6 +297,10 @@ const delegate = (method) => () => async (request, args) => {
     body: request.body === null ? null : await request.text(),
     authorityHeld: control().authorityHeld
   }));
+  // A delegated call that will not end is how a response deadline is told apart
+  // from a database cancellation boundary: the client has to be answered while
+  // this is still running, and the authority has to outlive that answer.
+  if (control().holdDelegated !== undefined) await control().holdDelegated;
   return Response.json({ delegated: method });
 };
 export const REST_GET = delegate("GET");
@@ -320,11 +333,15 @@ export async function bootKnexApplication(key) {
         }
       }
     },
+    // Called before the lookup answers, with the number of lookups that came
+    // before it, so a test can fail one of them or move an address between two.
     async find({ where }) {
+      control().onLookup?.(control().lookups.length);
       control().lookups.push(Object.freeze({ kind: "find", email: where?.email?.equals }));
       return { docs: [...credentials().users.values()].filter((user) => user.email === where?.email?.equals).map(({ id }) => ({ id })) };
     },
     async auth() {
+      control().onLookup?.(control().lookups.length);
       control().lookups.push(Object.freeze({ kind: "auth" }));
       const id = credentials().session;
       const user = id === undefined ? undefined : credentials().users.get(id);
@@ -364,7 +381,8 @@ beforeEach(() => {
     session: "1", updates: [], audits: [], locks: [], sessionLocks: [], sessionLockReleases: [], unlocks: [], logins: [], hookRefusals: [], transactions: [], crossed: [], fault: undefined
   };
   (globalThis as typeof globalThis & { __kNexGeneratedRest: RestControl }).__kNexGeneratedRest = {
-    delegated: [], statements: [], lookups: [], boots: [], connects: 0, releases: [], authorityHeld: false
+    delegated: [], statements: [], lookups: [], boots: [], connects: 0, releases: [], authorityHeld: false,
+    onLookup: undefined, holdDelegated: undefined
   };
 });
 
@@ -665,13 +683,17 @@ it("holds the credential authority across the whole delegated Payload sign-in", 
   expect(restControl().delegated).toEqual([{ method: "POST", slug: ["users", "login"], body, authorityHeld: true }]);
   // Acquired before the delegated call and released only after it answered, so
   // a credential change waits for the sign-in it would otherwise overtake. The
-  // lock wait is bounded by a statement timeout the connection does not keep.
+  // lock wait is bounded by a statement timeout the connection does not keep:
+  // it is reset rather than zeroed, because a connection released to the pool
+  // carrying no statement bound exempts whatever runs on it next from the very
+  // timeout an abandoned credential operation is made terminal by.
   expect(restControl().statements.map(({ text }) => text)).toEqual([
     "select set_config('statement_timeout',$1,false)",
     "select pg_advisory_lock($1,$2)",
-    "select set_config('statement_timeout','0',false)",
+    "reset statement_timeout",
     "select pg_advisory_unlock($1,$2)"
   ]);
+  expect(restControl().statements.some(({ text }) => /statement_timeout'?,'?0/u.test(text))).toBe(false);
   expect(restControl().authorityHeld).toBe(false);
   // The connection goes back to the pool: it is only destroyed when the unlock
   // could not be confirmed or the lock bound was never handed back.
@@ -679,8 +701,13 @@ it("holds the credential authority across the whole delegated Payload sign-in", 
 
   // The sign-in named its principal by the address in its body, so it is the
   // same key the credential transaction for that user takes. Two different keys
-  // would serialize nothing.
-  expect(restControl().lookups).toEqual([{ kind: "find", email: "owner@alpha.example.test" }]);
+  // would serialize nothing. The address is resolved twice, because the mapping
+  // read before the lock is not the mapping the delegated call will resolve
+  // under it, and the delegated call only runs once the two agree.
+  expect(restControl().lookups).toEqual([
+    { kind: "find", email: "owner@alpha.example.test" },
+    { kind: "find", email: "owner@alpha.example.test" }
+  ]);
   const authorityValues = restControl().statements[1]!.values;
   await authority.changeCurrentUserCredentials(payloadDouble(), context(), { currentPassword: "owner-password-1234", password: "brand-new-password-1" });
   expect(control().locks.map(({ values }) => [...values])).toEqual([[...authorityValues]]);
@@ -717,45 +744,75 @@ it("takes the credential authority on the account a sign-in names, and on a key 
   expect(restControl().delegated.every(({ authorityHeld }) => authorityHeld)).toBe(true);
 });
 
-it("serializes every Payload auth operation that mints a session, refuses the ones this product does not admit, and touches nothing else", async () => {
-  for (const operation of ["login", "refresh-token"]) {
+/**
+ * The finding this closes for logout: Payload's logout reads the whole user
+ * document with its sessions, filters one session out of that snapshot in
+ * memory, and writes the document back, so a logout whose read crossed an
+ * operator recovery wrote the sessions that recovery had just revoked back over
+ * it. It was delegated without authority on the argument that it only removes a
+ * session; a lost update that restores revoked ones is the opposite of that.
+ */
+it("serializes every Payload auth operation that decides on a snapshot, refuses the ones this product does not admit, and touches nothing else", async () => {
+  for (const operation of ["login", "logout", "refresh-token"]) {
     await restPost(`/api/users/${operation}`, { headers: { "content-type": "application/json" }, body: "{}" });
   }
-  expect(restControl().connects).toBe(2);
+  expect(restControl().connects).toBe(3);
   expect(restControl().delegated.every(({ authorityHeld }) => authorityHeld)).toBe(true);
+  expect(restControl().delegated.map(({ slug }) => slug[1])).toEqual(["login", "logout", "refresh-token"]);
   // A sign-in with no address to resolve is still locked, on the key that
-  // absence of an address gets; a refresh has no address at all, so its
-  // principal comes from the session it presents.
-  expect(restControl().lookups).toEqual([{ kind: "auth" }]);
+  // absence of an address gets; a logout and a refresh have no address at all,
+  // so their principal comes from the session they present. Each is resolved
+  // once before the lock and once under it.
+  expect(restControl().lookups).toEqual(Array.from({ length: 4 }, () => ({ kind: "auth" })));
 
-  // A logout, an ordinary collection write and another collection's login-like
-  // path are delegated untouched: serializing them would buy nothing and cost
-  // every request for that account.
-  for (const path of ["/api/users/logout", "/api/users", "/api/users/login/extra", "/api/sales-accounts/login"]) {
+  // An ordinary collection write and another collection's login-like path are
+  // delegated untouched: serializing them would buy nothing and cost every
+  // request for that account.
+  for (const path of ["/api/users", "/api/users/login/extra", "/api/sales-accounts/login"]) {
     await restPost(path, { headers: { "content-type": "application/json" }, body: "{}" });
   }
-  expect(restControl().connects).toBe(2);
-  expect(restControl().delegated.slice(2).every(({ authorityHeld }) => authorityHeld)).toBe(false);
+  expect(restControl().connects).toBe(3);
+  expect(restControl().delegated.slice(3).every(({ authorityHeld }) => authorityHeld)).toBe(false);
   expect(restControl().delegated).toHaveLength(6);
 
   // Payload's own password reset writes the credential straight through the
-  // database adapter, so the admission on the users collection never sees it,
-  // and first-register creates an account with access overridden and logs it
+  // database adapter, so the admission on the users collection never sees it;
+  // first-register creates an account with access overridden and logs it
   // straight in, outside the operator token, the receipt, the owner assignment
-  // and the audit. Ordering a write that answers to nothing only makes it
-  // punctual, so all three are refused instead.
+  // and the audit; and unlock takes an address, finds that user and clears its
+  // lockout for any authenticated caller at all. Ordering a write that answers
+  // to nothing only makes it punctual, so all four are refused instead.
   const refusals = new Map([
     ["first-register", "The first owner is created by the operator bootstrap command, not by registration."],
     ["forgot-password", "Credentials are issued by the operator recovery command, not by a password reset."],
-    ["reset-password", "Credentials are issued by the operator recovery command, not by a password reset."]
+    ["reset-password", "Credentials are issued by the operator recovery command, not by a password reset."],
+    ["unlock", "A locked account is released by its lockout expiry or by the operator recovery command, not by an unlock request."]
   ]);
   for (const [operation, message] of refusals) {
-    const refused = await restPost(`/api/users/${operation}`, { headers: { "content-type": "application/json" }, body: "{}" });
+    const refused = await restPost(`/api/users/${operation}`, { headers: { "content-type": "application/json" }, body: JSON.stringify({ email: "owner@alpha.example.test" }) });
     expect(refused.status).toBe(403);
     expect(await refused.json()).toEqual({ errors: [{ message }] });
   }
-  expect(restControl().connects).toBe(2);
+  expect(restControl().connects).toBe(3);
   expect(restControl().delegated).toHaveLength(6);
+});
+
+/**
+ * The finding this closes: the generated users collection declared no
+ * access.unlock, and Payload defaults that to any authenticated session, so the
+ * lowest-privilege account in the product could clear the owner's
+ * max-login-attempt lockout on a mutation the credential authority never saw.
+ */
+it("refuses an unlock from every session, and leaves the internal overridden one alone", () => {
+  const unlock = users.usersCollection.access.unlock;
+  expect(typeof unlock).toBe("function");
+  for (const user of [undefined, { id: "2", collection: "users" }, { id: "1", collection: "users" }]) {
+    expect(unlock({ req: { user } })).toBe(false);
+  }
+  // Payload checks overrideAccess before it consults this at all, which is what
+  // keeps the cleanup after a verification-only reauthentication working: that
+  // call passes overrideAccess and restores what a sign-in would have.
+  expect(generated["src/k-nex-authority.ts"]).toContain('payload.unlock({ collection: "users", data: { email }, overrideAccess: true })');
 });
 
 it("refuses a sign-in body past the credential bound before it can hold the authority", async () => {
@@ -771,6 +828,190 @@ it("refuses a sign-in body past the credential bound before it can hold the auth
   expect(restControl().connects).toBe(0);
   expect(restControl().statements).toEqual([]);
 });
+
+/**
+ * The finding this closes: the authority parsed the admitted body with
+ * JSON.parse and read an email out of it, but Payload's internal POST endpoints
+ * also accept multipart and take the operation's arguments from a _payload
+ * field. A bounded multipart sign-in therefore failed this parse, took the key
+ * an unresolved address gets, and then authenticated a real user while holding
+ * an unrelated lock, which is the recovery race reopened through an encoding.
+ */
+it("admits one encoding for a credential operation, and refuses every other before it looks anything up", async () => {
+  const multipart = [
+    "--knexboundary",
+    'Content-Disposition: form-data; name="_payload"',
+    "",
+    JSON.stringify({ email: "owner@alpha.example.test", password: "owner-password-1234" }),
+    "--knexboundary--",
+    ""
+  ].join("\r\n");
+  // The last one carries no declared type at all, so the runtime supplies the
+  // text/plain the fetch specification gives an unlabelled body.
+  for (const contentType of ["multipart/form-data; boundary=knexboundary", "multipart/mixed; boundary=knexboundary", "application/x-www-form-urlencoded", "text/plain", "application/json-patch+json", "Application/JSON", ""]) {
+    restControl().delegated.length = 0;
+    restControl().lookups.length = 0;
+    restControl().statements.length = 0;
+    const refused = await restPost("/api/users/login", { headers: contentType === "" ? {} : { "content-type": contentType }, body: multipart });
+    expect(refused.status).toBe(415);
+    expect(await refused.json()).toEqual({ errors: [{ message: "A credential operation is accepted as application/json only." }] });
+    // Refused before the lookup, so an encoding this authority cannot read is
+    // never the reason a real account's key is spent or skipped.
+    expect(restControl().lookups).toEqual([]);
+    expect(restControl().delegated).toEqual([]);
+    expect(restControl().statements).toEqual([]);
+  }
+  expect(restControl().connects).toBe(0);
+
+  // The media type is matched exactly the way Payload matches it, so what this
+  // admits is what Payload parses as JSON and nothing else. A body-less
+  // operation has no arguments to disagree about and is left alone.
+  const admitted = await restPost("/api/users/login", { headers: { "content-type": "application/json; charset=utf-8" }, body: JSON.stringify({ email: "owner@alpha.example.test", password: "owner-password-1234" }) });
+  expect(admitted.status).toBe(200);
+  const bodyless = await restPost("/api/users/logout");
+  expect(bodyless.status).toBe(200);
+  expect(restControl().delegated.map(({ slug }) => slug[1])).toEqual(["login", "logout"]);
+  expect(restControl().delegated.every(({ authorityHeld }) => authorityHeld)).toBe(true);
+});
+
+/**
+ * The finding this closes: the email-to-user lookup treated every database or
+ * authentication error as "not found", so a request took the key an unknown
+ * address gets and the delegated call then ran a lookup of its own, which could
+ * succeed. An operation that authenticates a real user while the authority is
+ * ordering something else is the whole race, reached by making one query fail.
+ */
+it("fails a credential operation closed when it cannot resolve the account it names", async () => {
+  for (const [operation, body] of [["login", JSON.stringify({ email: "owner@alpha.example.test", password: "owner-password-1234" })], ["logout", ""]] as const) {
+    restControl().delegated.length = 0;
+    restControl().statements.length = 0;
+    restControl().onLookup = () => { throw new Error("the principal lookup is unavailable"); };
+    const refused = await restPost(`/api/users/${operation}`, body === "" ? {} : { headers: { "content-type": "application/json" }, body });
+    expect(refused.status).toBe(503);
+    expect(await refused.json()).toEqual({ errors: [{ message: "The credential authority could not resolve the account this request names." }] });
+    // Nothing was delegated and nothing was locked: the request is refused on
+    // its own account rather than run under a key that is not its own.
+    expect(restControl().delegated).toEqual([]);
+    expect(restControl().statements).toEqual([]);
+  }
+  expect(restControl().connects).toBe(0);
+});
+
+/**
+ * The finding this closes: the address-to-user mapping was read before the lock
+ * was taken, so an email moved between the two left the delegated sign-in
+ * resolving a different user than the one whose key was held.
+ */
+it("readmits a credential operation under the key the delegated call will decide under, and refuses an address that keeps moving", async () => {
+  const key = (statements: RestControl["statements"]) => statements.filter(({ text }) => text.includes("pg_advisory_lock")).map(({ values }) => String(values[1]));
+  const owner = control().users.get("1")!;
+  const second = control().users.get("2")!;
+  const address = owner.email;
+
+  // The address is reassigned between the lookup that chose the key and the
+  // re-read under it, exactly as an operator recovery moving a sign-in identity
+  // would do. What must not happen is the delegated call running anyway.
+  restControl().onLookup = (index) => {
+    if (index !== 1) return;
+    owner.email = "moved-owner@alpha.example.test";
+    second.email = address;
+  };
+  const moved = await restPost("/api/users/login", { headers: { "content-type": "application/json" }, body: JSON.stringify({ email: address, password: "whatever-1234" }) });
+  expect(moved.status).toBe(200);
+  const keys = key(restControl().statements);
+  // Two authorities in turn: the one the stale mapping named, given back
+  // untouched, and the one the address resolves to now, which is the key the
+  // delegated call runs under.
+  expect(keys).toHaveLength(2);
+  expect(keys[0]).not.toBe(keys[1]);
+  expect(restControl().delegated).toHaveLength(1);
+  expect(restControl().delegated[0]!.authorityHeld).toBe(true);
+  // The abandoned authority was handed back rather than destroyed with its
+  // connection: nothing of a call that never ran can be outstanding on it.
+  expect(restControl().releases).toEqual([false, false]);
+
+  // And the key it settled on is the account the address names now, which is
+  // the account the delegated call authenticated.
+  restControl().onLookup = undefined;
+  restControl().statements.length = 0;
+  expect((await restPost("/api/users/login", { headers: { "content-type": "application/json" }, body: JSON.stringify({ email: address, password: "second-password-1234" }) })).status).toBe(200);
+  expect(new Set(key(restControl().statements))).toEqual(new Set([keys[1]]));
+
+  // An address that moves on every re-read is contention rather than a
+  // principal, so it is refused instead of retried forever.
+  restControl().statements.length = 0;
+  restControl().delegated.length = 0;
+  let moves = 0;
+  restControl().onLookup = () => {
+    moves += 1;
+    control().users.get("1")!.email = `shifting-${moves}@alpha.example.test`;
+    control().users.get("2")!.email = moves % 2 === 0 ? address : `other-${moves}@alpha.example.test`;
+  };
+  const shifting = await restPost("/api/users/login", { headers: { "content-type": "application/json" }, body: JSON.stringify({ email: address, password: "whatever-1234" }) });
+  expect(shifting.status).toBe(503);
+  expect(await shifting.json()).toEqual({ errors: [{ message: "The account this request names moved while the credential authority was being taken." }] });
+  expect(restControl().delegated).toEqual([]);
+  expect(key(restControl().statements)).toHaveLength(3);
+});
+
+/**
+ * The finding this closes: the operation deadline aborted the delegated call's
+ * request signal, waited a grace period, destroyed the connection carrying the
+ * advisory lock and released the in-process gate. That is a response deadline,
+ * not a database cancellation boundary: aborting a Fetch signal does not make a
+ * Payload query rollback-complete, so the delegated call could still commit a
+ * session on another pooled connection after the caller had its 503 and after a
+ * recovery had taken the released authority.
+ */
+it("answers the deadline while the credential authority is still held, and gives it back only once the delegated call is terminal", async () => {
+  let release!: () => void;
+  restControl().holdDelegated = new Promise<void>((settle) => { release = settle; });
+  const refused = await restPost("/api/users/login", {
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email: "owner@alpha.example.test", password: "owner-password-1234" })
+  });
+  expect(refused.status).toBe(503);
+  expect(await refused.json()).toEqual({ errors: [{ message: "The credential authority did not answer in time." }] });
+  // The client has its refusal and the delegated call is still running, so the
+  // authority must still be this call's: handing it to a recovery here is the
+  // race, and the connection carrying it has not gone back to the pool either.
+  expect(restControl().authorityHeld).toBe(true);
+  expect(restControl().statements.map(({ text }) => text)).toEqual([
+    "select set_config('statement_timeout',$1,false)",
+    "select pg_advisory_lock($1,$2)",
+    "reset statement_timeout"
+  ]);
+  expect(restControl().releases).toEqual([]);
+
+  // A second request for the same principal is refused rather than admitted
+  // past the call that is still able to commit.
+  const queued = await restPost("/api/users/login", {
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email: "owner@alpha.example.test", password: "owner-password-1234" })
+  });
+  expect(queued.status).toBe(429);
+  expect(restControl().delegated).toHaveLength(1);
+
+  release();
+  // Given back where it was taken, and only now: the unlock is confirmed on the
+  // connection that took it and that connection goes back to the pool intact.
+  await vi.waitFor(() => { expect(restControl().authorityHeld).toBe(false); });
+  expect(restControl().statements.map(({ text }) => text)).toEqual([
+    "select set_config('statement_timeout',$1,false)",
+    "select pg_advisory_lock($1,$2)",
+    "reset statement_timeout",
+    "select pg_advisory_unlock($1,$2)"
+  ]);
+  expect(restControl().releases).toEqual([false]);
+
+  // And the principal is admissible again once it is terminal.
+  restControl().holdDelegated = undefined;
+  const after = await restPost("/api/users/login", {
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email: "owner@alpha.example.test", password: "owner-password-1234" })
+  });
+  expect(after.status).toBe(200);
+}, 60_000);
 
 /**
  * The finding this closes: reauthentication proved the password with a login of

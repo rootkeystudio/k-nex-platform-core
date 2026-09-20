@@ -62,6 +62,15 @@ export const usersCollection: CollectionConfig = {
     create: ({ req }) => authorizePayloadUser(req.payload, req.user, "system.role-assignments.manage", "system.role-assignments"),
     delete: () => false,
     read: ({ req }) => req.user ? { id: { equals: req.user.id } } : false,
+    // Payload defaults this to any authenticated session, and its unlock
+    // operation takes an address, finds that user and clears the lockout. That
+    // let the lowest-privilege account in the product defeat the owner's
+    // max-login-attempt lockout, on a mutation the credential authority never
+    // sees. Nothing may reach it from a request: the lockout is released by its
+    // own expiry or by an operator credential recovery. The internal cleanup
+    // after a verification-only reauthentication passes overrideAccess, which
+    // Payload checks before this, so it still restores what a sign-in would.
+    unlock: () => false,
     update: ({ id, req }) => req.user?.collection === "users" && String(req.user.id) === String(id)
   },
   hooks: {
@@ -519,7 +528,7 @@ function credentialAuthorityKey(principal: string): number {
 
 type CredentialAuthorityClient = Readonly<{ query(text: string, values?: readonly unknown[]): Promise<unknown>; release(destroy?: boolean): void }>;
 
-export type KnexCredentialAuthorityRefusal = "busy" | "timed-out" | "aborted";
+export type KnexCredentialAuthorityRefusal = "busy" | "timed-out" | "aborted" | "unavailable" | "unresolved";
 
 export class KnexCredentialAuthorityError extends Error {
   readonly refusal: KnexCredentialAuthorityRefusal;
@@ -532,17 +541,31 @@ export class KnexCredentialAuthorityError extends Error {
 
 /**
  * How long a caller may wait to be let into a gate, how long the advisory lock
- * itself may be waited on, and how long the operation holding it may run. The
- * last one is the one that costs something: past it the delegated call is
- * aborted and, if it will not stop, the connection carrying the lock is
- * destroyed so its backend dies and every other principal's queue moves again.
- * A sign-in that hangs for a quarter of a minute has already failed; holding
- * the whole product's recovery path hostage to it is the worse outcome.
+ * itself may be waited on, and how long the operation holding it may run before
+ * its client is answered a refusal.
+ *
+ * The last one is a response deadline and nothing more. It does not end the
+ * delegated call: aborting a Fetch signal does not roll a Payload query back,
+ * so a login abandoned at the deadline can still commit a session afterwards.
+ * The authority is therefore held past it, and what ends the delegated call is
+ * the statement timeout every connection of this application carries.
  */
 const credentialAuthorityQueueDeadlineMs = 10_000;
 const credentialAuthorityLockDeadlineMs = 10_000;
 const credentialAuthorityOperationDeadlineMs = 15_000;
 const credentialAuthorityAbortGraceMs = 1_000;
+
+/**
+ * The statement timeout the generated application declares on its Postgres pool,
+ * repeated here because the credential authority is the one caller that borrows
+ * that setting and has to hand back exactly what it found. Every connection
+ * carries it from its startup packet, so it is restored with a reset rather than
+ * a written value: a connection released to the pool carrying anything else
+ * would silently exempt the next caller from the bound this authority depends on.
+ */
+export const kNexStatementTimeoutMs = 30_000;
+/** No caller may wait for a pooled connection forever either; the same bound, for the same reason. */
+export const kNexConnectionTimeoutMs = 30_000;
 /** One principal's queue. Past this the answer is an immediate refusal, not a place in line. */
 const credentialAuthorityWaiterLimit = 8;
 /**
@@ -665,7 +688,22 @@ export async function withCredentialAuthority<T>(payload: Payload, principal: st
   if (credentialAuthorityAbandoned(signal)) throw new KnexCredentialAuthorityError("aborted");
   let gate = credentialAuthorityPrincipalGates.get(principal);
   if (gate === undefined) { gate = { limit: 1, held: 0, waiting: [] }; credentialAuthorityPrincipalGates.set(principal, gate); }
-  await enterCredentialAuthorityGate(gate, credentialAuthorityWaiterLimit, signal);
+  const principalGate = gate;
+  await enterCredentialAuthorityGate(principalGate, credentialAuthorityWaiterLimit, signal);
+  /**
+   * Set when a delegated call outlived its client's deadline. Everything this
+   * caller holds then belongs to that call until it is terminal, so each
+   * boundary below hands its release to the continuation instead of taking it.
+   */
+  let outlived = false;
+  const leavePrincipalGate = (): void => {
+    leaveCredentialAuthorityGate(principalGate);
+    // A principal nobody is waiting for is not a key this process keeps, so a
+    // flood of unknown addresses cannot grow the map it is being served from.
+    if (principalGate.held === 0 && principalGate.waiting.length === 0 && credentialAuthorityPrincipalGates.get(principal) === principalGate) {
+      credentialAuthorityPrincipalGates.delete(principal);
+    }
+  };
   try {
     await enterCredentialAuthorityPool(payload, signal);
     try {
@@ -673,11 +711,25 @@ export async function withCredentialAuthority<T>(payload: Payload, principal: st
       const key = credentialAuthorityKey(principal);
       const client = await (payload.db.pool as { connect(): Promise<CredentialAuthorityClient> }).connect();
       let acquired = false;
-      let released = false;
-      let settled = false;
       // The lock wait borrows a session setting, so until it is handed back the
       // connection is this caller's alone and is destroyed rather than pooled.
       let bounded = false;
+      /**
+       * Only ever called once the delegated call is terminal, which is why the
+       * lock is handed back rather than thrown away with its backend: nothing
+       * of that call can still land on this connection or on any other.
+       */
+      const releaseAuthority = async (): Promise<void> => {
+        let released = false;
+        if (acquired) {
+          try { await client.query("select pg_advisory_unlock($1,$2)", [credentialAuthorityNamespace, key]); released = true; }
+          catch { /* discarded below instead: a session lock dies with its backend */ }
+        }
+        // A pooled connection that might still hold the authority, or that is
+        // still carrying the lock wait's statement timeout, is destroyed rather
+        // than handed to the next caller, which would inherit it silently.
+        client.release(bounded || (acquired && !released));
+      };
       try {
         // An advisory lock wait is not bounded by anything in the database by
         // default, so the wait is given a statement timeout of its own. A
@@ -688,51 +740,62 @@ export async function withCredentialAuthority<T>(payload: Payload, principal: st
         try { await client.query("select pg_advisory_lock($1,$2)", [credentialAuthorityNamespace, key]); }
         catch { throw new KnexCredentialAuthorityError("busy"); }
         acquired = true;
-        await client.query("select set_config('statement_timeout','0',false)");
+        // Reset rather than zeroed: zero is not what this connection arrived
+        // carrying, and a client released to the pool with the statement bound
+        // switched off exempts whatever runs on it next from the very timeout
+        // that makes an abandoned credential operation terminal.
+        await client.query("reset statement_timeout");
         bounded = false;
         const abandon = new AbortController();
         const abandoned = (): void => abandon.abort(new KnexCredentialAuthorityError("aborted"));
         if (credentialAuthorityAbandoned(signal)) abandoned();
         signal?.addEventListener("abort", abandoned, { once: true });
-        const running = run(abandon.signal).finally(() => { settled = true; });
+        // Settled rather than raced, so the deadline can answer the client
+        // without the delegated call's outcome becoming an unhandled rejection
+        // or being mistaken for a released authority.
+        const running = run(abandon.signal).then((value) => Object.freeze({ value }), (error: unknown) => Object.freeze({ error }));
         let deadline: ReturnType<typeof setTimeout> | undefined;
         let grace: ReturnType<typeof setTimeout> | undefined;
+        let answered: Readonly<{ value: T }> | Readonly<{ error: unknown }> | Readonly<{ refusal: KnexCredentialAuthorityError }>;
         try {
-          return await Promise.race([running, new Promise<never>((_, refuse) => {
+          answered = await Promise.race([running, new Promise<Readonly<{ refusal: KnexCredentialAuthorityError }>>((refuse) => {
             deadline = setTimeout(() => {
               abandon.abort(new KnexCredentialAuthorityError("timed-out"));
-              // The delegated call is asked to stop before the authority is
-              // taken away from it, and only what will not stop loses it.
-              grace = setTimeout(() => refuse(new KnexCredentialAuthorityError("timed-out")), credentialAuthorityAbortGraceMs);
+              // The delegated call is asked to stop before its client is given
+              // up on, and only what will not stop costs the client its answer.
+              grace = setTimeout(() => refuse(Object.freeze({ refusal: new KnexCredentialAuthorityError("timed-out") })), credentialAuthorityAbortGraceMs);
             }, credentialAuthorityOperationDeadlineMs);
           })]);
         } finally {
           clearTimeout(deadline);
           clearTimeout(grace);
           signal?.removeEventListener("abort", abandoned);
-          void running.catch(() => undefined);
         }
-      } finally {
-        // An operation that is still running owns whatever this connection is
-        // carrying, so the connection is destroyed rather than unlocked: its
-        // backend ends, the lock goes with it, and no statement of the
-        // abandoned operation lands on a client somebody else was handed.
-        if (acquired && settled) {
-          try { await client.query("select pg_advisory_unlock($1,$2)", [credentialAuthorityNamespace, key]); released = true; }
-          catch { /* discarded below instead: a session lock dies with its backend */ }
+        if ("refusal" in answered) {
+          // The deadline is a response deadline, not a database cancellation
+          // boundary. Abandoning a Fetch signal does not make a Payload query
+          // rollback-complete, so a login refused here can still be holding a
+          // transaction that commits a session on another pooled connection.
+          // Releasing the authority to a recovery at that point is the race
+          // this authority exists to close, so the client is answered while
+          // everything is still held and the release waits for the call itself.
+          outlived = true;
+          void running.then(async () => {
+            try { await releaseAuthority(); }
+            finally {
+              leaveCredentialAuthorityGate(credentialAuthorityPoolGate);
+              leavePrincipalGate();
+            }
+            // A release nobody is waiting on must not become an unhandled
+            // rejection: the gates are already back by the time this can throw.
+          }).catch(() => undefined);
+          throw answered.refusal;
         }
-        // A pooled connection that might still hold the authority, or that is
-        // still carrying the lock wait's statement timeout, is destroyed rather
-        // than handed to the next caller, which would inherit it silently.
-        client.release(bounded || (acquired && !released));
-      }
-    } finally { leaveCredentialAuthorityGate(credentialAuthorityPoolGate); }
-  } finally {
-    leaveCredentialAuthorityGate(gate);
-    // A principal nobody is waiting for is not a key this process keeps, so a
-    // flood of unknown addresses cannot grow the map it is being served from.
-    if (gate.held === 0 && gate.waiting.length === 0) credentialAuthorityPrincipalGates.delete(principal);
-  }
+        if ("error" in answered) throw answered.error;
+        return answered.value;
+      } finally { if (!outlived) await releaseAuthority(); }
+    } finally { if (!outlived) leaveCredentialAuthorityGate(credentialAuthorityPoolGate); }
+  } finally { if (!outlived) leavePrincipalGate(); }
 }
 
 // An authentication body is a few hundred bytes; this is read before the
@@ -742,11 +805,19 @@ export const credentialAuthorityRequestByteLimit = 16_384;
 
 /**
  * The Payload auth operations that decide against state they read before the
- * transaction they commit in: each mints a session out of a user document
- * loaded earlier, so each has to be ordered against that principal's credential
- * changes as a whole and not against its own write.
+ * transaction they commit in: each mints or removes a session out of a user
+ * document loaded earlier, so each has to be ordered against that principal's
+ * credential changes as a whole and not against its own write.
+ *
+ * Logout is one of them. It reads the whole user document with its sessions,
+ * filters one session out of that snapshot in memory, and writes the document
+ * back through the database adapter, so a logout whose read crossed an operator
+ * recovery wrote the pre-recovery sessions back over it and resurrected every
+ * session that recovery had just revoked. Under this authority its read and its
+ * write are both inside the ordering, so the snapshot it edits is the state the
+ * recovery left and two concurrent logouts cannot lose each other's write.
  */
-const credentialSensitiveUserOperations: readonly string[] = Object.freeze(["login", "refresh-token"]);
+const credentialSensitiveUserOperations: readonly string[] = Object.freeze(["login", "logout", "refresh-token"]);
 
 /**
  * Endpoints that reach a credential writer this product does not admit, refused
@@ -763,11 +834,18 @@ const credentialSensitiveUserOperations: readonly string[] = Object.freeze(["log
  * owner assignment and the audit that make an owner an owner. Serializing it
  * only made that punctual too. The first owner is issued by the operator
  * bootstrap command, which creates the account itself.
+ *
+ * Unlock is refused for the same reason. Payload's unlock takes an address,
+ * finds that user and clears its lockout, so the route is a way for one account
+ * to undo another account's max-login-attempt protection. The collection
+ * refuses it as well; both are here because a route that answers before Payload
+ * is reached never spends a lookup on an unauthenticated caller's address.
  */
 const refusedUserOperations: ReadonlyMap<string, string> = new Map([
   ["first-register", "The first owner is created by the operator bootstrap command, not by registration."],
   ["forgot-password", "Credentials are issued by the operator recovery command, not by a password reset."],
-  ["reset-password", "Credentials are issued by the operator recovery command, not by a password reset."]
+  ["reset-password", "Credentials are issued by the operator recovery command, not by a password reset."],
+  ["unlock", "A locked account is released by its lockout expiry or by the operator recovery command, not by an unlock request."]
 ]);
 
 export function credentialSensitiveRestOperation(slug: readonly string[] | undefined): boolean {
@@ -807,42 +885,110 @@ export async function readCredentialSensitiveRestRequest(request: Request): Prom
 }
 
 /**
- * The principal a credential-sensitive REST call is deciding about, resolved
- * before its authority is taken. A sign-in names its principal by the address
- * in its body and a refresh names it by the session it presents; both are
- * looked up here, under the same bounded share of the pool the lock holders
- * take, so the lookup cannot starve them either. An address that resolves to
- * nobody, and a session that authenticates as nobody, still get a key: they are
- * queued, bounded and refused exactly as a real principal's request would be.
+ * Payload's internal POST endpoints do not accept one encoding. They parse
+ * application/json, and they also parse multipart form data and take the
+ * operation's own arguments from a _payload field
+ * (utilities/addDataAndFileToRequest). A bounded multipart sign-in therefore
+ * failed the authority's JSON parse, took the key an unresolved address gets,
+ * and then authenticated a real user while holding an unrelated lock, which is
+ * the recovery race reopened through an encoding.
+ *
+ * One encoding is admitted for the serialized auth operations, and it is
+ * matched exactly the way Payload matches it, so the bytes this authority reads
+ * to find the principal are the bytes the delegated call reads to authenticate
+ * one. A request with no body has no arguments to disagree about and is left to
+ * Payload: logout and refresh-token are normally sent that way.
  */
-export async function credentialSensitiveRestPrincipal(payload: Payload, operation: string, admitted: KnexCredentialSensitiveRestRequest, signal?: AbortSignal): Promise<string> {
+export function credentialSensitiveRestMediaType(admitted: KnexCredentialSensitiveRestRequest): boolean {
+  if (admitted.body.byteLength === 0) return true;
+  return (admitted.headers.get("content-type") ?? "").split(";", 1)[0] === "application/json";
+}
+
+/**
+ * The principal a credential-sensitive REST call is deciding about. A sign-in
+ * names its principal by the address in its body and a refresh or a logout
+ * names it by the session it presents.
+ *
+ * A lookup that fails is a refusal rather than an unresolved principal. Treating
+ * a database or authentication error as "not found" handed the request the key
+ * an unknown address gets, and the delegated call then ran its own lookup, which
+ * could succeed: an operation that authenticated a real user while the authority
+ * ordered something else is exactly the finding this exists to close.
+ */
+async function resolveCredentialRestPrincipal(payload: Payload, operation: string, admitted: KnexCredentialSensitiveRestRequest): Promise<Readonly<{ key: string; userId?: string }>> {
   if (operation === "login") {
     let email: unknown;
     try { email = (JSON.parse(boundedRequestBodyText(admitted.body)) as Record<string, unknown>).email; } catch { email = undefined; }
     // Payload lowercases and trims before it looks a sign-in up, so the key has
     // to be taken on the same address the delegated call will resolve.
     const address = typeof email === "string" && email.length <= 254 ? email.toLowerCase().trim() : "";
-    const userId = address === "" ? undefined : await withCredentialAuthorityPool(payload, signal, async () => {
-      // A lookup that fails is an unresolved principal, not a refusal: the
-      // request still takes an authority, is still ordered and still bounded,
-      // and the delegated call still answers for itself.
-      try {
-        const found = await payload.find({ collection: "users", overrideAccess: true, limit: 1, depth: 0, where: { email: { equals: address } } });
-        const document = found.docs[0] as { id?: unknown } | undefined;
-        return document?.id === undefined || document.id === null ? undefined : String(document.id);
-      } catch { return undefined; }
-    });
-    return userId === undefined ? credentialAuthorityPrincipal("email", address) : credentialAuthorityPrincipal("user", userId);
+    // An address that resolves to nobody still gets a key: it is queued,
+    // bounded and refused exactly as a real principal's request would be, so
+    // how a request is treated here never says which addresses exist.
+    if (address === "") return Object.freeze({ key: credentialAuthorityPrincipal("email", address) });
+    let found: Awaited<ReturnType<Payload["find"]>>;
+    try { found = await payload.find({ collection: "users", overrideAccess: true, limit: 1, depth: 0, where: { email: { equals: address } } }); }
+    catch { throw new KnexCredentialAuthorityError("unavailable"); }
+    const document = found.docs[0] as { id?: unknown } | undefined;
+    const userId = document?.id === undefined || document.id === null ? undefined : String(document.id);
+    return userId === undefined
+      ? Object.freeze({ key: credentialAuthorityPrincipal("email", address) })
+      : Object.freeze({ key: credentialAuthorityPrincipal("user", userId), userId });
   }
-  const userId = await withCredentialAuthorityPool(payload, signal, async () => {
-    try {
-      const user = (await payload.auth({ headers: admitted.headers, canSetHeaders: false })).user;
-      return typeof user === "object" && user !== null && "id" in user && "collection" in user && user.collection === "users" && user.id !== null && user.id !== undefined ? String(user.id) : undefined;
-    } catch { return undefined; }
-  });
+  let user: unknown;
+  try { user = (await payload.auth({ headers: admitted.headers, canSetHeaders: false })).user; }
+  catch { throw new KnexCredentialAuthorityError("unavailable"); }
+  const userId = typeof user === "object" && user !== null && "id" in user && "collection" in user && user.collection === "users" && user.id !== null && user.id !== undefined ? String(user.id) : undefined;
   return userId === undefined
-    ? credentialAuthorityPrincipal("session", createHash("sha256").update(admitted.headers.get("cookie") ?? "").digest("hex"))
-    : credentialAuthorityPrincipal("user", userId);
+    ? Object.freeze({ key: credentialAuthorityPrincipal("session", createHash("sha256").update(admitted.headers.get("cookie") ?? "").digest("hex")) })
+    : Object.freeze({ key: credentialAuthorityPrincipal("user", userId), userId });
+}
+
+/**
+ * Resolved before the authority is taken, under the same bounded share of the
+ * pool the lock holders take, so the lookup cannot starve them either. Not
+ * exported: a caller that could take a key without the confirmation below is a
+ * second way to run a credential operation under an account that is not its own.
+ */
+async function credentialSensitiveRestPrincipal(payload: Payload, operation: string, admitted: KnexCredentialSensitiveRestRequest, signal?: AbortSignal): Promise<string> {
+  return (await withCredentialAuthorityPool(payload, signal, async () => resolveCredentialRestPrincipal(payload, operation, admitted))).key;
+}
+
+/**
+ * How many times a request may be readmitted under a key that moved. The
+ * mapping is read before the lock, so an address reassigned between the lookup
+ * and the lock leaves the delegated authentication resolving a different user
+ * than the one whose key is held. It is re-read under the authority and, if it
+ * moved, the authority is given back and taken again on the key the delegated
+ * call will actually decide under. An address that keeps moving is refused
+ * rather than retried forever: past this it is contention, not a principal.
+ */
+const credentialPrincipalAdmissionLimit = 3;
+
+/**
+ * Takes the authority for a credential-sensitive REST operation and runs the
+ * delegated call under it. The key and the delegated authentication consume one
+ * canonical parse and one canonical resolution: the same admitted bytes, the
+ * same media type rule, and a principal that is confirmed under the lock before
+ * anything is delegated.
+ */
+export async function withCredentialSensitiveRestAuthority<T>(payload: Payload, operation: string, admitted: KnexCredentialSensitiveRestRequest, run: (signal: AbortSignal) => Promise<T>, signal?: AbortSignal): Promise<T> {
+  let resolved = await credentialSensitiveRestPrincipal(payload, operation, admitted, signal);
+  for (let admission = 0; admission < credentialPrincipalAdmissionLimit; admission += 1) {
+    const held = resolved;
+    const outcome = await withCredentialAuthority(payload, held, async (delegated) => {
+      // Re-read under the lock rather than trusted from before it. The pool
+      // gate is deliberately not taken again here: this caller already holds a
+      // place in it, and a holder that queues for a second one deadlocks every
+      // other holder against itself.
+      const current = (await resolveCredentialRestPrincipal(payload, operation, admitted)).key;
+      if (current !== held) return Object.freeze({ moved: current });
+      return Object.freeze({ value: await run(delegated) });
+    }, signal);
+    if (!("moved" in outcome)) return outcome.value;
+    resolved = outcome.moved;
+  }
+  throw new KnexCredentialAuthorityError("unresolved");
 }
 
 /** The refusal a caller sees when the authority would not admit its request. */
@@ -850,6 +996,8 @@ export function credentialAuthorityRefusal(error: unknown): Readonly<{ status: n
   const refusal = error instanceof KnexCredentialAuthorityError ? error.refusal : undefined;
   if (refusal === "timed-out") return Object.freeze({ status: 503, message: "The credential authority did not answer in time." });
   if (refusal === "aborted") return Object.freeze({ status: 499, message: "The request was abandoned before the credential authority admitted it." });
+  if (refusal === "unavailable") return Object.freeze({ status: 503, message: "The credential authority could not resolve the account this request names." });
+  if (refusal === "unresolved") return Object.freeze({ status: 503, message: "The account this request names moved while the credential authority was being taken." });
   return Object.freeze({ status: 429, message: "Too many credential requests are waiting for this account." });
 }
 
