@@ -99,12 +99,44 @@ pnpm start
     "src/app/(payload)/api/[...slug]/route.ts": `import config from "@payload-config";
 import { REST_DELETE, REST_GET, REST_OPTIONS, REST_PATCH, REST_POST, REST_PUT } from "@payloadcms/next/routes";
 
+import { bootKnexApplication } from "../../../../boot.js";
+import { credentialSensitiveRestOperation, readCredentialSensitiveRestRequest, refusedCredentialRestOperation, withCredentialAuthority } from "../../../../k-nex-authority.js";
+
+type PayloadRestContext = Readonly<{ params: Promise<{ slug?: string[] }> }>;
+
+const restPost = REST_POST(config);
+
 export const GET = REST_GET(config);
-export const POST = REST_POST(config);
 export const DELETE = REST_DELETE(config);
 export const PATCH = REST_PATCH(config);
 export const PUT = REST_PUT(config);
 export const OPTIONS = REST_OPTIONS(config);
+
+/**
+ * Payload verifies a password before it opens the transaction that writes the
+ * session, and builds that write out of the user document it read beforehand,
+ * so an ordinary sign-in can commit a session, and stale user fields with it,
+ * against a credential an operator recovery already replaced. This route is
+ * ours, so the delegated call is held inside the same credential authority the
+ * credential journeys take, for the whole of the call rather than for its
+ * write. Every other method and every other path is delegated untouched.
+ */
+export async function POST(request: Request, context: PayloadRestContext): Promise<Response> {
+  const params = await context.params;
+  if (refusedCredentialRestOperation(params.slug)) {
+    return Response.json({ errors: [{ message: "Credentials are issued by the operator recovery command, not by a password reset." }] },
+      { status: 403, headers: { "cache-control": "no-store" } });
+  }
+  if (!credentialSensitiveRestOperation(params.slug)) return restPost(request, context);
+  let delegated: Request;
+  // Read before the authority is taken, and handed on as the bytes the client
+  // sent: a body that trickles must not be able to hold every sign-in and every
+  // credential change in the application behind it.
+  try { delegated = await readCredentialSensitiveRestRequest(request); }
+  catch { return Response.json({ errors: [{ message: "Request body was refused." }] }, { status: 400, headers: { "cache-control": "no-store" } }); }
+  const payload = await bootKnexApplication("credential-authority");
+  return withCredentialAuthority(payload, async () => restPost(delegated, context));
+}
 `,
     "src/app/(payload)/api/graphql/route.ts": `import config from "@payload-config";
 import { GRAPHQL_POST, REST_OPTIONS } from "@payloadcms/next/routes";

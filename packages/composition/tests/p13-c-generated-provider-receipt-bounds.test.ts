@@ -36,9 +36,14 @@ export const kNexSalesRegistry = Object.freeze({ policyBindings: [], policyExecu
 `;
 
 type Transport = Readonly<{ invoke(input: unknown): Promise<unknown>; reconcile(input: unknown): Promise<unknown> }>;
+type BoundedBody = (
+  request: Readonly<{ headers: Headers; body?: ReadableStream<Uint8Array> | null }>,
+  limits: Readonly<{ maxBytes: number; overLimit?: "drain" | "cancel" }>
+) => Promise<Uint8Array>;
 
 let directory: string;
 let transport: Transport;
+let boundedBody: BoundedBody;
 let fetched: Request[];
 
 function transpile(source: string): string {
@@ -70,6 +75,9 @@ beforeAll(async () => {
     .replace('import { kNexSalesRegistry } from "./k-nex-registry.js";', 'import { kNexSalesRegistry } from "./stubs.mjs";');
   expect(authority).not.toMatch(/@k-nex\//u);
   writeFileSync(join(directory, "authority.mjs"), transpile(authority));
+  // The same module the transport reads through, so the inbound and response
+  // halves of the one reader are compared rather than two copies of it.
+  boundedBody = (await import(pathToFileURL(join(directory, "authority.mjs")).href) as { readBoundedRequestBody: BoundedBody }).readBoundedRequestBody;
   const communications = generated["src/k-nex-sales-communications.ts"]!
     .replace('import { canonicalJson } from "@k-nex/contracts";', 'import { canonicalJson } from "./stubs.mjs";')
     .replace('import { activePayloadPostgresTransaction } from "@k-nex/payload-adapter";', 'import { activePayloadPostgresTransaction } from "./stubs.mjs";')
@@ -172,17 +180,42 @@ it("cancels an oversized chunked provider receipt on its crossing chunk rather t
   expect(clock).toBeLessThan(5_000);
 });
 
-it("refuses an over-declared provider receipt length without reading the body at all", async () => {
-  let pulls = 0;
-  stubFetch(() => respond(new ReadableStream<Uint8Array>({
-    pull() { pulls += 1; return new Promise(() => undefined); }
-  }, { highWaterMark: 0, size() { return 1; } }), { "content-length": "4097" }));
-  const startedAt = Date.now();
-  await expect(invoke()).rejects.toThrow("Provider receipt is invalid.");
-  // The declared length is refused outright: a stalled body never delays it,
-  // and the reader is never even taken.
-  expect(pulls).toBe(0);
-  expect(Date.now() - startedAt).toBeLessThan(500);
+/**
+ * The finding this closes: the declared length is checked before the reader is
+ * acquired, so the cancellation that answers an over-limit chunk never ran for
+ * an over-declared or malformed one. Not reading is not enough on a response:
+ * nothing here owes the far end a refusal, and the socket the provider is
+ * holding stayed open until the outer call deadline closed it.
+ */
+it("cancels an over-declared or malformed provider receipt length without reading the body at all", async () => {
+  for (const declaredLength of ["4097", "99999999", "not-a-number", "12.5", "-1", ""]) {
+    let pulls = 0;
+    let cancelled = false;
+    stubFetch(() => respond(new ReadableStream<Uint8Array>({
+      pull() { pulls += 1; return new Promise(() => undefined); },
+      cancel() { cancelled = true; }
+    }, { highWaterMark: 0, size() { return 1; } }), { "content-length": declaredLength }));
+    const startedAt = Date.now();
+    await expect(invoke()).rejects.toThrow("Provider receipt is invalid.");
+    // The declared length is refused outright: a stalled body never delays it,
+    // and the reader is never even taken.
+    expect(pulls).toBe(0);
+    expect(Date.now() - startedAt).toBeLessThan(500);
+    // The stream is reset on the refusal itself, not left for the fetch timeout.
+    expect(cancelled).toBe(true);
+  }
+});
+
+it("leaves an over-declared inbound request body alone, because its refusal is still owed to the client", async () => {
+  let cancelled = false;
+  const body = new ReadableStream<Uint8Array>({
+    pull() { return new Promise(() => undefined); },
+    cancel() { cancelled = true; }
+  }, { highWaterMark: 0, size() { return 1; } });
+  await expect(boundedBody({ headers: new Headers({ "content-length": "4097" }), body }, { maxBytes: 4_096 }))
+    .rejects.toMatchObject({ refusal: "declared-length" });
+  await new Promise((settle) => setTimeout(settle, 50));
+  expect(cancelled).toBe(false);
 });
 
 it("cancels a provider receipt whose body never ends, and keeps it an outage rather than a host invariant", async () => {

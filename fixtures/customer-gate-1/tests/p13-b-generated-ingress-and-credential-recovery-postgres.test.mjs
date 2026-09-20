@@ -555,6 +555,124 @@ test("P13.B generated ingress readers are bounded, the realtime bridge recovers,
       assert.equal((await login(origin, personas.owner.email, "raced-recovery-password-1")).status, 200, "The recovered credential must be the one that survives.");
       assert.notEqual((await login(origin, personas.owner.email, "stale-proof-password-1")).status, 200);
       assert.equal(await credentialAudits(), 3, "A refused stale proof must not leave a credential audit.");
+
+      // -------- Payload's own sign-in, under the same authority --------
+      // Payload accepts a password before it opens the transaction that writes
+      // the session, and builds that write out of the user it read beforehand,
+      // so a lock around the credential writers alone left the whole of an
+      // ordinary sign-in outside the ordering. The sign-in is parked here by
+      // holding the users row it is about to update: past the password, inside
+      // its transaction, before anything about the session is durable.
+      currentPassword = "raced-recovery-password-1";
+      const lockWaiters = async (events) => (await pool.query(
+        "select count(*)::int count from pg_stat_activity where datname=current_database() and wait_event_type='Lock' and wait_event=any($1::text[])",
+        [events]
+      )).rows[0].count;
+      // The generated credential authority is the fixed half of the two-integer
+      // advisory space, held as a session lock for the whole of an operation, so
+      // "somebody is holding it" is a row rather than an inference.
+      const heldCredentialAuthority = async () => (await pool.query(
+        "select count(*)::int count from pg_locks where locktype='advisory' and granted and objsubid=2 and classid=1802658915 and database=(select oid from pg_database where datname=current_database())"
+      )).rows[0].count;
+      const signInTokenFile = resolve(directory, "sign-in-recovery.token");
+      const signInIssued = operatorProbe(application, environment, ["knex:issue-bootstrap-token", "--recovery", "--output", signInTokenFile]);
+      assert.equal(signInIssued.status, 0, `${signInIssued.stdout}\n${signInIssued.stderr}`);
+      assert.equal(await unspentGrants(), 1);
+      const recoveryAuditsBefore = await recoveryAudits();
+
+      const holder = await pool.connect();
+      let heldUserRow = false;
+      let pausedSignInFailure;
+      let pausedSignIn;
+      let racingRecovery;
+      try {
+        await holder.query("begin");
+        await holder.query("select id from users where id=$1 for update", [owner.userId]);
+        heldUserRow = true;
+        const sessionsBeforeSignIn = await ownerSessions();
+        pausedSignIn = login(origin, personas.owner.email, currentPassword)
+          .catch((error) => { pausedSignInFailure = error; return { status: 0 }; });
+        await eventually(async () => await lockWaiters(["transactionid", "tuple"]) >= 1 || undefined,
+          "The ordinary sign-in never reached the session write it commits.", 60_000);
+        assert.equal(await ownerSessions(), sessionsBeforeSignIn, "A sign-in parked before its session write must not have published that session.");
+        // The whole of the sign-in is inside the authority, not just the write
+        // it is parked on, which is what a credential change has to wait for.
+        assert.ok(await heldCredentialAuthority() >= 1,
+          "A parked sign-in must be holding the credential authority, not only the row it is about to write.");
+
+        racingRecovery = startProbe(application, environment, recoveryBoundaryScript, {
+          PROBE_TOKEN_FILE: signInTokenFile,
+          PROBE_OPERATOR: environment.K_NEX_ADMINISTRATION_OPERATOR_IDENTITY,
+          PROBE_EMAIL: personas.owner.email,
+          PROBE_PASSWORD: "sign-in-race-recovered-password-1"
+        });
+        // Queued behind the credential authority the sign-in is holding, not
+        // behind the users row: it never gets as far as that row.
+        await eventually(async () => await lockWaiters(["advisory"]) >= 1 || undefined,
+          "The operator recovery never queued behind the credential authority an ordinary sign-in holds.", 120_000);
+        assert.equal(await recoveryAudits(), recoveryAuditsBefore, "A queued recovery must not have committed.");
+        assert.equal(await unspentGrants(), 1, "A queued recovery must not have spent its grant.");
+        await holder.query("commit");
+        heldUserRow = false;
+      } finally {
+        if (heldUserRow) await holder.query("rollback").catch(() => undefined);
+        holder.release();
+      }
+      const resumedSignIn = await pausedSignIn;
+      assert.equal(pausedSignInFailure, undefined, `The parked sign-in must be answered: ${pausedSignInFailure}`);
+      const racedRecovery = await racingRecovery.result();
+      assert.equal(racedRecovery.ok, true, JSON.stringify(racedRecovery));
+      // The sign-in ran wholly before the recovery, so it is allowed to have
+      // succeeded; what it must not do is outlive the recovery that followed it.
+      assert.equal(resumedSignIn.status, 200, "A sign-in against the credential current for the whole of its run must still complete.");
+      assert.ok(resumedSignIn.cookie);
+      assert.equal(await currentUser(origin, resumedSignIn.cookie), undefined, "No session a sign-in opened may survive the recovery that ran after it.");
+      assert.equal(await ownerSessions(), 0, "No post-recovery session may exist for the parked sign-in.");
+      assert.notEqual((await login(origin, personas.owner.email, currentPassword)).status, 200, "The recovered-over password must stop working.");
+      assert.equal((await pool.query("select count(*)::int count from users where id=$1 and email=$2", [owner.userId, personas.owner.email])).rows[0].count, 1,
+        "The recovered email must be byte-identical to the one the operator supplied.");
+      currentPassword = "sign-in-race-recovered-password-1";
+      const recoveredSignIn = await login(origin, personas.owner.email, currentPassword);
+      assert.equal(recoveredSignIn.status, 200, "The recovered password must be byte-identical to the one the operator supplied.");
+      assert.equal(await ownerSessions(), 1, "A sign-in against the current credential must create exactly one usable session.");
+      assert.equal(await currentUser(origin, recoveredSignIn.cookie), owner.userId);
+      assert.equal(await recoveryAudits(), recoveryAuditsBefore + 1, "The recovery must leave exactly one further audit.");
+      assert.equal(await unspentGrants(), 0, "The recovery must spend the grant it queued with.");
+
+      // -------- an email-only change, and the session it revoked --------
+      // A change that moves only the email leaves the password working, so the
+      // second caller proves it happily; the thing that decides is the session
+      // the first one revoked before this one ever reached the lock.
+      const movedEmail = "moved-owner@p13.example.test";
+      const changerA = await login(origin, personas.owner.email, currentPassword);
+      const changerB = await login(origin, personas.owner.email, currentPassword);
+      assert.equal(changerA.status, 200);
+      assert.equal(changerB.status, 200);
+      const auditsBeforeEmailOnly = await credentialAudits();
+      const emailOnlyRelease = resolve(directory, "email-only.release");
+      const holdingEmailOnly = startProbe(application, environment, credentialRaceScript, {
+        PROBE_COOKIE: changerA.cookie, PROBE_HOLD_AT: "credential-write", PROBE_RELEASE_FILE: emailOnlyRelease,
+        PROBE_INPUT: JSON.stringify({ currentPassword, email: movedEmail })
+      });
+      await eventually(() => holdingEmailOnly.output().includes("PROBE_HELD credential-write") || undefined,
+        "The email-only change never reached its credential write.", 180_000);
+      const staleSessionContender = startProbe(application, environment, credentialRaceScript, {
+        PROBE_COOKIE: changerB.cookie,
+        PROBE_INPUT: JSON.stringify({ currentPassword, password: "email-only-contender-password-1" })
+      });
+      await eventually(async () => await lockWaiters(["advisory"]) >= 1 || undefined,
+        "The second credential change never queued behind the credential authority.", 180_000);
+      writeFileSync(emailOnlyRelease, "release", { encoding: "utf8" });
+      const emailOnlyResult = await holdingEmailOnly.result();
+      const staleSessionResult = await staleSessionContender.result();
+      assert.equal(emailOnlyResult.ok, true, JSON.stringify(emailOnlyResult));
+      assert.deepEqual(emailOnlyResult.value.changed, ["email"]);
+      assert.deepEqual(staleSessionResult, { ok: false, code: "CREDENTIAL_SESSION_REQUIRED" },
+        "A session a competing change revoked must not still be spendable, however good the password presented with it is.");
+      assert.equal(await credentialAudits(), auditsBeforeEmailOnly + 1, "Exactly one of two contenders may leave a credential audit.");
+      assert.notEqual((await login(origin, personas.owner.email, "email-only-contender-password-1")).status, 200);
+      assert.notEqual((await login(origin, personas.owner.email, currentPassword)).status, 200, "The moved email must be the only sign-in identity.");
+      assert.equal((await login(origin, movedEmail, currentPassword)).status, 200, "An email-only change must leave the password working under the new email.");
     } finally { rmSync(directory, { recursive: true, force: true }); }
   });
 });

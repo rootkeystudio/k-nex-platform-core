@@ -7,8 +7,10 @@ import ts from "typescript";
 import { afterAll, beforeAll, beforeEach, expect, it } from "vitest";
 
 import { applicationAuthFiles } from "../src/application-auth-files.js";
+import { runnableApplicationFiles } from "../src/runnable-application-files.js";
 
 const generated = applicationAuthFiles({ applicationId: "customer-alpha", applicationName: "Customer Alpha", theme: "minimal" });
+const runnable = runnableApplicationFiles({ applicationId: "customer-alpha", applicationName: "Customer Alpha", database: "external", theme: "minimal" });
 
 type Statement = Readonly<{ strings: readonly string[]; values: readonly unknown[] }>;
 type UpdateCall = Readonly<{ collection: string; id: string; data: Record<string, unknown>; overrideAccess: boolean }>;
@@ -44,12 +46,36 @@ type AuthorityModule = {
 
 type UsersModule = { usersCollection: { hooks: { beforeChange: Array<(args: Record<string, unknown>) => unknown> } } };
 
+type DelegatedRestCall = Readonly<{ method: string; slug: readonly string[]; body: string | null; authorityHeld: boolean }>;
+type RestControl = {
+  delegated: DelegatedRestCall[];
+  statements: Array<{ text: string; values: readonly unknown[] }>;
+  boots: string[];
+  connects: number;
+  releases: boolean[];
+  authorityHeld: boolean;
+};
+
+type RestModule = { POST(request: Request, context: { params: Promise<{ slug?: string[] }> }): Promise<Response> };
+
 let directory: string;
 let authority: AuthorityModule;
 let users: UsersModule;
+let rest: RestModule;
 
 function control(): Control {
   return (globalThis as typeof globalThis & { __kNexGeneratedCredentials: Control }).__kNexGeneratedCredentials;
+}
+
+function restControl(): RestControl {
+  return (globalThis as typeof globalThis & { __kNexGeneratedRest: RestControl }).__kNexGeneratedRest;
+}
+
+/** Delegates to the generated Payload REST route, with the slug Next would have parsed. */
+function restPost(path: string, init: RequestInit = {}): Promise<Response> {
+  const url = new URL(path, "https://alpha.example.test");
+  const slug = url.pathname.replace(/^\/api\//u, "").split("/");
+  return rest.POST(new Request(url, { method: "POST", ...init }), { params: Promise.resolve({ slug }) });
 }
 
 const grantDigest = "sha256:" + "a".repeat(64);
@@ -222,12 +248,63 @@ export async function activePayloadPostgresTransaction(req) {
     .replace('import { admittedCredentialChange, authorizePayloadUser } from "./k-nex-authority.js";', 'import { admittedCredentialChange } from "./authority.mjs";\nimport { authorizePayloadUser } from "./stubs.mjs";')
     .replace('import { kNexIdentity } from "./k-nex-identity.js";', 'import { kNexIdentity } from "./stubs.mjs";');
   writeFileSync(join(directory, "users.mjs"), ts.transpileModule(usersSource, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2024 } }).outputText);
-  // One entry point, so the collection hook and the assertions observe the same
-  // authority module instance rather than two loaders' copies of it.
-  writeFileSync(join(directory, "probe.mjs"), 'export { admittedCredentialChange, changeCurrentUserCredentials, kNexRequestContext, recoverProtectedOwnerCredential } from "./authority.mjs";\nexport { usersCollection } from "./users.mjs";\n');
-  const probe = await import(pathToFileURL(join(directory, "probe.mjs")).href) as AuthorityModule & UsersModule;
+  // Payload's own REST surface and the application boot the generated route
+  // imports, recorded so the delegated call can be placed against the authority.
+  writeFileSync(join(directory, "rest-stubs.mjs"), `
+const control = () => globalThis.__kNexGeneratedRest;
+export default Object.freeze({ kind: "sanitized-payload-config" });
+const delegate = (method) => () => async (request, args) => {
+  const params = await args.params;
+  control().delegated.push(Object.freeze({
+    method, slug: Object.freeze([...(params.slug ?? [])]),
+    body: request.body === null ? null : await request.text(),
+    authorityHeld: control().authorityHeld
+  }));
+  return Response.json({ delegated: method });
+};
+export const REST_GET = delegate("GET");
+export const REST_POST = delegate("POST");
+export const REST_DELETE = delegate("DELETE");
+export const REST_PATCH = delegate("PATCH");
+export const REST_PUT = delegate("PUT");
+export const REST_OPTIONS = delegate("OPTIONS");
+export async function bootKnexApplication(key) {
+  control().boots.push(key);
+  return {
+    db: {
+      pool: {
+        async connect() {
+          control().connects += 1;
+          return {
+            async query(text, values) {
+              control().statements.push(Object.freeze({ text, values: Object.freeze([...(values ?? [])]) }));
+              if (text.includes("pg_advisory_lock")) control().authorityHeld = true;
+              if (text.includes("pg_advisory_unlock")) control().authorityHeld = false;
+              return { rowCount: 1 };
+            },
+            release(destroy) { control().releases.push(destroy === true); }
+          };
+        }
+      }
+    }
+  };
+}
+`);
+  const restSource = runnable["src/app/(payload)/api/[...slug]/route.ts"]!
+    .replace('import config from "@payload-config";', 'import config from "./rest-stubs.mjs";')
+    .replace(/import \{ REST_DELETE,[^;]+from "@payloadcms\/next\/routes";/u, 'import { REST_DELETE, REST_GET, REST_OPTIONS, REST_PATCH, REST_POST, REST_PUT } from "./rest-stubs.mjs";')
+    .replaceAll('"../../../../boot.js"', '"./rest-stubs.mjs"')
+    .replaceAll('"../../../../k-nex-authority.js"', '"./authority.mjs"');
+  expect(restSource).not.toMatch(/@payload-config|@payloadcms\//u);
+  writeFileSync(join(directory, "rest.mjs"), ts.transpileModule(restSource, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2024 } }).outputText);
+  // One entry point, so the collection hook, the generated REST route and the
+  // assertions observe the same authority module instance rather than three
+  // loaders' copies of it.
+  writeFileSync(join(directory, "probe.mjs"), 'export { admittedCredentialChange, changeCurrentUserCredentials, kNexRequestContext, recoverProtectedOwnerCredential } from "./authority.mjs";\nexport { usersCollection } from "./users.mjs";\nexport * as rest from "./rest.mjs";\n');
+  const probe = await import(pathToFileURL(join(directory, "probe.mjs")).href) as AuthorityModule & UsersModule & { rest: RestModule };
   authority = probe;
   users = probe;
+  rest = probe.rest;
 });
 
 afterAll(() => {
@@ -242,6 +319,9 @@ beforeEach(() => {
     ]),
     grants: new Map([[grantDigest, { digest: grantDigest, expiresAt: grantExpiresAt, consumed: false }]]),
     session: "1", updates: [], audits: [], locks: [], logins: [], hookRefusals: [], transactions: [], crossed: [], fault: undefined
+  };
+  (globalThis as typeof globalThis & { __kNexGeneratedRest: RestControl }).__kNexGeneratedRest = {
+    delegated: [], statements: [], boots: [], connects: 0, releases: [], authorityHeld: false
   };
 });
 
@@ -307,6 +387,34 @@ it("refuses a credential change with no session, a reused password, and a taken 
   await expect(authority.changeCurrentUserCredentials(payloadDouble(), context(), { currentPassword: "owner-password-1234", password: "new", extra: 1 }))
     .rejects.toMatchObject({ code: "CREDENTIAL_INPUT_INVALID" });
   expect(control().updates).toEqual([]);
+});
+
+/**
+ * The finding this closes: a change that moves only the email leaves the
+ * password working, so a second caller holding the same password proved it
+ * happily after the first had already revoked its session. Possession is not a
+ * substitute for the session requirement once something has cut the caller off.
+ */
+it("refuses a self-service credential change whose session was revoked while it waited for the authority", async () => {
+  const before = ownerState();
+  // Revoked after this journey authenticated and after it proved the password,
+  // which is where a competing email-only change that committed first leaves it.
+  control().fault = (boundary) => { if (boundary === "possession-proved") control().session = undefined; };
+  await expect(authority.changeCurrentUserCredentials(payloadDouble(), context(), { currentPassword: "owner-password-1234", email: "moved@alpha.example.test" }))
+    .rejects.toMatchObject({ code: "CREDENTIAL_SESSION_REQUIRED" });
+  expect(control().crossed).toEqual(["credential-locked", "possession-proved"]);
+  expect(control().transactions.map(({ outcome }) => outcome)).toEqual(["rolled-back"]);
+  expect(control().updates).toEqual([]);
+  expect(control().audits).toEqual([]);
+  expect(ownerState()).toEqual(before);
+});
+
+it("admits an email-only credential change while the caller's session is still live", async () => {
+  const result = await authority.changeCurrentUserCredentials(payloadDouble(), context(), { currentPassword: "owner-password-1234", email: "moved@alpha.example.test" });
+  expect([...result.changed]).toEqual(["email"]);
+  expect(control().updates[0]!.data).toEqual({ email: "moved@alpha.example.test", sessions: [] });
+  expect(ownerState()).toMatchObject({ email: "moved@alpha.example.test", password: "owner-password-1234", sessions: 0 });
+  expect(control().audits).toHaveLength(1);
 });
 
 it("changes a credential after the current password, revokes every session, and audits the change", async () => {
@@ -470,7 +578,7 @@ it("proves the current password on the credential transaction and leaves no sess
   expect(ownerState().sessions).toBe(3);
 });
 
-it("locks the same principal on every credential path before it reads, proves, or writes anything", async () => {
+it("takes one application credential authority on every credential path before it reads, proves, or writes anything", async () => {
   await authority.changeCurrentUserCredentials(payloadDouble(), context(), { currentPassword: "owner-password-1234", password: "brand-new-password-1" });
   const selfService = control().locks.map(({ values }) => [...values]);
   expect(selfService).toHaveLength(1);
@@ -484,13 +592,89 @@ it("locks the same principal on every credential path before it reads, proves, o
   // self-service proof captured before a recovery from committing after it.
   expect(control().locks.map(({ values }) => [...values])).toEqual(selfService);
 
-  // A different principal is a different key, so unrelated credential changes
-  // never serialize behind each other.
+  // A different principal is the same key. An authentication does not know
+  // whose credential it is deciding until its body has been resolved, and a
+  // recovery moves the sign-in identity itself, so there is no principal the
+  // two sides could have agreed on: the authority is the application's.
   control().session = "2";
   control().locks.length = 0;
   await authority.changeCurrentUserCredentials(payloadDouble(), context(), { currentPassword: "second-password-1234", password: "second-new-password-1" });
-  expect(control().locks[0]!.values[0]).toEqual(selfService[0]![0]);
-  expect(control().locks[0]!.values[1]).not.toEqual(selfService[0]![1]);
+  expect(control().locks.map(({ values }) => [...values])).toEqual(selfService);
+});
+
+/**
+ * The finding this closes: the generated application serves Payload's own
+ * sign-in through this route, and Payload verifies a password before it opens
+ * the transaction that writes the session. A lock around the credential writers
+ * alone therefore left the whole of a sign-in outside the ordering, so one
+ * authenticated against a replaced credential could still commit its session,
+ * and the stale user fields it was built from, after the replacement.
+ */
+it("holds the credential authority across the whole delegated Payload sign-in", async () => {
+  const body = JSON.stringify({ email: "owner@alpha.example.test", password: "owner-password-1234" });
+  const response = await restPost("/api/users/login", { headers: { "content-type": "application/json" }, body });
+  expect(response.status).toBe(200);
+  expect(restControl().boots).toEqual(["credential-authority"]);
+  expect(restControl().delegated).toEqual([{ method: "POST", slug: ["users", "login"], body, authorityHeld: true }]);
+  // Acquired before the delegated call and released only after it answered, so
+  // a credential change waits for the sign-in it would otherwise overtake.
+  expect(restControl().statements.map(({ text }) => text)).toEqual([
+    "select pg_advisory_lock($1,$2)", "select pg_advisory_unlock($1,$2)"
+  ]);
+  expect(restControl().authorityHeld).toBe(false);
+  // The connection goes back to the pool: it is only destroyed when the unlock
+  // could not be confirmed.
+  expect(restControl().releases).toEqual([false]);
+
+  // The same key the credential transaction takes, which is the whole point:
+  // two different keys would serialize nothing.
+  const authorityValues = restControl().statements[0]!.values;
+  await authority.changeCurrentUserCredentials(payloadDouble(), context(), { currentPassword: "owner-password-1234", password: "brand-new-password-1" });
+  expect(control().locks.map(({ values }) => [...values])).toEqual([[...authorityValues]]);
+});
+
+it("serializes every Payload auth operation that mints a session or moves a credential, and nothing else", async () => {
+  for (const operation of ["login", "refresh-token", "first-register"]) {
+    await restPost(`/api/users/${operation}`, { headers: { "content-type": "application/json" }, body: "{}" });
+  }
+  expect(restControl().connects).toBe(3);
+  expect(restControl().delegated.every(({ authorityHeld }) => authorityHeld)).toBe(true);
+
+  // A logout, an ordinary collection write and another collection's login-like
+  // path are delegated untouched: serializing them would buy nothing and cost
+  // every request in the application.
+  for (const path of ["/api/users/logout", "/api/users", "/api/users/login/extra", "/api/sales-accounts/login"]) {
+    await restPost(path, { headers: { "content-type": "application/json" }, body: "{}" });
+  }
+  expect(restControl().connects).toBe(3);
+  expect(restControl().delegated.slice(3).every(({ authorityHeld }) => authorityHeld)).toBe(false);
+  expect(restControl().delegated).toHaveLength(7);
+
+  // Payload's own password reset writes the credential straight through the
+  // database adapter, so the admission on the users collection never sees it.
+  // Ordering a write that answers to nothing only makes it punctual, so the two
+  // endpoints that reach it are refused instead.
+  for (const operation of ["forgot-password", "reset-password"]) {
+    const refused = await restPost(`/api/users/${operation}`, { headers: { "content-type": "application/json" }, body: "{}" });
+    expect(refused.status).toBe(403);
+    expect(await refused.json()).toEqual({ errors: [{ message: "Credentials are issued by the operator recovery command, not by a password reset." }] });
+  }
+  expect(restControl().connects).toBe(3);
+  expect(restControl().delegated).toHaveLength(7);
+});
+
+it("refuses a sign-in body past the credential bound before it can hold the authority", async () => {
+  const response = await restPost("/api/users/login", {
+    headers: { "content-type": "application/json", "content-length": "16385" },
+    body: JSON.stringify({ email: "owner@alpha.example.test", password: "x".repeat(200) })
+  });
+  expect(response.status).toBe(400);
+  expect(await response.json()).toEqual({ errors: [{ message: "Request body was refused." }] });
+  // Nothing was delegated and nothing was locked, so a body that trickles can
+  // never hold every sign-in and every credential change behind it.
+  expect(restControl().delegated).toEqual([]);
+  expect(restControl().connects).toBe(0);
+  expect(restControl().statements).toEqual([]);
 });
 
 it("keeps the operator recovery grant out of reach of an ordinary session", () => {
