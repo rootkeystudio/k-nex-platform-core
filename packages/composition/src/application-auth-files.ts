@@ -562,8 +562,15 @@ const credentialAuthorityAbortGraceMs = 1_000;
  * carries it from its startup packet, so it is restored with a reset rather than
  * a written value: a connection released to the pool carrying anything else
  * would silently exempt the next caller from the bound this authority depends on.
+ *
+ * It sits above every deadline the application enforces in process, the
+ * worker's thirty second shutdown drain among them, and below the window the
+ * proofs hold an abandoned statement to. This bound exists so a blocked
+ * statement cannot hold an authority forever, not to be the deadline anything
+ * is measured against: a database bound that preempted an application one would
+ * replace the behaviour that deadline was written to produce.
  */
-export const kNexStatementTimeoutMs = 30_000;
+export const kNexStatementTimeoutMs = 45_000;
 /** No caller may wait for a pooled connection forever either; the same bound, for the same reason. */
 export const kNexConnectionTimeoutMs = 30_000;
 /** One principal's queue. Past this the answer is an immediate refusal, not a place in line. */
