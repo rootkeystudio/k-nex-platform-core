@@ -2912,6 +2912,8 @@ const expectedRouteSources = Object.freeze([
   "src/app/(auth)/forbidden/page.tsx",
   "src/app/(auth)/login/page.tsx",
   "src/app/(payload)/api/[...slug]/route.ts",
+  "src/app/(payload)/api/graphql-playground/route.ts",
+  "src/app/(payload)/api/graphql/route.ts",
   "src/app/(workspace)/page.tsx",
   "src/app/(workspace)/sales/accounts/[id]/page.tsx",
   "src/app/(workspace)/sales/accounts/page.tsx",

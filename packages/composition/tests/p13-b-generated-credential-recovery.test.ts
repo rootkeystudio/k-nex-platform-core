@@ -892,19 +892,30 @@ it("hands the delegated operation a signal that its caller's disconnect aborts",
  * multiple operations and batching all defeat that. Nothing in this product
  * uses a GraphQL API, so the surface is not generated at all.
  */
-it("generates no GraphQL surface, and declares the users collection out of the schema", () => {
-  const emitted = Object.keys({ ...generated, ...runnable });
-  expect(emitted.filter((path) => /graphql/iu.test(path))).toEqual([]);
-  expect(salesReferenceCompilerBoundary.platformPaths.filter((path) => /graphql/iu.test(path))).toEqual([]);
-  for (const source of Object.values({ ...generated, ...runnable })) {
+it("serves no GraphQL, and declares the users collection out of the schema", () => {
+  // The routes stay in the generated tree, because a released application that
+  // simply loses a managed file has no upgrade path: the upgrade compiler
+  // blocks a managed delete that carries no reference proof. They answer
+  // nothing instead, which is the same boundary without that contract change.
+  const emitted = { ...generated, ...runnable };
+  const graphqlPaths = Object.keys(emitted).filter((path) => /graphql/iu.test(path)).sort();
+  expect(graphqlPaths).toEqual(["src/app/(payload)/api/graphql-playground/route.ts", "src/app/(payload)/api/graphql/route.ts"]);
+  expect(salesReferenceCompilerBoundary.platformPaths.filter((path) => /graphql/iu.test(path)).sort()).toEqual(graphqlPaths);
+  for (const source of Object.values(emitted)) {
     expect(source).not.toContain("GRAPHQL_POST");
     expect(source).not.toContain("GRAPHQL_PLAYGROUND_GET");
   }
-  // The route inventory the generated application checks itself against names
-  // no such route either, so one that reappeared would fail the application's
-  // own readiness check rather than be served quietly.
-  expect(generated["src/k-nex-readiness.ts"]).not.toContain("graphql");
-  // Belt and braces: a route added later still finds no schema to publish.
+  // Every method the endpoint could be reached by answers the same refusal, so
+  // there is no document to parse and nothing for an alias, a fragment or a
+  // batch to hide behind.
+  for (const path of graphqlPaths) {
+    const source = emitted[path]!;
+    expect(source).toContain("This application does not serve GraphQL.");
+    expect(source).toContain("status: 404");
+    expect(source).not.toContain("@payload-config");
+  }
+  expect(emitted["src/app/(payload)/api/graphql/route.ts"]).toContain("export const POST = refused;");
+  // Belt and braces: a route that delegated again still finds no schema to publish.
   expect(generated["src/k-nex-users.ts"]).toContain("graphQL: false");
 });
 

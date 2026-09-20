@@ -150,6 +150,31 @@ export async function POST(request: Request, context: PayloadRestContext): Promi
   }
 }
 `,
+    "src/app/(payload)/api/graphql/route.ts": `/**
+ * Payload publishes auth mutations for every auth collection, and its GraphQL
+ * resolvers call the same operations the credential authority exists to order.
+ * Recognising those mutations would mean parsing the document, and a parser
+ * that must be right about aliases, variables, fragments, batching and
+ * multiple operations to stay safe is not a boundary. This product has no
+ * GraphQL contract, so the endpoint answers nothing at all.
+ */
+const refused = () => Response.json({ errors: [{ message: "This application does not serve GraphQL." }] },
+  { status: 404, headers: { "cache-control": "no-store" } });
+
+export const GET = refused;
+export const POST = refused;
+export const PUT = refused;
+export const PATCH = refused;
+export const DELETE = refused;
+export const OPTIONS = refused;
+`,
+    "src/app/(payload)/api/graphql-playground/route.ts": `/** A playground for an endpoint this product does not serve. */
+const refused = () => Response.json({ errors: [{ message: "This application does not serve GraphQL." }] },
+  { status: 404, headers: { "cache-control": "no-store" } });
+
+export const GET = refused;
+export const POST = refused;
+`,
     "src/app/(workspace)/page.tsx": workspacePageSource(options.applicationName),
     "src/app/layout.tsx": workspaceLayoutSource(options.applicationName),
     "src/app/styles.css": `:root { color-scheme: light dark; font-family: ui-sans-serif, system-ui, sans-serif; }

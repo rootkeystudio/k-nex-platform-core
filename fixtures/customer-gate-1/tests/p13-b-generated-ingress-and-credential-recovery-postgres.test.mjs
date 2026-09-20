@@ -372,11 +372,16 @@ test("P13.B generated ingress readers are bounded, the realtime bridge recovers,
       assert.equal(response.headers.get("set-cookie"), null, "A refused GraphQL request must not set a session cookie.");
       assert.equal(/"token"|"data"/u.test(text), false, `A refused GraphQL request must not carry a result: ${text}`);
     }
-    // The REST catch-all is what answers the path the route used to own, so the
-    // refusal is Payload's own "no such route" rather than a handler of ours.
+    // The route still exists, because a released application that loses a
+    // managed file has no upgrade path, but it answers nothing: every method
+    // returns the same refusal without a document ever being parsed.
     const graphqlFallthrough = await fetch(`${origin}/api/graphql`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
     assert.equal(graphqlFallthrough.status, 404);
-    assert.match(await graphqlFallthrough.text(), /Route not found/u);
+    assert.deepEqual(await graphqlFallthrough.json(), { errors: [{ message: "This application does not serve GraphQL." }] });
+    for (const method of ["GET", "PUT", "PATCH", "DELETE", "OPTIONS"]) {
+      const answered = await fetch(`${origin}/api/graphql`, { method, headers: { cookie: owner.cookie } });
+      assert.equal(answered.status, 404, `GraphQL must refuse ${method} as well.`);
+    }
     for (const path of ["/api/graphql", "/api/graphql-playground"]) {
       assert.equal((await fetch(`${origin}${path}`, { headers: { cookie: owner.cookie } })).status, 404, `${path} must not be served.`);
     }
@@ -384,10 +389,13 @@ test("P13.B generated ingress readers are bounded, the realtime bridge recovers,
     assert.equal((await login(origin, personas.owner.email, personas.owner.password)).status, 200,
       "A refused GraphQL reset-password must leave the credential exactly where it was.");
     assert.notEqual((await login(origin, personas.owner.email, "attacker-password-1")).status, 200);
-    // Asserted after the behaviour rather than before it, so reverting the
-    // removal is answered by what the route does, not only by what it is.
+    // Asserted after the behaviour rather than before it, so a route that
+    // delegated to Payload again is answered by what it does, not only by what
+    // it imports.
     for (const source of ["src/app/(payload)/api/graphql/route.ts", "src/app/(payload)/api/graphql-playground/route.ts"]) {
-      assert.equal(existsSync(resolve(application, source)), false, `The generated product must not emit ${source}.`);
+      const emitted = readFileSync(resolve(application, source), "utf8");
+      assert.match(emitted, /This application does not serve GraphQL\./u, `${source} must answer the refusal.`);
+      assert.doesNotMatch(emitted, /@payload-config/u, `${source} must not reach Payload at all.`);
     }
 
     // -------- realtime invalidation bridge --------
