@@ -133,6 +133,32 @@ export function publishedThemeProfile(profile: Readonly<{ revision: unknown }>):
   const { state: _state, archivedAt: _archivedAt, ...identity } = revision;
   return { ...content, revision: { ...identity, state: "published", publishedAt: new Date().toISOString() } };
 }
+
+/**
+ * Preview and stage admit a draft revision only, so a form prefilled with the
+ * published profile could never be submitted: every default submit answered
+ * PROFILE_INVALID. This derives the draft an operator is about to edit. Stage
+ * admits a draft that extends the active revision by exactly one, so the
+ * candidate carries the active identity as its predecessor and the next number.
+ */
+export function draftThemeProfileCandidate(profile: Readonly<{ id: string; revision: unknown }>): unknown {
+  const { revision: rawRevision, ...content } = profile;
+  if (rawRevision === null || typeof rawRevision !== "object" || Array.isArray(rawRevision)) throw new TypeError("Theme Profile revision is invalid.");
+  const revision = rawRevision as Readonly<Record<string, unknown>>;
+  if (revision.state === "draft") return profile;
+  const number = typeof revision.number === "number" && Number.isSafeInteger(revision.number) && revision.number >= 1 ? revision.number : 0;
+  const predecessor = typeof revision.id === "string" ? revision.id : undefined;
+  return {
+    ...content,
+    revision: {
+      id: profile.id + ".r" + String(number + 1) + "-" + randomUUID().replaceAll("-", "").slice(0, 12),
+      number: number + 1,
+      createdAt: new Date().toISOString(),
+      ...(predecessor === undefined ? {} : { previousRevisionId: predecessor }),
+      state: "draft"
+    }
+  };
+}
 `;
 }
 
@@ -143,7 +169,7 @@ import { notFound } from "next/navigation";
 import { SystemSettingsPage } from "@k-nex/ui-pages";
 
 import { bootKnexApplication } from "../../../../boot.js";
-import { currentSystemAdministrationNavigation, kNexRequestContext } from "../../../../k-nex-authority.js";
+import { currentSystemAdministrationNavigation, kNexRequestContext, reportKnexRouteFailure } from "../../../../k-nex-authority.js";
 import { systemSettingsAdministration } from "../../../../k-nex-system-theme-settings.js";
 
 export const dynamic = "force-dynamic";
@@ -154,7 +180,7 @@ export default async function SystemSettingsPageRoute() {
   try {
     const settings = await systemSettingsAdministration(payload).list({ context });
     return <SystemSettingsPage view={{ navigation: await currentSystemAdministrationNavigation(payload, context), title: "Settings", settings: settings.map((item) => ({ id: item.identity.descriptorId, label: item.identity.descriptorId, href: "/system/settings/" + encodeURIComponent(item.identity.descriptorId), owner: item.identity.owner.kind === "platform" ? "Platform system" : item.identity.owner.extensionId, state: item.state, revision: item.documentRevision + "/" + item.settingsRevision })) }} />;
-  } catch { notFound(); }
+  } catch (error) { reportKnexRouteFailure(context, error); notFound(); }
 }
 
 `;
@@ -167,7 +193,7 @@ import { notFound } from "next/navigation";
 import { SystemSettingsDetailPage } from "@k-nex/ui-pages";
 
 import { bootKnexApplication } from "../../../../../boot.js";
-import { authorizeRequest, currentSystemAdministrationNavigation, kNexRequestContext } from "../../../../../k-nex-authority.js";
+import { authorizeRequest, currentSystemAdministrationNavigation, kNexRequestContext, reportKnexRouteFailure } from "../../../../../k-nex-authority.js";
 import { systemRouteId, systemSettingsAdministration } from "../../../../../k-nex-system-theme-settings.js";
 
 export const dynamic = "force-dynamic";
@@ -185,7 +211,7 @@ export default async function SystemSettingsDetailRoute({ params }: Readonly<{ p
       fields: Object.entries(item.fields).map(([id, field]) => ({ id, label: id, value: field.kind === "visible-value" ? String(field.value) : field.kind === "redacted-secret" ? "••••••" : "—", state: field.kind })),
       ...(canManage ? { save: { label: "Save settings", form: { actionUrl: "/api/system/settings/" + encodeURIComponent(settingsId), textArea: { name: "values", label: "Settings JSON", value: JSON.stringify(values) }, inputs: [{ name: "password", label: "Password", type: "password" }] } } } : {})
     }} />;
-  } catch { notFound(); }
+  } catch (error) { reportKnexRouteFailure(context, error); notFound(); }
 }
 
 `;
@@ -198,7 +224,7 @@ import { notFound } from "next/navigation";
 import { SystemThemesPage } from "@k-nex/ui-pages";
 
 import { bootKnexApplication } from "../../../../boot.js";
-import { currentSystemAdministrationNavigation, kNexRequestContext } from "../../../../k-nex-authority.js";
+import { currentSystemAdministrationNavigation, kNexRequestContext, reportKnexRouteFailure } from "../../../../k-nex-authority.js";
 import { systemThemeAdministration } from "../../../../k-nex-system-theme-settings.js";
 
 export const dynamic = "force-dynamic";
@@ -213,7 +239,7 @@ export default async function SystemThemesRoute() {
       skins: themes.skins.map((item) => ({ id: item.id, label: item.id, version: item.version ?? "—", lifecycle: item.disposition, actions: item.actions.map((action) => action.action).join(", ") || "None" })),
       profiles: themes.profiles.map((item) => { const profile = item.draft ?? item.active ?? item.previous; return { id: item.profileId, label: item.profileId, href: "/system/themes/profiles/" + encodeURIComponent(item.profileId), surface: profile?.surface ?? "—", package: profile ? profile.themeId + "@" + profile.themeVersion : "—", skin: profile?.skin ? profile.skin.id + "@" + profile.skin.version : "None", revision: String(item.revision), accessibility: profile ? "validated" : "unavailable" }; })
     }} />;
-  } catch { notFound(); }
+  } catch (error) { reportKnexRouteFailure(context, error); notFound(); }
 }
 
 `;
@@ -226,8 +252,8 @@ import { notFound } from "next/navigation";
 import { SystemThemeProfileDetailPage } from "@k-nex/ui-pages";
 
 import { bootKnexApplication } from "../../../../../../boot.js";
-import { authorizeRequest, currentSystemAdministrationNavigation, kNexRequestContext } from "../../../../../../k-nex-authority.js";
-import { systemRouteId, systemThemeAdministration } from "../../../../../../k-nex-system-theme-settings.js";
+import { authorizeRequest, currentSystemAdministrationNavigation, kNexRequestContext, reportKnexRouteFailure } from "../../../../../../k-nex-authority.js";
+import { draftThemeProfileCandidate, systemRouteId, systemThemeAdministration } from "../../../../../../k-nex-system-theme-settings.js";
 
 export const dynamic = "force-dynamic";
 
@@ -240,14 +266,17 @@ export default async function SystemThemeProfileDetailRoute({ params }: Readonly
     if (!item) notFound();
     const profile = item.draft ?? item.active ?? item.previous;
     if (!profile) notFound();
+    // Preview and stage admit a draft only, so the editable JSON is the draft
+    // this profile would extend, never the published revision on display.
+    const draftCandidate = draftThemeProfileCandidate(item.draft ?? profile);
     const canManage = await authorizeRequest(payload, context, "system.themes.manage", "system.themes");
     const base = "/api/system/themes/profiles/" + encodeURIComponent(profileId);
     return <SystemThemeProfileDetailPage view={{ navigation: await currentSystemAdministrationNavigation(payload, context), title: "Theme Profile", profileLabel: profileId, profileId, surface: profile.surface, package: profile.themeId + "@" + profile.themeVersion, skin: profile.skin ? profile.skin.id + "@" + profile.skin.version : "None", publication: profile.revision.state, accessibility: "validated",
-      ...(canManage ? { preview: { label: "Preview profile", form: { actionUrl: base + "/preview", textArea: { name: "profile", label: "Theme Profile JSON", value: JSON.stringify(profile) } } }, stage: { label: "Stage profile", form: { actionUrl: base + "/stage", textArea: { name: "profile", label: "Theme Profile JSON", value: JSON.stringify(profile) } } } } : {}),
+      ...(canManage ? { preview: { label: "Preview profile", form: { actionUrl: base + "/preview", textArea: { name: "profile", label: "Theme Profile JSON", value: JSON.stringify(draftCandidate) } } }, stage: { label: "Stage profile", form: { actionUrl: base + "/stage", textArea: { name: "profile", label: "Theme Profile JSON", value: JSON.stringify(draftCandidate) } } } } : {}),
       ...(canManage && item.draft ? { publish: { label: "Publish profile", form: { actionUrl: base + "/publish", inputs: [{ name: "password", label: "Password", type: "password" }] } } } : {}),
       ...(canManage && item.previous ? { rollback: { label: "Rollback profile", form: { actionUrl: base + "/rollback", inputs: [{ name: "password", label: "Password", type: "password" }] }, confirmation: { title: "Rollback Theme Profile", description: "Restore previous compatible profile.", confirmLabel: "Rollback" } } } : {})
     }} />;
-  } catch { notFound(); }
+  } catch (error) { reportKnexRouteFailure(context, error); notFound(); }
 }
 
 `;

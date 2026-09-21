@@ -51,7 +51,7 @@ export default withPayload(nextConfig, { devBundleServerPackages: false });
 
 ## Administration operator
 
-Before starting this application, deploy the K-Nex administration operator as a separate private service. This repository does not generate or run that deployment-owned authority. Provision a client certificate whose URI SAN is bound to this application and environment, then set the \`K_NEX_ADMINISTRATION_OPERATOR_HOST\`, \`K_NEX_ADMINISTRATION_OPERATOR_PORT\`, \`K_NEX_ADMINISTRATION_OPERATOR_CLIENT_CERT\`, \`K_NEX_ADMINISTRATION_OPERATOR_CLIENT_KEY\`, \`K_NEX_ADMINISTRATION_OPERATOR_CA_CERT\`, \`K_NEX_ADMINISTRATION_OPERATOR_URI_SAN\`, and \`K_NEX_ADMINISTRATION_OPERATOR_IDENTITY\` values in \`.env\`. The operator must be reachable over mutual TLS at \`/v1/commands\` before \`pnpm knex:doctor\` or the web process starts.
+Before starting this application, deploy the K-Nex administration operator as a separate private service. This repository does not generate or run that deployment-owned authority. Provision a client certificate whose URI SAN is bound to this application and environment, then set the \`K_NEX_ADMINISTRATION_OPERATOR_HOST\`, \`K_NEX_ADMINISTRATION_OPERATOR_PORT\`, \`K_NEX_ADMINISTRATION_OPERATOR_CLIENT_CERT\`, \`K_NEX_ADMINISTRATION_OPERATOR_CLIENT_KEY\`, \`K_NEX_ADMINISTRATION_OPERATOR_CA_CERT\`, \`K_NEX_ADMINISTRATION_OPERATOR_URI_SAN\`, and \`K_NEX_ADMINISTRATION_OPERATOR_IDENTITY\` values in \`.env\`. The operator must be reachable over mutual TLS at \`/v1/commands\` before extension operations can run. \`pnpm knex:doctor\` proves the configured endpoint accepts a connection and fails when it does not; the web process validates the configuration at startup but does not require the operator to be up to serve CRM work.
 
 ## Local development
 
@@ -61,13 +61,16 @@ Copy \`.env.example\` to \`.env\`, set every value, then run the steps in this o
 pnpm install --frozen-lockfile
 pnpm build
 ${options.database === "docker-postgres" ? "pnpm knex:db:up\n" : ""}pnpm knex:migrate
+pnpm knex:register-generation
 pnpm knex:issue-bootstrap-token -- --output .k-nex-bootstrap-token
 pnpm knex:bootstrap-owner -- --token-file .k-nex-bootstrap-token
 pnpm knex:doctor
 pnpm dev
 \`\`\`
 
-Run \`pnpm knex:worker\` alongside \`pnpm dev\`: reminders, notifications, exports, and provider delivery are processed by that worker, not by the web process.
+\`knex:register-generation\` records which Platform Plugin generation this image carries. Nothing else writes that record, and the Platform Plugin runtime projection stays empty without it: System Settings cannot resolve its descriptors, and the worker holds no execution fence, so it processes no reminders, notifications, exports, workflows, or provider delivery at all. It reads \`K_NEX_SOURCE_COMMIT\` and \`K_NEX_APPLICATION_DIGEST\` — the exact commit and application digest this image was built from — and it is idempotent, so run it after every deploy. A container deployment should also set \`K_NEX_IMAGE_REFERENCE\` to the registry identity it was pulled from.
+
+Run \`pnpm knex:worker\` alongside \`pnpm dev\`: reminders, notifications, exports, and provider delivery are processed by that worker, not by the web process. The worker takes the execution fence its generation owns and renews it while it runs; it refuses to process anything for a generation the deployment no longer serves.
 
 ## Communication providers
 

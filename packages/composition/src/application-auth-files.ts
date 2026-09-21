@@ -385,6 +385,19 @@ export function kNexRequestContext(headers: Headers, boundary: string): KnexRequ
 }
 
 /**
+ * A route that cannot answer says so with 404 and nothing else, so a caller
+ * cannot tell a record it may not see from one that is not there. That is the
+ * right answer to send and the wrong one to keep: without a server-side record
+ * a defect looks exactly like a denial, and the correlation ID the caller was
+ * given leads nowhere. This writes the diagnosis where only the deployment can
+ * read it, and changes no response.
+ */
+export function reportKnexRouteFailure(context: KnexRequestContext, error: unknown): void {
+  const detail = error instanceof Error ? (error.stack ?? \`\${error.name}: \${error.message}\`) : String(error);
+  console.error(\`K_NEX_ROUTE_FAILURE \${context.correlationId}\\n\${detail}\`);
+}
+
+/**
  * Step-up reauthentication for journeys that change something other than the
  * sign-in identity. It is not the authority a credential change can use: that
  * proof has to live and die with the write it authorizes, which is why the
@@ -1492,6 +1505,67 @@ function crashAfterCommit(boundary: "protected-owner" | "sales-authority" | "tok
 }
 ${initialSettingsSource}
 
+/**
+ * CRM work is built on exactly one active pipeline: Opportunities, the Kanban,
+ * lead qualification, and the pipeline reports all refuse to resolve without
+ * one. Nothing in the product creates the first pipeline — the Stage model is
+ * configured, not authored, and there is no create action — so an application
+ * that ships without this seed can never open an Opportunity, and the page that
+ * would configure the pipeline is exactly the page that fails closed.
+ *
+ * The six Stages are the canonical CRM lifecycle. Their identities are opaque
+ * to callers and derived deterministically from the application, environment,
+ * and pipeline, so a Stage can be renamed without any stored reference to it
+ * changing meaning.
+ */
+const initialPipelineStages = Object.freeze([
+  Object.freeze({ semantic: "qualification", name: "Qualification", allowed: Object.freeze(["discovery", "lost"]), probabilityBasisPoints: 1_000, requiredFieldIds: Object.freeze([] as readonly string[]) }),
+  Object.freeze({ semantic: "discovery", name: "Discovery", allowed: Object.freeze(["proposal", "lost"]), probabilityBasisPoints: 2_500, requiredFieldIds: Object.freeze([] as readonly string[]) }),
+  Object.freeze({ semantic: "proposal", name: "Proposal", allowed: Object.freeze(["negotiation", "lost"]), probabilityBasisPoints: 5_000, requiredFieldIds: Object.freeze([] as readonly string[]) }),
+  Object.freeze({ semantic: "negotiation", name: "Negotiation", allowed: Object.freeze(["won", "lost"]), probabilityBasisPoints: 7_500, requiredFieldIds: Object.freeze([] as readonly string[]) }),
+  Object.freeze({ semantic: "won", name: "Won", allowed: Object.freeze([] as readonly string[]), probabilityBasisPoints: 10_000, requiredFieldIds: Object.freeze([] as readonly string[]) }),
+  Object.freeze({ semantic: "lost", name: "Lost", allowed: Object.freeze([] as readonly string[]), probabilityBasisPoints: 0, requiredFieldIds: Object.freeze(["lossReason"]) })
+]);
+
+function initialPipelineStageId(pipelineId: string, semantic: string): string {
+  const namespace = Buffer.from("6ba7b8119dad11d180b400c04fd430c8", "hex");
+  const bytes = Buffer.from(createHash("sha1").update(namespace)
+    .update(Buffer.from(["k-nex/pipeline-stage/v1", kNexIdentity.applicationId, kNexIdentity.environment, pipelineId, semantic].join("\\u0000")))
+    .digest().subarray(0, 16));
+  bytes[6] = (bytes[6]! & 15) | 80;
+  bytes[8] = (bytes[8]! & 63) | 128;
+  const hex = bytes.toString("hex");
+  return hex.slice(0, 8) + "-" + hex.slice(8, 12) + "-" + hex.slice(12, 16) + "-" + hex.slice(16, 20) + "-" + hex.slice(20);
+}
+
+async function ensureInitialSalesPipeline(payload: Awaited<ReturnType<typeof bootKnexApplication>>, userId: string) {
+  const pool = payload.db.pool as { connect(): Promise<{ query(text: string, values?: readonly unknown[]): Promise<{ rows: readonly Record<string, unknown>[]; rowCount: number | null }>; release(): void }> };
+  const client = await pool.connect();
+  try {
+    await client.query("begin");
+    await client.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [canonicalJson([kNexIdentity.applicationId, kNexIdentity.environment, "sales-initial-pipeline"])]);
+    const existing = await client.query("select id from sales_pipelines where application_id=$1 and environment=$2 limit 1", [kNexIdentity.applicationId, kNexIdentity.environment]);
+    if (existing.rows.length > 0) { await client.query("commit"); return; }
+    const created = await client.query("insert into sales_pipelines (application_id,environment,owner_id,created_by,updated_by,name,ordered_stage_ids,is_active) values ($1,$2,$3,$3,$3,'Sales pipeline','[]'::jsonb,true) returning id", [kNexIdentity.applicationId, kNexIdentity.environment, userId]);
+    const pipelineId = created.rows[0]?.id;
+    if (created.rowCount !== 1 || pipelineId === undefined || pipelineId === null) throw new Error("Initial Sales pipeline could not be created.");
+    const stageId = (semantic: string) => initialPipelineStageId(String(pipelineId), semantic);
+    for (const [position, stage] of initialPipelineStages.entries()) {
+      await client.query(
+        "insert into sales_pipeline_stages (application_id,environment,created_by,updated_by,pipeline_id,stage_id,name,semantic,position,probability_basis_points,allowed_transition_stage_ids,required_field_ids) values ($1,$2,$3,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb)",
+        [kNexIdentity.applicationId, kNexIdentity.environment, userId, pipelineId, stageId(stage.semantic), stage.name, stage.semantic, position, stage.probabilityBasisPoints,
+          JSON.stringify(stage.allowed.map((semantic) => stageId(semantic))), JSON.stringify([...stage.requiredFieldIds])]
+      );
+    }
+    const ordered = await client.query("update sales_pipelines set ordered_stage_ids=$2::jsonb where id=$1 returning id", [pipelineId, JSON.stringify(initialPipelineStages.map(({ semantic }) => stageId(semantic)))]);
+    if (ordered.rowCount !== 1) throw new Error("Initial Sales pipeline Stage order could not be recorded.");
+    await client.query("commit");
+  } catch (error) {
+    await client.query("rollback").catch(() => undefined);
+    throw error;
+  } finally { client.release(); }
+}
+
 async function ensureInitialSalesOwner(payload: Awaited<ReturnType<typeof bootKnexApplication>>, userId: string) {
   const store = kNexAuthority(payload).store;
   const state = await store.readState(kNexIdentity.applicationId, kNexIdentity.environment);
@@ -1613,6 +1687,7 @@ try {
     : (assertResumableOwnerReceipt(priorReceipt, String(user.id)), priorReceipt);
   crashAfterCommit("protected-owner");
   ${primaryCurrency === undefined ? "" : "await ensureInitialSystemSettings(payload);"}
+  await ensureInitialSalesPipeline(payload, String(user.id));
   await ensureInitialSalesOwner(payload, String(user.id));
   crashAfterCommit("sales-authority");
   await bootstrapApplicationTheme(payload);
@@ -3075,6 +3150,7 @@ function readinessSource(theme: ApplicationAuthFilesOptions["theme"], platformRe
   const themeResolver = theme === "minimal" ? "resolveMinimalThemeProfile" : "resolveNeobrutalismThemeProfile";
   return `import { createHash } from "node:crypto";
 import { lstatSync, readFileSync, readdirSync } from "node:fs";
+import { connect } from "node:net";
 import { join, relative, resolve } from "node:path";
 
 import { createAuthorizedPuckBuilderProfile } from "@k-nex/builder-puck";
@@ -3250,6 +3326,27 @@ export function assertAdministrationOperatorConfiguration(): void {
       operatorIdentity, timeoutMs: 30_000, maxRequestBytes: 65_536, maxResponseBytes: 65_536
     });
   } catch { fail("Administration operator configuration is invalid."); }
+}
+
+/**
+ * Configuration that parses is not an operator that answers. Reporting the
+ * application ready while nothing listens on the configured endpoint hides the
+ * one failure the operator configuration exists to surface, so the doctor
+ * proves the endpoint accepts a connection before it says so.
+ */
+export async function assertAdministrationOperatorListening(): Promise<void> {
+  assertAdministrationOperatorConfiguration();
+  const host = requiredAdministrationOperatorConfiguration("K_NEX_ADMINISTRATION_OPERATOR_HOST");
+  const port = Number(requiredAdministrationOperatorConfiguration("K_NEX_ADMINISTRATION_OPERATOR_PORT"));
+  const reachable = await new Promise<boolean>((settle) => {
+    const socket = connect({ host, port });
+    const done = (value: boolean) => { socket.removeAllListeners(); socket.destroy(); settle(value); };
+    socket.setTimeout(5_000);
+    socket.once("connect", () => done(true));
+    socket.once("timeout", () => done(false));
+    socket.once("error", () => done(false));
+  });
+  if (!reachable) fail("Administration operator is not accepting connections at " + host + ":" + String(port) + ".");
 }
 function sha256(value: string | Buffer): string { return "sha256:" + createHash("sha256").update(value).digest("hex"); }
 function archiveName(packageName: string, version: string): string { return packageName.slice(1).replace("/", "-") + "-" + version + ".tgz"; }
@@ -3482,11 +3579,16 @@ export async function reconcileKnexReadiness(payload: Payload) {
 function doctorSource(): string {
   return `import { bootKnexApplication } from "./boot.js";
 import { shutdownKnexApplication } from "./k-nex-authority.js";
-import { kNexApplicationReadyMarker, reconcileKnexReadiness } from "./k-nex-readiness.js";
+import { assertAdministrationOperatorListening, kNexApplicationReadyMarker, reconcileKnexReadiness } from "./k-nex-readiness.js";
 
 const payload = await bootKnexApplication("doctor");
 try {
   await reconcileKnexReadiness(payload);
+  // Readiness proves the database, the release, and the operator configuration.
+  // The doctor additionally proves the operator answers: an application whose
+  // operator is unreachable cannot run a single extension operation, and a
+  // report of readiness that never checked is the report that hides it.
+  await assertAdministrationOperatorListening();
   console.log(kNexApplicationReadyMarker);
   console.log("K_NEX_DOCTOR_PASS");
 } finally { await shutdownKnexApplication(payload); }
@@ -3853,6 +3955,7 @@ import { processSalesDataMovement } from "./k-nex-sales-data-movement.js";
 import { createGeneratedBoundedReferenceProviderTransport, createGeneratedEnvironmentProviderSecretResolver, processGeneratedSalesCommunications, processGeneratedSalesReminders } from "./k-nex-sales-communications.js";
 import { processGeneratedSalesWorkflows } from "./k-nex-sales-workflows.js";
 import { processGeneratedSalesReports } from "./k-nex-sales-reports.js";
+import { acquireKnexWorkerFence, kNexWorkerLeaseRenewalIntervalMs, renewKnexWorkerFence } from "./k-nex-static-generation.js";
 
 const payload = await bootKnexApplication("authorization-worker");
 const channel = "k_nex_runtime_invalidation";
@@ -3980,6 +4083,16 @@ const dispatchReports = async () => {
   finally { reportsDispatching = false; }
 };
 const reportsTimer = setInterval(() => { void dispatchReports(); }, 100);
+// Every fenced effect this worker owns — reminders, notifications, exports,
+// workflows, reports, provider delivery — is skipped while no live lease names
+// this generation. Taking the lease here is what makes the worker do work at
+// all; without it the process starts, reports itself ready, and processes
+// nothing for as long as it runs.
+const workerFence = await acquireKnexWorkerFence(payload);
+const fenceTimer = setInterval(() => {
+  void renewKnexWorkerFence(payload, workerFence.promotionRevision)
+    .catch(workerFailure("K_NEX_WORKER_FENCE_RENEWAL_ERROR"));
+}, kNexWorkerLeaseRenewalIntervalMs);
 authorizationWorker.start();
 workspacePageWorker.start();
 workspaceNavigationWorker.start();
@@ -4009,6 +4122,7 @@ dataMovementStopping = true;
     workflowsStopping = true;
     reportsStopping = true;
 realtimeAbort.abort();
+clearInterval(fenceTimer);
 clearInterval(realtimeTimer);
 clearInterval(dataMovementTimer);
     clearInterval(communicationsTimer);

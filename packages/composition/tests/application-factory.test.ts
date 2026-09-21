@@ -195,7 +195,7 @@ describe("create-knex-app", () => {
       ]
     });
 
-    expect(salesReferenceCompilerBoundary.platformPaths).toHaveLength(108);
+    expect(salesReferenceCompilerBoundary.platformPaths).toHaveLength(110);
     const options = { applicationId: "sales-boundary", applicationName: "Sales Boundary", theme: "minimal", database: "external", primaryCurrency: "USD" } as const;
     expect(() => planCreateKnexApplication(options)).not.toThrow();
     const expectRejectedPlan = (mutation: "add-sales-output" | "remove-sales-output" | "second-domain", error: RegExp): void => {

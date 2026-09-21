@@ -19,6 +19,7 @@ import { pipelineSavedViewsMigrationSource } from "./pipeline-saved-views-migrat
 import { payloadPostgresPatchSource as embeddedPayloadPostgresPatchSource } from "./payload-postgres-patch.js";
 import { runnableApplicationFiles } from "./runnable-application-files.js";
 import { systemAccessApplicationFiles } from "./system-access-application-files.js";
+import { staticGenerationApplicationFiles } from "./static-generation-application-files.js";
 import { systemExtensionApplicationFiles } from "./system-extension-application-files.js";
 import { systemOperationsApplicationFiles } from "./system-operations-application-files.js";
 import { systemThemeSettingsApplicationFiles } from "./system-theme-settings-application-files.js";
@@ -47,7 +48,7 @@ export const salesReferenceCompilerBoundary = Object.freeze({
     "src/app/api/health/route.ts", "src/app/api/k-nex/account/credentials/route.ts", "src/app/api/k-nex/inventory/route.ts", "src/app/api/k-nex/navigation/revision/route.ts", "src/app/api/k-nex/navigation/sidebar/route.ts", "src/app/api/k-nex/workspace-folders/[folderId]/route.ts", "src/app/api/k-nex/workspace-folders/route.ts", "src/app/api/k-nex/workspace-pages/[pageId]/[operation]/route.ts", "src/app/api/k-nex/workspace-pages/[pageId]/actions/[actionId]/route.ts", "src/app/api/k-nex/workspace-pages/[pageId]/session/route.ts", "src/app/api/k-nex/workspace-pages/route.ts", "src/app/api/readiness/route.ts",
     "src/app/api/system/access/assignments/[assignmentId]/revoke/route.ts", "src/app/api/system/access/assignments/route.ts", "src/app/api/system/access/grants/[grantId]/remove/route.ts", "src/app/api/system/access/roles/[roleId]/permissions/route.ts", "src/app/api/system/access/roles/route.ts", "src/app/api/system/extensions/[extensionId]/operations/[operationId]/execute/route.ts", "src/app/api/system/extensions/[extensionId]/plan/route.ts", "src/app/api/system/settings/[settingsId]/route.ts", "src/app/api/system/themes/profiles/[profileId]/preview/route.ts", "src/app/api/system/themes/profiles/[profileId]/publish/route.ts", "src/app/api/system/themes/profiles/[profileId]/rollback/route.ts", "src/app/api/system/themes/profiles/[profileId]/stage/route.ts",
     "src/app/components/k-nex-workspace-page-editor.tsx", "src/app/components/k-nex-workspace-page-runtime.tsx", "src/app/components/k-nex-workspace-shell.tsx", "src/app/components/login-form.tsx", "src/app/components/logout-button.tsx", "src/app/layout.tsx", "src/app/styles.css",
-    "src/boot.ts", "src/k-nex-authority.ts", "src/k-nex-bootstrap-owner.ts", "src/k-nex-bootstrap-token.ts", "src/k-nex-doctor.ts", "src/k-nex-identity.ts", "src/k-nex-issue-bootstrap-token.ts", "src/k-nex-readiness.ts", "src/k-nex-realtime.ts", "src/k-nex-registry.ts", "src/k-nex-system-access.ts", "src/k-nex-system-extensions.ts", "src/k-nex-system-operations.ts", "src/k-nex-system-theme-settings.ts", "src/k-nex-theme-runtime.ts", "src/k-nex-users.ts", "src/k-nex-web.ts", "src/k-nex-worker.ts", "src/k-nex-workspace-navigation.ts", "src/k-nex-workspace-page-http.ts", "src/k-nex-workspace-pages.ts",
+    "src/boot.ts", "src/k-nex-authority.ts", "src/k-nex-bootstrap-owner.ts", "src/k-nex-bootstrap-token.ts", "src/k-nex-doctor.ts", "src/k-nex-identity.ts", "src/k-nex-issue-bootstrap-token.ts", "src/k-nex-readiness.ts", "src/k-nex-realtime.ts", "src/k-nex-register-generation.ts", "src/k-nex-registry.ts", "src/k-nex-static-generation.ts", "src/k-nex-system-access.ts", "src/k-nex-system-extensions.ts", "src/k-nex-system-operations.ts", "src/k-nex-system-theme-settings.ts", "src/k-nex-theme-runtime.ts", "src/k-nex-users.ts", "src/k-nex-web.ts", "src/k-nex-worker.ts", "src/k-nex-workspace-navigation.ts", "src/k-nex-workspace-page-http.ts", "src/k-nex-workspace-pages.ts",
     "src/migrations/20260827_000002_knex_bootstrap.ts", "src/migrations/20260829_000007_runtime_extensions.ts", "src/migrations/20260901_000019_authorization.ts", "src/migrations/20260901_000022_static_lifecycle_admission.ts", "src/migrations/20260902_000023_system_administration.ts", "src/migrations/20260903_000026_workspace_pages.ts", "src/migrations/20260903_000027_event_outbox.ts", "src/migrations/20260904_000028_workspace_sidebar_preferences.ts", "src/migrations/20260905_000026_release_preflight.ts", "src/migrations/20260909_000035_static_rebind_lock_protocol.ts", "src/migrations/20260909_000036_release_revision.ts", "src/migrations/index.ts", "src/payload.config.ts", "src/tests/generated-application.test.ts", "tsconfig.json", "tsconfig.scripts.json"
   ]),
   runtimePaths: Object.freeze([
@@ -1124,10 +1125,11 @@ function planKnexApplication(options: CreateKnexApplicationOptions, includeRealt
     ...applicationAuthFiles({ applicationId: options.applicationId, applicationName: options.applicationName, ...(options.primaryCurrency === undefined ? {} : { primaryCurrency: options.primaryCurrency }), theme: options.theme, themeReleaseVersion: release?.release.version ?? currentReleaseVersion }),
     ...systemAccessApplicationFiles({ applicationId: options.applicationId }),
     ...systemExtensionApplicationFiles({ applicationId: options.applicationId }),
+    ...staticGenerationApplicationFiles({ applicationId: options.applicationId }),
     ...systemThemeSettingsApplicationFiles({ applicationId: options.applicationId }),
     ...systemOperationsApplicationFiles({ applicationId: options.applicationId }),
     ...workspacePageApplicationFiles({ applicationId: options.applicationId }),
-    ".env.example": "DATABASE_URL=\nK_NEX_ADMINISTRATION_OPERATOR_CA_CERT=\nK_NEX_ADMINISTRATION_OPERATOR_CLIENT_CERT=\nK_NEX_ADMINISTRATION_OPERATOR_CLIENT_KEY=\nK_NEX_ADMINISTRATION_OPERATOR_HOST=\nK_NEX_ADMINISTRATION_OPERATOR_IDENTITY=\nK_NEX_ADMINISTRATION_OPERATOR_PORT=\nK_NEX_ADMINISTRATION_OPERATOR_URI_SAN=\nK_NEX_ENVIRONMENT=\nK_NEX_GENERATION=\nK_NEX_OWNER_EMAIL=\nK_NEX_OWNER_PASSWORD=\nK_NEX_PROVIDER_SECRET_CALENDAR_REFERENCE=\nK_NEX_PROVIDER_SECRET_EMAIL_REFERENCE=\nK_NEX_PUBLIC_ORIGIN=\nK_NEX_REFERENCE_PROVIDER_ENDPOINT=\nK_NEX_WEBHOOK_SECRET_CALENDAR_REFERENCE=\nK_NEX_WEBHOOK_SECRET_EMAIL_REFERENCE=\nPAYLOAD_SECRET=\n",
+    ".env.example": "DATABASE_URL=\nK_NEX_ADMINISTRATION_OPERATOR_CA_CERT=\nK_NEX_ADMINISTRATION_OPERATOR_CLIENT_CERT=\nK_NEX_ADMINISTRATION_OPERATOR_CLIENT_KEY=\nK_NEX_ADMINISTRATION_OPERATOR_HOST=\nK_NEX_ADMINISTRATION_OPERATOR_IDENTITY=\nK_NEX_ADMINISTRATION_OPERATOR_PORT=\nK_NEX_ADMINISTRATION_OPERATOR_URI_SAN=\nK_NEX_APPLICATION_DIGEST=\nK_NEX_ENVIRONMENT=\nK_NEX_GENERATION=\nK_NEX_OWNER_EMAIL=\nK_NEX_OWNER_PASSWORD=\nK_NEX_PROVIDER_SECRET_CALENDAR_REFERENCE=\nK_NEX_PROVIDER_SECRET_EMAIL_REFERENCE=\nK_NEX_PUBLIC_ORIGIN=\nK_NEX_REFERENCE_PROVIDER_ENDPOINT=\nK_NEX_SOURCE_COMMIT=\nK_NEX_WEBHOOK_SECRET_CALENDAR_REFERENCE=\nK_NEX_WEBHOOK_SECRET_EMAIL_REFERENCE=\nPAYLOAD_SECRET=\n",
     [payloadPostgresPatchFilename]: payloadPostgresPatchSource(),
     "pnpm-workspace.yaml": generatedPnpmWorkspace(),
     ".k-nex/application-plan.json": json({
@@ -1161,6 +1163,7 @@ function planKnexApplication(options: CreateKnexApplicationOptions, includeRealt
         "knex:issue-attachment-upload-receipt": "node --env-file-if-exists=.env dist/k-nex-issue-attachment-upload-receipt.js",
         "knex:issue-bootstrap-token": "node --env-file-if-exists=.env dist/k-nex-issue-bootstrap-token.js",
         "knex:migrate": "node --env-file-if-exists=.env k-nex-migrate.mjs",
+        "knex:register-generation": "node --env-file-if-exists=.env dist/k-nex-register-generation.js",
         start: "node --env-file-if-exists=.env dist/k-nex-web.js",
         test: "node --test dist/tests/*.test.js",
         "knex:worker": "node --env-file-if-exists=.env dist/k-nex-worker.js"
@@ -1207,7 +1210,11 @@ function planKnexApplication(options: CreateKnexApplicationOptions, includeRealt
     files["pnpm-workspace.yaml"] = generatedPnpmWorkspace(overrides);
   }
   if (options.database === "docker-postgres") {
-    files["compose.yaml"] = "services:\n  postgres:\n    image: postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94\n    environment:\n      POSTGRES_DB: knex\n      POSTGRES_PASSWORD: knex\n      POSTGRES_USER: knex\n    ports:\n      - \"5432:5432\"\n    volumes:\n      - postgres-data:/var/lib/postgresql/data\nvolumes:\n  postgres-data:\n";
+    // The published port is a host fact, not a product one: a developer who
+    // already runs PostgreSQL on 5432 would otherwise have to edit a generated
+    // file to start this application at all. K_NEX_DB_PORT moves it, and the
+    // container port it maps to never changes, so DATABASE_URL stays readable.
+    files["compose.yaml"] = "services:\n  postgres:\n    image: postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94\n    environment:\n      POSTGRES_DB: knex\n      POSTGRES_PASSWORD: knex\n      POSTGRES_USER: knex\n    ports:\n      - \"127.0.0.1:${K_NEX_DB_PORT:-5432}:5432\"\n    volumes:\n      - postgres-data:/var/lib/postgresql/data\nvolumes:\n  postgres-data:\n";
   }
   // Declared last, so it covers the manifest this plan actually writes: the
   // closure is a statement about the files on disk, and the guard that checks
