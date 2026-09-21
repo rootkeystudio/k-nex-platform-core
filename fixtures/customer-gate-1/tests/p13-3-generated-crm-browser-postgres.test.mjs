@@ -664,7 +664,10 @@ test("P13.3 generated Payload and Next CRM routes pass real persona, keyboard, h
       await keyboardDetail(representative.page, `/sales/accounts/${records.repAccountId}`, "Representative account");
       await submitAction(representative.page, "sales.account.update", { Name: "Representative browser account" });
       await assertHidden(representative.page, ["Account Archive", "Ownership Assign"]);
-      const repActivity = await submitAction(representative.page, "sales.activity.create", { "Activity type": "call", Subject: "Representative browser activity", "Scheduled at": "2026-09-20T10:00:00.000Z" });
+      // Relative rather than a literal instant: a fixed date rots into the past,
+      // and a record the product sweeps by time then belongs to a different lane
+      // than the journey means to exercise.
+      const repActivity = await submitAction(representative.page, "sales.activity.create", { "Activity type": "call", Subject: "Representative browser activity", "Scheduled at": new Date(Date.now() + 86_400_000).toISOString() });
       const repActivityLineage = (await pool.query(`select a.owner_id,a.team_id,a.created_by,a.actor_id,a.related_record_type,a.related_record_id,r.owner_id account_owner_id,r.team_id account_team_id
         from sales_activities a
         join sales_accounts r on r.id::text=a.related_record_id and r.application_id=a.application_id and r.environment=a.environment

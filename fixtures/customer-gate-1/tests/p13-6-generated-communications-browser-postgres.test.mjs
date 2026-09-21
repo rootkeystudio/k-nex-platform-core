@@ -26,9 +26,14 @@ async function visit(page, origin, path, heading, diagnostics) {
   assert.deepEqual(await seriousAccessibilityViolations(page), [], `serious/critical accessibility violations at ${path}`);
 }
 
+// Correlating on the record as well as the action path keeps an answer for another record,
+// or a retry of the same action, from being read as this click's answer.
+function dispatchedRecordId(response) {
+  try { return JSON.parse(response.request().postData() ?? "")?.input?.id; } catch { return undefined; }
+}
 async function clickAction(page, actionId, recordId, diagnostics) {
   const button = page.locator(`button[data-action-id="${actionId}"][data-record-id="${recordId}"]`); await button.waitFor();
-  const [response] = await Promise.all([page.waitForResponse((candidate) => new URL(candidate.url()).pathname === `/api/k-nex/sales/actions/${actionId}`), button.click()]);
+  const [response] = await Promise.all([page.waitForResponse((candidate) => new URL(candidate.url()).pathname === `/api/k-nex/sales/actions/${actionId}` && dispatchedRecordId(candidate) === recordId), button.click()]);
   const body = await response.text(); assert.equal(response.status(), 200, `${actionId}: ${body}\n${diagnostics()}`); assert.match(response.headers()["cache-control"] ?? "", /no-store/u); assertNoSecrets(`${response.url()}\n${body}`, `${actionId} leaked provider authority`);
   return JSON.parse(body);
 }
@@ -105,12 +110,14 @@ test("P13.6 generated HTTP and Chromium prove webhook bounds and recipient-only 
     const managerDeniedNotification = (await pool.query("insert into sales_notifications(application_id,environment,recipient_id,subject,reference_kind,reference_id,state,revision,metadata,audit,delivered_at) values ('p13-crm-browser','test',$1,'Manager denial target','task','105','unread',1,'{}','[]',now()) returning id", [managerId])).rows[0];
     const managerReminder = (await pool.query("insert into sales_reminders(application_id,environment,recipient_id,reference_kind,reference_id,subject,scheduled_at,delivered_at,state,revision,attempt,idempotency_digest,audit) values ('p13-crm-browser','test',$1,'task','102','Manager private reminder',now()-interval '1 hour',now(),'delivered',2,0,$2,'[]') returning id", [managerId, `sha256:${"1".repeat(64)}`])).rows[0];
     const scheduledReminder = (await pool.query("insert into sales_reminders(application_id,environment,recipient_id,reference_kind,reference_id,subject,scheduled_at,state,revision,attempt,idempotency_digest,audit) values ('p13-crm-browser','test',$1,'task','104','Manager scheduled reminder',now()+interval '1 day','scheduled',1,0,$2,'[]') returning id", [managerId, `sha256:${"3".repeat(64)}`])).rows[0];
+    const replayReminder = (await pool.query("insert into sales_reminders(application_id,environment,recipient_id,reference_kind,reference_id,subject,scheduled_at,state,revision,attempt,idempotency_digest,audit) values ('p13-crm-browser','test',$1,'task','106','Manager replayed reminder',now()+interval '1 day','scheduled',1,0,$2,'[]') returning id", [managerId, `sha256:${"5".repeat(64)}`])).rows[0];
     await pool.query(`update sales_notifications set audit=jsonb_build_array(jsonb_build_object('actionId','sales.notification.deliver','resourceId',id::text,'applicationId',application_id,'environment',environment,'fromState','absent','toState','unread','occurredAt',to_char(now() at time zone 'UTC','YYYY-MM-DD')||'T'||to_char(now() at time zone 'UTC','HH24:MI:SS.MS')||'Z','actorId',recipient_id,'revision',1,'idempotencyKey','p136-browser-notification-genesis')) where id=$1`, [managerNotification.id]);
     await pool.query(`update sales_notifications set audit=jsonb_build_array(jsonb_build_object('actionId','sales.notification.deliver','resourceId',id::text,'applicationId',application_id,'environment',environment,'fromState','absent','toState','unread','occurredAt',to_char(now() at time zone 'UTC','YYYY-MM-DD')||'T'||to_char(now() at time zone 'UTC','HH24:MI:SS.MS')||'Z','actorId',recipient_id,'revision',1,'idempotencyKey','p136-browser-denial-genesis')) where id=$1`, [managerDeniedNotification.id]);
     await pool.query(`update sales_reminders set audit=jsonb_build_array(
       jsonb_build_object('actionId','sales.reminder.schedule','resourceId',id::text,'applicationId',application_id,'environment',environment,'fromState','absent','toState','scheduled','occurredAt',to_char(now() at time zone 'UTC','YYYY-MM-DD')||'T'||to_char(now() at time zone 'UTC','HH24:MI:SS.MS')||'Z','actorId',recipient_id,'revision',1,'idempotencyKey','p136-browser-reminder-schedule'),
       jsonb_build_object('actionId','sales.job.reminder-delivery','resourceId',id::text,'applicationId',application_id,'environment',environment,'fromState','scheduled','toState','delivered','occurredAt',to_char(now() at time zone 'UTC','YYYY-MM-DD')||'T'||to_char(now() at time zone 'UTC','HH24:MI:SS.MS')||'Z','actorId',recipient_id,'revision',2,'idempotencyKey','p136-browser-reminder-delivery')) where id=$1`, [managerReminder.id]);
     await pool.query(`update sales_reminders set audit=jsonb_build_array(jsonb_build_object('actionId','sales.reminder.schedule','resourceId',id::text,'applicationId',application_id,'environment',environment,'fromState','absent','toState','scheduled','occurredAt',to_char(now() at time zone 'UTC','YYYY-MM-DD')||'T'||to_char(now() at time zone 'UTC','HH24:MI:SS.MS')||'Z','actorId',recipient_id,'revision',1,'idempotencyKey','p136-browser-reminder-cancel-genesis')) where id=$1`, [scheduledReminder.id]);
+    await pool.query(`update sales_reminders set audit=jsonb_build_array(jsonb_build_object('actionId','sales.reminder.schedule','resourceId',id::text,'applicationId',application_id,'environment',environment,'fromState','absent','toState','scheduled','occurredAt',to_char(now() at time zone 'UTC','YYYY-MM-DD')||'T'||to_char(now() at time zone 'UTC','HH24:MI:SS.MS')||'Z','actorId',recipient_id,'revision',1,'idempotencyKey','p136-browser-reminder-replay-genesis')) where id=$1`, [replayReminder.id]);
     await pool.query("insert into sales_notifications(application_id,environment,recipient_id,subject,reference_kind,reference_id,state,revision,metadata,audit,delivered_at) values ('p13-crm-browser','test',$1,'Representative private notification','task','103','unread',1,'{}','[]',now())", [representativeId]);
 
     const browser = await chromium.launch({ headless: true });
@@ -141,7 +148,10 @@ test("P13.6 generated HTTP and Chromium prove webhook bounds and recipient-only 
         assert.deepEqual((await pool.query("select state,revision,cancelled_at is not null cancelled from sales_reminders where id=$1", [scheduledReminder.id])).rows, [{ state: "cancelled", revision: 2, cancelled: true }]);
         await manager.page.getByLabel("Scheduled at UTC").waitFor();
 
-        const scheduleResult = await submitActionForm(manager.page, "sales.reminder.schedule", "Reminder Schedule", { "Reference kind": "task", "Reference ID": String(managerTask.id), "Expected revision": "1", "Scheduled at UTC": "2026-09-20T12:00:00.000Z", Subject: "Manager form scheduled reminder" }, applicationOutput);
+        // The reminder worker delivers anything already due, so a fixed instant silently turns this
+        // cancel-from-scheduled journey into a dismiss-from-delivered one once that date passes.
+        const formScheduledAt = new Date(Date.now() + 86_400_000).toISOString();
+        const scheduleResult = await submitActionForm(manager.page, "sales.reminder.schedule", "Reminder Schedule", { "Reference kind": "task", "Reference ID": String(managerTask.id), "Expected revision": "1", "Scheduled at UTC": formScheduledAt, Subject: "Manager form scheduled reminder" }, applicationOutput);
         const formReminder = (await pool.query("select id,state,revision,audit from sales_reminders where recipient_id=$1 and subject='Manager form scheduled reminder'", [managerId])).rows[0];
         assert.deepEqual(scheduleResult.data, { id: String(formReminder.id), revision: 1, status: "scheduled" });
         assert.equal(formReminder.state, "scheduled"); assert.equal(formReminder.revision, 1); assert.equal(formReminder.audit[0].resourceId, String(formReminder.id)); assert.equal(formReminder.audit[0].actionId, "sales.reminder.schedule");
@@ -149,6 +159,21 @@ test("P13.6 generated HTTP and Chromium prove webhook bounds and recipient-only 
         const formCancelResult = await clickAction(manager.page, "sales.reminder.dismiss", String(formReminder.id), applicationOutput);
         assert.deepEqual(formCancelResult.data, { id: String(formReminder.id), revision: 2, status: "cancelled" });
         assert.deepEqual((await pool.query("select state,revision,cancelled_at is not null cancelled from sales_reminders where id=$1", [formReminder.id])).rows, [{ state: "cancelled", revision: 2, cancelled: true }]);
+
+        // A retry must be indistinguishable from the run that committed. Answering a replay from
+        // the record's current state would report revision 3 and "dismissed" for a row this very
+        // action cancelled at revision 2, contradicting the audit it wrote.
+        const replayRow = async () => (await pool.query("select state,revision,jsonb_array_length(audit) entries,cancelled_at is not null cancelled,dismissed_at is not null dismissed from sales_reminders where id=$1", [replayReminder.id])).rows;
+        const replayRequest = { routeId: "sales.route.notifications", nodeId: "reminder-list", input: { id: String(replayReminder.id), expectedRevision: 1 }, selection: {}, idempotencyKey: "p136-browser-reminder-dismiss-replay" };
+        const committedDismiss = await postAction(manager.page, "sales.reminder.dismiss", replayRequest);
+        assert.equal(committedDismiss.status, 200, JSON.stringify(committedDismiss)); assert.match(committedDismiss.cacheControl ?? "", /no-store/u);
+        assert.deepEqual(committedDismiss.body.data, { id: String(replayReminder.id), revision: 2, status: "cancelled" });
+        const committedRow = await replayRow();
+        assert.deepEqual(committedRow, [{ state: "cancelled", revision: 2, entries: 2, cancelled: true, dismissed: false }]);
+        const replayedDismiss = await postAction(manager.page, "sales.reminder.dismiss", replayRequest);
+        assert.equal(replayedDismiss.status, 200, JSON.stringify(replayedDismiss)); assert.match(replayedDismiss.cacheControl ?? "", /no-store/u);
+        assert.deepEqual(replayedDismiss.body, committedDismiss.body, "replayed action answered with a result recomputed from the state its own write produced");
+        assert.deepEqual(await replayRow(), committedRow, "replayed action committed a second transition");
 
         const liveOperationId = "provider-browser-live-operation";
         await pool.query(`insert into sales_provider_operations(operation_id,application_id,environment,provider_id,action_id,actor_id,related_record_type,related_record_id,idempotency_digest,payload_json,configuration_revision,authorization_revision,lifecycle_revision,scope_revision,state,attempt,next_attempt_at,effect_claim_id,effect_dispatched_at,provider_receipt_id,provider_receipt_at,accepted_at)
