@@ -5,23 +5,29 @@ import { canonicalJson } from "@k-nex/contracts";
 import { createPuckBuilderProfileRegistry } from "@k-nex/builder-puck";
 import { createUiDocumentRuntime, createUiRuntimeRegistry, type BrowserDataTransport } from "@k-nex/ui-runtime";
 import { createGenericPuckBlockBridges } from "@k-nex/ui-builder-blocks";
-import { salesCreateTaskMutation } from "../src/browser.js";
-import { salesPageTemplates, salesOpportunitiesDescriptor, salesOpportunityStageUpdateDescriptor, salesTaskCreateDescriptor, salesTaskUpdateDescriptor, salesTasksDescriptor, salesTotalPotentialRevenueDescriptor } from "../src/contracts.js";
+import { salesCreateTaskMutation, salesWorkflowMutations } from "../src/browser.js";
+import { salesAccountDetailDescriptor, salesAccountsDescriptor, salesContactDetailDescriptor, salesContactsDescriptor, salesLeadDetailDescriptor, salesLeadsDescriptor, salesOpportunityDetailDescriptor, salesPageTemplates, salesOpportunitiesDescriptor, salesOpportunityStageUpdateDescriptor, salesPipelineValueByStageDescriptor, salesWeightedForecastDescriptor, salesWonLostConversionDescriptor, salesLeadConversionDescriptor, salesActivityByOwnerTeamDescriptor, salesTaskAgingDescriptor, salesSalesCycleDurationDescriptor, salesReportRunDescriptor, salesReportScheduleDescriptor, salesSavedViewCalendarDescriptor, salesSavedViewKanbanDescriptor, salesTaskCreateDescriptor, salesTaskUpdateDescriptor, salesTasksDescriptor } from "../src/contracts.js";
 import { salesPuckBlockBridges } from "../src/puck.js";
 
-const sources = [salesTasksDescriptor, salesOpportunitiesDescriptor, salesTotalPotentialRevenueDescriptor];
+const sources = [salesTasksDescriptor, salesOpportunitiesDescriptor, salesOpportunityDetailDescriptor, salesAccountsDescriptor, salesAccountDetailDescriptor, salesContactsDescriptor, salesContactDetailDescriptor, salesLeadsDescriptor, salesLeadDetailDescriptor, salesSavedViewCalendarDescriptor, salesSavedViewKanbanDescriptor, salesPipelineValueByStageDescriptor, salesWeightedForecastDescriptor, salesWonLostConversionDescriptor, salesLeadConversionDescriptor, salesActivityByOwnerTeamDescriptor, salesTaskAgingDescriptor, salesSalesCycleDurationDescriptor];
+
 const profile = {
   id: "workspace" as const,
   blocks: salesPuckBlockBridges.map(({ definition }) => ({ id: definition.id, version: definition.version })),
   sources: sources.map(({ id, version }) => ({ id, version })),
-  actions: [salesTaskCreateDescriptor, salesTaskUpdateDescriptor, salesOpportunityStageUpdateDescriptor].map(({ id, version }) => ({ id, version })),
+  actions: [salesTaskCreateDescriptor, salesTaskUpdateDescriptor, salesOpportunityStageUpdateDescriptor, salesReportRunDescriptor, salesReportScheduleDescriptor, ...salesWorkflowMutations.map(({ action }) => action)].map(({ id, version }) => ({ id, version })),
   publication: "save-layout" as const
 };
 
 describe("Sales Puck block library", () => {
   it("round-trips every default page under the workspace profile policy", () => {
+    expect(salesPuckBlockBridges.some(({ definition }) => definition.id === "sales.timeline-list")).toBe(false);
+    for (const id of ["sales.account-list", "sales.account-detail", "sales.contact-list", "sales.contact-detail", "sales.lead-list", "sales.lead-detail", "sales.opportunity-list", "sales.opportunity-detail"]) {
+      expect(salesPuckBlockBridges.some(({ definition }) => definition.id === id)).toBe(false);
+    }
     const resolved = createPuckBuilderProfileRegistry({ blocks: salesPuckBlockBridges, sources, profiles: [profile] }).resolve("workspace")!;
-    for (const template of salesPageTemplates) {
+    const authorable = new Set(salesPuckBlockBridges.map(({ definition }) => definition.id));
+    for (const template of salesPageTemplates.filter(({ document }) => Object.values(document.regions).flat().every(({ type }) => authorable.has(type)))) {
       expect(resolved.validateDocument(template.document).id).toBe(template.id);
       expect(canonicalJson(resolved.adapter.fromPuckData(resolved.adapter.toPuckData(template.document)))).toBe(canonicalJson(template.document));
     }
@@ -32,19 +38,19 @@ describe("Sales Puck block library", () => {
     const resolved = createPuckBuilderProfileRegistry({ blocks: salesPuckBlockBridges, sources, profiles: [profile] }).resolve("workspace")!;
     const taskTemplate = salesPageTemplates.find(({ id }) => id === "sales.page.tasks")!;
     const changed = structuredClone(taskTemplate.document);
-    changed.regions.main[1]!.bindings!.action = { id: "sales.task.update", version: 1 };
+    changed.regions.main[1]!.bindings!.action = { id: "sales.task.update", version: salesTaskUpdateDescriptor.version };
     expect(() => resolved.validateDocument(changed)).toThrow(/forbids action/);
   });
 
   it("inserts the Kanban with its trusted existing source and action bindings", () => {
     const resolved = createPuckBuilderProfileRegistry({ blocks: salesPuckBlockBridges, sources, profiles: [profile] }).resolve("workspace")!;
     const data = resolved.adapter.toPuckData({ id: "workspace.custom", version: 1, schemaVersion: 1, profile: "workspace", regions: { main: [] } });
-    const component = resolved.adapter.config.components["sales.opportunity-kanban__v1"]!;
-    const inserted = { ...data, content: [{ type: "sales.opportunity-kanban__v1", props: { id: "kanban", ...component.defaultProps } }] };
+    const component = resolved.adapter.config.components["sales.opportunity-kanban__v3"]!;
+    const inserted = { ...data, content: [{ type: "sales.opportunity-kanban__v3", props: { id: "kanban", ...component.defaultProps } }] };
     const document = resolved.adapter.fromPuckData(inserted);
     expect(document.regions.main[0]?.bindings).toEqual({
-      source: { source: { id: salesOpportunitiesDescriptor.id, version: 1 }, input: {}, structuralCompatibilityHash: salesOpportunitiesDescriptor.structuralCompatibilityHash, selectedFields: ["name", "stage", "revision", "value"] },
-      action: { id: salesOpportunityStageUpdateDescriptor.id, version: 1 }
+      source: { source: { id: salesSavedViewKanbanDescriptor.id, version: salesSavedViewKanbanDescriptor.version }, input: {}, structuralCompatibilityHash: salesSavedViewKanbanDescriptor.structuralCompatibilityHash, selectedFields: ["row-kind", "name", "stage-id", "stage-metadata", "revision"] },
+      action: { id: salesOpportunityStageUpdateDescriptor.id, version: salesOpportunityStageUpdateDescriptor.version }
     });
     expect(resolved.validateDocument(document).regions.main[0]?.type).toBe("sales.opportunity-kanban");
   });
@@ -52,8 +58,8 @@ describe("Sales Puck block library", () => {
   it("composes the generic form with the registered Sales action and standard browser gateway", async () => {
     const bridges = createGenericPuckBlockBridges({ form: {
       action: { id: salesTaskCreateDescriptor.id, version: salesTaskCreateDescriptor.version },
-      fields: [{ name: "title", label: "Title", kind: "text", required: true }, { name: "status", label: "Status", kind: "select", options: [{ id: "open", label: "Open" }, { id: "done", label: "Done" }] }],
-      initialValues: { title: "", status: "open" },
+      fields: [{ name: "title", label: "Title", kind: "text", required: true }],
+      initialValues: { title: "" },
       submitLabel: "Create task"
     } });
     const form = bridges.find(({ definition }) => definition.id === "content.form")!;
@@ -63,7 +69,7 @@ describe("Sales Puck block library", () => {
       query: async () => ({ ok: false, problem: { code: "UNUSED", status: 500 } }),
       mutate: async (request) => {
         mutationRequest = request;
-        return { ok: true, data: { id: "task-1", title: "Follow up", status: "open" } };
+        return { ok: true, data: { id: "task-1", title: "Follow up", status: "open", revision: 1 } };
       }
     };
     const runtime = createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: [form.definition], sources: [] }));
@@ -71,14 +77,14 @@ describe("Sales Puck block library", () => {
       document: { id: "sales.generic-form", version: 1, schemaVersion: 1, profile: "workspace", regions: { main: [node] } },
       surface: "workspace",
       actor: { authenticated: true, permissions: new Set() },
-      dispatchAction: (request) => salesCreateTaskMutation.execute(transport, request.input as { title: string; status?: "open" | "done" }, { signal: new AbortController().signal, idempotencyKey: "generic-form-1" })
+      dispatchAction: (request) => salesCreateTaskMutation.execute(transport, request.input as { title: string }, { signal: new AbortController().signal, idempotencyKey: "generic-form-1" })
     });
     if (!result.success) throw new Error("Expected the composed generic Sales form to render.");
     const rendered = result.regions.main?.[0];
     expect(rendered?.status).toBe("rendered");
     const element = (rendered as { output: { element: { props: { onSubmit: (values: Readonly<Record<string, string>>) => Promise<void> } } } }).output.element;
     expect(renderToStaticMarkup(element as Parameters<typeof renderToStaticMarkup>[0])).toContain('data-k-nex-component="form"');
-    await element.props.onSubmit({ title: "Follow up", status: "open" });
-    expect(mutationRequest).toMatchObject({ action: salesCreateTaskMutation.action, input: { title: "Follow up", status: "open" }, idempotencyKey: "generic-form-1" });
+    await element.props.onSubmit({ title: "Follow up" });
+    expect(mutationRequest).toMatchObject({ action: salesCreateTaskMutation.action, input: { title: "Follow up" }, idempotencyKey: "generic-form-1" });
   });
 });

@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "package": "@k-nex/module-sales",
+  "version": "1.1.0",
+  "platformRelease": "1.1.0",
+  "migrationRevision": 3,
+  "sourceKind": "immutable-package-source"
+}

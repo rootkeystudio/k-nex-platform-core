@@ -1,0 +1,644 @@
+{
+  "$defs": {
+    "__schema0": {
+      "const": "../../schemas/platform-release-transition-manifest.v1.schema.json",
+      "type": "string"
+    },
+    "__schema1": {
+      "const": 1,
+      "type": "number"
+    },
+    "__schema10": {
+      "maxLength": 214,
+      "pattern": "^@?[a-z0-9][a-z0-9._-]*(?:\\/[a-z0-9][a-z0-9._-]*)?$",
+      "type": "string"
+    },
+    "__schema11": {
+      "additionalProperties": false,
+      "properties": {
+        "integrity": {
+          "pattern": "^sha512-[A-Za-z0-9+/]{86}==$",
+          "type": "string"
+        },
+        "version": {
+          "$ref": "#/$defs/__schema4"
+        }
+      },
+      "required": [
+        "version",
+        "integrity"
+      ],
+      "type": "object"
+    },
+    "__schema12": {
+      "additionalProperties": false,
+      "properties": {
+        "managedOutputContractDigest": {
+          "$ref": "#/$defs/__schema5"
+        },
+        "package": {
+          "$ref": "#/$defs/__schema10"
+        },
+        "sourceSchemaVersion": {
+          "exclusiveMinimum": 0,
+          "maximum": 65535,
+          "type": "integer"
+        },
+        "sourceVersion": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "targetSchemaVersion": {
+          "exclusiveMinimum": 0,
+          "maximum": 65535,
+          "type": "integer"
+        },
+        "targetVersion": {
+          "$ref": "#/$defs/__schema4"
+        }
+      },
+      "required": [
+        "package",
+        "sourceVersion",
+        "targetVersion",
+        "sourceSchemaVersion",
+        "targetSchemaVersion",
+        "managedOutputContractDigest"
+      ],
+      "type": "object"
+    },
+    "__schema13": {
+      "additionalProperties": false,
+      "properties": {
+        "sourceSchemaVersion": {
+          "exclusiveMinimum": 0,
+          "maximum": 65535,
+          "type": "integer"
+        },
+        "targetSchemaVersion": {
+          "exclusiveMinimum": 0,
+          "maximum": 65535,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "sourceSchemaVersion",
+        "targetSchemaVersion"
+      ],
+      "type": "object"
+    },
+    "__schema14": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "$ref": "#/$defs/__schema15"
+        },
+        "target": {
+          "$ref": "#/$defs/__schema15"
+        }
+      },
+      "required": [
+        "source",
+        "target"
+      ],
+      "type": "object"
+    },
+    "__schema15": {
+      "additionalProperties": false,
+      "properties": {
+        "core": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "node": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "payload": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "payloadDatabaseAdapter": {
+          "const": "postgres",
+          "type": "string"
+        },
+        "pnpm": {
+          "$ref": "#/$defs/__schema4"
+        }
+      },
+      "required": [
+        "core",
+        "payload",
+        "node",
+        "pnpm",
+        "payloadDatabaseAdapter"
+      ],
+      "type": "object"
+    },
+    "__schema16": {
+      "additionalProperties": false,
+      "properties": {
+        "deliveryClassification": {
+          "enum": [
+            "zero-downtime-eligible",
+            "maintenance-required"
+          ],
+          "type": "string"
+        },
+        "graphDigest": {
+          "$ref": "#/$defs/__schema5"
+        },
+        "phases": {
+          "items": {
+            "$ref": "#/$defs/__schema17"
+          },
+          "maxItems": 4,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "rollbackClassification": {
+          "enum": [
+            "source-generation",
+            "source-restore-required"
+          ],
+          "type": "string"
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/__schema18"
+          },
+          "maxItems": 256,
+          "minItems": 1,
+          "type": "array"
+        }
+      },
+      "required": [
+        "graphDigest",
+        "phases",
+        "steps",
+        "deliveryClassification",
+        "rollbackClassification"
+      ],
+      "type": "object"
+    },
+    "__schema17": {
+      "enum": [
+        "online-expand",
+        "online-backfill",
+        "post-retirement-contract",
+        "offline-required"
+      ],
+      "type": "string"
+    },
+    "__schema18": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 160,
+          "minLength": 3,
+          "pattern": "^[a-z0-9][a-z0-9._:-]*$",
+          "type": "string"
+        },
+        "phase": {
+          "$ref": "#/$defs/__schema17"
+        }
+      },
+      "required": [
+        "id",
+        "phase"
+      ],
+      "type": "object"
+    },
+    "__schema19": {
+      "additionalProperties": false,
+      "properties": {
+        "catalogDigest": {
+          "$ref": "#/$defs/__schema5"
+        },
+        "hotApplicationHostAbiFrom": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "hotApplicationHostAbiTo": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "settings": {
+          "enum": [
+            "compatible",
+            "migration-required",
+            "unsupported"
+          ],
+          "type": "string"
+        },
+        "storedDocuments": {
+          "enum": [
+            "compatible",
+            "migration-required",
+            "unsupported"
+          ],
+          "type": "string"
+        },
+        "themeProfiles": {
+          "enum": [
+            "compatible",
+            "migration-required",
+            "unsupported"
+          ],
+          "type": "string"
+        },
+        "themeSkinHostAbiFrom": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "themeSkinHostAbiTo": {
+          "$ref": "#/$defs/__schema4"
+        }
+      },
+      "required": [
+        "storedDocuments",
+        "settings",
+        "themeProfiles",
+        "hotApplicationHostAbiFrom",
+        "hotApplicationHostAbiTo",
+        "themeSkinHostAbiFrom",
+        "themeSkinHostAbiTo",
+        "catalogDigest"
+      ],
+      "type": "object"
+    },
+    "__schema2": {
+      "maxLength": 160,
+      "pattern": "^[a-z0-9][a-z0-9._:-]{2,159}$",
+      "type": "string"
+    },
+    "__schema20": {
+      "additionalProperties": false,
+      "properties": {
+        "cleanRestoreDrill": {
+          "enum": [
+            "required",
+            "risk-policy"
+          ],
+          "type": "string"
+        },
+        "failureRecovery": {
+          "const": "restore-source-protection-point",
+          "type": "string"
+        },
+        "maximumBackupAgeSeconds": {
+          "exclusiveMinimum": 0,
+          "maximum": 2592000,
+          "type": "integer"
+        },
+        "postUpgradeBackup": {
+          "const": "required",
+          "type": "string"
+        },
+        "preUpgradeBackup": {
+          "enum": [
+            "fresh-required",
+            "restore-verified-within-window"
+          ],
+          "type": "string"
+        },
+        "rollbackWindowSeconds": {
+          "exclusiveMinimum": 0,
+          "maximum": 31536000,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "preUpgradeBackup",
+        "maximumBackupAgeSeconds",
+        "cleanRestoreDrill",
+        "failureRecovery",
+        "postUpgradeBackup",
+        "rollbackWindowSeconds"
+      ],
+      "type": "object"
+    },
+    "__schema21": {
+      "additionalProperties": false,
+      "properties": {
+        "expiresAt": {
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+          "type": "string"
+        },
+        "publishedAt": {
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+          "type": "string"
+        },
+        "revocation": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "status": {
+                  "const": "active",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "status"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "reasonCode": {
+                  "maxLength": 96,
+                  "pattern": "^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*$",
+                  "type": "string"
+                },
+                "revokedAt": {
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                  "type": "string"
+                },
+                "status": {
+                  "const": "revoked",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "status",
+                "revokedAt",
+                "reasonCode"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "security": {
+          "enum": [
+            "standard",
+            "security-mandated"
+          ],
+          "type": "string"
+        },
+        "support": {
+          "enum": [
+            "supported",
+            "security-only"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "publishedAt",
+        "expiresAt",
+        "support",
+        "security",
+        "revocation"
+      ],
+      "type": "object"
+    },
+    "__schema3": {
+      "additionalProperties": false,
+      "properties": {
+        "manifestDigest": {
+          "$ref": "#/$defs/__schema5"
+        },
+        "release": {
+          "$ref": "#/$defs/__schema4"
+        }
+      },
+      "required": [
+        "release",
+        "manifestDigest"
+      ],
+      "type": "object"
+    },
+    "__schema4": {
+      "maxLength": 64,
+      "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-(?:(?:0|[1-9][0-9]*)|(?:[0-9]*[A-Za-z-][0-9A-Za-z-]*))(?:\\.(?:(?:0|[1-9][0-9]*)|(?:[0-9]*[A-Za-z-][0-9A-Za-z-]*)))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
+      "type": "string"
+    },
+    "__schema5": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "__schema6": {
+      "items": {
+        "$ref": "#/$defs/__schema4"
+      },
+      "maxItems": 1,
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "__schema7": {
+      "items": {
+        "$ref": "#/$defs/__schema8"
+      },
+      "maxItems": 256,
+      "minItems": 1,
+      "type": "array"
+    },
+    "__schema8": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "disposition": {
+              "const": "upgrade",
+              "type": "string"
+            },
+            "identity": {
+              "$ref": "#/$defs/__schema9"
+            },
+            "source": {
+              "$ref": "#/$defs/__schema11"
+            },
+            "target": {
+              "$ref": "#/$defs/__schema11"
+            }
+          },
+          "required": [
+            "identity",
+            "disposition",
+            "source",
+            "target"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "disposition": {
+              "const": "add-for-generator",
+              "type": "string"
+            },
+            "identity": {
+              "$ref": "#/$defs/__schema9"
+            },
+            "target": {
+              "$ref": "#/$defs/__schema11"
+            }
+          },
+          "required": [
+            "identity",
+            "disposition",
+            "target"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "disposition": {
+              "const": "remove",
+              "type": "string"
+            },
+            "identity": {
+              "$ref": "#/$defs/__schema9"
+            },
+            "source": {
+              "$ref": "#/$defs/__schema11"
+            }
+          },
+          "required": [
+            "identity",
+            "disposition",
+            "source"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "disposition": {
+              "const": "replacement-required",
+              "type": "string"
+            },
+            "identity": {
+              "$ref": "#/$defs/__schema9"
+            },
+            "source": {
+              "$ref": "#/$defs/__schema11"
+            }
+          },
+          "required": [
+            "identity",
+            "disposition",
+            "source"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "__schema9": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "package": {
+              "$ref": "#/$defs/__schema10"
+            },
+            "pluginId": {
+              "maxLength": 128,
+              "pattern": "^(module|provider|builder|theme|integration|preset)(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
+              "type": "string"
+            },
+            "role": {
+              "const": "plugin",
+              "type": "string"
+            }
+          },
+          "required": [
+            "package",
+            "role",
+            "pluginId"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "package": {
+              "$ref": "#/$defs/__schema10"
+            },
+            "role": {
+              "enum": [
+                "core",
+                "provider",
+                "builder",
+                "theme",
+                "tooling"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "package",
+            "role"
+          ],
+          "type": "object"
+        }
+      ]
+    }
+  },
+  "$id": "https://schemas.k-nex.dev/platform-release-transition-manifest/v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "kNexPlatformReleaseTransitionInvariants": true,
+  "properties": {
+    "$schema": {
+      "$ref": "#/$defs/__schema0"
+    },
+    "applicationManifest": {
+      "$ref": "#/$defs/__schema13"
+    },
+    "compatibility": {
+      "$ref": "#/$defs/__schema19"
+    },
+    "directPredecessors": {
+      "$ref": "#/$defs/__schema6"
+    },
+    "framework": {
+      "$ref": "#/$defs/__schema14"
+    },
+    "generator": {
+      "$ref": "#/$defs/__schema12"
+    },
+    "lifecycle": {
+      "$ref": "#/$defs/__schema21"
+    },
+    "migrations": {
+      "$ref": "#/$defs/__schema16"
+    },
+    "packages": {
+      "$ref": "#/$defs/__schema7"
+    },
+    "protection": {
+      "$ref": "#/$defs/__schema20"
+    },
+    "schemaVersion": {
+      "$ref": "#/$defs/__schema1"
+    },
+    "source": {
+      "$ref": "#/$defs/__schema3"
+    },
+    "target": {
+      "$ref": "#/$defs/__schema3"
+    },
+    "transitionId": {
+      "$ref": "#/$defs/__schema2"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "transitionId",
+    "source",
+    "target",
+    "directPredecessors",
+    "packages",
+    "generator",
+    "applicationManifest",
+    "framework",
+    "migrations",
+    "compatibility",
+    "protection",
+    "lifecycle"
+  ],
+  "title": "K-Nex Platform Release Transition Manifest v1",
+  "type": "object"
+}

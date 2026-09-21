@@ -50,7 +50,9 @@ const stableVerification = (entries) => entries.map(({ verificationResult }) => 
 }));
 const verify = (subject, bundle, predicateType, committed) => {
   const fresh = JSON.parse(execFileSync("gh", ["attestation", "verify", subject, "--bundle", bundle,
-    "--repo", "rootkeystudio/k-nex-platform-core", "--predicate-type", predicateType, "--format", "json"], { encoding: "utf8", maxBuffer: 8 * 1024 * 1024 }));
+    "--repo", "rootkeystudio/k-nex-platform-core",
+    "--signer-workflow", "rootkeystudio/k-nex-platform-core/.github/workflows/release-evidence.yml", "--deny-self-hosted-runners",
+    "--predicate-type", predicateType, "--format", "json"], { encoding: "utf8", maxBuffer: 8 * 1024 * 1024 }));
   const expected = readJson(committed);
   const statements = new Set(expected.map((entry) => canonicalJson(entry.verificationResult.statement)));
   const selected = fresh.filter((entry) => statements.has(canonicalJson(entry.verificationResult.statement)));

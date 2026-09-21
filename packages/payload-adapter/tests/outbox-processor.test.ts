@@ -60,6 +60,44 @@ describe("Payload outbox processor", () => {
     expect(claim).toContain(`CASE WHEN "status" = 'pending' THEN "available_at" ELSE "lease_expires_at" END`);
   });
 
+  it("claims and dead-letters only the explicitly owned durable-event partition", async () => {
+    const execute = vi.fn().mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] });
+    const consumer = {
+      applicationId: "customer-gate-1",
+      environment: "production",
+      pluginId: "module.sales",
+      eventTypes: ["sales.event.account-changed", "sales.event.timeline-changed"]
+    } as const;
+
+    await expect(processNextPayloadOutboxEvent({ payload: payload(execute), consumer, subscriber: async () => undefined })).resolves.toEqual({ status: "idle" });
+
+    for (const statement of execute.mock.calls.map(([value]) => value)) {
+      const text = sqlText(statement);
+      expect(text).toContain('"application_id" = ');
+      expect(text).toContain('"payload"->>\'environment\' = ');
+      expect(text).toContain('"plugin_id" = ');
+      expect(text).toContain('"event_type" IN');
+      expect(sqlValues(statement)).toEqual(expect.arrayContaining([
+        "customer-gate-1", "production", "module.sales", "sales.event.account-changed", "sales.event.timeline-changed"
+      ]));
+    }
+  });
+
+  it("rejects an open or malformed consumer partition before touching the outbox", async () => {
+    const execute = vi.fn();
+    await expect(processNextPayloadOutboxEvent({
+      payload: payload(execute),
+      consumer: { applicationId: "customer-gate-1", environment: "production", pluginId: "module.sales", eventTypes: [] },
+      subscriber: async () => undefined
+    })).rejects.toThrow("consumer.eventTypes");
+    await expect(processNextPayloadOutboxEvent({
+      payload: payload(execute),
+      consumer: { applicationId: "Customer", environment: "production", pluginId: "module.sales", eventTypes: ["sales.event.account-changed"] },
+      subscriber: async () => undefined
+    })).rejects.toThrow("consumer.applicationId");
+    expect(execute).not.toHaveBeenCalled();
+  });
+
   it("delivers with a least-privileged actor, idempotency key, and durable checkpoint", async () => {
     const execute = vi.fn()
       .mockResolvedValueOnce({ rows: [] })

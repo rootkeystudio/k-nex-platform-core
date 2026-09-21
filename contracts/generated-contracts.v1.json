@@ -24,12 +24,18 @@
     "schemas/migration-compatibility-plan.v1.schema.json",
     "schemas/worker-generation-fence.v1.schema.json",
     "schemas/package-release-manifest.v1.schema.json",
+    "schemas/platform-release-transition-manifest.v1.schema.json",
     "schemas/runtime-inventory.v1.schema.json",
     "schemas/runtime-extension-inventory.v1.schema.json",
     "schemas/deployment-receipt.v1.schema.json",
     "schemas/application-manifest.v1.schema.json",
+    "schemas/application-release-lock.v1.schema.json",
+    "schemas/generated-file-ownership-manifest.v1.schema.json",
+    "schemas/application-upgrade-plan-envelope.v1.schema.json",
+    "schemas/application-upgrade-preparation-result.v1.schema.json",
     "schemas/event.v1.schema.json",
     "schemas/metric-scalar.v1.schema.json",
+    "schemas/metric-scalar.v2.schema.json",
     "schemas/table-records.v1.schema.json",
     "schemas/theme-profile.v1.schema.json",
     "schemas/theme-profile-publication-event.v1.schema.json",
@@ -46,6 +52,10 @@
     {
       "id": "metric.scalar@1",
       "schema": "schemas/metric-scalar.v1.schema.json"
+    },
+    {
+      "id": "metric.scalar@2",
+      "schema": "schemas/metric-scalar.v2.schema.json"
     },
     {
       "id": "table.records@1",

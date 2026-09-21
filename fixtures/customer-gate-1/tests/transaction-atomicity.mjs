@@ -133,7 +133,19 @@ try {
 
   const task = await payload.create({
     collection: "sales-tasks",
-    data: { title: selectedCase.title, status: "open" },
+    data: {
+      applicationId: "customer-gate-1",
+      environment: "production",
+      ownerId: String(actor.id),
+      teamId: `team:${actor.id}`,
+      createdBy: String(actor.id),
+      updatedBy: String(actor.id),
+      revision: 1,
+      audit: [],
+      archiveStatus: "active",
+      title: selectedCase.title,
+      status: "open"
+    },
     overrideAccess: true,
     req
   });

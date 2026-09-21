@@ -1,7 +1,7 @@
 import { canonicalJson } from "@k-nex/contracts";
 import { describe, expect, it, vi } from "vitest";
 
-import { PostgresWorkspaceNavigationOutboxDispatcher, parseWorkspaceNavigationInvalidation } from "../src/workspace-navigation-outbox.js";
+import { PostgresWorkspaceNavigationOutboxDispatcher, WorkspaceNavigationOutboxWorker, parseWorkspaceNavigationInvalidation } from "../src/workspace-navigation-outbox.js";
 import { kNexWorkspacePageSchemaMigration } from "../src/workspace-page-schema-migration.js";
 
 const invalidation = Object.freeze({
@@ -79,5 +79,18 @@ describe("workspace navigation outbox", () => {
     expect(finalization?.[1]).toEqual([invalidation.eventId, "ee2f520a-886a-4ee9-ae0a-3d0988472c90", "dead-letter"]);
     expect(query.mock.calls.some(([text]) => String(text).includes("attempt_count < $1") && String(text).includes("for update skip locked"))).toBe(true);
     expect(publish).not.toHaveBeenCalled();
+  });
+
+  it("joins an admitted dispatch after stop without scheduling another one", async () => {
+    let complete!: () => void;
+    const dispatchNext = vi.fn(() => new Promise<{ status: "idle" }>((resolve) => { complete = () => resolve({ status: "idle" }); }));
+    const worker = new WorkspaceNavigationOutboxWorker({ dispatchNext } as never, { publish: vi.fn() }, { intervalMs: 10 });
+    worker.start();
+    await vi.waitFor(() => expect(dispatchNext).toHaveBeenCalledTimes(1));
+    worker.stop();
+    const idle = worker.idle();
+    complete();
+    await idle;
+    expect(dispatchNext).toHaveBeenCalledTimes(1);
   });
 });

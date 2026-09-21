@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import ts from "typescript";
 
 import { applicationAuthFiles } from "../src/application-auth-files.js";
 
@@ -25,13 +26,16 @@ describe("generated application readiness", () => {
       "Package archive integrity mismatch for ",
       "Package lock digest mismatch.",
       "Sales application manifest mismatch.",
+      "provider.realtime.socketio",
+      "payloadPostgresPatch",
       "Puck builder manifest mismatch.",
       "Theme manifest mismatch.",
       "Sales static registration identity mismatch.",
       "Generated route source inventory mismatch.",
       "Generated migration inventory mismatch.",
       "Sales table schema mismatch.",
-      "Sales enum schema mismatch.",
+      "Sales legacy schema was not retired.",
+      "Application reporting settings v3 readiness mismatch.",
       "Administration operator configuration is missing.",
       "Administration operator credential is unreadable.",
       "Administration operator configuration is invalid.",
@@ -40,9 +44,33 @@ describe("generated application readiness", () => {
       "Bootstrap owner assignment mismatch.",
       "Sales authorization generation mismatch."
     ]) expect(readiness).toContain(guard);
+    expect(readiness).toContain('entry.package === "@k-nex/provider-realtime-socketio" && entry.role === "provider"');
+    expect(readiness).toContain("async function assertReportingTimezone");
+    expect(readiness).toContain("documents.rows.length !== 1");
+    expect(readiness).toContain("row?.descriptor_schema_version !== 3");
+    expect(readiness).toContain("row.settings_revision > state.rows[0]!.settings_revision");
+    expect(readiness).toContain('row.owner_kind !== "platform"');
+    expect(readiness).toContain('row.owner_namespace !== "system"');
+    expect(readiness).toContain("row.owner_delivery_class !== null");
+    expect(readiness.indexOf("await assertSalesSchema(pool)")).toBeLessThan(readiness.indexOf("await assertReportingTimezone(pool)"));
+    expect(readiness).toContain('"sales-accounts"');
+    expect(readiness).toContain('"sales-attachment-references"');
+    expect(readiness).toContain('"sales-import-jobs"');
+    expect(readiness).toContain("sales_import_chunks");
+    expect(readiness).toContain("sales_export_jobs");
+    expect(readiness).toContain("sales_merge_lineage");
+    expect(readiness).toContain('"sales-notifications", "sales-reminders"');
+    expect(readiness).toContain('"allowed_transition_stage_ids", "required_field_ids"');
+    expect(readiness).toContain('legacyStages?.has("allowed_transitions")');
+    expect(readiness).toContain("currentRevision !== 3");
+    expect(readiness).toContain("predecessorRevisions, [1, 2]");
     expect(readiness).toContain("ApplicationManifestSchema.parse");
     expect(readiness).toContain("PackageReleaseManifestSchema.parse");
-    expect(readiness).toContain("assertMigrationReadiness");
+    expect(readiness).toContain("assertPlatformReleaseReadiness");
+    expect(readiness).toContain("migrationSetDigest: closure.migration.digest, releaseClosure: closure.digest, declaredMigrations: closure.migration.migrations");
+    expect(readiness.indexOf("assertGeneratedExecutableClosure({ root")).toBeLessThan(readiness.indexOf("await assertPlatformReleaseReadiness"));
+    expect(readiness.indexOf("await assertPlatformReleaseReadiness")).toBeLessThan(readiness.indexOf("await assertSalesSchema(pool)"));
+    expect(doctor.indexOf("await reconcileKnexReadiness(payload)")).toBeLessThan(doctor.indexOf("console.log(kNexApplicationReadyMarker)"));
     expect(readiness).toContain("new NodeHttpsAdministrationOperatorClient");
     expect(readiness).toContain("assertExactProtectedRoleBaselineState");
     expect(readiness).toContain("currentProtectedPlatformRoleBaselineRelease");
@@ -59,9 +87,12 @@ describe("generated application readiness", () => {
     expect(readiness).not.toContain("same(salesGenerations, [kNexSalesRegistry.authorizationGeneration])");
     expect(readiness).not.toContain('assignment.id === "customer.initial-sales-administrator.owner"');
     expect(readiness).toContain("expectedMigrationNames");
+    expect(readiness).toContain('"20260909_000035_static_rebind_lock_protocol"');
     expect(readiness).toContain("expectedRouteSources");
     expect(readiness).toContain('"src/app/(workspace)/system/extensions/[extensionId]/page.tsx"');
     expect(readiness).toContain('"src/app/api/system/themes/profiles/[profileId]/publish/route.ts"');
+    expect(readiness).toContain('"src/app/api/k-nex/sales/import-upload/route.ts"');
+    expect(readiness).toContain('"src/app/api/k-nex/sales/export-artifact/route.ts"');
     expect(readiness).not.toContain("payload.destroy()");
 
     for (const name of ["K_NEX_ADMINISTRATION_OPERATOR_HOST", "K_NEX_ADMINISTRATION_OPERATOR_PORT", "K_NEX_ADMINISTRATION_OPERATOR_URI_SAN", "K_NEX_ADMINISTRATION_OPERATOR_IDENTITY"]) {
@@ -83,5 +114,17 @@ describe("generated application readiness", () => {
     expect(route).not.toContain("readProtectedRoleBaselineReceipt");
     expect(doctor).not.toContain("const missing =");
     expect(doctor).not.toContain("readState(");
+  });
+
+  it("executes readiness against the persisted general document revision and owner", async () => {
+    const readiness = applicationAuthFiles({ applicationId: "customer-alpha" })["src/k-nex-readiness.ts"]!;
+    const body = readiness.slice(readiness.indexOf("async function assertReportingTimezone"), readiness.indexOf("export async function reconcileKnexReadiness"));
+    const executable = ts.transpileModule(`${body}\nreturn assertReportingTimezone;`, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText;
+    const validate = new Function("kNexIdentity", "canonicalIana", "fail", executable)({ applicationId: "app", environment: "production" }, (value: unknown) => value === "UTC", (message: string) => { throw new Error(message); }) as (pool: unknown) => Promise<void>;
+    const document = { descriptor_schema_version: 3, owner_scope_key: "platform:system", owner_kind: "platform", owner_namespace: "system", owner_delivery_class: null, owner_extension_id: null, owner_generation: null, document_revision: 4, settings_revision: 3, values_json: { reportingCurrency: "USD", reportingTimezone: "UTC" } };
+    const pool = (stateRevision: number, row: unknown) => ({ query: async (statement: string) => ({ rows: statement.includes("k_nex_system_settings_state") ? [{ settings_revision: stateRevision }] : [row] }) });
+    await expect(validate(pool(5, document))).resolves.toBeUndefined();
+    await expect(validate(pool(2, document))).rejects.toThrow("readiness mismatch");
+    await expect(validate(pool(5, { ...document, owner_kind: "extension" }))).rejects.toThrow("readiness mismatch");
   });
 });

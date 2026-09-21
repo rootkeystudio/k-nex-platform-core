@@ -60,6 +60,9 @@ function harness(options: Readonly<{ authorityGenerationId?: string; racedInsert
   const query = vi.fn(async <T extends object>(text: string, values?: readonly unknown[]) => {
     statements.push(text);
     if (["begin", "commit", "rollback"].includes(text) || text.startsWith("select pg_advisory_xact_lock")) return { rows: [] as T[] };
+    if (text.startsWith("select extension_id from runtime_extensions")) {
+      return { rows: rows.map(({ extension_id }) => ({ extension_id })) as T[] };
+    }
     if (text.includes("from runtime_static_deployments d")) {
       const generationId = options.authorityGenerationId ?? applicationGenerationId;
       const deploymentReceipt = options.receiptMode ? receipt : undefined;

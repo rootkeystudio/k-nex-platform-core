@@ -13,11 +13,11 @@ describe("bounded Sales form spike", () => {
       async query() { return { ok: false, problem: { code: "UNUSED", status: 500 } }; },
       async mutate(request) {
         calls.push(request.action.id);
-        return { ok: true, data: { id: "task-1", title: (request.input as { title: string }).title, status: "open" } };
+        return { ok: true, data: { id: "task-1", title: (request.input as { title: string }).title, status: "open", revision: 1 } };
       }
     };
     const controller = createFormController({
-      initialValues: { title: "", status: "open" as const },
+      initialValues: { title: "" },
       validate: (values) => values.title.length === 0 ? { title: "Required" } : {},
       submit: (values, requestSignal) => salesCreateTaskMutation.execute(transport, values, { signal: requestSignal, idempotencyKey: "form-task-1" })
     });
@@ -30,23 +30,32 @@ describe("bounded Sales form spike", () => {
     expect(controller.change(submitted, "title", "Follow up").dirty).toBe(false);
     expect(controller.change(submitted, "title", "Next follow up").dirty).toBe(true);
     expect(calls).toEqual(["sales.task.create"]);
-    expect(salesCreateTaskMutation.invalidation.sources).toEqual(["sales.tasks", "sales.total-potential-revenue"]);
+    expect(salesCreateTaskMutation.invalidation.sources).toEqual(["sales.tasks"]);
   });
 
   it("maps bounded server field errors and conflicts for opportunity edit", async () => {
     const transport: BrowserDataTransport = {
       async query() { return { ok: false, problem: { code: "UNUSED", status: 500 } }; },
       async mutate() {
-        return { ok: false, problem: { code: "STALE_RECORD", status: 409, fieldErrors: [{ field: "stage", message: "Stage changed", code: "stale" }, { field: "foreign", message: "Ignored" }] } };
+        return { ok: false, problem: { code: "STALE_RECORD", status: 409, fieldErrors: [{ field: "destinationStageId", message: "Stage changed", code: "stale" }, { field: "foreign", message: "Ignored" }] } };
       }
     };
     const controller = createFormController({
-      initialValues: { id: "opp-1", expectedStage: "lead" as const, expectedRevision: "2026-09-03T08:00:00.000Z", stage: "lead" as "lead" | "qualified" | "won" | "lost" },
+      initialValues: {
+        id: "opp-1",
+        expectedRevision: 7,
+        expectedPipelineId: "17",
+        expectedPipelineRevision: 4,
+        expectedSourceStageId: "76ad7b41-5584-5d62-ab10-2575df5a8d47",
+        expectedSourceStageRevision: 3,
+        destinationStageId: "76ad7b41-5584-5d62-ab10-2575df5a8d47",
+        expectedDestinationStageRevision: 4
+      },
       validate: () => ({}),
       submit: (values, requestSignal) => salesOpportunityStageMutation.execute(transport, values, { signal: requestSignal, idempotencyKey: "form-opp-1" })
     });
-    const result = await controller.submit(controller.change(controller.initial(), "stage", "qualified"), signal);
-    expect(result.fieldErrors).toEqual({ stage: "Stage changed" });
+    const result = await controller.submit(controller.change(controller.initial(), "destinationStageId", "a5299df1-1fd8-50dd-947a-4ed1ea145b2d"), signal);
+    expect(result.fieldErrors).toEqual({ destinationStageId: "Stage changed" });
     expect(result.formError).toBe("STALE_RECORD");
   });
 
@@ -56,8 +65,18 @@ describe("bounded Sales form spike", () => {
       async query(request) {
         calls.push(request.source.id);
         return { ok: true, data: {
-          fields: ["name", "stage", "value"],
-          rows: [{ key: "opp-1", values: { name: { kind: "text", value: "Platform rollout" }, stage: { kind: "status", value: "qualified" }, value: { kind: "money", value: "1200.5", currency: "USD", scale: 2 } } }],
+          fields: ["name", "pipeline-id", "pipeline-revision", "stage-id", "stage-name", "stage-semantic", "stage-revision", "revision", "amount"],
+          rows: [{ key: "opp-1", values: {
+            name: { kind: "text", value: "Platform rollout" },
+            "pipeline-id": { kind: "integer", value: 17 },
+            "pipeline-revision": { kind: "integer", value: 4 },
+            "stage-id": { kind: "status", value: "76ad7b41-5584-5d62-ab10-2575df5a8d47" },
+            "stage-name": { kind: "text", value: "Discovery" },
+            "stage-semantic": { kind: "enum", value: "discovery" },
+            "stage-revision": { kind: "integer", value: 3 },
+            revision: { kind: "integer", value: 7 },
+            amount: { kind: "money", value: "1200.5", currency: "USD", scale: 2 }
+          } }],
           page: { number: 1, pageSize: 25, hasNext: false }
         } };
       },

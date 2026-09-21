@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFileSync, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { createServer } from "node:net";
 import { mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
@@ -14,13 +14,11 @@ import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import pg from "pg";
 import { chromium } from "playwright";
 
+import { runGeneratedApplicationCommand as run } from "./generated-application-command.mjs";
+
 const POSTGRES_IMAGE = "postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94";
 const repositoryRoot = resolve(import.meta.dirname, "../../..");
 const environment = "test";
-
-function run(command, arguments_, options) {
-  return execFileSync(command, arguments_, { ...options, encoding: "utf8", timeout: 120_000 });
-}
 
 async function unusedPort() {
   const server = createServer();
@@ -51,11 +49,19 @@ function start(command, arguments_, options) {
 }
 
 async function stop(child, label) {
-  if (!child || child.exitCode !== null) return;
-  child.kill("SIGTERM");
+  if (!child || child.exitCode !== null || child.signalCode !== null) return;
   await new Promise((resolveClose, reject) => {
-    const timeout = setTimeout(() => reject(new Error(`${label} process did not stop.`)), 10_000);
-    child.once("close", () => { clearTimeout(timeout); resolveClose(); });
+    let hardTimeout;
+    const gracefulTimeout = setTimeout(() => {
+      child.kill("SIGKILL");
+      hardTimeout = setTimeout(() => reject(new Error(`${label} process did not stop.`)), 5_000);
+    }, 10_000);
+    child.once("close", () => {
+      clearTimeout(gracefulTimeout);
+      clearTimeout(hardTimeout);
+      resolveClose();
+    });
+    child.kill("SIGTERM");
   });
 }
 
@@ -128,8 +134,9 @@ test("P12.10 generated applications resolve durable shell and page Theme Profile
   const root = realpathSync(mkdtempSync(join(tmpdir(), "p12-generated-themes-")));
   const pool = new pg.Pool({ connectionString: container.getConnectionUri() });
   const browser = await chromium.launch();
+  let primaryError;
   try {
-    const releaseManifest = JSON.parse(readFileSync(resolve(repositoryRoot, "releases/1.0.0/package-release-manifest.json"), "utf8"));
+    const releaseManifest = JSON.parse(readFileSync(resolve(repositoryRoot, "releases/1.1.0/package-release-manifest.json"), "utf8"));
     const packageSource = verifiedPackageSource(releaseManifest, resolve(repositoryRoot, "fixtures/customer-gate-1/packages"));
     const cases = [
       { theme: "minimal", applicationId: "p12-theme-minimal", expected: { shellBackground: "rgb(255, 255, 255)", shellColor: "rgb(21, 23, 26)", sidebarBackground: "rgb(255, 255, 255)", sidebarBorder: "rgb(214, 217, 224)", headerBackground: "rgb(255, 255, 255)", headerBorder: "rgb(214, 217, 224)", navigationColor: "rgb(21, 23, 26)", focusColor: "rgb(36, 87, 255)" } },
@@ -139,7 +146,7 @@ test("P12.10 generated applications resolve durable shell and page Theme Profile
       const application = join(root, current.theme);
       const ownerEmail = `owner-${current.theme}-${randomUUID()}@example.test`;
       const ownerPassword = randomBytes(24).toString("base64url");
-      const plan = planCreateKnexApplication({ applicationId: current.applicationId, applicationName: `P12 ${current.theme} Theme`, theme: current.theme, database: "external", packageSource });
+      const plan = planCreateKnexApplication({ applicationId: current.applicationId, applicationName: `P12 ${current.theme} Theme`, theme: current.theme, database: "external", primaryCurrency: "USD", packageSource });
       applyCreateKnexApplication(plan, application);
       for (const command of plan.installCommands) run(command[0], command.slice(1), { cwd: application, stdio: "pipe" });
       const applicationEnvironment = { ...process.env, DATABASE_URL: container.getConnectionUri(), K_NEX_ENVIRONMENT: environment, K_NEX_PUBLIC_ORIGIN: `http://127.0.0.1:${await unusedPort()}`, PAYLOAD_SECRET: randomBytes(32).toString("hex") };
@@ -150,6 +157,7 @@ test("P12.10 generated applications resolve durable shell and page Theme Profile
       run("pnpm", ["knex:bootstrap-owner", "--token-file", tokenFile], { cwd: application, env: { ...applicationEnvironment, K_NEX_OWNER_EMAIL: ownerEmail, K_NEX_OWNER_PASSWORD: ownerPassword }, stdio: "pipe" });
       let applicationProcess;
       let context;
+      let caseError;
       try {
         applicationProcess = await startApplication(application, applicationEnvironment);
         const owner = await login(applicationProcess.origin, ownerEmail, ownerPassword);
@@ -167,8 +175,13 @@ test("P12.10 generated applications resolve durable shell and page Theme Profile
         const shellBefore = await assertShellTheme(page, current.expected);
 
         if (current.theme === "minimal") {
+          // The generated theme runtime accepts only profiles declaring the
+          // theme version it ships, so bind this override to the release under
+          // test instead of a literal that goes stale on the next release.
+          const minimalThemeVersion = releaseManifest.packages.find(({ package: packageName }) => packageName === "@k-nex/theme-minimal")?.version;
+          assert.match(minimalThemeVersion ?? "", /^\d+\.\d+\.\d+$/u, "Release manifest does not declare the minimal theme version.");
           const override = {
-            schemaVersion: 1, id: "workspace.theme.override", surface: "admin", themeId: "theme.minimal", themeVersion: "1.0.0", palette: "light", mode: "light",
+            schemaVersion: 1, id: "workspace.theme.override", surface: "admin", themeId: "theme.minimal", themeVersion: minimalThemeVersion, palette: "light", mode: "light",
             values: { "color.background": "#ffe0e0", "color.border": "#cc0000", "color.accent": "#007a00" },
             revision: { id: "workspace.theme.override.one", number: 1, state: "published", createdAt: "2026-09-04T00:00:00.000Z", publishedAt: "2026-09-04T00:00:00.000Z" }
           };
@@ -198,15 +211,29 @@ test("P12.10 generated applications resolve durable shell and page Theme Profile
           console.log("P12_DURABLE_PAGE_THEME_OVERRIDE_POSTGRES_HTTP_CHROMIUM_BOUNDARY=PASS");
         }
         console.log(`P12_${current.theme.toUpperCase()}_SHELL_THEME_POSTGRES_HTTP_CHROMIUM=PASS`);
+      } catch (error) {
+        caseError = error;
       } finally {
-        await context?.close().catch(() => {});
-        await stop(applicationProcess?.child, `${current.theme} application`).catch(() => {});
+        const cleanupErrors = [];
+        try { await context?.close(); } catch (error) { cleanupErrors.push(error); }
+        try { await stop(applicationProcess?.child, `${current.theme} application`); } catch (error) { cleanupErrors.push(error); }
+        if (caseError !== undefined && cleanupErrors.length > 0) throw new AggregateError([caseError, ...cleanupErrors], `P12.10 ${current.theme} test and cleanup failed.`);
+        if (caseError !== undefined) throw caseError;
+        if (cleanupErrors.length === 1) throw cleanupErrors[0];
+        if (cleanupErrors.length > 1) throw new AggregateError(cleanupErrors, `P12.10 ${current.theme} cleanup failed.`);
       }
     }
+  } catch (error) {
+    primaryError = error;
   } finally {
-    await browser.close().catch(() => {});
-    await pool.end().catch(() => {});
-    await container.stop();
-    rmSync(root, { recursive: true, force: true });
+    const cleanupErrors = [];
+    try { await browser.close(); } catch (error) { cleanupErrors.push(error); }
+    try { await pool.end(); } catch (error) { cleanupErrors.push(error); }
+    try { await container.stop(); } catch (error) { cleanupErrors.push(error); }
+    try { rmSync(root, { recursive: true, force: true }); } catch (error) { cleanupErrors.push(error); }
+    if (primaryError !== undefined && cleanupErrors.length > 0) throw new AggregateError([primaryError, ...cleanupErrors], "P12.10 test and cleanup failed.");
+    if (primaryError !== undefined) throw primaryError;
+    if (cleanupErrors.length === 1) throw cleanupErrors[0];
+    if (cleanupErrors.length > 1) throw new AggregateError(cleanupErrors, "P12.10 cleanup failed.");
   }
 });

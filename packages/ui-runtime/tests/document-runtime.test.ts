@@ -71,6 +71,19 @@ describe("UI document runtime", () => {
     expect(node.children[0]).toMatchObject({ status: "rendered", nodeId: "card-2", output: "SECOND" });
   });
 
+  it("carries only validated request-local pipeline identity outside the canonical document", () => {
+    const pipeline = block({
+      id: "sales.pipeline-settings",
+      propsSchema: { safeParse: () => ({ success: true as const, data: {} }) },
+      render: ({ node }) => (node as UiDocument["regions"][string][number] & { pipelineIdentity?: unknown }).pipelineIdentity
+    });
+    const runtime = createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: [pipeline], sources: [] }));
+    const input = document({ type: "sales.pipeline-settings", props: {}, pipelineIdentity: { applicationId: "app", environment: "production" } }) as unknown;
+    expect(firstNode(runtime.render({ document: input, surface: "workspace", actor: actor() }))).toMatchObject({ status: "rendered", output: { applicationId: "app", environment: "production" } });
+    const invalid = document({ type: "sales.pipeline-settings", props: {}, pipelineIdentity: { applicationId: "app" } }) as unknown;
+    expect(runtime.render({ document: invalid, surface: "workspace", actor: actor() })).toMatchObject({ success: false, code: "DOCUMENT_MIGRATION_FAILED", migrationCode: "INVALID_DOCUMENT" });
+  });
+
   it("fails closed for migration, profile/surface, and authentication", () => {
     const runtime = createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: [block()], sources: [] }));
     expect(runtime.render({ document: {}, surface: "workspace", actor: actor() })).toEqual({ success: false, code: "DOCUMENT_MIGRATION_FAILED", migrationCode: "MISSING_SCHEMA_VERSION", remediation: "MIGRATE_DOCUMENT" });

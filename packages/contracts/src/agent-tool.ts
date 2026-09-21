@@ -24,7 +24,7 @@ export const agentToolRiskClasses = ["low", "medium", "high", "critical"] as con
 export const agentToolApprovalPolicies = ["none", "per-call"] as const;
 export const agentToolIdempotencyPolicies = ["not-applicable", "recommended", "required"] as const;
 
-export type AgentToolJsonSchema = {
+type AgentToolJsonSchemaBranch = {
   readonly type: z.infer<typeof jsonSchemaType>;
   readonly title?: string | undefined;
   readonly description?: string | undefined;
@@ -35,25 +35,36 @@ export type AgentToolJsonSchema = {
   readonly items?: AgentToolJsonSchema | undefined;
   readonly minLength?: number | undefined;
   readonly maxLength?: number | undefined;
+  readonly maxUtf8Bytes?: number | undefined;
   readonly minimum?: number | undefined;
   readonly maximum?: number | undefined;
   readonly minItems?: number | undefined;
   readonly maxItems?: number | undefined;
 };
 
-const jsonSchemaNodeSchema: z.ZodType<AgentToolJsonSchema> = z.lazy(() => z.strictObject({
+type AgentToolJsonSchemaUnion = {
+  readonly oneOf: readonly AgentToolJsonSchema[];
+  readonly title?: string | undefined;
+  readonly description?: string | undefined;
+};
+
+/** A bounded strict JSON-schema subset, including exact-one unions for public action grammars. */
+export type AgentToolJsonSchema = AgentToolJsonSchemaBranch | AgentToolJsonSchemaUnion;
+
+const jsonSchemaBranchSchema = (children: z.ZodType<AgentToolJsonSchema>) => z.strictObject({
   type: jsonSchemaType,
   title: z.string().min(1).max(120).optional(),
   description: z.string().min(1).max(512).optional(),
   enum: z.array(jsonSchemaEnumValue).max(64).optional(),
-  properties: z.record(jsonSchemaPropertyName, jsonSchemaNodeSchema).superRefine((properties, context) => {
+  properties: z.record(jsonSchemaPropertyName, children).superRefine((properties, context) => {
     if (Object.keys(properties).length > 64) context.addIssue({ code: "custom", message: "JSON object schemas cannot declare more than 64 properties." });
   }).optional(),
   required: uniqueArray(jsonSchemaPropertyName).max(64).optional(),
   additionalProperties: z.literal(false).optional(),
-  items: jsonSchemaNodeSchema.optional(),
+  items: children.optional(),
   minLength: z.number().finite().int().min(0).max(65_536).optional(),
   maxLength: z.number().finite().int().min(0).max(65_536).optional(),
+  maxUtf8Bytes: z.number().finite().int().min(0).max(65_536).optional(),
   minimum: z.number().finite().optional(),
   maximum: z.number().finite().optional(),
   minItems: z.number().finite().int().min(0).max(1_024).optional(),
@@ -88,24 +99,39 @@ const jsonSchemaNodeSchema: z.ZodType<AgentToolJsonSchema> = z.lazy(() => z.stri
   if (schema.minLength !== undefined && schema.maxLength !== undefined && schema.minLength > schema.maxLength) {
     context.addIssue({ code: "custom", path: ["maxLength"], message: "JSON schema maxLength cannot be less than minLength." });
   }
+  if (schema.type !== "string" && schema.maxUtf8Bytes !== undefined) {
+    context.addIssue({ code: "custom", path: ["maxUtf8Bytes"], message: "JSON schema maxUtf8Bytes is only valid for string schemas." });
+  }
   if (schema.minimum !== undefined && schema.maximum !== undefined && schema.minimum > schema.maximum) {
     context.addIssue({ code: "custom", path: ["maximum"], message: "JSON schema maximum cannot be less than minimum." });
   }
   if (schema.minItems !== undefined && schema.maxItems !== undefined && schema.minItems > schema.maxItems) {
     context.addIssue({ code: "custom", path: ["maxItems"], message: "JSON schema maxItems cannot be less than minItems." });
   }
-}));
+});
+
+const jsonSchemaNodeSchema: z.ZodType<AgentToolJsonSchema> = z.lazy(() => z.union([
+  jsonSchemaBranchSchema(jsonSchemaNodeSchema),
+  z.strictObject({
+    oneOf: z.array(jsonSchemaNodeSchema).min(2).max(8),
+    title: z.string().min(1).max(120).optional(),
+    description: z.string().min(1).max(512).optional()
+  })
+]) as z.ZodType<AgentToolJsonSchema>);
 
 function validateSchemaDepth(schema: AgentToolJsonSchema, depth: number, context: z.RefinementCtx): void {
   if (depth > schemaDepthLimit) {
     context.addIssue({ code: "custom", path: [], message: `JSON schema nesting cannot exceed ${schemaDepthLimit} levels.` });
     return;
   }
-  for (const child of Object.values(schema.properties ?? {})) validateSchemaDepth(child, depth + 1, context);
-  if (schema.items !== undefined) validateSchemaDepth(schema.items, depth + 1, context);
+  if ("oneOf" in schema) for (const child of schema.oneOf) validateSchemaDepth(child, depth + 1, context);
+  else {
+    for (const child of Object.values(schema.properties ?? {})) validateSchemaDepth(child, depth + 1, context);
+    if (schema.items !== undefined) validateSchemaDepth(schema.items, depth + 1, context);
+  }
 }
 
-export const AgentToolJsonSchemaSchema = jsonSchemaNodeSchema;
+export const AgentToolJsonSchemaSchema = jsonSchemaNodeSchema.superRefine((schema, context) => validateSchemaDepth(schema, 1, context));
 
 function runtimeSchemaResult<T>(success: boolean, data: T): RuntimeSchemaResult<T> {
   return success ? { success: true, data } : { success: false, error: new TypeError("Value does not satisfy the JSON schema.") };
@@ -117,11 +143,12 @@ function isJsonObject(value: unknown): value is Readonly<Record<string, unknown>
   return prototype === Object.prototype || prototype === null;
 }
 
-function matchesEnum(schema: AgentToolJsonSchema, value: unknown): boolean {
+function matchesEnum(schema: AgentToolJsonSchemaBranch, value: unknown): boolean {
   return schema.enum === undefined || schema.enum.some((candidate) => candidate === value);
 }
 
 function matchesJsonSchema(schema: AgentToolJsonSchema, value: unknown): boolean {
+  if ("oneOf" in schema) return schema.oneOf.filter((branch) => matchesJsonSchema(branch, value)).length === 1;
   switch (schema.type) {
     case "null":
       return value === null && matchesEnum(schema, value);
@@ -131,6 +158,7 @@ function matchesJsonSchema(schema: AgentToolJsonSchema, value: unknown): boolean
       if (typeof value !== "string") return false;
       if (schema.minLength !== undefined && [...value].length < schema.minLength) return false;
       if (schema.maxLength !== undefined && [...value].length > schema.maxLength) return false;
+      if (schema.maxUtf8Bytes !== undefined && new TextEncoder().encode(value).byteLength > schema.maxUtf8Bytes) return false;
       return matchesEnum(schema, value);
     case "number":
     case "integer":

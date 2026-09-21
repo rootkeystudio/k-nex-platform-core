@@ -44,6 +44,19 @@ interface GitHubVerificationEntry {
   };
 }
 
+/**
+ * This verifier performs no cryptography. Signature, certificate chain, and
+ * transparency-log verification belong to `gh attestation verify`, which the
+ * caller must run first and whose exit status is the cryptographic decision;
+ * this function only reads that already-verified output and binds the identity
+ * the platform requires to it.
+ *
+ * Callers must therefore let `gh` enforce the signer itself - `--repo`,
+ * `--signer-workflow`, `--predicate-type`, and `--deny-self-hosted-runners` -
+ * rather than relying on the field comparisons below, which can only observe
+ * what `gh` already accepted. Passing this function anything other than the
+ * genuine stdout of such an invocation verifies nothing at all.
+ */
 export function createGitHubHostedAttestationVerifier(input: {
   readonly repository: string;
   readonly workflow: string;

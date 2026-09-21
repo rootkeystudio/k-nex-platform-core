@@ -116,6 +116,28 @@ export const MetricScalarSchema = z.strictObject({
   title: "K-Nex metric.scalar@1"
 });
 
+/** metric.scalar@2 preserves v1 except that unavailable percentage/duration facts are explicit nulls. */
+export const MetricPercentageValueV2Schema = z.strictObject({ kind: z.literal("percentage"), value: DecimalSchema.nullable() });
+export const MetricDurationValueV2Schema = z.strictObject({ kind: z.literal("duration"), value: DecimalSchema.nullable(), unit: z.enum(durationUnits) });
+export const MetricScalarValueV2Schema = z.discriminatedUnion("kind", [
+  MetricIntegerValueSchema, MetricNumberValueSchema, MetricDecimalValueSchema, MetricMoneyValueSchema,
+  MetricPercentageValueV2Schema, MetricDurationValueV2Schema, MetricTextValueSchema
+]);
+export const MetricScalarComparisonV2Schema = z.strictObject({ value: MetricScalarValueV2Schema, sentiment: z.enum(metricSentiments) });
+export const MetricScalarV2Schema = z.strictObject({ value: MetricScalarValueV2Schema, comparison: MetricScalarComparisonV2Schema.optional() }).superRefine((metric, context) => {
+  const comparison = metric.comparison?.value;
+  const unavailable = (value: typeof metric.value) => (value.kind === "percentage" || value.kind === "duration") && value.value === null;
+  if (comparison === undefined) return;
+  if (unavailable(metric.value) || unavailable(comparison)) {
+    context.addIssue({ code: "custom", path: ["comparison"], message: "Unavailable metric values cannot declare a comparison." }); return;
+  }
+  if (metric.value.kind !== comparison.kind) { context.addIssue({ code: "custom", path: ["comparison", "value", "kind"], message: "A comparison must use the same scalar kind as the metric value." }); return; }
+  if (metric.value.kind === "money" && "currency" in comparison && metric.value.currency !== comparison.currency) context.addIssue({ code: "custom", path: ["comparison", "value", "currency"], message: "Money comparisons must use the same currency." });
+  if ((metric.value.kind === "decimal" || metric.value.kind === "duration") && "unit" in comparison && metric.value.unit !== comparison.unit) context.addIssue({ code: "custom", path: ["comparison", "value", "unit"], message: "Unit-bearing comparisons must use the same unit." });
+}).meta({ $id: "https://schemas.k-nex.dev/metric-scalar/v2.json", title: "K-Nex metric.scalar@2" });
+
+export function metricScalarSchemaForVersion(version: 1 | 2) { return version === 1 ? MetricScalarSchema : MetricScalarV2Schema; }
+
 export type MetricIntegerValue = z.infer<typeof MetricIntegerValueSchema>;
 export type MetricNumberValue = z.infer<typeof MetricNumberValueSchema>;
 export type MetricDecimalValue = z.infer<typeof MetricDecimalValueSchema>;
@@ -126,6 +148,7 @@ export type MetricTextValue = z.infer<typeof MetricTextValueSchema>;
 export type MetricScalarValue = z.infer<typeof MetricScalarValueSchema>;
 export type MetricScalarComparison = z.infer<typeof MetricScalarComparisonSchema>;
 export type MetricScalar = z.infer<typeof MetricScalarSchema>;
+export type MetricScalarV2 = z.infer<typeof MetricScalarV2Schema>;
 export type MetricRoundingMode = (typeof metricRoundingModes)[number];
 export type DurationUnit = (typeof durationUnits)[number];
 export type MetricSentiment = (typeof metricSentiments)[number];

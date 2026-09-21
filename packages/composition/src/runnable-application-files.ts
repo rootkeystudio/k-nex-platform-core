@@ -55,16 +55,39 @@ Before starting this application, deploy the K-Nex administration operator as a 
 
 ## Local development
 
-Copy \`.env.example\` to \`.env\`, set every value, then run:
+Copy \`.env.example\` to \`.env\`, set every value, then run the steps in this order. \`knex:doctor\` reports readiness, which requires the schema, the owner, and a reachable administration operator, so it runs after those exist rather than before them:
 
 \`\`\`bash
 pnpm install --frozen-lockfile
-pnpm knex:doctor
+pnpm build
 ${options.database === "docker-postgres" ? "pnpm knex:db:up\n" : ""}pnpm knex:migrate
 pnpm knex:issue-bootstrap-token -- --output .k-nex-bootstrap-token
 pnpm knex:bootstrap-owner -- --token-file .k-nex-bootstrap-token
+pnpm knex:doctor
 pnpm dev
 \`\`\`
+
+Run \`pnpm knex:worker\` alongside \`pnpm dev\`: reminders, notifications, exports, and provider delivery are processed by that worker, not by the web process.
+
+## Communication providers
+
+This release ships one bounded reference provider for email and calendar. \`K_NEX_REFERENCE_PROVIDER_ENDPOINT\` accepts only \`http://127.0.0.1/k-nex/reference-provider\`, and that endpoint is something you run: no SMTP, calendar, or third-party integration is included. Until a provider configuration is activated, the email and calendar actions fail closed with \`PROVIDER_UNAVAILABLE\` rather than accepting messages that cannot be delivered.
+
+The endpoint you run is held to the \`k-nex.reference-provider.v1\` contract, and it is the only provider family this release admits. Nothing here can unsend a message, so the endpoint must (1) treat the \`idempotency-key\` header as a durable exactly-once key whose store survives a provider restart, (2) answer \`{"providerReceiptId","idempotencyKey","duplicate"}\` as JSON on every accepted send, (3) answer the same receipt for a request carrying \`x-k-nex-reconcile: 1\` and \`404\` when the key is unknown, so a worker that lost a response reconciles instead of sending twice, and (4) answer \`409\` when a key it already holds arrives with different bytes. The worker verifies that declaration before every effect, records the opaque receipt, and never holds a database lock across your call.
+
+Outbound provider credentials and inbound webhook signing keys are separate slots with separate rotation. \`K_NEX_PROVIDER_SECRET_EMAIL_REFERENCE\` and \`K_NEX_PROVIDER_SECRET_CALENDAR_REFERENCE\` authorize outbound calls only; \`K_NEX_WEBHOOK_SECRET_EMAIL_REFERENCE\` and \`K_NEX_WEBHOOK_SECRET_CALENDAR_REFERENCE\` verify inbound webhook signatures only. A reference minted for one purpose never resolves under the other, so losing an API credential does not grant webhook-forgery authority.
+
+## Attachment upload receipts
+
+Attachment bytes are admitted by host storage before a Sales attachment reference is created. A deployment/operator process with this application's database authority records one immutable receipt; browsers and Sales actions cannot issue receipts. After storage has durably accepted the exact bytes, issue the bounded receipt with the same application environment:
+
+\`\`\`bash
+pnpm knex:issue-attachment-upload-receipt -- \\
+  --storage-ref storage/object-123 --uploader-actor-id user:123 \\
+  --filename document.pdf --media-type application/pdf --byte-size 1024
+\`\`\`
+
+Reissuing identical facts is safe. A storage reference already bound to different application, environment, uploader, filename, media type, byte size, or receipt revision fails closed.
 
 Production-mode check:
 
@@ -76,23 +99,126 @@ pnpm start
     "src/app/(payload)/api/[...slug]/route.ts": `import config from "@payload-config";
 import { REST_DELETE, REST_GET, REST_OPTIONS, REST_PATCH, REST_POST, REST_PUT } from "@payloadcms/next/routes";
 
-export const GET = REST_GET(config);
-export const POST = REST_POST(config);
-export const DELETE = REST_DELETE(config);
-export const PATCH = REST_PATCH(config);
-export const PUT = REST_PUT(config);
-export const OPTIONS = REST_OPTIONS(config);
-`,
-    "src/app/(payload)/api/graphql/route.ts": `import config from "@payload-config";
-import { GRAPHQL_POST, REST_OPTIONS } from "@payloadcms/next/routes";
+import { bootKnexApplication } from "../../../../boot.js";
+import { credentialAuthorityRefusal, credentialSensitiveRestMediaType, credentialSensitiveRestOperation, readCredentialSensitiveRestRequest, refusedCredentialRestOperation, withCredentialSensitiveRestAuthority } from "../../../../k-nex-authority.js";
 
-export const POST = GRAPHQL_POST(config);
-export const OPTIONS = REST_OPTIONS(config);
-`,
-    "src/app/(payload)/api/graphql-playground/route.ts": `import config from "@payload-config";
-import { GRAPHQL_PLAYGROUND_GET } from "@payloadcms/next/routes";
+type PayloadRestContext = Readonly<{ params: Promise<{ slug?: string[] }> }>;
 
-export const GET = GRAPHQL_PLAYGROUND_GET(config);
+const restPost = REST_POST(config);
+
+function credentialRefusal(status: number, message: string): Response {
+  return Response.json({ errors: [{ message }] }, { status, headers: { "cache-control": "no-store" } });
+}
+
+/**
+ * Payload resolves the collection a path names by indexing a plain object with
+ * the first segment, so the names every plain object inherits resolve to a
+ * member of Object.prototype rather than to no collection at all. The request
+ * then reads .config off that member and throws, and the error handler called
+ * to report that throws again reading .config.hooks off the same member, so an
+ * unauthenticated request answers 500 and leaves a stack trace where every
+ * other name it could have written answers 404. No collection in this product
+ * can be registered under one of those names, so a request that writes one
+ * names nothing, and nothing is what this answers.
+ */
+const namesInheritedByEveryObject: ReadonlySet<string> = new Set(Object.getOwnPropertyNames(Object.prototype));
+
+function unroutableCollection(request: Request, slug: readonly string[] | undefined): Response | undefined {
+  const named = slug?.[0];
+  if (named === undefined || !namesInheritedByEveryObject.has(named)) return undefined;
+  return Response.json({ message: \`Route not found "\${new URL(request.url).pathname}"\` },
+    { status: 404, headers: { "cache-control": "no-store" } });
+}
+
+function routedByCollection(handler: (request: Request, context: PayloadRestContext) => Promise<Response>) {
+  return async function route(request: Request, context: PayloadRestContext): Promise<Response> {
+    return unroutableCollection(request, (await context.params).slug) ?? handler(request, context);
+  };
+}
+
+export const GET = routedByCollection(REST_GET(config));
+export const DELETE = routedByCollection(REST_DELETE(config));
+export const PATCH = routedByCollection(REST_PATCH(config));
+export const PUT = routedByCollection(REST_PUT(config));
+export const OPTIONS = routedByCollection(REST_OPTIONS(config));
+
+/**
+ * Payload verifies a password before it opens the transaction that writes the
+ * session, builds that write out of the user document it read beforehand, and
+ * builds a logout's session write out of a snapshot it read the same way, so an
+ * ordinary sign-in can commit a session, and stale user fields with it, against
+ * a credential an operator recovery already replaced, and a logout can write
+ * the sessions that recovery revoked back over it. This route is ours, so the
+ * delegated call is held inside the credential authority for the principal it
+ * is deciding about, for the whole of the call rather than for its write. Every
+ * other method and every other path is delegated untouched.
+ *
+ * This is the only surface the Payload auth operations are reachable from. The
+ * GraphQL routes this product emits stand in front of the catch-all and answer
+ * every method with a refusal, and the users collection is declared out of the
+ * GraphQL schema as well.
+ *
+ * Both classifiers read the slug under the rule Payload will route it by rather
+ * than as it was spelled, because Payload selects an endpoint by matching one
+ * rather than by comparing it, and that matcher ignores case and one trailing
+ * delimiter. A request therefore lands where its canonical spelling lands,
+ * held under the authority or refused, and the operation carried into the
+ * authority is the canonical one rather than the caller's spelling of it.
+ */
+export async function POST(request: Request, context: PayloadRestContext): Promise<Response> {
+  const params = await context.params;
+  const unroutable = unroutableCollection(request, params.slug);
+  if (unroutable !== undefined) return unroutable;
+  const refused = refusedCredentialRestOperation(params.slug);
+  if (refused !== undefined) return credentialRefusal(403, refused);
+  const operation = credentialSensitiveRestOperation(params.slug);
+  if (operation === undefined) return restPost(request, context);
+  let admitted: Awaited<ReturnType<typeof readCredentialSensitiveRestRequest>>;
+  // Read before the authority is taken, and handed on as the bytes the client
+  // sent: a body that trickles must not be able to hold every sign-in and every
+  // credential change for this account behind it.
+  try { admitted = await readCredentialSensitiveRestRequest(request); }
+  catch { return credentialRefusal(400, "Request body was refused."); }
+  // Refused before anything is looked up. Payload also parses multipart and
+  // takes an operation's arguments from a _payload field, so a second
+  // encoding is a second parse, and the account the authority keys on is only
+  // the account the delegated call authenticates while there is just one.
+  if (!credentialSensitiveRestMediaType(admitted)) {
+    return credentialRefusal(415, "A credential operation is accepted as application/json only.");
+  }
+  const payload = await bootKnexApplication("credential-authority");
+  try {
+    return await withCredentialSensitiveRestAuthority(payload, operation, admitted, async (signal) => restPost(admitted.delegate(signal), context), request.signal);
+  } catch (error) {
+    const refusal = credentialAuthorityRefusal(error);
+    return credentialRefusal(refusal.status, refusal.message);
+  }
+}
+`,
+    "src/app/(payload)/api/graphql/route.ts": `/**
+ * Payload publishes auth mutations for every auth collection, and its GraphQL
+ * resolvers call the same operations the credential authority exists to order.
+ * Recognising those mutations would mean parsing the document, and a parser
+ * that must be right about aliases, variables, fragments, batching and
+ * multiple operations to stay safe is not a boundary. This product has no
+ * GraphQL contract, so the endpoint answers nothing at all.
+ */
+const refused = () => Response.json({ errors: [{ message: "This application does not serve GraphQL." }] },
+  { status: 404, headers: { "cache-control": "no-store" } });
+
+export const GET = refused;
+export const POST = refused;
+export const PUT = refused;
+export const PATCH = refused;
+export const DELETE = refused;
+export const OPTIONS = refused;
+`,
+    "src/app/(payload)/api/graphql-playground/route.ts": `/** A playground for an endpoint this product does not serve. */
+const refused = () => Response.json({ errors: [{ message: "This application does not serve GraphQL." }] },
+  { status: 404, headers: { "cache-control": "no-store" } });
+
+export const GET = refused;
+export const POST = refused;
 `,
     "src/app/(workspace)/page.tsx": workspacePageSource(options.applicationName),
     "src/app/layout.tsx": workspaceLayoutSource(options.applicationName),
@@ -160,10 +286,11 @@ if (process.versions.node.split(".")[0] !== "24" || missing.length > 0 || kNexSa
 console.log("K_NEX_DOCTOR_PASS");
 `,
     "src/k-nex-worker.ts": `import { bootKnexApplication } from "./boot.js";
+import { shutdownKnexApplication } from "./k-nex-authority.js";
 
 const payload = await bootKnexApplication("worker");
 console.log("K_NEX_WORKER_READY");
-await payload.destroy();
+await shutdownKnexApplication(payload);
 `,
     "src/k-nex-bootstrap-owner.ts": `if (!process.env.K_NEX_BOOTSTRAP_TOKEN) throw new Error("K_NEX_BOOTSTRAP_TOKEN is required.");
 throw new Error("Run migrations before owner bootstrap; secure owner persistence is installed by the application authorization layer.");

@@ -2,6 +2,8 @@ export * from "./installed-plugin-loader.js";
 export * from "./deterministic-resolver.js";
 export * from "./static-artifact-generator.js";
 export * from "./application-factory.js";
+export * from "./platform-release-revision.js";
+export * from "./application-upgrade-compiler.js";
 export * from "./workspace-page-application-files.js";
 export * from "./system-access-application-files.js";
 export * from "./system-theme-settings-application-files.js";

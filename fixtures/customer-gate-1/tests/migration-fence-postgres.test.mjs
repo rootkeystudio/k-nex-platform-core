@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import test from "node:test";
 
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import pg from "pg";
 
-import { assertMigrationReadiness, executeMigrationJob } from "@k-nex/runtime";
+import { assertMigrationReadiness, assertPlatformReleaseReadiness, executeMigrationJob } from "@k-nex/runtime";
 
 const POSTGRES_IMAGE = "postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94";
 
@@ -68,6 +72,372 @@ test("proves advisory-lock concurrency, rollback, release receipt, and stale rea
     });
   } finally {
     await equivalentPool.end();
+    await pool.end();
+    await container.stop();
+  }
+});
+
+/**
+ * A release is one exact database state, and the record that says so is only
+ * evidence while the database still matches it. These proofs run the product's
+ * own guard - the platform package verifies the closure, the generated registry
+ * calls it - against a materialized generated application, so what is proved is
+ * what a customer would execute.
+ */
+const generatedReleaseSources = async () => {
+  const { planCreateKnexApplication, platformInstallingState, platformReleaseState, platformTransitionSource } = await import("@k-nex/composition");
+  const { assertGeneratedMigrationClosure, generatedReleaseStepStatement } = await import("@k-nex/runtime");
+  const applicationId = "release-state-proof";
+  const release = "1.1.0";
+  const plan = planCreateKnexApplication({ applicationId, applicationName: "Release State Proof", theme: "minimal", database: "external", primaryCurrency: "USD" });
+  const declaration = plan.files[".k-nex/migration-closure.json"];
+  assert.ok(declaration, "The factory must declare the migration closure it generated.");
+  const declared = JSON.parse(declaration);
+
+  // The generated tree is written out, because the guard measures files rather
+  // than a plan: a proof against the in-memory plan would never see the tamper
+  // cases a customer's checkout can carry.
+  const root = mkdtempSync(join(tmpdir(), "k-nex-release-state-"));
+  const materialize = (path, content) => {
+    mkdirSync(dirname(join(root, path)), { recursive: true });
+    writeFileSync(join(root, path), content);
+  };
+  for (const [path, content] of Object.entries(plan.files)) {
+    if (path.startsWith("src/migrations/") || path.startsWith(".k-nex/") && !path.startsWith(".k-nex/packages/")) materialize(path, content);
+  }
+  const closure = assertGeneratedMigrationClosure(root);
+  assert.equal(closure.digest, declared.digest, "The generated application must declare the closure the platform guard computes.");
+
+  const bodyOf = (source, signature, label) => {
+    const [, extracted] = new RegExp(`function ${signature} \\{([\\s\\S]+?)\\n\\}`, "u").exec(source) ?? [];
+    assert.ok(extracted, `${label} must be generated.`);
+    return extracted;
+  };
+  const rawStatement = (path, label) => {
+    const source = plan.files[path];
+    assert.ok(source, `The factory must emit ${label}.`);
+    const [, statement] = /sql\.raw\(`([\s\S]+?)`\)\);/u.exec(source) ?? [];
+    assert.ok(statement, `${label} must carry one raw statement.`);
+    return statement;
+  };
+  // The executable closure is proved by the generated migrate command against a
+  // real installation; here the release-state SQL is what is under test, so it
+  // is handed a stand-in value and asserted to carry it through unchanged.
+  const executableClosure = `sha256:${"e".repeat(64)}`;
+  const completion = new Function("digest", "releaseClosure",
+    bodyOf(plan.files["src/migrations/20260909_000036_release_revision.ts"], "completionStatement\\(digest: string, releaseClosure: string\\): string", "The completion statement")
+  )(closure.digest, executableClosure);
+
+  return {
+    applicationId, release, plan, root, closure, declared, executableClosure,
+    installing: platformInstallingState(release),
+    complete: platformReleaseState(release),
+    source: platformTransitionSource(release),
+    canonicalPredecessorOf: platformReleaseState,
+    preflight: rawStatement("src/migrations/20260905_000026_release_preflight.ts", "a release preflight migration"),
+    completion,
+    materialize,
+    admissionFor: (step) => generatedReleaseStepStatement({ applicationId, release, step, migrations: declared.migrations }),
+    dispose: () => rmSync(root, { recursive: true, force: true })
+  };
+};
+
+test("the release record is one canonical completion receipt for both installation histories", { timeout: 180_000 }, async () => {
+  const release = await generatedReleaseSources();
+  const { applicationId, plan, closure, installing, complete, source, preflight, completion } = release;
+  const registry = [...plan.files["src/migrations/index.ts"].matchAll(/name: "([^"\n]+)"/gu)].map(([, name]) => name);
+
+  // One canonical record, and it is not the installation state.
+  assert.deepEqual(complete, { predecessorRevision: 0, revision: 2, identity: "platform-1.1.0-release" });
+  assert.deepEqual(source, { predecessorRevision: 0, revision: 1, identity: "platform-1.0.0-bootstrap" });
+  assert.notDeepEqual(installing, complete);
+  assert.deepEqual(registry, [...closure.migrations], "The generated registry and the declared migration closure must be one list.");
+
+  // The bootstrap may not claim the release it has not finished.
+  const [, bootstrapRow] = /INSERT INTO "k_nex_release_revision" VALUES \(([^)]+)\)/u.exec(plan.files["src/migrations/20260827_000002_knex_bootstrap.ts"]) ?? [];
+  assert.ok(bootstrapRow, "The bootstrap migration must insert one release row.");
+  assert.match(bootstrapRow, new RegExp(`${installing.predecessorRevision}, ${installing.revision}, '${installing.identity}'`, "u"),
+    "The bootstrap migration must record the installation, not the release.");
+  assert.equal(registry.indexOf("20260909_000036_release_revision"), registry.length - 1, "The completion step must run last.");
+
+  // Payload only ever runs migrations the registry hands it, so the admission
+  // is bound there: every declared step, not only the release steps, and
+  // through the platform's own guard rather than a generated copy of it.
+  assert.match(plan.files["src/migrations/index.ts"], /import \{ admitGeneratedReleaseExecutable \} from "@k-nex\/runtime";/u,
+    "The generated registry must admit steps through the platform guard.");
+  for (const step of closure.migrations) {
+    assert.match(plan.files["src/migrations/index.ts"], new RegExp(`\\{ name: "${step}", up: admitted\\("${step}", `, "u"),
+      `The generated registry must admit ${step} before it runs.`);
+  }
+
+  const container = await new PostgreSqlContainer(POSTGRES_IMAGE).withDatabase("release_state").withStartupTimeout(120_000).start();
+  const pool = new pg.Pool({ connectionString: container.getConnectionUri() });
+  try {
+    const createTable = async () => {
+      await pool.query("drop table if exists k_nex_release_revision");
+      await pool.query(`create table k_nex_release_revision (
+        application_id varchar primary key not null, predecessor_revision integer not null,
+        revision integer not null, release_revision varchar not null
+      )`);
+    };
+    const seed = async (state) => {
+      await createTable();
+      if (state !== undefined) {
+        await pool.query("insert into k_nex_release_revision(application_id, predecessor_revision, revision, release_revision) values ($1, $2, $3, $4)",
+          [applicationId, state.predecessorRevision, state.revision, state.identity]);
+      }
+    };
+    const seedLedger = async (names) => {
+      await pool.query("drop table if exists payload_migrations");
+      await pool.query("create table payload_migrations (id serial primary key, name text not null, batch integer not null default 1)");
+      if (names.length > 0) await pool.query("insert into payload_migrations(name) select * from unnest($1::text[])", [names]);
+    };
+    const row = async () => (await pool.query(
+      "select predecessor_revision, revision, release_revision from k_nex_release_revision where application_id = $1", [applicationId]
+    )).rows;
+    const canonicalRow = [{ predecessor_revision: complete.predecessorRevision, revision: complete.revision, release_revision: complete.identity }];
+    const declaredLedger = registry.slice(0, -1);
+    const readiness = () => assertPlatformReleaseReadiness({
+      pool, applicationId, predecessorRevision: complete.predecessorRevision, revision: complete.revision,
+      releaseRevision: complete.identity, migrationSetDigest: closure.digest, releaseClosure: release.executableClosure,
+      declaredMigrations: closure.migrations
+    });
+
+    // Fresh installation: admitted while installing, completed once the exact
+    // declared set is applied, and identical to the upgraded record.
+    await seed(installing);
+    await seedLedger(declaredLedger);
+    await pool.query(preflight);
+    await pool.query(completion);
+    assert.deepEqual(await row(), canonicalRow, "A completed fresh installation must record the canonical release.");
+    await seedLedger(registry);
+    await pool.query(preflight);
+    await pool.query(completion);
+    assert.deepEqual(await row(), canonicalRow, "Replaying either step on a completed release must change nothing.");
+    assert.deepEqual(await readiness(), {
+      applicationId, predecessorRevision: complete.predecessorRevision, revision: complete.revision,
+      releaseRevision: complete.identity, migrationSetDigest: closure.digest, releaseClosure: release.executableClosure,
+      appliedMigrations: [...closure.migrations]
+    }, "A completed release must be readable as the exact migration evidence it was written from.");
+    const freshRecord = (await row())[0];
+
+    // Upgraded database: the coordinator's step reaches the identical record.
+    await seed(source);
+    await seedLedger(declaredLedger);
+    await assert.rejects(pool.query(preflight), /must be transitioned by the upgrade coordinator/u,
+      "The application migration command must refuse to perform a release transition.");
+    await pool.query(completion);
+    assert.deepEqual(await row(), canonicalRow, "An upgraded database must record exactly the same release as a fresh installation.");
+    assert.deepEqual((await row())[0], freshRecord, "Both installation histories must end at one byte-identical record.");
+    assert.deepEqual((await pool.query("select migration_set_digest, release_closure from k_nex_release_revision where application_id = $1", [applicationId])).rows,
+      [{ migration_set_digest: closure.digest, release_closure: release.executableClosure }],
+      "An upgraded database must record the closure that completed it.");
+
+    // The identity is a completion receipt: no declared set, no identity.
+    for (const [name, ledger] of [
+      ["no target migrations", []],
+      ["partial chain", declaredLedger.slice(0, 9)],
+      ["missing step", declaredLedger.filter((entry) => entry !== "20260908_000034_reports")],
+      ["substituted step", declaredLedger.map((entry) => entry === "20260908_000034_reports" ? "20260908_000034_substituted" : entry)],
+      ["reordered chain", [declaredLedger[1], declaredLedger[0], ...declaredLedger.slice(2)]],
+      ["unknown extra step", [...declaredLedger, "20260909_999999_unknown"]]
+    ]) {
+      await seed(installing);
+      await seedLedger(ledger);
+      const before = await row();
+      await assert.rejects(pool.query(completion), /not the exact set this release declares/u, `A ${name} ledger recorded the release identity.`);
+      assert.deepEqual(await row(), before, `A refused ${name} ledger must leave the release record unchanged.`);
+    }
+
+    // Every other recorded state is refused by both steps, including states
+    // that merely count as a newer revision.
+    await seedLedger(declaredLedger);
+    for (const [name, state] of [
+      ["zero revision, wrong identity", { predecessorRevision: 0, revision: 0, identity: "platform-0.9.0-installing" }],
+      ["predecessor with impossible chain field", { predecessorRevision: 99, revision: 1, identity: "platform-1.0.0-bootstrap" }],
+      ["target revision, corrupt identity", { predecessorRevision: 0, revision: complete.revision, identity: "corrupt" }],
+      ["target revision, lineage chain field", { predecessorRevision: 1, revision: complete.revision, identity: complete.identity }],
+      ["future revision, unknown identity", { predecessorRevision: 0, revision: 999, identity: "platform-9.9.9-release" }],
+      ["missing row", undefined]
+    ]) {
+      await seed(state);
+      const before = await row();
+      await assert.rejects(pool.query(preflight), /does not record a release state this application can run/u, `The preflight admitted a ${name} database.`);
+      await assert.rejects(pool.query(completion), /does not carry this installation or the exact predecessor release/u, `The completion step recorded a ${name} database.`);
+      assert.deepEqual(await row(), before, `A refused ${name} database must be left exactly as it was.`);
+    }
+
+    // A missing release table at this registry position is tampering, not a
+    // fresh install: the bootstrap that creates it has already run.
+    await pool.query("drop table if exists k_nex_release_revision");
+    await assert.rejects(pool.query(preflight), /has no release record/u, "A missing release table was treated as a fresh install.");
+
+    // Narrow claim: both 1.1 histories converge on one record, and a release
+    // names its predecessor by exactly that canonical record. A three-release
+    // proof needs a declared 1.2.0 and is deliberately not claimed here.
+    assert.deepEqual(release.source, release.canonicalPredecessorOf("1.0.0"),
+      "A release must name its predecessor by that predecessor's canonical record.");
+    assert.deepEqual({ predecessorRevision: freshRecord.predecessor_revision, revision: freshRecord.revision, identity: freshRecord.release_revision }, complete,
+      "The record both histories reach must be the canonical tuple a next release would name.");
+  } finally {
+    release.dispose();
+    await pool.end();
+    await container.stop();
+  }
+});
+
+/**
+ * A receipt that is only checked at the moment it is written turns the first
+ * valid completion into a permanent exemption from the proof it stands for, and
+ * a digest over leaf filenames says nothing about which implementation runs
+ * under each name. This proves the opposite for every way a completed release
+ * can stop being true: the registry that wires the steps, the migration bytes
+ * themselves, the package closure behind them, and the durable ledger.
+ */
+test("a completed release keeps proving its migration closure or stops being served", { timeout: 180_000 }, async () => {
+  const release = await generatedReleaseSources();
+  const { applicationId, plan, root, closure, installing, complete, completion, materialize, executableClosure } = release;
+  const { assertGeneratedMigrationClosure } = await import("@k-nex/runtime");
+  const substitutedStep = "20260908_000034_reports";
+  const registrySource = plan.files["src/migrations/index.ts"];
+  const declaredSet = [...closure.migrations];
+
+  try {
+    const denied = (label, expected) => {
+      assert.throws(() => assertGeneratedMigrationClosure(root), expected, label);
+      materialize("src/migrations/index.ts", registrySource);
+      materialize(`src/migrations/${substitutedStep}.ts`, plan.files[`src/migrations/${substitutedStep}.ts`]);
+      assert.equal(assertGeneratedMigrationClosure(root).digest, closure.digest, `${label}: restoring the declared bytes must restore admission.`);
+    };
+
+    // The registry decides which implementation runs under each ledger name, so
+    // it is part of what the release is, not packaging around it.
+    materialize("src/migrations/index.ts", registrySource.replace(
+      `up: admitted("20260905_000027_crm_core", crmCore.up)`, "up: crmCore.down"));
+    denied("A registry that re-points a declared name was admitted.", /migration closure on disk digests to/u);
+
+    materialize("src/migrations/index.ts", registrySource.replace(
+      `up: admitted("20260905_000027_crm_core", crmCore.up)`, "up: crmCore.up"));
+    denied("A registry that drops the admission wrapper was admitted.", /migration closure on disk digests to/u);
+
+    materialize("src/migrations/index.ts", `import * as elsewhere from "../k-nex-registry.js";\n${registrySource}`);
+    denied("A registry that reaches outside the declared directory was admitted.", /migration closure on disk digests to/u);
+
+    // A migration changed under its own filename, and the same claim from the
+    // other side: an added implementation the registry could reach.
+    materialize(`src/migrations/${substitutedStep}.ts`,
+      plan.files[`src/migrations/${substitutedStep}.ts`].replace("export async function up", "export async function up /* substituted */"));
+    denied("A same-name, different-byte migration was admitted.", /migration closure on disk digests to/u);
+
+    materialize("src/migrations/20260909_999999_extra.ts", "export async function up(): Promise<void> {}\n");
+    assert.throws(() => assertGeneratedMigrationClosure(root), /is not the set it declares/u, "An extra migration file was admitted into the declared set.");
+    rmSync(join(root, "src/migrations/20260909_999999_extra.ts"));
+    assert.equal(assertGeneratedMigrationClosure(root).digest, closure.digest);
+
+    // The package archives those migrations execute from are named by the
+    // release manifest, so a different one is a different closure even when
+    // every migration source is byte-identical.
+    const manifest = plan.files[".k-nex/package-release-manifest.json"];
+    materialize(".k-nex/package-release-manifest.json", manifest === undefined ? '{"release":{"version":"1.1.0"}}\n' : `${manifest} `);
+    assert.throws(() => assertGeneratedMigrationClosure(root), /package release manifest digests to/u,
+      "A different package release closure was admitted behind identical migration sources.");
+    if (manifest === undefined) rmSync(join(root, ".k-nex/package-release-manifest.json"));
+    else materialize(".k-nex/package-release-manifest.json", manifest);
+    assert.equal(assertGeneratedMigrationClosure(root).digest, closure.digest);
+
+    // The same process, after a success: a cached verdict would make every step
+    // after the first one assert nothing at all.
+    assert.equal(assertGeneratedMigrationClosure(root).digest, closure.digest);
+    materialize(`src/migrations/${substitutedStep}.ts`, "export async function up() { /* swapped mid-run */ }\n");
+    assert.throws(() => assertGeneratedMigrationClosure(root), /migration closure on disk digests to/u,
+      "The guard trusted its own earlier success within one process.");
+    materialize(`src/migrations/${substitutedStep}.ts`, plan.files[`src/migrations/${substitutedStep}.ts`]);
+    assert.equal(assertGeneratedMigrationClosure(root).digest, closure.digest);
+  } finally {
+    release.dispose();
+  }
+
+  const container = await new PostgreSqlContainer(POSTGRES_IMAGE).withDatabase("release_receipt").withStartupTimeout(120_000).start();
+  const pool = new pg.Pool({ connectionString: container.getConnectionUri() });
+  try {
+    const seedLedger = async (names) => {
+      await pool.query("drop table if exists payload_migrations");
+      await pool.query("create table payload_migrations (id serial primary key, name text not null, batch integer not null default 1)");
+      if (names.length > 0) await pool.query("insert into payload_migrations(name) select * from unnest($1::text[])", [names]);
+    };
+    const completeDatabase = async (ledger) => {
+      await pool.query("drop table if exists k_nex_release_revision");
+      await pool.query(`create table k_nex_release_revision (
+        application_id varchar primary key not null, predecessor_revision integer not null,
+        revision integer not null, release_revision varchar not null
+      )`);
+      await pool.query("insert into k_nex_release_revision(application_id, predecessor_revision, revision, release_revision) values ($1, $2, $3, $4)",
+        [applicationId, installing.predecessorRevision, installing.revision, installing.identity]);
+      await seedLedger(declaredSet.slice(0, -1));
+      await pool.query(completion);
+      await seedLedger(ledger);
+    };
+    const observedState = async () => ({
+      release: (await pool.query("select predecessor_revision, revision, release_revision, migration_set_digest, release_closure from k_nex_release_revision where application_id = $1", [applicationId])).rows,
+      ledger: (await pool.query("select name from payload_migrations order by id")).rows.map(({ name }) => name),
+      columns: (await pool.query("select table_name, column_name from information_schema.columns where table_schema = 'public'")).rowCount
+    });
+    const readiness = (digest = closure.digest, releaseClosure = executableClosure) => assertPlatformReleaseReadiness({
+      pool, applicationId, predecessorRevision: complete.predecessorRevision, revision: complete.revision,
+      releaseRevision: complete.identity, migrationSetDigest: digest, releaseClosure, declaredMigrations: declaredSet
+    });
+
+    await completeDatabase(declaredSet);
+    assert.deepEqual((await observedState()).release, [{
+      predecessor_revision: complete.predecessorRevision, revision: complete.revision, release_revision: complete.identity,
+      migration_set_digest: closure.digest, release_closure: executableClosure
+    }], "A completed release must record the closure that produced it.");
+    await readiness();
+
+    // A canonical release row whose durable ledger has drifted is refused - by
+    // readiness, and by the completion step that would otherwise wave it
+    // through as already applied.
+    for (const [name, ledger] of [
+      ["missing", declaredSet.filter((step) => step !== substitutedStep)],
+      ["extra", [...declaredSet, "20260909_999999_unknown"]],
+      ["reordered", [declaredSet[1], declaredSet[0], ...declaredSet.slice(2)]],
+      ["substituted", declaredSet.map((step) => step === substitutedStep ? "20260908_000034_substituted" : step)]
+    ]) {
+      await completeDatabase(ledger);
+      const before = await observedState();
+      await assert.rejects(readiness(), { code: "LEDGER_MISMATCH" }, `A canonical release with a ${name} ledger row was served.`);
+      await assert.rejects(pool.query(completion), /not the exact set this release declares/u,
+        `The completion step accepted a canonical release with a ${name} ledger row as already applied.`);
+      assert.deepEqual(await observedState(), before, `A refused ${name} ledger must leave schema, data, and ledger unchanged.`);
+    }
+
+    // The step admission refuses before the step runs, which is the only place
+    // a refusal can still be free of consequences: Payload re-runs exactly the
+    // declared steps a drifted ledger no longer records.
+    await completeDatabase(declaredSet.filter((step) => step !== substitutedStep));
+    const beforeGap = await observedState();
+    await assert.rejects(pool.query(release.admissionFor(substitutedStep)),
+      /the applied migration ledger is not the exact set this release applies before this step/u,
+      "A pending step ran against a database whose ledger is not the set it was ordered against.");
+    assert.deepEqual(await observedState(), beforeGap, "A refused pending step must leave schema, data, and ledger unchanged.");
+
+    // A ledger restored to exactly the point before a step makes that step look
+    // pending, and the release row is the only thing left that says otherwise.
+    await completeDatabase(declaredSet.slice(0, declaredSet.indexOf(substitutedStep)));
+    const beforeReplay = await observedState();
+    await assert.rejects(pool.query(release.admissionFor(substitutedStep)),
+      /this database already completed 1\.1\.0/u, "A declared step ran again against a completed release.");
+    assert.deepEqual(await observedState(), beforeReplay, "A refused replay must leave schema, data, and ledger unchanged.");
+
+    // The durable half of the binding: the receipt was written before any later
+    // edit, so an application that re-declares its own closure - guard constant
+    // and all - still cannot present itself as the release this database ran.
+    await completeDatabase(declaredSet);
+    await assert.rejects(readiness(`${"0".repeat(63)}1`), { code: "MIGRATION_SET_MISMATCH" },
+      "A release recorded for other migration bytes was served as this artifact.");
+    await assert.rejects(readiness(closure.digest, `sha256:${"0".repeat(64)}`), { code: "RELEASE_MISMATCH" },
+      "A release recorded against other package archives was served as this artifact.");
+  } finally {
     await pool.end();
     await container.stop();
   }

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { DurableEventEnvelopeSchema, EventPayloadSchema, type DurableEventEnvelope } from "@k-nex/contracts";
+import { DurableEventEnvelopeSchema, EventPayloadSchema, PluginIdSchema, ResourceIdSchema, type DurableEventEnvelope } from "@k-nex/contracts";
 import { sql, type PostgresAdapter } from "@payloadcms/db-postgres";
 import type { Payload } from "payload";
 
@@ -27,8 +27,21 @@ export interface OutboxSubscriberContext {
 
 export type OutboxSubscriber = (context: OutboxSubscriberContext) => Promise<void>;
 
+/**
+ * A worker owns only this closed durable-event partition.  The predicate is
+ * applied before both claim and dead-letter transitions, so a worker cannot
+ * consume another plugin's work merely because it is first in the queue.
+ */
+export interface PayloadOutboxConsumer {
+  readonly applicationId: string;
+  readonly environment: string;
+  readonly eventTypes: readonly string[];
+  readonly pluginId: string;
+}
+
 export interface ProcessPayloadOutboxOptions {
   readonly backoffMs?: number;
+  readonly consumer?: PayloadOutboxConsumer;
   readonly leaseMs?: number;
   readonly maxAttempts?: number;
   readonly payload: Payload;
@@ -65,6 +78,32 @@ function boundedInteger(value: number, name: string, minimum: number, maximum: n
     throw new RangeError(`${name} must be an integer between ${minimum} and ${maximum}.`);
   }
   return value;
+}
+
+function consumer(value: PayloadOutboxConsumer | undefined): PayloadOutboxConsumer | undefined {
+  if (value === undefined) return undefined;
+  if (value === null || typeof value !== "object") throw new TypeError("consumer must be an object.");
+  if (typeof value.applicationId !== "string" || !/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/u.test(value.applicationId) || value.applicationId.length > 128) {
+    throw new TypeError("consumer.applicationId is invalid.");
+  }
+  if (typeof value.environment !== "string" || !/^[a-z][a-z0-9-]{1,63}$/u.test(value.environment)) {
+    throw new TypeError("consumer.environment is invalid.");
+  }
+  PluginIdSchema.parse(value.pluginId);
+  if (!Array.isArray(value.eventTypes) || value.eventTypes.length === 0 || value.eventTypes.length > 32) {
+    throw new TypeError("consumer.eventTypes must be a non-empty bounded array.");
+  }
+  const eventTypes = value.eventTypes.map((eventType) => ResourceIdSchema.parse(eventType));
+  if (new Set(eventTypes).size !== eventTypes.length) throw new TypeError("consumer.eventTypes must be unique.");
+  return Object.freeze({ applicationId: value.applicationId, environment: value.environment, pluginId: value.pluginId, eventTypes: Object.freeze(eventTypes) });
+}
+
+function consumerPredicate(scope: PayloadOutboxConsumer | undefined) {
+  if (scope === undefined) return sql``;
+  return sql` AND "application_id" = ${scope.applicationId}
+    AND "payload"->>'environment' = ${scope.environment}
+    AND "plugin_id" = ${scope.pluginId}
+    AND "event_type" IN (${sql.join(scope.eventTypes.map((eventType) => sql`${eventType}`), sql`, `)})`;
 }
 
 function result(value: unknown): DatabaseResult {
@@ -126,14 +165,14 @@ function claimedEvent(row: Record<string, unknown>): ClaimedEvent {
   };
 }
 
-async function deadLetterExhaustedClaim(payload: Payload, maxAttempts: number): Promise<string | undefined> {
+async function deadLetterExhaustedClaim(payload: Payload, maxAttempts: number, scope: PayloadOutboxConsumer | undefined): Promise<string | undefined> {
   const exhausted = rows(await adapter(payload).drizzle.execute(sql`
     WITH candidate AS (
       SELECT "id" FROM "k_nex_outbox"
       WHERE "attempt_count" >= ${maxAttempts} AND (
         "status" = 'pending'
         OR ("status" = 'processing' AND "lease_expires_at" <= now())
-      )
+      ) ${consumerPredicate(scope)}
       -- FIFO by eligibility time: an expired lease is delayed only by rows that became eligible no later than it did.
       ORDER BY CASE WHEN "status" = 'pending' THEN "available_at" ELSE "lease_expires_at" END, "id"
       FOR UPDATE SKIP LOCKED
@@ -153,7 +192,7 @@ async function deadLetterExhaustedClaim(payload: Payload, maxAttempts: number): 
   return eventId;
 }
 
-async function claim(payload: Payload, leaseMs: number, maxAttempts: number): Promise<ClaimedEvent | undefined> {
+async function claim(payload: Payload, leaseMs: number, maxAttempts: number, scope: PayloadOutboxConsumer | undefined): Promise<ClaimedEvent | undefined> {
   const token = randomUUID();
   const selected = rows(await adapter(payload).drizzle.execute(sql`
     WITH candidate AS (
@@ -161,7 +200,7 @@ async function claim(payload: Payload, leaseMs: number, maxAttempts: number): Pr
       WHERE "attempt_count" < ${maxAttempts} AND (
         ("status" = 'pending' AND "available_at" <= now())
         OR ("status" = 'processing' AND "lease_expires_at" <= now())
-      )
+      ) ${consumerPredicate(scope)}
       -- FIFO by eligibility time prevents a stream of newly due work from starving expired leases.
       ORDER BY CASE WHEN "status" = 'pending' THEN "available_at" ELSE "lease_expires_at" END, "id"
       FOR UPDATE SKIP LOCKED
@@ -188,9 +227,10 @@ export async function processNextPayloadOutboxEvent(options: ProcessPayloadOutbo
   const leaseMs = boundedInteger(options.leaseMs ?? DEFAULT_LEASE_MS, "leaseMs", 1, MAX_DURATION_MS);
   const maxAttempts = boundedInteger(options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS, "maxAttempts", 1, 20);
   const backoffMs = boundedInteger(options.backoffMs ?? DEFAULT_BACKOFF_MS, "backoffMs", 1, MAX_DURATION_MS);
-  const exhaustedEventId = await deadLetterExhaustedClaim(options.payload, maxAttempts);
+  const claimScope = consumer(options.consumer);
+  const exhaustedEventId = await deadLetterExhaustedClaim(options.payload, maxAttempts, claimScope);
   if (exhaustedEventId) return Object.freeze({ eventId: exhaustedEventId, status: "dead-lettered" });
-  const claimed = await claim(options.payload, leaseMs, maxAttempts);
+  const claimed = await claim(options.payload, leaseMs, maxAttempts, claimScope);
   if (!claimed) return Object.freeze({ status: "idle" });
 
   let checkpoint: Readonly<Record<string, unknown>> | null = null;

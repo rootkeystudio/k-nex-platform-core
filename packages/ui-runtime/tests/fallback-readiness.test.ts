@@ -9,12 +9,12 @@ import {
   inspectUiDocumentReadiness
 } from "../src/index.js";
 
-const actor = { authenticated: true, permissions: new Set(["sales.tasks.read", "sales.tasks.title.read", "sales.tasks.status.read", "sales.tasks.revenue.read"]) };
+const actor = { authenticated: true, permissions: new Set(["sales.tasks.read"]) };
 const sourceBinding = {
-  source: { id: "sales.tasks", version: 1 },
+  source: { id: "sales.tasks", version: salesTasksDescriptor.version },
   input: {},
   structuralCompatibilityHash: salesTasksDescriptor.structuralCompatibilityHash,
-  selectedFields: ["title", "status", "potential-revenue"]
+  selectedFields: ["title", "status"]
 };
 const workspaceDocument = (node: Record<string, unknown>) => ({
   id: "workspace.fallback",
@@ -86,7 +86,7 @@ describe("P4.6 safe fallback and readiness", () => {
     const missingRuntime = createUiDocumentRuntime(createUiRuntimeRegistry({
       blocks: [definition],
       sources: [],
-      sourceCatalog: [{ id: "sales.tasks", version: 1, ownerPluginId: "module.sales" }]
+      sourceCatalog: [{ id: "sales.tasks", version: salesTasksDescriptor.version, ownerPluginId: "module.sales" }]
     }));
     expect(first(missingRuntime.render({ document: workspaceDocument(taskNode()), surface: "workspace", actor }))).toMatchObject({
       reason: "MISSING_SOURCE",

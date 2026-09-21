@@ -196,6 +196,8 @@ export class WorkspaceNavigationOutboxWorker {
   start(): void { if (!this.running) { this.running = true; void this.runAndSchedule(++this.lifecycle); } }
   stop(): void { this.running = false; ++this.lifecycle; if (this.timer !== undefined) this.cancel(this.timer); this.timer = undefined; }
   get started(): boolean { return this.running; }
+  /** Joins work admitted before stop(); it never admits a new dispatch. */
+  async idle(): Promise<void> { await this.draining; }
 
   drain(): Promise<number> {
     if (this.draining) return this.draining;

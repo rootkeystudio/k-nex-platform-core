@@ -1,0 +1,259 @@
+{
+  "$schema": "../../schemas/package-release-manifest.v1.schema.json",
+  "factoryLockTemplates": {
+    "minimal": {
+      "digest": "sha256:b30a35d0533842b73acaa780794a3a677e4a4fa9d707e69c401f7f3046942439",
+      "preset": "sales-reference",
+      "theme": "minimal"
+    },
+    "neobrutalism": {
+      "digest": "sha256:5bb0f0280521a293535bb79b3e5545f0b13197efc4eb273ad98c9deb388c5d33",
+      "preset": "sales-reference",
+      "theme": "neobrutalism"
+    }
+  },
+  "framework": {
+    "core": "1.1.0",
+    "node": "24.19.0",
+    "payload": "3.88.0",
+    "payloadDatabaseAdapter": "postgres",
+    "pnpm": "11.9.0"
+  },
+  "packages": [
+    {
+      "integrity": "sha512-2wf05M7dyLGJFzEb086CmYMznec0wqqVSxf0RXowK4rqzMynYOmrVyl1fybFcFEC9IAfnJz3AW+CvGODu0lhoQ==",
+      "package": "@k-nex/builder-puck",
+      "peerCompatibility": {
+        "core": "1.1.0",
+        "node": "24.19.0",
+        "payload": "3.88.0",
+        "payloadDatabaseAdapter": "postgres",
+        "pnpm": "11.9.0"
+      },
+      "role": "builder",
+      "version": "1.1.0"
+    },
+    {
+      "integrity": "sha512-YLLDkLQIg0Q9EXhp2DVZ0wyLoKzYmKvrcNWk6aCSkHhYh/I/NJI/P752GiPA51N5nRdycFdN2YqMS57Ll4IoyA==",
+      "package": "@k-nex/composition",
+      "peerCompatibility": {
+        "core": "1.1.0",
+        "node": "24.19.0",
+        "payload": "3.88.0",
+        "payloadDatabaseAdapter": "postgres",
+        "pnpm": "11.9.0"
+      },
+      "role": "core",
+      "version": "1.1.0"
+    },
+    {
+      "integrity": "sha512-tRQOeO9YgJnhHNnkF7i5qBu8YNShfCS6CxPdto0r7Diraxl2MP7Vo2mN1ATmlMFVniXElfZs5WsOab4W5/eUPw==",
+      "package": "@k-nex/contracts",
+      "peerCompatibility": {
+        "core": "1.1.0",
+        "node": "24.19.0",
+        "payload": "3.88.0",
+        "payloadDatabaseAdapter": "postgres",
+        "pnpm": "11.9.0"
+      },
+      "role": "core",
+      "version": "1.1.0"
+    },
+    {
+      "integrity": "sha512-CqYojYMDWbajt8dRix0ASysUU0xoalQ6HLiz2DruVo0ptA7U9AZ1yxiSFXblTIB54/1uSpu+pBVlW9HKERlHcQ==",
+      "package": "@k-nex/extension-bundler",
+      "peerCompatibility": {
+        "core": "1.1.0",
+        "node": "24.19.0",
+        "payload": "3.88.0",
+        "payloadDatabaseAdapter": "postgres",
+        "pnpm": "11.9.0"
+      },
+      "role": "core",
+      "version": "1.1.0"
+    },
+    {
+      "integrity": "sha512-nk1Als+L4KGyLKh4zFEFEZXk/zS7U0WLPiv8vzxoPuBLiYaGS5n9wJXNYhaB9MDHE4+1QobfJf9pqQUfSrtpxg==",
+      "package": "@k-nex/module-sales",
+      "peerCompatibility": {
+        "core": "1.1.0",
+        "node": "24.19.0",
+        "payload": "3.88.0",
+        "payloadDatabaseAdapter": "postgres",
+        "pnpm": "11.9.0"
+      },
+      "role": "plugin",
+      "version": "1.1.0"
+    },
+    {
+      "integrity": "sha512-3MwdtONU9gwW5Xf6Hlq5I0gV4d8bgq/AQ5q6V1ykrmb/HXJLO+IyNV4ub2izjri8F0zPpjUH3oVowFJyfpX0pA==",
+      "package": "@k-nex/payload-adapter",
+      "peerCompatibility": {
+        "core": "1.1.0",
+        "node": "24.19.0",
+        "payload": "3.88.0",
+        "payloadDatabaseAdapter": "postgres",
+        "pnpm": "11.9.0"
+      },
+      "role": "core",
+      "version": "1.1.0"
+    },
+    {
+      "integrity": "sha512-QCc2S36rEnEZ1vKZ6BNu9LVEtrDoBQ1n/k9CgxAEClpDV9tL4Iwe+B1Xd+1i7ODqIn5PDigti+9kEyZhRlr/hw==",
+      "package": "@k-nex/provider-realtime-socketio",
+      "peerCompatibility": {
+        "core": "1.1.0",
+        "node": "24.19.0",
+        "payload": "3.88.0",
+        "payloadDatabaseAdapter": "postgres",
+        "pnpm": "11.9.0"
+      },
+      "role": "provider",
+      "version": "1.1.0"
+    },
+    {
+      "integrity": "sha512-o2nn5JigzfnnFJTATPNEKnzPa8bx9EeieEaiWnlz1Sgd6cbOyfMs27zWGGqVmHEg1iAzy2TpjotFW312OBi11g==",
+      "package": "@k-nex/runtime",
+      "peerCompatibility": {
+        "core": "1.1.0",
+        "node": "24.19.0",
+        "payload": "3.88.0",
+        "payloadDatabaseAdapter": "postgres",
+        "pnpm": "11.9.0"
+      },
+      "role": "core",
+      "version": "1.1.0"
+    },
+    {
+      "integrity": "sha512-QWqNVvrejWWBGkh7r11XhgBCaa/ILkFZACCDsEgLjfg61KmkbZPrmd+wE9Jfr/LRiKYTUPplRlxyHc9oigY1+g==",
+      "package": "@k-nex/theme-minimal",
+      "peerCompatibility": {
+        "core": "1.1.0",
+        "node": "24.19.0",
+        "payload": "3.88.0",
+        "payloadDatabaseAdapter": "postgres",
+        "pnpm": "11.9.0"
+      },
+      "role": "theme",
+      "version": "1.1.0"
+    },
+    {
+      "integrity": "sha512-H2J4OrrqNKxSlXH6/eVzoELEUWRenzfrSU3wKnvoCAMpYtsghvpHbl+kWFRBxTFGm4arZlerSTCenSQt6axBrw==",
+      "package": "@k-nex/theme-neobrutalism",
+      "peerCompatibility": {
+        "core": "1.1.0",
+        "node": "24.19.0",
+        "payload": "3.88.0",
+        "payloadDatabaseAdapter": "postgres",
+        "pnpm": "11.9.0"
+      },
+      "role": "theme",
+      "version": "1.1.0"
+    },
+    {
+      "integrity": "sha512-9yC8gELTg2mUZP/6UeVy73+xdTAXLUwhY5M3ITHBt4PyQrIBp36IRD3aGPhMHY5eO3JGkGGKTdniUEn+J0jg1Q==",
+      "package": "@k-nex/ui-builder-blocks",
+      "peerCompatibility": {
+        "core": "1.1.0",
+        "node": "24.19.0",
+        "payload": "3.88.0",
+        "payloadDatabaseAdapter": "postgres",
+        "pnpm": "11.9.0"
+      },
+      "role": "builder",
+      "version": "1.1.0"
+    },
+    {
+      "integrity": "sha512-xLYW1M2WKiTUo0hC/HV/oYOIDh8V5hx+WRdT8cC1eIHNUWrzwsCGLsvAWBw+btRFGDxbBJLGoES5BGZNSGBHOQ==",
+      "package": "@k-nex/ui-components",
+      "peerCompatibility": {
+        "core": "1.1.0",
+        "node": "24.19.0",
+        "payload": "3.88.0",
+        "payloadDatabaseAdapter": "postgres",
+        "pnpm": "11.9.0"
+      },
+      "role": "core",
+      "version": "1.1.0"
+    },
+    {
+      "integrity": "sha512-Im6YmxHDJwH8Q2cycXh5qfayno8wVoCvHdg9R97+aS6J07sIJ1RziFPoVmf0brexaWCGVXkpQ5eeuJCJZ2GLwQ==",
+      "package": "@k-nex/ui-data",
+      "peerCompatibility": {
+        "core": "1.1.0",
+        "node": "24.19.0",
+        "payload": "3.88.0",
+        "payloadDatabaseAdapter": "postgres",
+        "pnpm": "11.9.0"
+      },
+      "role": "core",
+      "version": "1.1.0"
+    },
+    {
+      "integrity": "sha512-4ykpes6qV0mcZy8G/Ca3wsMhZ52mCYf2W6Adex2NsVP5H7o7yDjgTEkfL9/g1cYJBsNph2sS6szCuC7C1mQNDA==",
+      "package": "@k-nex/ui-design-system-contracts",
+      "peerCompatibility": {
+        "core": "1.1.0",
+        "node": "24.19.0",
+        "payload": "3.88.0",
+        "payloadDatabaseAdapter": "postgres",
+        "pnpm": "11.9.0"
+      },
+      "role": "core",
+      "version": "1.1.0"
+    },
+    {
+      "integrity": "sha512-THrWwQRL0H7qsabR6DEJ3iJ5W6748yU/Zzn2vyZEIOibdqKinIORoZ0NLm+/FxlB6xWte/18l+balY+usMm2gA==",
+      "package": "@k-nex/ui-forms",
+      "peerCompatibility": {
+        "core": "1.1.0",
+        "node": "24.19.0",
+        "payload": "3.88.0",
+        "payloadDatabaseAdapter": "postgres",
+        "pnpm": "11.9.0"
+      },
+      "role": "core",
+      "version": "1.1.0"
+    },
+    {
+      "integrity": "sha512-AYNaFI5iWx7O7bH1qL2W6b4Fu/xKKh4zcdG9NsyPDz6yKIOxEA8LoyPOw776meoCtSeWcLaO80NJUnRJyVv6UA==",
+      "package": "@k-nex/ui-pages",
+      "peerCompatibility": {
+        "core": "1.1.0",
+        "node": "24.19.0",
+        "payload": "3.88.0",
+        "payloadDatabaseAdapter": "postgres",
+        "pnpm": "11.9.0"
+      },
+      "role": "core",
+      "version": "1.1.0"
+    },
+    {
+      "integrity": "sha512-9OeLNTGzPj3E/prA/roC3omCWJkf1Z2gi0seT0M5hb5gV+NnP9ClM3lTY8doXDbYYkG0ZhHqWLYgn5hBHHRcAw==",
+      "package": "@k-nex/ui-runtime",
+      "peerCompatibility": {
+        "core": "1.1.0",
+        "node": "24.19.0",
+        "payload": "3.88.0",
+        "payloadDatabaseAdapter": "postgres",
+        "pnpm": "11.9.0"
+      },
+      "role": "core",
+      "version": "1.1.0"
+    }
+  ],
+  "release": {
+    "channel": "current",
+    "compatibilityPolicy": "exact-framework-tuple",
+    "version": "1.1.0",
+    "versioningPolicy": "semver-v1"
+  },
+  "schemaVersion": 1,
+  "supportWindow": {
+    "policy": "single-current-release",
+    "securityFixes": "all-supported-releases",
+    "supportedReleases": [
+      "1.1.0"
+    ]
+  }
+}

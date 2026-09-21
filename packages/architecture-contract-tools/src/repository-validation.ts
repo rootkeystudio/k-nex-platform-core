@@ -13,6 +13,7 @@ import { registerAuthorizationOwnershipKeyword } from "./authorization-ownership
 import { registerHotApplicationAuthorizationKeyword } from "./hot-application-authorization.js";
 import { registerSystemAdministrationInvariantsKeyword } from "./system-administration-invariants.js";
 import { registerWorkspaceInvariantsKeyword } from "./workspace-invariants.js";
+import { validatePhase13ProductContract } from "./phase-13-product-contract-validation.js";
 
 export type RepositoryDiagnosticCode =
   | "ADR_EVIDENCE_INVALID"
@@ -521,6 +522,9 @@ export async function validateRepository(root: string): Promise<RepositoryDiagno
   const evidence = await loadJson(root, evidencePath, diagnostics);
   const adrFiles = (await walk(resolve(root, "docs/adr"))).filter((path) => /^\d{4}-.*\.md$/.test(repositoryPath(root, path).split("/").at(-1) ?? ""));
   if (evidence !== undefined) diagnostics.push(...validateEvidenceRegistry(evidence, new Set(adrFiles.map((path) => repositoryPath(root, path).split("/").at(-1)?.slice(0, 4) ?? "")), (path) => repositoryFileExists(root, path)));
+
+  const phase13ProductContract = await loadJson(root, "contracts/phase-13-crm-product-contract.v1.json", diagnostics);
+  if (phase13ProductContract !== undefined) diagnostics.push(...validatePhase13ProductContract(phase13ProductContract));
 
   for (const path of (await walk(resolve(root, "docs"))).filter((item) => extname(item) === ".md")) {
     const sourcePath = repositoryPath(root, path);

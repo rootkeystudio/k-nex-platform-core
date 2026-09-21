@@ -1,11 +1,15 @@
+import {
+  DataSourceReportExecutionSchema
+} from "@k-nex/contracts";
 import type {
   AgentToolDescriptor,
   DataSourceDefinition,
   DataSourceDescriptor,
   DataSourceQueryControls,
+  DataSourceReportExecution,
   DataSourceSurface
 } from "@k-nex/contracts";
-import { MetricScalarSchema, TableRecordsSchema } from "@k-nex/contracts";
+import { metricScalarSchemaForVersion, TableRecordsSchema } from "@k-nex/contracts";
 
 export function dataSourceToolCompatible(tool: AgentToolDescriptor, source: DataSourceDescriptor): boolean {
   if (tool.invocation.kind !== "source" || tool.invocation.source.version !== source.version) return false;
@@ -22,7 +26,12 @@ export interface DataSourceHandlerRequest {
   readonly signal: AbortSignal;
 }
 
-export type DataSourceHandler = (request: DataSourceHandlerRequest) => unknown | Promise<unknown>;
+/** Handler wrapper preserves ordinary source output while allowing bounded execution evidence. */
+export interface DataSourceHandlerSuccess {
+  readonly data: unknown;
+  readonly reportExecution?: DataSourceReportExecution;
+}
+export type DataSourceHandler = (request: DataSourceHandlerRequest) => unknown | DataSourceHandlerSuccess | Promise<unknown | DataSourceHandlerSuccess>;
 
 export interface RegisteredDataSource {
   readonly definition: DataSourceDefinition;
@@ -79,9 +88,10 @@ export interface DataSourceExecutionContext {
 export interface DataSourceSuccessEnvelope {
   readonly schemaVersion: 1;
   readonly source: { readonly id: string; readonly version: number };
-  readonly contract: { readonly id: "metric.scalar" | "table.records"; readonly version: 1 };
+  readonly contract: DataSourceDescriptor["primaryContract"];
   readonly structuralCompatibilityHash: string;
   readonly data: unknown;
+  readonly reportExecution?: DataSourceReportExecution;
 }
 
 export interface ProblemDetails {
@@ -212,6 +222,16 @@ export class RegisteredHandlerDispatcher implements HandlerDispatcher {
   }
 }
 
+function handlerSuccess(value: unknown): DataSourceHandlerSuccess {
+  if (typeof value !== "object" || value === null || Array.isArray(value) || !Object.hasOwn(value, "data")) return { data: value };
+  const candidate = value as Readonly<Record<string, unknown>>;
+  if (!Object.hasOwn(candidate, "reportExecution")) return { data: value };
+  if (Object.keys(candidate).length !== 2) throw new DataSourceGatewayError("SOURCE_SCHEMA_INVALID", 500, "Data-source handler evidence is invalid.");
+  const execution = DataSourceReportExecutionSchema.safeParse(candidate.reportExecution);
+  if (!execution.success) throw new DataSourceGatewayError("SOURCE_SCHEMA_INVALID", 500, "Data-source handler evidence is invalid.");
+  return { data: candidate.data, reportExecution: execution.data };
+}
+
 export class DefinitionSourceSchemaValidator implements SourceSchemaValidator {
   validate(definition: DataSourceDefinition, value: unknown): unknown {
     const result = definition.outputSchema.safeParse(value);
@@ -222,7 +242,7 @@ export class DefinitionSourceSchemaValidator implements SourceSchemaValidator {
 
 export class CanonicalOutputContractValidator implements OutputContractValidator {
   validate(descriptor: DataSourceDescriptor, value: unknown): unknown {
-    const schema = descriptor.primaryContract.id === "metric.scalar" ? MetricScalarSchema : TableRecordsSchema;
+    const schema = descriptor.primaryContract.id === "metric.scalar" ? metricScalarSchemaForVersion(descriptor.primaryContract.version as 1 | 2) : TableRecordsSchema;
     const result = schema.safeParse(value);
     if (!result.success) throw new DataSourceGatewayError("INVALID_OUTPUT_CONTRACT", 500, "Data source violated its output contract.");
     return result.data;
@@ -280,6 +300,7 @@ export class DataSourceGateway {
   async query(request: DataSourceGatewayRequest): Promise<DataSourceGatewayResponse> {
     const correlationId = bounded(request.correlationId, "unavailable", 128);
     let lease: QueryBudgetLease | undefined;
+    let releaseHandlerLease: (() => void) | undefined;
     try {
       const authenticated = await this.stages.authenticator.authenticate(request);
       const source = await this.stages.catalog.lookup(request.sourceId);
@@ -315,11 +336,27 @@ export class DataSourceGateway {
         return { ok: true, status: 200, body: cached };
       }
       const handlerResult = this.stages.dispatcher.dispatch(context);
+      // The concurrency budget has to cover the whole expensive path, not only
+      // the handler: schema and contract validation, redaction, the result
+      // budget, and serialization all run on handler output a trusted source
+      // controls the size of. Releasing at handler settlement let that work run
+      // outside the lease the caller was admitted under. The lease is also kept
+      // until an abandoned handler settles, so an aborted request cannot free
+      // capacity its dispatch is still consuming.
       const handlerLease = lease;
       lease = undefined;
-      const handlerSettled = Promise.resolve(handlerResult).finally(() => handlerLease?.release());
-      const dispatched = await dispatchWithSignal(handlerSettled, context.signal, request.signal);
-      const sourceValid = this.stages.sourceSchema.validate(source.definition, dispatched);
+      let handlerSettledOnce = false;
+      let pipelineFinished = false;
+      let leaseReleased = false;
+      const releaseWhenIdle = () => {
+        if (leaseReleased || !handlerSettledOnce || !pipelineFinished) return;
+        leaseReleased = true;
+        handlerLease?.release();
+      };
+      releaseHandlerLease = () => { pipelineFinished = true; releaseWhenIdle(); };
+      const handlerSettled = Promise.resolve(handlerResult).finally(() => { handlerSettledOnce = true; releaseWhenIdle(); });
+      const dispatched = handlerSuccess(await dispatchWithSignal(handlerSettled, context.signal, request.signal));
+      const sourceValid = this.stages.sourceSchema.validate(source.definition, dispatched.data);
       const contractValid = this.stages.outputContract.validate(source.definition.descriptor, sourceValid);
       const data = await this.stages.redactor.redact(context, contractValid);
       this.stages.budget.assertResult(source, data);
@@ -329,7 +366,8 @@ export class DataSourceGateway {
         source: { id: descriptor.id, version: descriptor.version },
         contract: descriptor.primaryContract,
         structuralCompatibilityHash: descriptor.structuralCompatibilityHash,
-        data
+        data,
+        ...(dispatched.reportExecution === undefined ? {} : { reportExecution: dispatched.reportExecution })
       };
       await this.stages.cache.store(context, envelope);
       try {
@@ -348,6 +386,7 @@ export class DataSourceGateway {
       const body = this.stages.problemDetails.serialize(error, correlationId);
       return { ok: false, status: body.status, body };
     } finally {
+      releaseHandlerLease?.();
       lease?.release();
     }
   }

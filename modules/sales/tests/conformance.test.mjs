@@ -8,12 +8,12 @@ import { executeRegistration, instantiatePluginPageTemplate } from "@k-nex/runti
 
 import {
   salesPageTemplates,
-  salesPermissionDescriptors,
   salesRouteDescriptors,
   salesTaskCreateDescriptor,
   salesTasksDescriptor,
   salesUiBlockDescriptors
 } from "../dist/contracts.js";
+import { salesCrmPermissionDescriptors } from "../dist/crm-authority.js";
 import { salesRegistration } from "../dist/server.js";
 
 function assertTarget() {
@@ -55,7 +55,7 @@ test("Sales default page seeds once as a customer-owned document", async () => {
     authorityRevision: 0,
     capabilities: new Map(),
     routes: new Set(salesRouteDescriptors.map(({ id }) => id)),
-    permissions: new Set(salesPermissionDescriptors.map(({ id }) => id)),
+    permissions: new Set(salesCrmPermissionDescriptors.map(({ id }) => id)),
     sources: new Set([`${salesTasksDescriptor.id}@${salesTasksDescriptor.version}`]),
     actions: new Set([`${salesTaskCreateDescriptor.id}@${salesTaskCreateDescriptor.version}`]),
     blocks: new Set(salesUiBlockDescriptors.map(({ id, version }) => `${id}@${version}`))

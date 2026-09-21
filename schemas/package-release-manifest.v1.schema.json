@@ -43,24 +43,20 @@
       "additionalProperties": false,
       "properties": {
         "core": {
-          "const": "1.0.0",
-          "type": "string"
+          "$ref": "#/$defs/__schema3"
         },
         "node": {
-          "const": "24.19.0",
-          "type": "string"
+          "$ref": "#/$defs/__schema3"
         },
         "payload": {
-          "const": "3.88.0",
-          "type": "string"
+          "$ref": "#/$defs/__schema3"
         },
         "payloadDatabaseAdapter": {
           "const": "postgres",
           "type": "string"
         },
         "pnpm": {
-          "const": "11.9.0",
-          "type": "string"
+          "$ref": "#/$defs/__schema3"
         }
       },
       "required": [

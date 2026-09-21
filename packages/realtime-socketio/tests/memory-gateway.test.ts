@@ -143,6 +143,60 @@ describe("Socket.IO memory realtime gateway", () => {
     expect(gateway?.health()).toMatchObject({ authenticationDenied: 1, connections: 0 });
   });
 
+  it("preserves the authenticated actor capability identity through topic admission", async () => {
+    httpServer = createServer();
+    const identity = { id: "owner-1", type: "user" };
+    gateway = createSocketIoMemoryGateway({
+      httpServer,
+      topics: createRealtimeTopicRegistry([defineRealtimeTopic({ ...topic, authorize: ({ actor, params }) => actor === identity && params.ownerId === identity.id })]),
+      security,
+      authenticate: async () => ({ actor: identity, id: "identity-session" }),
+      isSessionActive: async () => true
+    });
+    await new Promise<void>((resolve) => httpServer?.listen(0, "127.0.0.1", resolve));
+    const port = (httpServer.address() as AddressInfo).port;
+    client = connect(`http://127.0.0.1:${port}`, { transports: ["websocket"], extraHeaders: { origin: "https://app.example.test" }, reconnection: false });
+    await new Promise<void>((resolve, reject) => { client?.once("connect", resolve); client?.once("connect_error", reject); });
+    await expect(client.emitWithAck("k-nex:subscribe", { topicId: "sales.tasks", params: { ownerId: "owner-1" } })).resolves.toEqual({ ok: true });
+  });
+
+  it("rejects an authenticated actor capability with extra own keys", async () => {
+    httpServer = createServer();
+    gateway = createSocketIoMemoryGateway({
+      httpServer, topics: createRealtimeTopicRegistry([topic]), security,
+      authenticate: async () => ({ actor: { id: "owner-1", type: "user", accidental: true } as never, id: "extra-actor" }),
+      isSessionActive: async () => true
+    });
+    await new Promise<void>((resolve) => httpServer?.listen(0, "127.0.0.1", resolve));
+    const port = (httpServer.address() as AddressInfo).port;
+    client = connect(`http://127.0.0.1:${port}`, { transports: ["websocket"], extraHeaders: { origin: "https://app.example.test" }, reconnection: false });
+    await expect(new Promise<void>((resolve, reject) => { client?.once("connect", resolve); client?.once("connect_error", reject); })).rejects.toThrow(/AUTHENTICATION_REQUIRED/);
+    expect(gateway.health()).toMatchObject({ authenticationDenied: 1, connections: 0 });
+  });
+
+  it("disposes a delayed authenticated session exactly once when its transport closes before admission", async () => {
+    httpServer = createServer();
+    let resolveAuthentication: ((value: { actor: { id: string; type: "user" }; id: string; dispose: () => void }) => void) | undefined;
+    let disposed = 0;
+    gateway = createSocketIoMemoryGateway({
+      httpServer,
+      topics: createRealtimeTopicRegistry([topic]),
+      security: { ...security, authenticationTimeoutMs: 1_000 },
+      authenticate: async () => new Promise((resolve) => { resolveAuthentication = resolve; }),
+      isSessionActive: async () => true
+    });
+    await new Promise<void>((resolve) => httpServer?.listen(0, "127.0.0.1", resolve));
+    const port = (httpServer.address() as AddressInfo).port;
+    client = connect(`http://127.0.0.1:${port}`, { auth: { session: "delayed" }, transports: ["websocket"], extraHeaders: { origin: "https://app.example.test" }, reconnection: false });
+    await expect.poll(() => resolveAuthentication, { interval: 5, timeout: 1_000 }).toBeTypeOf("function");
+    client.disconnect();
+    resolveAuthentication!({ actor: { id: "owner-1", type: "user" }, id: "delayed-session", dispose: () => { disposed += 1; } });
+    await expect.poll(() => disposed, { interval: 5, timeout: 1_000 }).toBe(1);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(disposed).toBe(1);
+    expect(gateway.health()).toMatchObject({ connections: 0, pendingConnections: 0 });
+  });
+
   it("leaves a registered topic without accepting a raw room string", async () => {
     const active = await harness();
     const subscription = { topicId: "sales.tasks", params: { ownerId: "owner-1" } };
@@ -205,6 +259,15 @@ describe("Socket.IO memory realtime gateway", () => {
     expect(sibling.connected).toBe(true);
     expect(active.gateway.health()).toMatchObject({ connections: 1, authenticationDenied: 1 });
     sibling.disconnect();
+  });
+
+  it("checks the exact authenticated session before admitting a new subscription", async () => {
+    const active = await harness();
+    revokedSessions.add("server:session-1");
+    await expect(active.client.emitWithAck("k-nex:subscribe", {
+      topicId: "sales.tasks", params: { ownerId: "owner-1" }
+    })).resolves.toEqual({ ok: false, code: "FORBIDDEN" });
+    expect(active.gateway.health()).toMatchObject({ authenticationDenied: 1, subscriptions: 0 });
   });
 
   it("rejects disallowed origins before a Socket.IO session is established", async () => {

@@ -8,7 +8,10 @@ import { minimalThemePackage, resolveMinimalThemeProfile } from "@k-nex/theme-mi
 import { resolveNeobrutalismThemeProfile } from "../src/index.js";
 
 const profile = (themeId: "theme.minimal" | "theme.neobrutalism" | "theme.ownership-probe", palette: string, revisionId: string) => ({
-  schemaVersion: 1, id: `theme-profile.${revisionId.split(".").at(-1)}`, surface: "public", themeId, themeVersion: "1.0.0", palette, mode: "light", values: {},
+  // Both shipped themes and the probe that spreads the minimal package move
+  // together, so bind the profile to the installed version rather than a
+  // literal that silently stops matching at the next release.
+  schemaVersion: 1, id: `theme-profile.${revisionId.split(".").at(-1)}`, surface: "public", themeId, themeVersion: minimalThemePackage.version, palette, mode: "light", values: {},
   revision: { id: revisionId, number: 1, state: "published", createdAt: "2026-08-27T00:00:00.000Z", publishedAt: "2026-08-27T00:01:00.000Z" }
 });
 const neobrutalism = resolveNeobrutalismThemeProfile(profile("theme.neobrutalism", "primary", "theme-revision.browser-neobrutalism"));

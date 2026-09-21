@@ -22,6 +22,7 @@ import {
   isEventSecretFieldName,
   MigrationCompatibilityPlanSchema,
   MetricScalarSchema,
+  MetricScalarV2Schema,
   PluginManifestSchema,
   TableRecordsSchema,
   ThemeSkinManifestSchema,
@@ -47,6 +48,8 @@ import { registerMigrationRevisionKeyword } from "./migration-compatibility-plan
 import { registerAuthorizationOwnershipKeyword } from "./authorization-ownership.js";
 import { registerHotApplicationAuthorizationKeyword } from "./hot-application-authorization.js";
 import { registerSystemAdministrationInvariantsKeyword } from "./system-administration-invariants.js";
+import { registerPlatformReleaseTransitionInvariantsKeyword } from "./platform-release-transition-invariants.js";
+import { registerApplicationUpgradeInvariantsKeyword } from "./application-upgrade-invariants.js";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const ajv = new Ajv2020({ allErrors: true, strict: true });
@@ -56,6 +59,8 @@ registerMigrationRevisionKeyword(ajv);
 registerAuthorizationOwnershipKeyword(ajv);
 registerHotApplicationAuthorizationKeyword(ajv);
 registerSystemAdministrationInvariantsKeyword(ajv);
+registerPlatformReleaseTransitionInvariantsKeyword(ajv);
+registerApplicationUpgradeInvariantsKeyword(ajv);
 ajv.addKeyword({
   keyword: "kNexMaxCanonicalBytes",
   type: "object",
@@ -147,9 +152,15 @@ for (const relativePath of [
   "schemas/trusted-application-build-evidence.v1.schema.json",
   "schemas/migration-compatibility-plan.v1.schema.json",
   "schemas/worker-generation-fence.v1.schema.json",
+  "schemas/platform-release-transition-manifest.v1.schema.json",
+  "schemas/application-release-lock.v1.schema.json",
+  "schemas/generated-file-ownership-manifest.v1.schema.json",
+  "schemas/application-upgrade-plan-envelope.v1.schema.json",
+  "schemas/application-upgrade-preparation-result.v1.schema.json",
   "schemas/application-manifest.v1.schema.json",
   "schemas/event.v1.schema.json",
   "schemas/metric-scalar.v1.schema.json",
+  "schemas/metric-scalar.v2.schema.json",
   "schemas/table-records.v1.schema.json",
   "schemas/theme-profile.v1.schema.json",
   "schemas/theme-profile-publication-event.v1.schema.json",
@@ -220,6 +231,7 @@ const agentToolSchema = await load<AnySchema>("schemas/agent-tool.v1.schema.json
 const applicationSchema = await load<AnySchema>("schemas/application-manifest.v1.schema.json");
 const eventSchema = await load<AnySchema>("schemas/event.v1.schema.json");
 const metricSchema = await load<AnySchema>("schemas/metric-scalar.v1.schema.json");
+const metricV2Schema = await load<AnySchema>("schemas/metric-scalar.v2.schema.json");
 const tableSchema = await load<AnySchema>("schemas/table-records.v1.schema.json");
 const themeProfileSchema = await load<AnySchema>("schemas/theme-profile.v1.schema.json");
 const themeProfilePublicationEventSchema = await load<AnySchema>("schemas/theme-profile-publication-event.v1.schema.json");
@@ -227,12 +239,14 @@ const uiDocumentSchema = await load<AnySchema>("schemas/ui-document.v1.schema.js
 const cmsPageMetadataSchema = await load<AnySchema>("schemas/cms-page-metadata.v1.schema.json");
 const authorizationSchema = await load<AnySchema>("schemas/authorization.v1.schema.json");
 const systemAdministrationSchema = await load<AnySchema>("schemas/system-administration.v1.schema.json");
+const platformReleaseTransitionSchema = await load<AnySchema>("schemas/platform-release-transition-manifest.v1.schema.json");
 const validatePlugin = ajv.compile(pluginSchema);
 const validateAction = ajv.compile(actionSchema);
 const validateAgentTool = ajv.compile(agentToolSchema);
 const validateApplication = ajv.compile(applicationSchema);
 const validateEvent = ajv.compile(eventSchema);
 const validateMetric = ajv.compile(metricSchema);
+const validateMetricV2 = ajv.compile(metricV2Schema);
 const validateTable = ajv.compile(tableSchema);
 const validateThemeProfile = ajv.compile(themeProfileSchema);
 const validateThemeProfilePublicationEvent = ajv.compile(themeProfilePublicationEventSchema);
@@ -240,6 +254,13 @@ const validateUiDocument = ajv.compile(uiDocumentSchema);
 const validateCmsPageMetadata = ajv.compile(cmsPageMetadataSchema);
 const validateAuthorization = ajv.compile(authorizationSchema);
 const validateSystemAdministration = ajv.compile(systemAdministrationSchema);
+ajv.compile(platformReleaseTransitionSchema);
+for (const path of [
+  "schemas/application-release-lock.v1.schema.json",
+  "schemas/generated-file-ownership-manifest.v1.schema.json",
+  "schemas/application-upgrade-plan-envelope.v1.schema.json",
+  "schemas/application-upgrade-preparation-result.v1.schema.json"
+]) ajv.compile(await load<AnySchema>(path));
 
 const extensionSchemas = {
   "extension-bundle-manifest": { authoring: ExtensionBundleManifestSchema, generated: "schemas/extension-bundle-manifest.v1.schema.json" },
@@ -272,6 +293,7 @@ const generatedContracts = await load<{
 }>("contracts/generated-contracts.v1.json");
 const outputContractSchemas = [
   { id: "metric.scalar@1", schema: "schemas/metric-scalar.v1.schema.json" },
+  { id: "metric.scalar@2", schema: "schemas/metric-scalar.v2.schema.json" },
   { id: "table.records@1", schema: "schemas/table-records.v1.schema.json" }
 ];
 if (JSON.stringify(generatedContracts.outputContracts) !== JSON.stringify(outputContractSchemas)) {
@@ -297,6 +319,12 @@ if (!generatedContracts.artifacts.includes("schemas/authorization.v1.schema.json
 }
 if (!generatedContracts.artifacts.includes("schemas/system-administration.v1.schema.json")) {
   throw new Error("Generated artifact inventory is missing schemas/system-administration.v1.schema.json.");
+}
+if (!generatedContracts.artifacts.includes("schemas/platform-release-transition-manifest.v1.schema.json")) {
+  throw new Error("Generated artifact inventory is missing schemas/platform-release-transition-manifest.v1.schema.json.");
+}
+for (const path of ["schemas/application-release-lock.v1.schema.json", "schemas/generated-file-ownership-manifest.v1.schema.json", "schemas/application-upgrade-plan-envelope.v1.schema.json", "schemas/application-upgrade-preparation-result.v1.schema.json"]) {
+  if (!generatedContracts.artifacts.includes(path)) throw new Error(`Generated artifact inventory is missing ${path}.`);
 }
 
 for (const fixture of authorizationFixtures) {
@@ -423,6 +451,7 @@ if (ApplicationManifestSchema.safeParse(missingTopology).success || validateAppl
 
 const outputContractFixtures = [
   { path: "fixtures/output-contracts/valid/metric-scalar.json", schema: MetricScalarSchema, validate: validateMetric, valid: true },
+  { path: "fixtures/output-contracts/valid/metric-scalar.json", schema: MetricScalarV2Schema, validate: validateMetricV2, valid: true },
   { path: "fixtures/output-contracts/valid/table-records.json", schema: TableRecordsSchema, validate: validateTable, valid: true },
   { path: "fixtures/output-contracts/invalid/metric-scalar.json", schema: MetricScalarSchema, validate: validateMetric, valid: false },
   { path: "fixtures/output-contracts/invalid/table-records.json", schema: TableRecordsSchema, validate: validateTable, valid: false }

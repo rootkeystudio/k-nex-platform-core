@@ -9,7 +9,7 @@ function profile(palette: "light" | "dark", mode: "light" | "dark") {
     id: "theme-profile.public-default",
     surface: "public",
     themeId: "theme.minimal",
-    themeVersion: "1.0.0",
+    themeVersion: minimalThemePackage.version,
     palette,
     mode,
     values: {},
