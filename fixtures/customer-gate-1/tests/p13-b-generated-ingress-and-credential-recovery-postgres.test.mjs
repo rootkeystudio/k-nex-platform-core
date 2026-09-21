@@ -1015,6 +1015,171 @@ test("P13.B generated ingress readers are bounded, the realtime bridge recovers,
       assert.equal((await login(origin, movedEmail, currentPassword)).status, 200,
         "The recovered password must be byte-identical to the one the operator supplied.");
 
+      // -------- a spelling is not a second route --------
+      // The finding this closes: the route classified the slug with an exact,
+      // case-sensitive comparison and then handed that same slug to Payload,
+      // which does not compare a request path to an endpoint path but matches
+      // one. Its matcher ignores case and admits one trailing delimiter, so
+      // Login, LOGIN and login/ all reached the sign-in handler with nothing
+      // held, Logout reopened the stale-snapshot resurrection, and
+      // First-Register, Forgot-Password and Reset-Password walked around the
+      // refusals this product answers with. Every spelling is driven against
+      // the real application, so what is proved is where each one lands.
+      const spellingsOf = (operation) => {
+        const titled = operation.split("-").map((word) => word[0].toUpperCase() + word.slice(1)).join("-");
+        return [operation.toUpperCase(), titled, `${operation}/`, `${titled}/`];
+      };
+      const authOperation = async (spelling, { cookie, body } = {}) => {
+        const response = await fetch(`${origin}/api/users/${spelling}`, {
+          method: "POST",
+          headers: { "content-type": "application/json", origin, ...(cookie === undefined ? {} : { cookie }) },
+          ...(body === undefined ? {} : { body: JSON.stringify(body) })
+        });
+        return { status: response.status, body: await response.text(), session: response.headers.get("set-cookie") !== null };
+      };
+      // Every state a spelling could move, read as one row so an equal comparison
+      // is a claim about all of it rather than about whichever count was chosen.
+      const mutationState = async () => JSON.stringify((await pool.query(`select
+        (select count(*)::int from users) users,
+        (select json_agg(json_build_array(id,email,hash,salt) order by id) from users) credentials,
+        (select count(*)::int from users_sessions) sessions,
+        (select count(*)::int from k_nex_owner_bootstrap_tokens) grants,
+        (select count(*)::int from k_nex_owner_bootstrap_tokens where consumed_at is null) unspent,
+        (select count(*)::int from k_nex_authorization_bootstrap_receipts) receipts,
+        (select count(*)::int from k_nex_role_assignments) assignments,
+        (select count(*)::int from k_nex_authorization_audit) audits`)).rows[0]);
+      // Chosen so every answer is deterministic and none of them counts a failed
+      // attempt against an account this test still needs: an address nobody
+      // holds for the sign-in, and no session at all for the two that present one.
+      const spellingRequests = new Map([
+        ["login", { body: { email: "nobody@p13.example.test", password: "not-a-password-1" } }],
+        ["logout", {}],
+        ["refresh-token", {}],
+        ["first-register", { body: { email: "spelling@p13.example.test", password: "spelling-owner-password-1" } }],
+        ["forgot-password", { body: { email: movedEmail } }],
+        ["reset-password", { body: { token: "anything", password: "spelling-reset-password-1" } }],
+        ["unlock", { body: { email: movedEmail } }]
+      ]);
+      const spellingRefusals = new Map([
+        ["first-register", "The first owner is created by the operator bootstrap command, not by registration."],
+        ["forgot-password", "Credentials are issued by the operator recovery command, not by a password reset."],
+        ["reset-password", "Credentials are issued by the operator recovery command, not by a password reset."],
+        ["unlock", "A locked account is released by its lockout expiry or by the operator recovery command, not by an unlock request."]
+      ]);
+      const spellingStateBefore = await mutationState();
+      for (const [operation, request] of spellingRequests) {
+        const canonical = await authOperation(operation, request);
+        const refusal = spellingRefusals.get(operation);
+        if (refusal !== undefined) {
+          assert.equal(canonical.status, 403, `/api/users/${operation} must be refused: ${canonical.body}`);
+          assert.deepEqual(JSON.parse(canonical.body), { errors: [{ message: refusal }] });
+          assert.equal(canonical.session, false, `A refused /api/users/${operation} must not mint a session.`);
+        }
+        for (const spelling of spellingsOf(operation)) {
+          assert.deepEqual(await authOperation(spelling, request), canonical,
+            `/api/users/${spelling} must land exactly where /api/users/${operation} lands.`);
+        }
+      }
+      assert.equal(await mutationState(), spellingStateBefore,
+        "No spelling of a refused credential operation may move a user, a credential, a session, a grant, a receipt, an assignment or an audit.");
+      assert.deepEqual(await advisoryHolders(), [], "A refused spelling must leave no credential authority behind.");
+
+      // Next may answer a trailing-delimiter path with a canonicalising redirect
+      // of its own rather than routing it, and the requirement is where the
+      // request ends up, so the landings above follow redirects. Unfollowed, a
+      // refusal spelled with one must still never be answered as an admission.
+      const unfollowedReset = await fetch(`${origin}/api/users/reset-password/`, {
+        method: "POST", redirect: "manual", headers: { "content-type": "application/json", origin },
+        body: JSON.stringify({ token: "anything", password: "spelling-reset-password-1" })
+      });
+      assert.notEqual(unfollowedReset.status, 200, `A trailing-delimiter reset must never be served: ${await unfollowedReset.clone().text()}`);
+      assert.equal(unfollowedReset.headers.get("set-cookie"), null, "An unfollowed trailing-delimiter reset must not mint a session.");
+
+      // A mixed-case sign-in is served rather than refused, because the product
+      // answers the route Payload serves: what changed is that it is the
+      // authority answering it.
+      const mixedCaseSignIn = await fetch(`${origin}/api/users/Login`, {
+        method: "POST", headers: { "content-type": "application/json", origin },
+        body: JSON.stringify({ email: movedEmail, password: currentPassword })
+      });
+      assert.equal(mixedCaseSignIn.status, 200, `A mixed-case sign-in must still be served: ${await mixedCaseSignIn.clone().text()}`);
+      const mixedCaseCookie = mixedCaseSignIn.headers.get("set-cookie")?.split(";", 1)[0];
+      assert.ok(mixedCaseCookie, "A mixed-case sign-in must answer with a session.");
+      assert.equal(await currentUser(origin, mixedCaseCookie), owner.userId, "A mixed-case sign-in must open a usable session.");
+
+      // -------- a mixed-case sign-in and logout are the authority's too ------
+      // The two races the classifier reopened, driven at the spellings that
+      // reopened them. A sign-in outside the ordering could commit a session
+      // against a credential a recovery had already replaced, and a logout
+      // outside it could write the sessions that recovery revoked back over it,
+      // so the recovery has to own the ordering here exactly as it does at the
+      // canonical spelling, and nothing either one read before it may survive.
+      for (const spelling of ["Login", "Logout"]) {
+        const spellingTokenFile = resolve(directory, `${spelling}-spelling-recovery.token`);
+        const spellingIssued = operatorProbe(application, environment, ["knex:issue-bootstrap-token", "--recovery", "--output", spellingTokenFile]);
+        assert.equal(spellingIssued.status, 0, `${spellingIssued.stdout}\n${spellingIssued.stderr}`);
+        const spellingAuditsBefore = await recoveryAudits();
+        const spellingRecovered = `${spelling.toLowerCase()}-spelling-recovered-password-1`;
+        // A logout decides on the snapshot of sessions it read, so more than its
+        // own is what tells a logout apart from a revocation.
+        const held = await login(origin, movedEmail, currentPassword);
+        const remaining = await login(origin, movedEmail, currentPassword);
+        assert.equal(held.status, 200);
+        assert.equal(remaining.status, 200);
+        const spellingSessionsBefore = await ownerSessions();
+        assert.ok(spellingSessionsBefore >= 2, `Two live owner sessions are needed to tell a ${spelling} from a revocation: ${spellingSessionsBefore}`);
+
+        const spellingHolder = await pool.connect();
+        let spellingRowHeld = false;
+        let parkedSpelling;
+        let spellingRecovery;
+        try {
+          await spellingHolder.query("begin");
+          await spellingHolder.query("select id from users where id=$1 for update", [owner.userId]);
+          spellingRowHeld = true;
+          parkedSpelling = fetch(`${origin}/api/users/${spelling}`, {
+            method: "POST",
+            headers: { "content-type": "application/json", origin, ...(spelling === "Logout" ? { cookie: held.cookie } : {}) },
+            ...(spelling === "Login" ? { body: JSON.stringify({ email: movedEmail, password: currentPassword }) } : {})
+          });
+          // The generated worker holds row locks of its own, so both halves are
+          // waited for as one condition: the whole of this call has to be inside
+          // the authority of the account it is deciding about, which is what a
+          // spelling the classifier did not recognise never entered at all.
+          await eventually(async () => (await advisoryHolders()).includes(ownerAuthorityKey) && await lockWaiters(["transactionid", "tuple"]) >= 1 || undefined,
+            `A ${spelling} must run wholly inside the credential authority of the account it decides about.`, 60_000);
+          assert.equal(await ownerSessions(), spellingSessionsBefore, `A parked ${spelling} must not have published its session write.`);
+          assert.ok(await heldCredentialAuthority() >= 1,
+            `A parked ${spelling} must be holding the credential authority, not only the row it is about to write.`);
+
+          spellingRecovery = startProbe(application, environment, recoveryBoundaryScript, {
+            PROBE_TOKEN_FILE: spellingTokenFile,
+            PROBE_OPERATOR: environment.K_NEX_ADMINISTRATION_OPERATOR_IDENTITY,
+            PROBE_EMAIL: movedEmail,
+            PROBE_PASSWORD: spellingRecovered
+          });
+          await eventually(async () => await lockWaiters(["advisory"]) >= 1 || undefined,
+            `The operator recovery never queued behind the credential authority a ${spelling} holds.`, 120_000);
+          assert.equal(await recoveryAudits(), spellingAuditsBefore, `A queued recovery must not have committed behind a ${spelling}.`);
+          await spellingHolder.query("commit");
+          spellingRowHeld = false;
+        } finally {
+          if (spellingRowHeld) await spellingHolder.query("rollback").catch(() => undefined);
+          spellingHolder.release();
+        }
+        const answeredSpelling = await parkedSpelling;
+        assert.equal(answeredSpelling.status, 200, `A ${spelling} that waited its turn must still be answered: ${await answeredSpelling.clone().text()}`);
+        const recoveredSpelling = await spellingRecovery.result();
+        assert.equal(recoveredSpelling.ok, true, JSON.stringify(recoveredSpelling));
+        assert.equal(await recoveryAudits(), spellingAuditsBefore + 1, `The recovery a ${spelling} queued must leave exactly one further audit.`);
+        assert.equal(await ownerSessions(), 0, `No session a ${spelling} read before a recovery may survive that recovery.`);
+        assert.equal(await currentUser(origin, remaining.cookie), undefined, `A recovery after a ${spelling} must still revoke every remaining session.`);
+        assert.notEqual((await login(origin, movedEmail, currentPassword)).status, 200, `The password a ${spelling} ran against must stop working.`);
+        currentPassword = spellingRecovered;
+        assert.equal((await login(origin, movedEmail, currentPassword)).status, 200,
+          "The recovered password must be byte-identical to the one the operator supplied.");
+      }
+
       // -------- one canonical parse for the key and the authentication --------
       // The finding this closes: the authority read the address with JSON.parse
       // and fell back to an unresolved key when that threw, but Payload's
@@ -1347,7 +1512,10 @@ test("P13.B generated ingress readers are bounded, the realtime bridge recovers,
     const counts = async () => {
       const rows = await bootstraplessPool.query(`select
         (select count(*)::int from users) users,
+        (select count(*)::int from users where hash is not null or salt is not null) credentials,
         (select count(*)::int from users_sessions) sessions,
+        (select count(*)::int from k_nex_owner_bootstrap_tokens) grants,
+        (select count(*)::int from k_nex_role_assignments) assignments,
         (select count(*)::int from k_nex_role_assignments where role_id='system.role.owner') owners,
         (select count(*)::int from k_nex_authorization_bootstrap_receipts) receipts,
         (select count(*)::int from k_nex_authorization_audit) audits`);
@@ -1371,19 +1539,25 @@ test("P13.B generated ingress readers are bounded, the realtime bridge recovers,
       await eventually(async () => (await fetch(`${bootstraplessOrigin}/api/health`)).ok || undefined,
         `A migrated application must start before it is bootstrapped.\n${bootstraplessOutput}`, 120_000);
 
-      for (const body of [
-        { email: "attacker@p13.example.test", password: "attacker-first-owner-1" },
-        { email: "ATTACKER@P13.example.test", password: "attacker-first-owner-1" }
-      ]) {
-        const registered = await fetch(`${bootstraplessOrigin}/api/users/first-register`, {
-          method: "POST", headers: { "content-type": "application/json", origin: bootstraplessOrigin }, body: JSON.stringify(body)
-        });
-        assert.equal(registered.status, 403, `An unauthenticated first-register must be refused: ${await registered.clone().text()}`);
-        assert.deepEqual(await registered.json(), { errors: [{ message: "The first owner is created by the operator bootstrap command, not by registration." }] });
-        assert.equal(registered.headers.get("set-cookie"), null, "A refused first-register must not mint a session.");
+      // Payload selects this endpoint by matching rather than by comparing, so
+      // every spelling of it reaches the access-overriding first-user operation
+      // on a database that has no owner yet. Each one has to be refused, and to
+      // leave the database it found.
+      for (const spelling of ["first-register", "FIRST-REGISTER", "First-Register", "first-register/", "First-Register/"]) {
+        for (const body of [
+          { email: "attacker@p13.example.test", password: "attacker-first-owner-1" },
+          { email: "ATTACKER@P13.example.test", password: "attacker-first-owner-1" }
+        ]) {
+          const registered = await fetch(`${bootstraplessOrigin}/api/users/${spelling}`, {
+            method: "POST", headers: { "content-type": "application/json", origin: bootstraplessOrigin }, body: JSON.stringify(body)
+          });
+          assert.equal(registered.status, 403, `An unauthenticated ${spelling} must be refused: ${await registered.clone().text()}`);
+          assert.deepEqual(await registered.json(), { errors: [{ message: "The first owner is created by the operator bootstrap command, not by registration." }] });
+          assert.equal(registered.headers.get("set-cookie"), null, `A refused ${spelling} must not mint a session.`);
+        }
       }
       assert.deepEqual(await counts(), migratedCounts,
-        "A refused first-register must leave no account, no session, no owner assignment, no receipt and no audit.");
+        "No spelling of first-register may leave an account, a credential, a session, a grant, an assignment, a receipt or an audit.");
       assert.notEqual((await login(bootstraplessOrigin, "attacker@p13.example.test", "attacker-first-owner-1")).status, 200);
 
       // The operator flow is the only way in, and it still is.
@@ -1403,12 +1577,15 @@ test("P13.B generated ingress readers are bounded, the realtime bridge recovers,
         assert.equal(bootstrappedCounts.receipts, 1, "The operator bootstrap must commit exactly one protected owner receipt.");
         assert.equal(bootstrappedCounts.owners, 1, "The operator bootstrap must assign the owner role exactly once.");
         assert.equal((await login(bootstraplessOrigin, "first-owner@p13.example.test", "first-owner-password-1")).status, 200);
-        // Still refused once an owner exists, and still for the same reason.
-        const afterOwner = await fetch(`${bootstraplessOrigin}/api/users/first-register`, {
-          method: "POST", headers: { "content-type": "application/json", origin: bootstraplessOrigin },
-          body: JSON.stringify({ email: "second-owner@p13.example.test", password: "second-owner-password-1" })
-        });
-        assert.equal(afterOwner.status, 403);
+        // Still refused once an owner exists, however it is spelled, and still
+        // for the same reason.
+        for (const spelling of ["first-register", "First-Register", "first-register/"]) {
+          const afterOwner = await fetch(`${bootstraplessOrigin}/api/users/${spelling}`, {
+            method: "POST", headers: { "content-type": "application/json", origin: bootstraplessOrigin },
+            body: JSON.stringify({ email: "second-owner@p13.example.test", password: "second-owner-password-1" })
+          });
+          assert.equal(afterOwner.status, 403, `${spelling} must stay refused after bootstrap: ${await afterOwner.clone().text()}`);
+        }
         assert.equal((await counts()).users, 1, "A refused first-register must not add an account after bootstrap either.");
       } finally { rmSync(bootstraplessToken, { recursive: true, force: true }); }
     } finally {

@@ -130,12 +130,20 @@ function credentialRefusal(status: number, message: string): Response {
  * There is no GraphQL route in this product, so this is the only surface the
  * Payload auth operations are reachable from: /api/graphql falls through to
  * this catch-all, which has no collection by that name and answers 404.
+ *
+ * Both classifiers read the slug under the rule Payload will route it by rather
+ * than as it was spelled, because Payload selects an endpoint by matching one
+ * rather than by comparing it, and that matcher ignores case and one trailing
+ * delimiter. A request therefore lands where its canonical spelling lands,
+ * held under the authority or refused, and the operation carried into the
+ * authority is the canonical one rather than the caller's spelling of it.
  */
 export async function POST(request: Request, context: PayloadRestContext): Promise<Response> {
   const params = await context.params;
   const refused = refusedCredentialRestOperation(params.slug);
   if (refused !== undefined) return credentialRefusal(403, refused);
-  if (!credentialSensitiveRestOperation(params.slug)) return restPost(request, context);
+  const operation = credentialSensitiveRestOperation(params.slug);
+  if (operation === undefined) return restPost(request, context);
   let admitted: Awaited<ReturnType<typeof readCredentialSensitiveRestRequest>>;
   // Read before the authority is taken, and handed on as the bytes the client
   // sent: a body that trickles must not be able to hold every sign-in and every
@@ -151,7 +159,7 @@ export async function POST(request: Request, context: PayloadRestContext): Promi
   }
   const payload = await bootKnexApplication("credential-authority");
   try {
-    return await withCredentialSensitiveRestAuthority(payload, params.slug![1]!, admitted, async (signal) => restPost(admitted.delegate(signal), context), request.signal);
+    return await withCredentialSensitiveRestAuthority(payload, operation, admitted, async (signal) => restPost(admitted.delegate(signal), context), request.signal);
   } catch (error) {
     const refusal = credentialAuthorityRefusal(error);
     return credentialRefusal(refusal.status, refusal.message);

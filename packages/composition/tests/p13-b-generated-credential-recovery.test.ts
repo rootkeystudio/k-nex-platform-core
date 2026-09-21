@@ -58,7 +58,7 @@ type UsersModule = {
   };
 };
 
-type DelegatedRestCall = Readonly<{ method: string; slug: readonly string[]; body: string | null; authorityHeld: boolean }>;
+type DelegatedRestCall = Readonly<{ method: string; slug: readonly string[]; endpoint: string | undefined; body: string | null; authorityHeld: boolean }>;
 type RestControl = {
   delegated: DelegatedRestCall[];
   statements: Array<{ text: string; values: readonly unknown[] }>;
@@ -91,8 +91,22 @@ function restControl(): RestControl {
 /** Delegates to the generated Payload REST route, with the slug Next would have parsed. */
 function restPost(path: string, init: RequestInit = {}): Promise<Response> {
   const url = new URL(path, "https://alpha.example.test");
-  const slug = url.pathname.replace(/^\/api\//u, "").split("/");
+  // Next hands a catch-all its segments decoded, and @payloadcms/next re-encodes
+  // each one to rebuild the path it gives Payload, so a segment has to arrive
+  // here decoded for the two views to be reading the one slug they read in the
+  // generated application.
+  const slug = url.pathname.replace(/^\/api\//u, "").split("/").map((segment) => decodeURIComponent(segment));
   return rest.POST(new Request(url, { method: "POST", ...init }), { params: Promise.resolve({ slug }) });
+}
+
+/** A spelling of an operation that differs from the canonical one only in case. */
+function titleCased(operation: string): string {
+  return operation.split("-").map((word) => word[0]!.toUpperCase() + word.slice(1)).join("-");
+}
+
+/** The operation a spelling names once Payload's matcher has had its case and its one optional trailing delimiter. */
+function asciiCanonical(spelling: string): string {
+  return (spelling.endsWith("/") ? spelling.slice(0, -1) : spelling).toLowerCase();
 }
 
 const grantDigest = "sha256:" + "a".repeat(64);
@@ -290,10 +304,33 @@ export async function activePayloadPostgresTransaction(req) {
   writeFileSync(join(directory, "rest-stubs.mjs"), `
 const control = () => globalThis.__kNexGeneratedRest;
 export default Object.freeze({ kind: "sanitized-payload-config" });
+/** The POST auth endpoints Payload adds to every auth collection it sanitizes. */
+const authCollectionEndpoints = Object.freeze(["/forgot-password", "/login", "/logout", "/refresh-token", "/first-register", "/reset-password", "/unlock"]);
+const collections = Object.freeze(["users", "sales-accounts"]);
+/**
+ * Which endpoint a delegated call actually reaches, resolved by the two steps
+ * that decide it in Payload rather than by the slug it was handed.
+ * Payload's Next route adapter rebuilds the path out of the slug Next parsed,
+ * joining slug.map(encodeURIComponent) under the api route; handleEndpoints then takes
+ * the collection by exact payload.collections key and selects the endpoint with
+ * path-to-regexp's match(), whose defaults are sensitive:false and
+ * strict:false. That compiles a static endpoint path to the same anchored,
+ * case-insensitive pattern with one optional trailing delimiter built below.
+ * The real Payload answers the fixture journey; this is what lets a unit proof
+ * say which endpoint a spelling reaches rather than only which slug it carried.
+ */
+const resolveEndpoint = (slug) => {
+  const adjusted = "/" + [...(slug ?? [])].map(encodeURIComponent).join("/");
+  const collection = collections.find((candidate) => adjusted.split("/")[1] === candidate);
+  if (collection === undefined) return undefined;
+  const rest = adjusted.replace("/" + collection, "") || "/";
+  return authCollectionEndpoints.find((path) => new RegExp("^" + path + "[/#?]?$", "i").test(rest));
+};
 const delegate = (method) => () => async (request, args) => {
   const params = await args.params;
   control().delegated.push(Object.freeze({
     method, slug: Object.freeze([...(params.slug ?? [])]),
+    endpoint: resolveEndpoint(params.slug),
     body: request.body === null ? null : await request.text(),
     authorityHeld: control().authorityHeld
   }));
@@ -680,7 +717,7 @@ it("holds the credential authority across the whole delegated Payload sign-in", 
   const response = await restPost("/api/users/login", { headers: { "content-type": "application/json" }, body });
   expect(response.status).toBe(200);
   expect(restControl().boots).toEqual(["credential-authority"]);
-  expect(restControl().delegated).toEqual([{ method: "POST", slug: ["users", "login"], body, authorityHeld: true }]);
+  expect(restControl().delegated).toEqual([{ method: "POST", slug: ["users", "login"], endpoint: "/login", body, authorityHeld: true }]);
   // Acquired before the delegated call and released only after it answered, so
   // a credential change waits for the sign-in it would otherwise overtake. The
   // lock wait is bounded by a statement timeout the connection does not keep:
@@ -795,6 +832,84 @@ it("serializes every Payload auth operation that decides on a snapshot, refuses 
   }
   expect(restControl().connects).toBe(3);
   expect(restControl().delegated).toHaveLength(6);
+});
+
+/**
+ * The finding this closes: the route classified with an exact, case-sensitive
+ * slug comparison and then handed the same slug to Payload, which does not
+ * compare a path to an endpoint path but matches one. handleEndpoints selects a
+ * collection endpoint with path-to-regexp's match(), whose defaults are
+ * sensitive:false and strict:false, so /api/users/Login, /api/users/LOGIN and
+ * /api/users/login/ were all served by the sign-in handler while the classifier
+ * recognised none of them. Mixed-case sign-in reopened the sign-in versus
+ * recovery race, mixed-case logout the stale snapshot resurrection, and
+ * First-Register, Forgot-Password and Reset-Password walked around the refusals
+ * entirely.
+ *
+ * Every spelling is asserted against the endpoint the substituted Payload
+ * resolves for it, so what is proved is agreement with Payload's routing rather
+ * than a list of spellings somebody thought of.
+ */
+it("classifies a credential operation by the endpoint Payload routes it to, whatever case or trailing delimiter it is spelled with", async () => {
+  const spellings = (operation: string) => [operation, operation.toUpperCase(), titleCased(operation), `${operation}/`, `${titleCased(operation)}/`];
+
+  for (const spelling of ["login", "logout", "refresh-token"].flatMap(spellings)) {
+    restControl().delegated.length = 0;
+    const answered = await restPost(`/api/users/${spelling}`, { headers: { "content-type": "application/json" }, body: "{}" });
+    expect(answered.status).toBe(200);
+    const delegated = restControl().delegated;
+    expect(delegated).toHaveLength(1);
+    // The endpoint Payload reaches is the canonical one, and the authority was
+    // held for the whole of the call that reached it.
+    expect(delegated[0]!.endpoint).toBe(`/${asciiCanonical(spelling)}`);
+    expect(delegated[0]!.authorityHeld).toBe(true);
+  }
+
+  for (const [operation, message] of [
+    ["first-register", "The first owner is created by the operator bootstrap command, not by registration."],
+    ["forgot-password", "Credentials are issued by the operator recovery command, not by a password reset."],
+    ["reset-password", "Credentials are issued by the operator recovery command, not by a password reset."],
+    ["unlock", "A locked account is released by its lockout expiry or by the operator recovery command, not by an unlock request."]
+  ] as const) {
+    for (const spelling of spellings(operation)) {
+      restControl().delegated.length = 0;
+      restControl().lookups.length = 0;
+      restControl().statements.length = 0;
+      const refused = await restPost(`/api/users/${spelling}`, { headers: { "content-type": "application/json" }, body: JSON.stringify({ email: "owner@alpha.example.test" }) });
+      expect(refused.status).toBe(403);
+      expect(await refused.json()).toEqual({ errors: [{ message }] });
+      // Refused before Payload is reached at all, so the endpoint the spelling
+      // would have been routed to is never served.
+      expect(restControl().delegated).toEqual([]);
+      expect(restControl().lookups).toEqual([]);
+      expect(restControl().statements).toEqual([]);
+    }
+  }
+
+  // The collection segment is the one part Payload does match exactly:
+  // payload.collections[firstParam] is a plain object key lookup, so a
+  // differently cased collection reaches no collection and no auth endpoint.
+  // Percent-encoding is not a second spelling either, because Next decodes the
+  // slug and Payload's Next route adapter re-encodes it, so both read one segment.
+  restControl().delegated.length = 0;
+  const connectsBeforeDelegated = restControl().connects;
+  for (const path of ["/api/Users/login", "/api/USERS/login", "/api/users/Login/extra", "/api/users//login", "/api/users/Log%20in"]) {
+    const answered = await restPost(path, { headers: { "content-type": "application/json" }, body: "{}" });
+    expect(answered.status).toBe(200);
+  }
+  expect(restControl().delegated.map(({ endpoint }) => endpoint)).toEqual([undefined, undefined, undefined, undefined, undefined]);
+  expect(restControl().delegated.every(({ authorityHeld }) => authorityHeld)).toBe(false);
+  // Delegated untouched: no pooled connection was spent on any of them.
+  expect(restControl().connects).toBe(connectsBeforeDelegated);
+
+  // A non-ASCII character that String.prototype.toLowerCase folds onto an ASCII
+  // one is not a spelling Payload's matcher accepts, so it must not be one this
+  // route refuses: it is delegated, and Payload resolves no endpoint for it.
+  expect("unlocK".toLowerCase()).toBe("unlock");
+  restControl().delegated.length = 0;
+  const kelvin = await restPost("/api/users/unlocK", { headers: { "content-type": "application/json" }, body: "{}" });
+  expect(kelvin.status).toBe(200);
+  expect(restControl().delegated.map(({ endpoint, authorityHeld }) => ({ endpoint, authorityHeld }))).toEqual([{ endpoint: undefined, authorityHeld: false }]);
 });
 
 /**

@@ -855,12 +855,65 @@ const refusedUserOperations: ReadonlyMap<string, string> = new Map([
   ["unlock", "A locked account is released by its lockout expiry or by the operator recovery command, not by an unlock request."]
 ]);
 
-export function credentialSensitiveRestOperation(slug: readonly string[] | undefined): boolean {
-  return slug !== undefined && slug.length === 2 && slug[0] === "users" && credentialSensitiveUserOperations.includes(slug[1]!);
+/**
+ * The case rule Payload's endpoint matcher applies, which is a JavaScript
+ * regular expression's "i" without "u". That canonicalization refuses to fold a
+ * non-ASCII character onto an ASCII one, so U+212A KELVIN SIGN does not match
+ * "k" there. String.prototype.toLowerCase does fold it, and folding wider than
+ * the matcher would refuse a spelling Payload answers with a 404.
+ */
+function asciiLowercased(value: string): string {
+  return value.replace(/[A-Z]/gu, (letter) => letter.toLowerCase());
+}
+
+/**
+ * Payload does not compare a request path to an endpoint path, it matches one.
+ * handleEndpoints selects a collection endpoint with path-to-regexp's match(),
+ * whose defaults are sensitive:false and strict:false, so "/login" compiles to
+ * /^\\/login[\\/#\\?]?$/i and /api/users/Login, /api/users/LOGIN and
+ * /api/users/login/ are all served by the sign-in handler. Classifying by an
+ * exact, case-sensitive slug comparison therefore ordered and refused the
+ * canonical spellings while handing every other spelling of the same seven
+ * operations straight through: a mixed-case sign-in reached Payload outside
+ * this authority, and a mixed-case reset outside the recovery policy.
+ *
+ * The path Payload matches is not the request URL. Payload's Next route adapter
+ * rebuilds it from the slug Next parsed, as the api route followed by
+ * slug.map(encodeURIComponent).join("/"), and that is the same slug this
+ * wrapper is handed. The two views already share a source and differed only in
+ * the rule read off it, so this is that rule: what it admits is what Payload
+ * serves, and what it refuses is what Payload does not.
+ *
+ * The collection segment is not matched this way. handleEndpoints resolves it
+ * with payload.collections[firstParam], a plain object key lookup, so only this
+ * spelling names the users collection and /api/Users/login reaches none.
+ */
+function payloadUserOperation(slug: readonly string[] | undefined): string | undefined {
+  if (slug === undefined || slug[0] !== "users") return undefined;
+  // One trailing delimiter is part of the match because strict is false.
+  // encodeURIComponent escapes an interior "/" and never emits "#" or "?", so
+  // the only delimiter a rebuilt path can end on is the join between segments:
+  // a trailing one arrives as an empty final segment and nothing else does.
+  // Anything longer carries a second "/" that no auth endpoint path matches.
+  const operation = slug.length === 2 ? slug[1] : slug.length === 3 && slug[2] === "" ? slug[1] : undefined;
+  return operation === undefined ? undefined : asciiLowercased(operation);
+}
+
+/**
+ * The operation a credential-sensitive request is ordered under, canonical
+ * rather than as spelled, because the principal a sign-in names is read out of
+ * its body and a refresh or a logout out of its session: an operation carried
+ * through as "Login" would have taken the key a session names for a request
+ * that authenticates by address.
+ */
+export function credentialSensitiveRestOperation(slug: readonly string[] | undefined): string | undefined {
+  const operation = payloadUserOperation(slug);
+  return operation !== undefined && credentialSensitiveUserOperations.includes(operation) ? operation : undefined;
 }
 
 export function refusedCredentialRestOperation(slug: readonly string[] | undefined): string | undefined {
-  return slug !== undefined && slug.length === 2 && slug[0] === "users" ? refusedUserOperations.get(slug[1]!) : undefined;
+  const operation = payloadUserOperation(slug);
+  return operation === undefined ? undefined : refusedUserOperations.get(operation);
 }
 
 export type KnexCredentialSensitiveRestRequest = Readonly<{
