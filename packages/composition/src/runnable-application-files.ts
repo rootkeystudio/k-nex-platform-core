@@ -106,15 +106,41 @@ type PayloadRestContext = Readonly<{ params: Promise<{ slug?: string[] }> }>;
 
 const restPost = REST_POST(config);
 
-export const GET = REST_GET(config);
-export const DELETE = REST_DELETE(config);
-export const PATCH = REST_PATCH(config);
-export const PUT = REST_PUT(config);
-export const OPTIONS = REST_OPTIONS(config);
-
 function credentialRefusal(status: number, message: string): Response {
   return Response.json({ errors: [{ message }] }, { status, headers: { "cache-control": "no-store" } });
 }
+
+/**
+ * Payload resolves the collection a path names by indexing a plain object with
+ * the first segment, so the names every plain object inherits resolve to a
+ * member of Object.prototype rather than to no collection at all. The request
+ * then reads .config off that member and throws, and the error handler called
+ * to report that throws again reading .config.hooks off the same member, so an
+ * unauthenticated request answers 500 and leaves a stack trace where every
+ * other name it could have written answers 404. No collection in this product
+ * can be registered under one of those names, so a request that writes one
+ * names nothing, and nothing is what this answers.
+ */
+const namesInheritedByEveryObject: ReadonlySet<string> = new Set(Object.getOwnPropertyNames(Object.prototype));
+
+function unroutableCollection(request: Request, slug: readonly string[] | undefined): Response | undefined {
+  const named = slug?.[0];
+  if (named === undefined || !namesInheritedByEveryObject.has(named)) return undefined;
+  return Response.json({ message: \`Route not found "\${new URL(request.url).pathname}"\` },
+    { status: 404, headers: { "cache-control": "no-store" } });
+}
+
+function routedByCollection(handler: (request: Request, context: PayloadRestContext) => Promise<Response>) {
+  return async function route(request: Request, context: PayloadRestContext): Promise<Response> {
+    return unroutableCollection(request, (await context.params).slug) ?? handler(request, context);
+  };
+}
+
+export const GET = routedByCollection(REST_GET(config));
+export const DELETE = routedByCollection(REST_DELETE(config));
+export const PATCH = routedByCollection(REST_PATCH(config));
+export const PUT = routedByCollection(REST_PUT(config));
+export const OPTIONS = routedByCollection(REST_OPTIONS(config));
 
 /**
  * Payload verifies a password before it opens the transaction that writes the
@@ -127,9 +153,10 @@ function credentialRefusal(status: number, message: string): Response {
  * is deciding about, for the whole of the call rather than for its write. Every
  * other method and every other path is delegated untouched.
  *
- * There is no GraphQL route in this product, so this is the only surface the
- * Payload auth operations are reachable from: /api/graphql falls through to
- * this catch-all, which has no collection by that name and answers 404.
+ * This is the only surface the Payload auth operations are reachable from. The
+ * GraphQL routes this product emits stand in front of the catch-all and answer
+ * every method with a refusal, and the users collection is declared out of the
+ * GraphQL schema as well.
  *
  * Both classifiers read the slug under the rule Payload will route it by rather
  * than as it was spelled, because Payload selects an endpoint by matching one
@@ -140,6 +167,8 @@ function credentialRefusal(status: number, message: string): Response {
  */
 export async function POST(request: Request, context: PayloadRestContext): Promise<Response> {
   const params = await context.params;
+  const unroutable = unroutableCollection(request, params.slug);
+  if (unroutable !== undefined) return unroutable;
   const refused = refusedCredentialRestOperation(params.slug);
   if (refused !== undefined) return credentialRefusal(403, refused);
   const operation = credentialSensitiveRestOperation(params.slug);

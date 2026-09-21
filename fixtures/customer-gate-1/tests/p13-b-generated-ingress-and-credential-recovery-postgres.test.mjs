@@ -348,8 +348,9 @@ test("P13.B generated ingress readers are bounded, the realtime bridge recovers,
     // same operations the REST endpoints do. A GraphQL route therefore reached
     // every credential operation without passing the credential authority or
     // the REST refusals, and policing it by operation name would fail open on
-    // aliases, variables, fragments and batching. The route is not generated at
-    // all, so there is nothing to police.
+    // aliases, variables, fragments and batching. The route that is generated
+    // reaches no config and answers every method with the same refusal, so
+    // there is no document to police.
     const ownerSessionCount = async (userId) => (await pool.query("select count(*)::int count from users_sessions where _parent_id=$1", [userId])).rows[0].count;
     const sessionsBeforeGraphql = await ownerSessionCount(owner.userId);
     const graphqlAttempts = [
@@ -678,10 +679,22 @@ test("P13.B generated ingress readers are bounded, the realtime bridge recovers,
         await holder.query("begin");
         await holder.query("select id from users where id=$1 for update", [owner.userId]);
         heldUserRow = true;
+        // Bound to the row this test is holding rather than to "something,
+        // somewhere is waiting on a row": a backend that was already waiting
+        // when the sign-in started would otherwise answer for the sign-in, and
+        // the authority it has not taken yet would be read as an authority it
+        // never takes. Nothing else in this test wants this row, so a backend
+        // this one blocks is the sign-in parked before its session write.
+        const holderPid = Number((await holder.query("select pg_backend_pid() pid")).rows[0].pid);
+        const parkedOnTheHeldRow = async () => (await pool.query(
+          "select count(*)::int count from pg_stat_activity where datname=current_database() and $1=any(pg_blocking_pids(pid))",
+          [holderPid]
+        )).rows[0].count;
+        assert.equal(await parkedOnTheHeldRow(), 0, "Nothing may already be waiting on the row the sign-in is about to be parked on.");
         const sessionsBeforeSignIn = await ownerSessions();
         pausedSignIn = login(origin, personas.owner.email, currentPassword)
           .catch((error) => { pausedSignInFailure = error; return { status: 0 }; });
-        await eventually(async () => await lockWaiters(["transactionid", "tuple"]) >= 1 || undefined,
+        await eventually(async () => await parkedOnTheHeldRow() >= 1 || undefined,
           "The ordinary sign-in never reached the session write it commits.", 60_000);
         assert.equal(await ownerSessions(), sessionsBeforeSignIn, "A sign-in parked before its session write must not have published that session.");
         // The whole of the sign-in is inside the authority, not just the write
@@ -1083,6 +1096,35 @@ test("P13.B generated ingress readers are bounded, the realtime bridge recovers,
       assert.equal(await mutationState(), spellingStateBefore,
         "No spelling of a refused credential operation may move a user, a credential, a session, a grant, a receipt, an assignment or an audit.");
       assert.deepEqual(await advisoryHolders(), [], "A refused spelling must leave no credential authority behind.");
+
+      // Payload takes the collection a path names by indexing a plain object
+      // with the first segment, so the names every object inherits resolved to a
+      // member of Object.prototype rather than to no collection: the endpoints
+      // were read off that member and threw, and the handler called to report
+      // that read the same member's hooks and threw again, so an unauthenticated
+      // request answered 500 and left a stack trace where every other name
+      // answers 404. Driven against the real application on every method it
+      // serves, because a stub that resolved a collection by search rather than
+      // by indexing would not have the defect at all.
+      const inheritedNamesStateBefore = await mutationState();
+      for (const method of ["DELETE", "GET", "OPTIONS", "PATCH", "POST", "PUT"]) {
+        for (const named of Object.getOwnPropertyNames(Object.prototype)) {
+          const answered = await fetch(`${origin}/api/${named}`, { method, headers: { origin } });
+          assert.equal(answered.status, 404, `${method} /api/${named} must answer not-found: ${answered.status} ${await answered.clone().text()}`);
+          if (method !== "OPTIONS") {
+            assert.deepEqual(await answered.json(), { message: `Route not found "/api/${named}"` },
+              `${method} /api/${named} must answer exactly what an unknown collection answers.`);
+          }
+        }
+      }
+      assert.equal(await mutationState(), inheritedNamesStateBefore, "A name no collection holds may move nothing.");
+      // Narrow: an ordinary unknown collection is still Payload's own answer,
+      // and a collection this product does hold is still reached.
+      const unknownCollection = await fetch(`${origin}/api/no-such-collection`, { headers: { origin } });
+      assert.equal(unknownCollection.status, 404, "An unknown collection must still be answered by Payload.");
+      assert.equal((await fetch(`${origin}/api/users/me`, { headers: { cookie: owner.cookie, origin } })).status, 200,
+        "A collection this product holds must still be served.");
+      assert.equal((await fetch(`${origin}/api/health`)).ok, true, `Generated host must stay healthy after a name no collection holds.\n${applicationOutput()}`);
 
       // Next may answer a trailing-delimiter path with a canonicalising redirect
       // of its own rather than routing it, and the requirement is where the

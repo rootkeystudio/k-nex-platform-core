@@ -73,7 +73,8 @@ type RestControl = {
   holdDelegated: Promise<void> | undefined;
 };
 
-type RestModule = { POST(request: Request, context: { params: Promise<{ slug?: string[] }> }): Promise<Response> };
+type RestHandler = (request: Request, context: { params: Promise<{ slug?: string[] }> }) => Promise<Response>;
+type RestModule = Readonly<Record<"DELETE" | "GET" | "OPTIONS" | "PATCH" | "POST" | "PUT", RestHandler>>;
 
 let directory: string;
 let authority: AuthorityModule;
@@ -89,14 +90,18 @@ function restControl(): RestControl {
 }
 
 /** Delegates to the generated Payload REST route, with the slug Next would have parsed. */
-function restPost(path: string, init: RequestInit = {}): Promise<Response> {
+function restCall(method: keyof RestModule, path: string, init: RequestInit = {}): Promise<Response> {
   const url = new URL(path, "https://alpha.example.test");
   // Next hands a catch-all its segments decoded, and @payloadcms/next re-encodes
   // each one to rebuild the path it gives Payload, so a segment has to arrive
   // here decoded for the two views to be reading the one slug they read in the
   // generated application.
   const slug = url.pathname.replace(/^\/api\//u, "").split("/").map((segment) => decodeURIComponent(segment));
-  return rest.POST(new Request(url, { method: "POST", ...init }), { params: Promise.resolve({ slug }) });
+  return rest[method](new Request(url, { method, ...init }), { params: Promise.resolve({ slug }) });
+}
+
+function restPost(path: string, init: RequestInit = {}): Promise<Response> {
+  return restCall("POST", path, init);
 }
 
 /** A spelling of an operation that differs from the canonical one only in case. */
@@ -306,7 +311,15 @@ const control = () => globalThis.__kNexGeneratedRest;
 export default Object.freeze({ kind: "sanitized-payload-config" });
 /** The POST auth endpoints Payload adds to every auth collection it sanitizes. */
 const authCollectionEndpoints = Object.freeze(["/forgot-password", "/login", "/logout", "/refresh-token", "/first-register", "/reset-password", "/unlock"]);
-const collections = Object.freeze(["users", "sales-accounts"]);
+/**
+ * Payload keeps its collections in a plain object and takes one by indexing it
+ * with the first segment, so this is a plain object too, and a name every
+ * object inherits resolves here to what it resolves to there: a member of
+ * Object.prototype whose endpoints are read off nothing and throw. A stub that
+ * answered "no such collection" for those names would hide the defect the
+ * route guard exists for.
+ */
+const collections = { "sales-accounts": { endpoints: Object.freeze([]) }, users: { endpoints: authCollectionEndpoints } };
 /**
  * Which endpoint a delegated call actually reaches, resolved by the two steps
  * that decide it in Payload rather than by the slug it was handed.
@@ -321,10 +334,11 @@ const collections = Object.freeze(["users", "sales-accounts"]);
  */
 const resolveEndpoint = (slug) => {
   const adjusted = "/" + [...(slug ?? [])].map(encodeURIComponent).join("/");
-  const collection = collections.find((candidate) => adjusted.split("/")[1] === candidate);
-  if (collection === undefined) return undefined;
-  const rest = adjusted.replace("/" + collection, "") || "/";
-  return authCollectionEndpoints.find((path) => new RegExp("^" + path + "[/#?]?$", "i").test(rest));
+  const named = adjusted.split("/")[1];
+  const collection = collections[named];
+  if (!collection) return undefined;
+  const rest = adjusted.replace("/" + named, "") || "/";
+  return collection.endpoints.find((path) => new RegExp("^" + path + "[/#?]?$", "i").test(rest));
 };
 const delegate = (method) => () => async (request, args) => {
   const params = await args.params;
@@ -910,6 +924,48 @@ it("classifies a credential operation by the endpoint Payload routes it to, what
   const kelvin = await restPost("/api/users/unlocK", { headers: { "content-type": "application/json" }, body: "{}" });
   expect(kelvin.status).toBe(200);
   expect(restControl().delegated.map(({ endpoint, authorityHeld }) => ({ endpoint, authorityHeld }))).toEqual([{ endpoint: undefined, authorityHeld: false }]);
+});
+
+/**
+ * Payload takes the collection a path names by indexing a plain object with the
+ * first segment, so the twelve names every object inherits resolve to a member
+ * of Object.prototype rather than to no collection. The endpoints are then read
+ * off that member and throw, and the handler called to report that reads the
+ * same member's hooks and throws again, so an unauthenticated request answered
+ * 500 and left a stack trace where every other name answers 404. Nothing here
+ * can be registered under one of those names, so a request that writes one
+ * names nothing on every method this route serves.
+ */
+it("answers the names every object inherits with the not-found every other name gets", async () => {
+  const inherited = Object.getOwnPropertyNames(Object.prototype);
+  expect(inherited).toContain("constructor");
+  expect(inherited).toContain("__proto__");
+
+  for (const method of ["DELETE", "GET", "OPTIONS", "PATCH", "POST", "PUT"] as const) {
+    for (const named of inherited) {
+      restControl().delegated.length = 0;
+      const answered = await restCall(method, `/api/${named}`);
+      expect(answered.status).toBe(404);
+      expect(await answered.json()).toEqual({ message: `Route not found "/api/${named}"` });
+      // Answered before Payload is reached, which is the whole of it: reaching
+      // Payload with one of these names is what throws twice.
+      expect(restControl().delegated).toEqual([]);
+      expect(restControl().connects).toBe(0);
+    }
+  }
+
+  // Narrow: an ordinary unknown collection is still Payload's to answer, and a
+  // real one still reaches it on every method.
+  for (const method of ["DELETE", "GET", "OPTIONS", "PATCH", "POST", "PUT"] as const) {
+    restControl().delegated.length = 0;
+    const delegated = await restCall(method, "/api/no-such-collection");
+    expect(delegated.status).toBe(200);
+    expect(restControl().delegated.map(({ slug }) => slug)).toEqual([["no-such-collection"]]);
+    restControl().delegated.length = 0;
+    const known = await restCall(method, "/api/sales-accounts");
+    expect(known.status).toBe(200);
+    expect(restControl().delegated.map(({ slug }) => slug)).toEqual([["sales-accounts"]]);
+  }
 });
 
 /**
