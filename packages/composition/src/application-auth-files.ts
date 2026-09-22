@@ -3447,7 +3447,11 @@ function reconcileSource(root: string) {
   }
   const lockPath = join(root, "pnpm-lock.yaml");
   regular(lockPath, "Package lock");
-  if (sha256(readFileSync(lockPath)) !== release.factoryLockTemplates["${theme}"].digest) fail("Package lock digest mismatch.");
+  // A release that predates this theme carries no lock for it, and an
+  // application cannot prove its own lock against a template that is not there.
+  const factoryLock = release.factoryLockTemplates["${theme}"];
+  if (factoryLock === undefined) fail("Package release manifest declares no ${theme} factory lock template.");
+  if (sha256(readFileSync(lockPath)) !== factoryLock.digest) fail("Package lock digest mismatch.");
   if (!same(routeSources(root), expectedRouteSources)) fail("Generated route source inventory mismatch.");
 
   const salesManifest = PluginManifestSchema.parse(manifestJson);
