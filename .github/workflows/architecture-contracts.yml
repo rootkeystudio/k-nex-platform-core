@@ -41,7 +41,9 @@ jobs:
 
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    # The cumulative chain on main runs every gate from Phase 0 through the
+    # Phase 13 attack corpus; Gate 12 alone took over an hour.
+    timeout-minutes: 240
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
