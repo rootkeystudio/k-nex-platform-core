@@ -130,6 +130,7 @@ export function createWorkspaceCss(language: ThemeDesignLanguage): string {
     rule(".workspace-brand", "display:grid;gap:2px;padding-block-end:calc(var(--k-space-tight)*1px)"),
     rule(".workspace-brand > :first-child", `font-size:calc(var(--k-font-large)*1px);font-weight:700;letter-spacing:${language.headingLetterSpacing}`),
     rule(".workspace-brand > :last-child", `color:var(--k-muted);${labelTypography}`),
+    rule(".workspace-sidebar > button", "align-self:flex-start;width:calc(var(--k-control-height)*1px);padding:0"),
     rule(".workspace-sidebar nav ul", "display:grid;gap:2px;padding-inline-start:0"),
     rule(".workspace-sidebar li", "margin:0;min-width:0"),
     rule(".workspace-sidebar [data-navigation-label]", `display:block;margin-block:calc(var(--k-space-content)*1px) calc(var(--k-space-tight)*1px);color:var(--k-muted);${labelTypography}`),
