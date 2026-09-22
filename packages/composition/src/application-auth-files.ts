@@ -1477,7 +1477,7 @@ async function ensureInitialSystemSettings(payload: Awaited<ReturnType<typeof bo
   return `import { createHash } from "node:crypto";
 
 import { AuthorizationDecisionAuditSchema, canonicalJson, type BootstrapReceipt } from "@k-nex/contracts";
-import type { SalesOpportunityStage } from "@k-nex/module-sales/contracts";
+import { salesSavedViewKanbanDescriptor, type SalesOpportunityStage } from "@k-nex/module-sales/contracts";
 import { salesPipelineStageId } from "@k-nex/module-sales/server";
 import { bootstrapFirstOwner, currentProtectedPlatformRoleBaselineRelease, protectedRoleBootstrapId } from "@k-nex/runtime";
 
@@ -1553,6 +1553,27 @@ async function ensureInitialSalesPipeline(payload: Awaited<ReturnType<typeof boo
     }
     const ordered = await client.query("update sales_pipelines set ordered_stage_ids=$2::jsonb where id=$1 returning id", [pipelineId, JSON.stringify(initialPipelineStages.map(({ semantic }) => stageId(semantic)))]);
     if (ordered.rowCount !== 1) throw new Error("Initial Sales pipeline Stage order could not be recorded.");
+    // The Kanban reads a saved view of its own kind, and a fresh application
+    // had none, so the board opened onto nothing. The first pipeline ships with
+    // the board that shows it, grouped by Stage. It belongs to the owner: a
+    // team-visible view is readable only through an authorized team, and the
+    // bootstrap owner holds application scope rather than a team membership.
+    await client.query(
+      "insert into sales_saved_views (application_id,environment,owner_id,created_by,updated_by,name,visibility,view_kind,target_object_id,definition) values ($1,$2,$3,$3,$3,'Opportunity pipeline','personal','kanban','sales.object.opportunity',$4::jsonb)",
+      [kNexIdentity.applicationId, kNexIdentity.environment, userId, JSON.stringify({
+        kind: "kanban",
+        targetObjectId: "sales.object.opportunity",
+        source: {
+          id: salesSavedViewKanbanDescriptor.id,
+          version: salesSavedViewKanbanDescriptor.version,
+          sourceSchema: { id: salesSavedViewKanbanDescriptor.id + ".output", version: 1 },
+          structuralCompatibilityHash: salesSavedViewKanbanDescriptor.structuralCompatibilityHash
+        },
+        fields: ["row-kind", "name", "stage-id", "stage-metadata", "revision"],
+        filters: [], sorts: [], grouping: "stage-id",
+        presentation: { density: "comfortable" }, pageSize: 25
+      })]
+    );
     await client.query("commit");
   } catch (error) {
     await client.query("rollback").catch(() => undefined);

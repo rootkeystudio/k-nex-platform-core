@@ -289,6 +289,20 @@ export function createWorkspaceCss(language: ThemeDesignLanguage): string {
     ),
     rule(['[data-k-nex-primitive="error-state"]', '[data-k-nex-component="error-state"]'], "border-color:var(--k-critical);color:var(--k-critical)"),
 
+    // A page's own section navigation is a row of destinations, not a column of
+    // bare links stacked under the content it belongs to.
+    rule('[data-k-nex-component="page-shell"] nav[aria-label] > [data-k-nex-component="list"]', `display:flex;flex-wrap:wrap;gap:calc(var(--k-space-tight)*1px);margin-block-start:calc(var(--k-space-section)*1px);padding-block-start:calc(var(--k-space-content)*1px);border-block-start:${border}`),
+    rule('[data-k-nex-component="page-shell"] nav[aria-label] > [data-k-nex-component="list"] a', `display:inline-flex;align-items:center;min-height:32px;padding:4px 12px;border-radius:${radius};background:var(--k-surface);border:${border};color:var(--k-fg);text-decoration:none;font-size:calc(var(--k-font-small)*1px);font-weight:600`),
+    rule('[data-k-nex-component="page-shell"] nav[aria-label] > [data-k-nex-component="list"] a:hover', "border-color:var(--k-accent);color:var(--k-accent)"),
+
+    // Boards. Columns are a row of equal lanes that scrolls sideways; stacked
+    // vertically they are a list of stage names with cards under them, which is
+    // the one shape a board exists not to be.
+    rule('[data-slot="kanban-columns"]', "display:grid;grid-auto-flow:column;grid-auto-columns:minmax(15rem,1fr);gap:calc(var(--k-space-content)*1px);align-items:start;overflow-x:auto;padding-block-end:calc(var(--k-space-tight)*1px)"),
+    rule('[data-slot="kanban-columns"] > section', `display:grid;gap:calc(var(--k-space-tight)*1px);align-content:start;padding:calc(var(--k-space-content)*1px);min-height:8rem;background:var(--k-sunken);border:${border};border-radius:${surfaceRadius}`),
+    rule('[data-slot="kanban-columns"] > section > h3', `margin:0;color:var(--k-muted);${labelTypography}`),
+    rule('[data-slot="kanban-columns"] article,[data-slot="kanban-columns"] > section > div', `display:grid;gap:6px;padding:calc(var(--k-space-tight)*1px);background:var(--k-surface);border:${border};border-radius:${radius};box-shadow:${cardShadow}`),
+
     // Builder chrome. The keyboard control strip is a toolbar, not a stack of
     // loose labels dropped above the canvas.
     rule(
