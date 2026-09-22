@@ -1477,6 +1477,8 @@ async function ensureInitialSystemSettings(payload: Awaited<ReturnType<typeof bo
   return `import { createHash } from "node:crypto";
 
 import { AuthorizationDecisionAuditSchema, canonicalJson, type BootstrapReceipt } from "@k-nex/contracts";
+import type { SalesOpportunityStage } from "@k-nex/module-sales/contracts";
+import { salesPipelineStageId } from "@k-nex/module-sales/server";
 import { bootstrapFirstOwner, currentProtectedPlatformRoleBaselineRelease, protectedRoleBootstrapId } from "@k-nex/runtime";
 
 import { bootKnexApplication } from "./boot.js";
@@ -1518,7 +1520,7 @@ ${initialSettingsSource}
  * and pipeline, so a Stage can be renamed without any stored reference to it
  * changing meaning.
  */
-const initialPipelineStages = Object.freeze([
+const initialPipelineStages: readonly Readonly<{ semantic: SalesOpportunityStage; name: string; allowed: readonly SalesOpportunityStage[]; probabilityBasisPoints: number; requiredFieldIds: readonly string[] }>[] = Object.freeze([
   Object.freeze({ semantic: "qualification", name: "Qualification", allowed: Object.freeze(["discovery", "lost"]), probabilityBasisPoints: 1_000, requiredFieldIds: Object.freeze([] as readonly string[]) }),
   Object.freeze({ semantic: "discovery", name: "Discovery", allowed: Object.freeze(["proposal", "lost"]), probabilityBasisPoints: 2_500, requiredFieldIds: Object.freeze([] as readonly string[]) }),
   Object.freeze({ semantic: "proposal", name: "Proposal", allowed: Object.freeze(["negotiation", "lost"]), probabilityBasisPoints: 5_000, requiredFieldIds: Object.freeze([] as readonly string[]) }),
@@ -1526,17 +1528,6 @@ const initialPipelineStages = Object.freeze([
   Object.freeze({ semantic: "won", name: "Won", allowed: Object.freeze([] as readonly string[]), probabilityBasisPoints: 10_000, requiredFieldIds: Object.freeze([] as readonly string[]) }),
   Object.freeze({ semantic: "lost", name: "Lost", allowed: Object.freeze([] as readonly string[]), probabilityBasisPoints: 0, requiredFieldIds: Object.freeze(["lossReason"]) })
 ]);
-
-function initialPipelineStageId(pipelineId: string, semantic: string): string {
-  const namespace = Buffer.from("6ba7b8119dad11d180b400c04fd430c8", "hex");
-  const bytes = Buffer.from(createHash("sha1").update(namespace)
-    .update(Buffer.from(["k-nex/pipeline-stage/v1", kNexIdentity.applicationId, kNexIdentity.environment, pipelineId, semantic].join("\\u0000")))
-    .digest().subarray(0, 16));
-  bytes[6] = (bytes[6]! & 15) | 80;
-  bytes[8] = (bytes[8]! & 63) | 128;
-  const hex = bytes.toString("hex");
-  return hex.slice(0, 8) + "-" + hex.slice(8, 12) + "-" + hex.slice(12, 16) + "-" + hex.slice(16, 20) + "-" + hex.slice(20);
-}
 
 async function ensureInitialSalesPipeline(payload: Awaited<ReturnType<typeof bootKnexApplication>>, userId: string) {
   const pool = payload.db.pool as { connect(): Promise<{ query(text: string, values?: readonly unknown[]): Promise<{ rows: readonly Record<string, unknown>[]; rowCount: number | null }>; release(): void }> };
@@ -1549,7 +1540,10 @@ async function ensureInitialSalesPipeline(payload: Awaited<ReturnType<typeof boo
     const created = await client.query("insert into sales_pipelines (application_id,environment,owner_id,created_by,updated_by,name,ordered_stage_ids,is_active) values ($1,$2,$3,$3,$3,'Sales pipeline','[]'::jsonb,true) returning id", [kNexIdentity.applicationId, kNexIdentity.environment, userId]);
     const pipelineId = created.rows[0]?.id;
     if (created.rowCount !== 1 || pipelineId === undefined || pipelineId === null) throw new Error("Initial Sales pipeline could not be created.");
-    const stageId = (semantic: string) => initialPipelineStageId(String(pipelineId), semantic);
+    // Stage identities are opaque and derived, and the snapshot the product
+    // reads rejects any that it did not derive itself. Seeding with a private
+    // derivation produced a pipeline that existed and could never be read.
+    const stageId = (semantic: SalesOpportunityStage) => salesPipelineStageId(kNexIdentity.applicationId, kNexIdentity.environment, Number(pipelineId), semantic);
     for (const [position, stage] of initialPipelineStages.entries()) {
       await client.query(
         "insert into sales_pipeline_stages (application_id,environment,created_by,updated_by,pipeline_id,stage_id,name,semantic,position,probability_basis_points,allowed_transition_stage_ids,required_field_ids) values ($1,$2,$3,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb)",
