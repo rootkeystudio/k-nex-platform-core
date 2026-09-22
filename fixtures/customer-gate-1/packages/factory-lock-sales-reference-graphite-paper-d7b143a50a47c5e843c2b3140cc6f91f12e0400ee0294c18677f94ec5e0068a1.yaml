@@ -53,9 +53,9 @@ importers:
       '@k-nex/runtime':
         specifier: file:.k-nex/packages/k-nex-runtime-1.1.0.tgz
         version: file:.k-nex/packages/k-nex-runtime-1.1.0.tgz
-      '@k-nex/theme-minimal':
-        specifier: file:.k-nex/packages/k-nex-theme-minimal-1.1.0.tgz
-        version: file:.k-nex/packages/k-nex-theme-minimal-1.1.0.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@k-nex/theme-graphite-paper':
+        specifier: file:.k-nex/packages/k-nex-theme-graphite-paper-1.1.0.tgz
+        version: file:.k-nex/packages/k-nex-theme-graphite-paper-1.1.0.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@k-nex/ui-builder-blocks':
         specifier: file:.k-nex/packages/k-nex-ui-builder-blocks-1.1.0.tgz
         version: file:.k-nex/packages/k-nex-ui-builder-blocks-1.1.0.tgz(@floating-ui/dom@1.8.0)(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(typescript@6.0.3)(use-sync-external-store@1.7.0(react@19.2.8))(yjs@13.6.32)
@@ -965,11 +965,11 @@ packages:
       react: ^18.0.0 || ^19.0.0
 
   '@k-nex/composition@file:.k-nex/packages/k-nex-composition-1.1.0.tgz':
-    resolution: {integrity: sha512-IShjU5UXZA8vs7B6Y9lYlf7hsyoiFNUF2TQBcEzwIuycvuhv/THRO/u3xhT0EASk/wWBOw/dGyMtIJUb1i5R2g==, tarball: file:.k-nex/packages/k-nex-composition-1.1.0.tgz}
+    resolution: {integrity: sha512-kqssM6q7Jskxtj3ZJlldvOgQ0LX8GzE2Iky0Km7ISP83dRhyrEiMr9rdy0Korfhdxr86xlZ0p6JIMGcM8IvT1g==, tarball: file:.k-nex/packages/k-nex-composition-1.1.0.tgz}
     version: 1.1.0
 
   '@k-nex/contracts@file:.k-nex/packages/k-nex-contracts-1.1.0.tgz':
-    resolution: {integrity: sha512-xQnaZOd5S2lCzAc9TgPuViW0YBTxSSUGwlY5KIHi9uNt2KuFYdwf92ebmIJcxd0vyKU7PyQxcS3AC3ITLx7W1w==, tarball: file:.k-nex/packages/k-nex-contracts-1.1.0.tgz}
+    resolution: {integrity: sha512-PWwJB6htvCmAD9kPSjN7WUZD5YTnxbI9DJX/36r1OP9AGy7V4p1v1OvDqzHLTjgL1z8nK699+Uu+9SOPPqLNIQ==, tarball: file:.k-nex/packages/k-nex-contracts-1.1.0.tgz}
     version: 1.1.0
 
   '@k-nex/extension-bundler@file:.k-nex/packages/k-nex-extension-bundler-1.1.0.tgz':
@@ -1022,8 +1022,8 @@ packages:
     resolution: {integrity: sha512-o2nn5JigzfnnFJTATPNEKnzPa8bx9EeieEaiWnlz1Sgd6cbOyfMs27zWGGqVmHEg1iAzy2TpjotFW312OBi11g==, tarball: file:.k-nex/packages/k-nex-runtime-1.1.0.tgz}
     version: 1.1.0
 
-  '@k-nex/theme-minimal@file:.k-nex/packages/k-nex-theme-minimal-1.1.0.tgz':
-    resolution: {integrity: sha512-T9J2MP/XxU2cd08KwKr13hAPU2LMI2ISfOQPdDTLYx65GjOesxxsiXVKWEq9WdFg7PWLRxHJnKGRYiyPDN8ejw==, tarball: file:.k-nex/packages/k-nex-theme-minimal-1.1.0.tgz}
+  '@k-nex/theme-graphite-paper@file:.k-nex/packages/k-nex-theme-graphite-paper-1.1.0.tgz':
+    resolution: {integrity: sha512-2ex/bRIZukHeaZ3XMaKWRq4nnfDDEoHWTv0qR63hmVutSp7RL0CojAC1azNEgzCY5wpWwmVlmqs6Pzf7s2WsPg==, tarball: file:.k-nex/packages/k-nex-theme-graphite-paper-1.1.0.tgz}
     version: 1.1.0
     peerDependencies:
       react: ^18.0.0 || ^19.0.0
@@ -4163,7 +4163,7 @@ snapshots:
       '@k-nex/extension-bundler': file:.k-nex/packages/k-nex-extension-bundler-1.1.0.tgz
       semver: 7.8.5
 
-  '@k-nex/theme-minimal@file:.k-nex/packages/k-nex-theme-minimal-1.1.0.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+  '@k-nex/theme-graphite-paper@file:.k-nex/packages/k-nex-theme-graphite-paper-1.1.0.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
     dependencies:
       '@k-nex/contracts': file:.k-nex/packages/k-nex-contracts-1.1.0.tgz
       '@k-nex/ui-design-system-contracts': file:.k-nex/packages/k-nex-ui-design-system-contracts-1.1.0.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)

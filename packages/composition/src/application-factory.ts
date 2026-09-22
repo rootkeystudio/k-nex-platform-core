@@ -1121,7 +1121,11 @@ function planKnexApplication(options: CreateKnexApplicationOptions, includeRealt
       artifacts.set(filename, new Uint8Array(bytes));
       artifactDigests[filename] = `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
     }
+    // A release that predates a theme carries no lock template for it, and a
+    // generated application without its exact frozen lock is not one this
+    // factory can promise anything about.
     const lock = release.factoryLockTemplates[options.theme];
+    if (lock === undefined) throw new Error(`Release ${release.release.version} declares no ${options.theme} factory lock template.`);
     const filename = factoryLockFilename(options.theme, lock.digest);
     const path = resolve(options.packageSource.directory, filename);
     if (dirname(path) !== resolve(options.packageSource.directory) || !existsSync(path) || lstatSync(path).isSymbolicLink()) {
