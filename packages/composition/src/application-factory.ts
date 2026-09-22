@@ -25,7 +25,34 @@ import { systemOperationsApplicationFiles } from "./system-operations-applicatio
 import { systemThemeSettingsApplicationFiles } from "./system-theme-settings-application-files.js";
 import { workspacePageApplicationFiles } from "./workspace-page-application-files.js";
 
-export type SalesPresetTheme = "minimal" | "neobrutalism";
+export type SalesPresetTheme = "minimal" | "neobrutalism" | "graphite-paper";
+
+/**
+ * The installed themes a generated application may choose between. The default
+ * is the one the product is designed as; the other two remain as the reference
+ * pair that proves a theme changes design language and never layout.
+ */
+export const supportedPresetThemes: readonly SalesPresetTheme[] = Object.freeze(["graphite-paper", "minimal", "neobrutalism"]);
+export const defaultPresetTheme: SalesPresetTheme = "graphite-paper";
+
+const presetThemeProfileResolvers: Readonly<Record<SalesPresetTheme, string>> = Object.freeze({
+  "graphite-paper": "resolveGraphitePaperThemeProfile",
+  minimal: "resolveMinimalThemeProfile",
+  neobrutalism: "resolveNeobrutalismThemeProfile"
+});
+const presetThemePalettes: Readonly<Record<SalesPresetTheme, string>> = Object.freeze({
+  "graphite-paper": "graphite",
+  minimal: "light",
+  neobrutalism: "primary"
+});
+
+export function themeProfileResolverName(theme: SalesPresetTheme): string {
+  return presetThemeProfileResolvers[theme];
+}
+
+export function themePaletteId(theme: SalesPresetTheme): string {
+  return presetThemePalettes[theme];
+}
 export type ApplicationDatabaseMode = "docker-postgres" | "external";
 
 /** The release-less factory path always plans against the one signed current tuple. */
@@ -297,7 +324,7 @@ function packageIdentity(archive: Uint8Array): { readonly name: string; readonly
 
 function registrySource(theme: SalesPresetTheme, applicationId: string, salesIntegrity: string, realtimeIntegrity: string, release: string, includeRealtime = true): string {
   if (!includeRealtime) return salesOnlyRegistrySource(theme, applicationId, salesIntegrity, release);
-  const themeExport = theme === "minimal" ? "resolveMinimalThemeProfile" : "resolveNeobrutalismThemeProfile";
+  const themeExport = themeProfileResolverName(theme);
   return `import { PluginManifestSchema } from "@k-nex/contracts";
 import manifestJson from "@k-nex/module-sales/manifest" with { type: "json" };
 import { salesCoreCollections, salesCoreCollectionSlugs, salesCrmPermissionDescriptors, salesCrmPermissionPolicyBindings, salesNavigationDescriptors, salesPermissionPolicyExecutors, salesReferenceMetadata, salesRegistration, salesRouteDescriptors } from "@k-nex/module-sales/server";
@@ -354,7 +381,7 @@ export const kNexInitialThemeProfile = Object.freeze({
   surface: "admin",
   themeId: "theme.${theme}",
   themeVersion: ${JSON.stringify(release)},
-  palette: "${theme === "minimal" ? "light" : "primary"}",
+  palette: "${themePaletteId(theme)}",
   mode: "system",
   values: {},
   revision: { id: "workspace.theme.initial", number: 1, state: "published", createdAt: initialThemeTime, publishedAt: initialThemeTime }
@@ -364,7 +391,7 @@ export const kNexThemePresentation = ${themeExport}(kNexInitialThemeProfile);
 }
 
 function salesOnlyRegistrySource(theme: SalesPresetTheme, applicationId: string, salesIntegrity: string, release: string): string {
-  const themeExport = theme === "minimal" ? "resolveMinimalThemeProfile" : "resolveNeobrutalismThemeProfile";
+  const themeExport = themeProfileResolverName(theme);
   return `import { PluginManifestSchema } from "@k-nex/contracts";
 import manifestJson from "@k-nex/module-sales/manifest" with { type: "json" };
 import { salesCoreCollections, salesCoreCollectionSlugs, salesCrmPermissionDescriptors, salesCrmPermissionPolicyBindings, salesNavigationDescriptors, salesPermissionPolicyExecutors, salesReferenceMetadata, salesRegistration, salesRouteDescriptors } from "@k-nex/module-sales/server";
@@ -395,7 +422,7 @@ export const kNexSalesRegistry = Object.freeze({
 });
 
 const initialThemeTime = new Date(0).toISOString();
-export const kNexInitialThemeProfile = Object.freeze({ schemaVersion: 1, id: "workspace.default-theme", surface: "admin", themeId: "theme.${theme}", themeVersion: ${JSON.stringify(release)}, palette: "${theme === "minimal" ? "light" : "primary"}", mode: "system", values: {}, revision: { id: "workspace.theme.initial", number: 1, state: "published", createdAt: initialThemeTime, publishedAt: initialThemeTime } });
+export const kNexInitialThemeProfile = Object.freeze({ schemaVersion: 1, id: "workspace.default-theme", surface: "admin", themeId: "theme.${theme}", themeVersion: ${JSON.stringify(release)}, palette: "${themePaletteId(theme)}", mode: "system", values: {}, revision: { id: "workspace.theme.initial", number: 1, state: "published", createdAt: initialThemeTime, publishedAt: initialThemeTime } });
 export const kNexThemePresentation = ${themeExport}(kNexInitialThemeProfile);
 `;
 }
@@ -1030,7 +1057,7 @@ function json(value: unknown): string {
 
 function validOptions(options: CreateKnexApplicationOptions): void {
   if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/u.test(options.applicationId) || options.applicationName.length < 1 || options.applicationName.length > 160 ||
-    !["minimal", "neobrutalism"].includes(options.theme) || !["docker-postgres", "external"].includes(options.database)) {
+    !supportedPresetThemes.includes(options.theme) || !["docker-postgres", "external"].includes(options.database)) {
     throw new Error("Application factory options are invalid.");
   }
   if (options.primaryCurrency !== undefined && !/^[A-Z]{3}$/u.test(options.primaryCurrency)) {
@@ -1273,8 +1300,8 @@ function assertSupportedUpgradeSourceManifest(sourceManifest: ApplicationManifes
   if (sourceManifest.builder?.plugin !== "builder.puck" || sourceManifest.builder.package !== "@k-nex/builder-puck" || canonicalJson(sourceManifest.builder.profiles) !== canonicalJson({ workspace: { enabled: true, drafts: true, surfaces: ["workspace"] } })) {
     throw new Error("Upgrade target cannot preserve this builder configuration.");
   }
-  const theme = sourceManifest.themes.active;
-  if ((theme !== "minimal" && theme !== "neobrutalism") || sourceManifest.themes.package !== `@k-nex/theme-${theme}` || Object.keys(sourceManifest.themes).sort().join(",") !== "active,package,version") {
+  const theme = sourceManifest.themes.active as SalesPresetTheme;
+  if (!supportedPresetThemes.includes(theme) || sourceManifest.themes.package !== `@k-nex/theme-${theme}` || Object.keys(sourceManifest.themes).sort().join(",") !== "active,package,version") {
     throw new Error("Upgrade target cannot preserve this theme configuration.");
   }
   const database = sourceManifest.development.database.mode;

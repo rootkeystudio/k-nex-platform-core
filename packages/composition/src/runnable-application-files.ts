@@ -1,8 +1,10 @@
+import type { SalesPresetTheme } from "./application-factory.js";
+
 export interface RunnableApplicationFilesOptions {
   readonly applicationId: string;
   readonly applicationName: string;
   readonly database: "docker-postgres" | "external";
-  readonly theme: "minimal" | "neobrutalism";
+  readonly theme: SalesPresetTheme;
 }
 
 function workspaceLayoutSource(applicationName: string): string {

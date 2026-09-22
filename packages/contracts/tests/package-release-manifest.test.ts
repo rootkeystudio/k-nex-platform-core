@@ -9,7 +9,8 @@ const valid = {
   framework: supportedFrameworkTuple,
   factoryLockTemplates: {
     minimal: { preset: "sales-reference", theme: "minimal", digest: `sha256:${"1".repeat(64)}` },
-    neobrutalism: { preset: "sales-reference", theme: "neobrutalism", digest: `sha256:${"2".repeat(64)}` }
+    neobrutalism: { preset: "sales-reference", theme: "neobrutalism", digest: `sha256:${"2".repeat(64)}` },
+    "graphite-paper": { preset: "sales-reference", theme: "graphite-paper", digest: `sha256:${"3".repeat(64)}` }
   },
   packages: [
     { package: "@k-nex/runtime", version: "1.0.0", role: "core", integrity, peerCompatibility: supportedFrameworkTuple },

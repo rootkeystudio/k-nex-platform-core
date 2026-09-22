@@ -1,12 +1,13 @@
 import { supportedFrameworkTuple } from "@k-nex/contracts";
 
+import { themeProfileResolverName, type SalesPresetTheme } from "./application-factory.js";
 import { platformReleaseIdentity, platformReleaseRevision, platformReleaseState } from "./platform-release-revision.js";
 
 export interface ApplicationAuthFilesOptions {
   readonly applicationId: string;
   readonly applicationName: string;
   readonly primaryCurrency?: string;
-  readonly theme: "minimal" | "neobrutalism";
+  readonly theme: SalesPresetTheme;
   /** Verified package release selected by the factory; defaults to the canonical current tuple. */
   readonly themeReleaseVersion?: string;
 }
@@ -1845,7 +1846,7 @@ export default async function WorkspaceHome() {
 }
 
 function themeRuntimeSource(theme: ApplicationAuthFilesOptions["theme"], themeReleaseVersion: string): string {
-  const resolver = theme === "minimal" ? "resolveMinimalThemeProfile" : "resolveNeobrutalismThemeProfile";
+  const resolver = themeProfileResolverName(theme);
   return `import { createHash } from "node:crypto";
 
 import { ThemeProfilePublicationEventSchema, ThemeProfileSchema, WorkspaceThemeProfileRefSchema, canonicalJson, type ThemeProfile } from "@k-nex/contracts";
@@ -3162,7 +3163,7 @@ export async function GET() {
 }
 
 function readinessSource(theme: ApplicationAuthFilesOptions["theme"], platformRelease: string): string {
-  const themeResolver = theme === "minimal" ? "resolveMinimalThemeProfile" : "resolveNeobrutalismThemeProfile";
+  const themeResolver = themeProfileResolverName(theme);
   return `import { createHash } from "node:crypto";
 import { lstatSync, readFileSync, readdirSync } from "node:fs";
 import { connect } from "node:net";
