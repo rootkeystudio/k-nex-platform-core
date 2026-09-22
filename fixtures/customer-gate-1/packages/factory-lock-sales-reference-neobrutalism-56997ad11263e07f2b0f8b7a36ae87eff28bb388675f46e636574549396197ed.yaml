@@ -1048,7 +1048,7 @@ packages:
       react: ^18.0.0 || ^19.0.0
 
   '@k-nex/ui-design-system-contracts@file:.k-nex/packages/k-nex-ui-design-system-contracts-1.1.0.tgz':
-    resolution: {integrity: sha512-XmtpmE2G7M8NnMB7tyKc31pyUbVXhRA33E6iudcVFdEYsPxP/jeZJVY0NRlnAt8YJHfrRhFTzYLzOtiKdmLWDA==, tarball: file:.k-nex/packages/k-nex-ui-design-system-contracts-1.1.0.tgz}
+    resolution: {integrity: sha512-+EYH+AP2pFY1Ot0slQgtF0jnIM2GRv7yTIvZlFwCxg2c0TSLO//z9gooUnWbNx7g/1iJXCbwZ2bu0/dxXOc9zQ==, tarball: file:.k-nex/packages/k-nex-ui-design-system-contracts-1.1.0.tgz}
     version: 1.1.0
     peerDependencies:
       react: ^18.0.0 || ^19.0.0

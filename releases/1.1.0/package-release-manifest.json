@@ -2,12 +2,12 @@
   "$schema": "../../schemas/package-release-manifest.v1.schema.json",
   "factoryLockTemplates": {
     "minimal": {
-      "digest": "sha256:5139f5d0413b850e7360b69d0f560eae22d45bf05b52c64171e8be86e2f82511",
+      "digest": "sha256:33c79646c4963021c6d799d14fda9afde8aa39e4be7077dc1887fd0d7f127b3c",
       "preset": "sales-reference",
       "theme": "minimal"
     },
     "neobrutalism": {
-      "digest": "sha256:54c89c6f6f84e909b9555787b79d5bba6bcbc2e72f079a418b9c645b1cc4ac73",
+      "digest": "sha256:56997ad11263e07f2b0f8b7a36ae87eff28bb388675f46e636574549396197ed",
       "preset": "sales-reference",
       "theme": "neobrutalism"
     }
@@ -190,7 +190,7 @@
       "version": "1.1.0"
     },
     {
-      "integrity": "sha512-XmtpmE2G7M8NnMB7tyKc31pyUbVXhRA33E6iudcVFdEYsPxP/jeZJVY0NRlnAt8YJHfrRhFTzYLzOtiKdmLWDA==",
+      "integrity": "sha512-+EYH+AP2pFY1Ot0slQgtF0jnIM2GRv7yTIvZlFwCxg2c0TSLO//z9gooUnWbNx7g/1iJXCbwZ2bu0/dxXOc9zQ==",
       "package": "@k-nex/ui-design-system-contracts",
       "peerCompatibility": {
         "core": "1.1.0",
