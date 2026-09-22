@@ -92,7 +92,14 @@ assert.deepEqual(migrationSet.steps.map(({ id }) => id), appendedMigrations,
 
 const sourcePackages = new Map(source.packages.map((entry) => [entry.package, entry]));
 const targetPackages = new Map(target.packages.map((entry) => [entry.package, entry]));
-assert.deepEqual([...sourcePackages.keys()].sort(), [...targetPackages.keys()].sort(), "Release transition package sets must remain lockstep.");
+// A release may introduce a first-party package the predecessor never had.
+// The transition already has a disposition for that — add-for-generator — and
+// the policy has to name it, so nothing appears in an upgrade unannounced.
+const generatorAdditions = [...targetPackages.keys()].filter((name) => !sourcePackages.has(name)).sort();
+assert.deepEqual([...sourcePackages.keys()].sort(), [...targetPackages.keys()].filter((name) => !generatorAdditions.includes(name)).sort(),
+  "Release transition drops a package without an explicit source-only disposition.");
+assert.deepEqual(generatorAdditions, ["@k-nex/theme-graphite-paper"],
+  "Release transition adds a package this policy does not declare; review the addition before shipping it.");
 for (const [packageName, sourcePackage] of sourcePackages) {
   const targetPackage = targetPackages.get(packageName);
   assert.equal(sourcePackage.version, source.release.version, `Source package ${packageName} is outside source release.`);
@@ -105,7 +112,7 @@ assert.ok(sourceGenerator && targetGenerator, "Release transition generator pack
 const policy = {
   transitionId: "platform:1.0.0-to-1.1.0",
   sourceOnlyDispositions: [],
-  generatorAdditions: [],
+  generatorAdditions,
   pluginIds: [{ package: "@k-nex/module-sales", pluginId: "module.sales" }],
   generator: {
     package: generatorPackage,
