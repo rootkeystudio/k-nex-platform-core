@@ -301,7 +301,11 @@ export function createWorkspaceCss(language: ThemeDesignLanguage): string {
     rule('[data-slot="kanban-columns"]', "display:grid;grid-auto-flow:column;grid-auto-columns:minmax(15rem,1fr);gap:calc(var(--k-space-content)*1px);align-items:start;overflow-x:auto;padding-block-end:calc(var(--k-space-tight)*1px)"),
     rule('[data-slot="kanban-columns"] > section', `display:grid;gap:calc(var(--k-space-tight)*1px);align-content:start;padding:calc(var(--k-space-content)*1px);min-height:8rem;background:var(--k-sunken);border:${border};border-radius:${surfaceRadius}`),
     rule('[data-slot="kanban-columns"] > section > h3', `margin:0;color:var(--k-muted);${labelTypography}`),
-    rule('[data-slot="kanban-columns"] article,[data-slot="kanban-columns"] > section > div', `display:grid;gap:6px;padding:calc(var(--k-space-tight)*1px);background:var(--k-surface);border:${border};border-radius:${radius};box-shadow:${cardShadow}`),
+    rule('[data-slot="kanban-columns"] ul', "display:grid;gap:calc(var(--k-space-tight)*1px);margin:0;padding:0"),
+    rule('[data-slot="kanban-columns"] li', `display:grid;gap:6px;justify-items:start;padding:calc(var(--k-space-tight)*1px);background:var(--k-surface);border:${border};border-radius:${radius};box-shadow:${cardShadow};cursor:grab`),
+    rule('[data-slot="kanban-card-stage"]', `color:var(--k-muted);${labelTypography}`),
+    rule('[data-slot="kanban-columns"] li > div', "display:flex;flex-wrap:wrap;gap:6px;width:100%"),
+    rule('[data-slot="kanban-columns"] li button', "min-height:32px;padding:0 10px;font-size:calc(var(--k-font-small)*1px)"),
 
     // Builder chrome. The keyboard control strip is a toolbar, not a stack of
     // loose labels dropped above the canvas.
