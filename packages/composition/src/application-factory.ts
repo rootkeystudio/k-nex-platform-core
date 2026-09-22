@@ -1294,6 +1294,13 @@ export function planUpgradeTargetKnexApplication(options: UpgradeTargetKnexAppli
   return planKnexApplication({ ...supported.options, ...(options.primaryCurrency === undefined ? {} : { primaryCurrency: options.primaryCurrency }), ...(options.packageSource === undefined ? {} : { packageSource: options.packageSource }) }, supported.includeRealtime, sourceManifest);
 }
 
+/**
+ * Files this factory seeds once and the framework owns afterwards. Their
+ * content is the framework's to change, so a difference in them is not a
+ * customer edit and not a reason to refuse.
+ */
+const frameworkManagedPaths: ReadonlySet<string> = new Set(["next-env.d.ts"]);
+
 export function applyCreateKnexApplication(plan: ApplicationFactoryPlan, targetDirectory: string): ApplicationFactoryApplyResult {
   const artifacts = verifiedPlanArtifacts.get(plan);
   if (artifacts === undefined) {
@@ -1322,6 +1329,11 @@ export function applyCreateKnexApplication(plan: ApplicationFactoryPlan, targetD
     if (relative(target, path).startsWith("..")) throw new Error("Application factory path escapes its target.");
     if (!existsSync(path)) { pending.push(relativePath); continue; }
     if (lstatSync(path).isSymbolicLink()) throw new Error("Application factory refuses symlinked destination paths.");
+    // Next rewrites its own type reference file on every build, so enforcing
+    // the bytes this factory seeded made re-running it fail on any application
+    // that had been built once — including a re-run of the identical release,
+    // whose only purpose is to report that the application already matches it.
+    if (frameworkManagedPaths.has(relativePath)) { unchanged.push(relativePath); continue; }
     if (readFileSync(path, "utf8") !== content) throw new Error(`Application factory refuses to overwrite ${relativePath}.`);
     unchanged.push(relativePath);
   }

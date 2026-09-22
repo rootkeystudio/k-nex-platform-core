@@ -1521,12 +1521,12 @@ ${initialSettingsSource}
  * changing meaning.
  */
 const initialPipelineStages: readonly Readonly<{ semantic: SalesOpportunityStage; name: string; allowed: readonly SalesOpportunityStage[]; probabilityBasisPoints: number; requiredFieldIds: readonly string[] }>[] = Object.freeze([
-  Object.freeze({ semantic: "qualification", name: "Qualification", allowed: Object.freeze(["discovery", "lost"]), probabilityBasisPoints: 1_000, requiredFieldIds: Object.freeze([] as readonly string[]) }),
-  Object.freeze({ semantic: "discovery", name: "Discovery", allowed: Object.freeze(["proposal", "lost"]), probabilityBasisPoints: 2_500, requiredFieldIds: Object.freeze([] as readonly string[]) }),
-  Object.freeze({ semantic: "proposal", name: "Proposal", allowed: Object.freeze(["negotiation", "lost"]), probabilityBasisPoints: 5_000, requiredFieldIds: Object.freeze([] as readonly string[]) }),
-  Object.freeze({ semantic: "negotiation", name: "Negotiation", allowed: Object.freeze(["won", "lost"]), probabilityBasisPoints: 7_500, requiredFieldIds: Object.freeze([] as readonly string[]) }),
-  Object.freeze({ semantic: "won", name: "Won", allowed: Object.freeze([] as readonly string[]), probabilityBasisPoints: 10_000, requiredFieldIds: Object.freeze([] as readonly string[]) }),
-  Object.freeze({ semantic: "lost", name: "Lost", allowed: Object.freeze([] as readonly string[]), probabilityBasisPoints: 0, requiredFieldIds: Object.freeze(["lossReason"]) })
+  Object.freeze({ semantic: "qualification", name: "Qualification", allowed: Object.freeze(["discovery", "lost"] as const), probabilityBasisPoints: 1_000, requiredFieldIds: Object.freeze([] as readonly string[]) }),
+  Object.freeze({ semantic: "discovery", name: "Discovery", allowed: Object.freeze(["proposal", "lost"] as const), probabilityBasisPoints: 2_500, requiredFieldIds: Object.freeze([] as readonly string[]) }),
+  Object.freeze({ semantic: "proposal", name: "Proposal", allowed: Object.freeze(["negotiation", "lost"] as const), probabilityBasisPoints: 5_000, requiredFieldIds: Object.freeze([] as readonly string[]) }),
+  Object.freeze({ semantic: "negotiation", name: "Negotiation", allowed: Object.freeze(["won", "lost"] as const), probabilityBasisPoints: 7_500, requiredFieldIds: Object.freeze([] as readonly string[]) }),
+  Object.freeze({ semantic: "won", name: "Won", allowed: Object.freeze([] as readonly SalesOpportunityStage[]), probabilityBasisPoints: 10_000, requiredFieldIds: Object.freeze([] as readonly string[]) }),
+  Object.freeze({ semantic: "lost", name: "Lost", allowed: Object.freeze([] as readonly SalesOpportunityStage[]), probabilityBasisPoints: 0, requiredFieldIds: Object.freeze(["lossReason"]) })
 ]);
 
 async function ensureInitialSalesPipeline(payload: Awaited<ReturnType<typeof bootKnexApplication>>, userId: string) {

@@ -138,7 +138,12 @@ export function createWorkspaceCss(language: ThemeDesignLanguage): string {
     rule(".workspace-sidebar a:hover", "background:var(--k-sunken)"),
     rule('.workspace-sidebar a[aria-current="page"]', `background:var(--k-accent);color:var(--k-accent-contrast);font-weight:600`),
     rule(".workspace-desktop-navigation-rail", "display:none"),
+    // Collapsing swaps the two navigations rather than hiding one of them: the
+    // rail is the collapsed navigation, and the brand has no room beside it.
+    rule('.workspace-shell[data-sidebar="collapsed"] .workspace-desktop-navigation-expanded', "display:none"),
+    rule('.workspace-shell[data-sidebar="collapsed"] .workspace-brand', "display:none"),
     rule('.workspace-shell[data-sidebar="collapsed"] .workspace-desktop-navigation-rail', "display:block"),
+    rule('.workspace-desktop-navigation-rail .workspace-rail-item[data-active]', "background:var(--k-accent);color:var(--k-accent-contrast);border-radius:calc(var(--k-radius-control)*1px)"),
     rule(".workspace-desktop-navigation-rail .workspace-rail-item", "display:flex;align-items:center;justify-content:center;min-block-size:40px"),
     rule(".workspace-header", `grid-column:2;display:flex;align-items:center;justify-content:space-between;gap:calc(var(--k-space-content)*1px);padding:calc(var(--k-space-tight)*1px) calc(var(--k-space-section)*1px);background:var(--k-surface);border-block-end:${border};min-width:0;min-height:56px`),
     rule(".workspace-header ol", "display:flex;flex-wrap:wrap;align-items:center;gap:calc(var(--k-space-tight)*1px);margin:0;padding:0;list-style:none;color:var(--k-muted);font-size:calc(var(--k-font-small)*1px)"),

@@ -1176,6 +1176,27 @@ test("proves distinct customer binaries and deployment processes recover from Po
       ...owner, generationId: blue.generationId, fencingToken: blueFenceBeforeEffect.fencingToken, owner: blueFenceBeforeEffect.lease.owner,
       expectedPromotionRevision: blueFenceBeforeEffect.promotionRevision, leaseDurationMs: 240_000
     });
+    // A worker stopped for longer than its lease can never renew, and every
+    // fenced effect it owns silently stops being processed. It may resume the
+    // lease it owns, and only that one: another owner's live lease, another
+    // generation, and a promoted revision all stay refused.
+    await assert.rejects(liveStore.acquireWorkerFence({
+      ...owner, generationId: blue.generationId, fencingToken: blueFenceBeforeEffect.fencingToken,
+      owner: "worker:phase-9-impostor", leaseDurationMs: 240_000
+    }), { code: "FENCE_REJECTED" });
+    await assert.rejects(liveStore.acquireWorkerFence({
+      ...owner, generationId: "customer-alpha-green-12", fencingToken: blueFenceBeforeEffect.fencingToken,
+      owner: blueFenceBeforeEffect.lease.owner, leaseDurationMs: 240_000
+    }), { code: "FENCE_REJECTED" });
+    await pool.query("update runtime_worker_generation_fences set lease_expires_at=now()-interval '1 minute' where application_id=$1 and environment=$2", [owner.applicationId, owner.environment]);
+    const resumed = await liveStore.acquireWorkerFence({
+      ...owner, generationId: blue.generationId, fencingToken: blueFenceBeforeEffect.fencingToken,
+      owner: blueFenceBeforeEffect.lease.owner, leaseDurationMs: 240_000
+    });
+    assert.equal(resumed.activeExecutionGeneration, blue.generationId);
+    assert.equal(resumed.fencingToken, blueFenceBeforeEffect.fencingToken);
+    assert.equal(resumed.promotionRevision, blueFenceBeforeEffect.promotionRevision);
+    assert.equal(await liveStore.isWorkerFenceLive(owner, resumed), true);
     await assert.rejects(liveStore.claimEffect({ ...owner, effectId: "sales-external-effect", generationId: "customer-alpha-green-12", fencingToken: 2, claimantId: "worker:phase-9-green-a", claimLeaseDurationMs: 239_000 }), { code: "FENCE_REJECTED" });
     const blueEffect = await liveStore.claimEffect({ ...owner, effectId: "sales-external-effect", generationId: blue.generationId, fencingToken: 1, claimantId: "worker:phase-9-blue", claimLeaseDurationMs: 239_000 });
     assert.equal((await deliverExternalEffect(pool, blueEffect.externalIdempotencyKey, "sales external effect")).duplicate, false);
