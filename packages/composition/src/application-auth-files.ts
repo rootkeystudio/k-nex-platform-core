@@ -3350,7 +3350,7 @@ export function assertAdministrationOperatorConfiguration(): void {
  * one failure the operator configuration exists to surface, so the doctor
  * proves the endpoint accepts a connection before it says so.
  */
-export async function assertAdministrationOperatorListening(): Promise<void> {
+export async function administrationOperatorListening(): Promise<Readonly<{ endpoint: string; reachable: boolean }>> {
   assertAdministrationOperatorConfiguration();
   const host = requiredAdministrationOperatorConfiguration("K_NEX_ADMINISTRATION_OPERATOR_HOST");
   const port = Number(requiredAdministrationOperatorConfiguration("K_NEX_ADMINISTRATION_OPERATOR_PORT"));
@@ -3362,7 +3362,7 @@ export async function assertAdministrationOperatorListening(): Promise<void> {
     socket.once("timeout", () => done(false));
     socket.once("error", () => done(false));
   });
-  if (!reachable) fail("Administration operator is not accepting connections at " + host + ":" + String(port) + ".");
+  return Object.freeze({ endpoint: host + ":" + String(port), reachable });
 }
 function sha256(value: string | Buffer): string { return "sha256:" + createHash("sha256").update(value).digest("hex"); }
 function archiveName(packageName: string, version: string): string { return packageName.slice(1).replace("/", "-") + "-" + version + ".tgz"; }
@@ -3599,16 +3599,26 @@ export async function reconcileKnexReadiness(payload: Payload) {
 function doctorSource(): string {
   return `import { bootKnexApplication } from "./boot.js";
 import { shutdownKnexApplication } from "./k-nex-authority.js";
-import { assertAdministrationOperatorListening, kNexApplicationReadyMarker, reconcileKnexReadiness } from "./k-nex-readiness.js";
+import { administrationOperatorListening, kNexApplicationReadyMarker, reconcileKnexReadiness } from "./k-nex-readiness.js";
 
+// Readiness is whether this application can serve its own work: database,
+// release, settings, owner, and a valid operator configuration. The operator
+// being up is a different fact — CRM work runs without it, extension
+// operations do not — so the doctor reports it on its own line every time
+// instead of either hiding it behind a green result or refusing readiness
+// the application actually has. A deployment that must not proceed without a
+// reachable operator says so with --require-operator.
+const requireOperator = process.argv.slice(2).includes("--require-operator");
 const payload = await bootKnexApplication("doctor");
 try {
   await reconcileKnexReadiness(payload);
-  // Readiness proves the database, the release, and the operator configuration.
-  // The doctor additionally proves the operator answers: an application whose
-  // operator is unreachable cannot run a single extension operation, and a
-  // report of readiness that never checked is the report that hides it.
-  await assertAdministrationOperatorListening();
+  const operator = await administrationOperatorListening();
+  if (operator.reachable) console.log("K_NEX_ADMINISTRATION_OPERATOR_REACHABLE " + operator.endpoint);
+  else {
+    console.log("K_NEX_ADMINISTRATION_OPERATOR_UNREACHABLE " + operator.endpoint);
+    console.error("The administration operator is not accepting connections at " + operator.endpoint + ". CRM work is available; extension operations are not until it is.");
+    if (requireOperator) throw new Error("K-Nex readiness failed: Administration operator is not accepting connections at " + operator.endpoint + ".");
+  }
   console.log(kNexApplicationReadyMarker);
   console.log("K_NEX_DOCTOR_PASS");
 } finally { await shutdownKnexApplication(payload); }
@@ -3975,7 +3985,7 @@ import { processSalesDataMovement } from "./k-nex-sales-data-movement.js";
 import { createGeneratedBoundedReferenceProviderTransport, createGeneratedEnvironmentProviderSecretResolver, processGeneratedSalesCommunications, processGeneratedSalesReminders } from "./k-nex-sales-communications.js";
 import { processGeneratedSalesWorkflows } from "./k-nex-sales-workflows.js";
 import { processGeneratedSalesReports } from "./k-nex-sales-reports.js";
-import { ensureKnexWorkerFence, kNexWorkerLeaseRenewalIntervalMs, renewKnexWorkerFence } from "./k-nex-static-generation.js";
+import { kNexWorkerFenceProbeIntervalMs, kNexWorkerLeaseRenewalIntervalMs, renewKnexWorkerFence, tryEnsureKnexWorkerFence } from "./k-nex-static-generation.js";
 
 const payload = await bootKnexApplication("authorization-worker");
 const channel = "k_nex_runtime_invalidation";
@@ -4105,17 +4115,32 @@ const dispatchReports = async () => {
 const reportsTimer = setInterval(() => { void dispatchReports(); }, 100);
 // Every fenced effect this worker owns — reminders, notifications, exports,
 // workflows, reports, provider delivery — is skipped while no live lease names
-// this generation. Taking the lease here is what makes the worker do work at
-// all; without it the process starts, reports itself ready, and processes
-// nothing for as long as it runs.
-const workerFence = await ensureKnexWorkerFence(payload);
-// A lease this worker does not own is renewed by whoever does.
-const fenceTimer = workerFence.renewable
-  ? setInterval(() => {
-      void renewKnexWorkerFence(payload, workerFence.promotionRevision)
-        .catch(workerFailure("K_NEX_WORKER_FENCE_RENEWAL_ERROR"));
-    }, kNexWorkerLeaseRenewalIntervalMs)
-  : undefined;
+// this generation. The worker takes that lease when it can and says so when it
+// cannot. It does not exit: a generation the deployment does not serve yet is
+// the worker of the next deploy waiting for promotion, and one that nothing
+// registered is waiting for knex:register-generation. Both take the lease the
+// moment it becomes theirs, and until then process nothing and report it.
+let workerFence = await tryEnsureKnexWorkerFence(payload);
+if (workerFence === undefined) console.error("K_NEX_WORKER_FENCED_OUT " + executionGeneration + " — no live execution fence names this generation; fenced work is paused until one does.");
+let lastFenceRenewal = Date.now();
+const fenceTimer = setInterval(() => {
+  void (async () => {
+    if (workerFence === undefined) {
+      workerFence = await tryEnsureKnexWorkerFence(payload);
+      if (workerFence !== undefined) { lastFenceRenewal = Date.now(); console.log("K_NEX_WORKER_FENCE_ACQUIRED " + executionGeneration); }
+      return;
+    }
+    // A lease this worker does not own is renewed by whoever does.
+    if (!workerFence.renewable || Date.now() - lastFenceRenewal < kNexWorkerLeaseRenewalIntervalMs) return;
+    try { await renewKnexWorkerFence(payload, workerFence.promotionRevision); lastFenceRenewal = Date.now(); }
+    catch {
+      // The fence moved on — a promotion, or another owner took an expired
+      // lease. That is the fence working, not the worker failing.
+      workerFence = undefined;
+      console.error("K_NEX_WORKER_FENCED_OUT " + executionGeneration + " — the execution lease was superseded; fenced work is paused.");
+    }
+  })().catch((error: unknown) => { console.error("K_NEX_WORKER_FENCE_ERROR", error); });
+}, kNexWorkerFenceProbeIntervalMs);
 authorizationWorker.start();
 workspacePageWorker.start();
 workspaceNavigationWorker.start();
@@ -4145,7 +4170,7 @@ dataMovementStopping = true;
     workflowsStopping = true;
     reportsStopping = true;
 realtimeAbort.abort();
-if (fenceTimer !== undefined) clearInterval(fenceTimer);
+clearInterval(fenceTimer);
 clearInterval(realtimeTimer);
 clearInterval(dataMovementTimer);
     clearInterval(communicationsTimer);

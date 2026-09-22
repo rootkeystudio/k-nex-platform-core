@@ -40,6 +40,8 @@ const commitPattern = /^[0-9a-f]{40}$/u;
  */
 export const kNexWorkerLeaseDurationMs = 240_000;
 export const kNexWorkerLeaseRenewalIntervalMs = 60_000;
+/** How often a worker without a fence asks again, and a worker with one checks its renewal. */
+export const kNexWorkerFenceProbeIntervalMs = 15_000;
 export const kNexWorkerFencingToken = 1;
 export const kNexWorkerFenceOwner = "worker:" + kNexIdentity.applicationId + ":" + kNexIdentity.environment;
 
@@ -157,18 +159,23 @@ export async function registerKnexStaticGeneration(payload: Payload): Promise<Re
  * ownership of the row is not the point, and a worker that demanded it would
  * refuse to run under the very topology the fence exists for. A lease it does
  * not own is also one it must not renew.
+ *
+ * When no fence can name this generation — nothing registered it yet, or the
+ * deployment still serves another — the answer is "not yet", not a failure:
+ * the worker of the next deploy waits for promotion rather than crash-looping.
  */
-export async function ensureKnexWorkerFence(payload: Payload): Promise<Readonly<{ promotionRevision: number; renewable: boolean }>> {
+export async function tryEnsureKnexWorkerFence(payload: Payload): Promise<Readonly<{ promotionRevision: number; renewable: boolean }> | undefined> {
   try {
     const acquired = await acquireKnexWorkerFence(payload);
     return Object.freeze({ promotionRevision: acquired.promotionRevision, renewable: true });
   } catch (error) {
+    if (error === null || typeof error !== "object" || !("code" in error) || error.code !== "FENCE_REJECTED") throw error;
     const held = await kNexStaticDeploymentStore(payload).readFence({ applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment });
     if (held !== undefined && held.activeExecutionGeneration === kNexSalesRegistry.staticRelease.runtimeGenerationId &&
       new Date(held.lease.expiresAt).valueOf() > clock.now().valueOf()) {
       return Object.freeze({ promotionRevision: held.promotionRevision, renewable: false });
     }
-    throw error;
+    return undefined;
   }
 }
 

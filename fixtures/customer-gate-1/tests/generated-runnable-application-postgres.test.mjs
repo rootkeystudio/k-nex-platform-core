@@ -1192,7 +1192,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     await page.getByText("Beta expansion moved to proposal.", { exact: true }).waitFor();
     const moved = await pool.query("select name, stage_id from sales_opportunities order by id");
     assert.deepEqual(moved.rows, [{ name: "Alpha renewal", stage_id: stageIds.discovery }, { name: "Beta expansion", stage_id: stageIds.proposal }]);
-    assert.equal(await page.locator('[data-k-nex-component="workspace-shell"]').getAttribute("data-k-nex-theme-profile"), inventoryBody.theme.activeRevisionId);
+    assert.equal(await page.locator('[data-k-nex-component="workspace-theme-root"]').getAttribute("data-k-nex-theme-profile"), inventoryBody.theme.activeRevisionId);
     await page.close();
 
     const workspacePageUrl = `${applicationProcess.origin}/workspace/pages/${encodeURIComponent(pageId)}`;

@@ -2,17 +2,17 @@
   "$schema": "../../schemas/package-release-manifest.v1.schema.json",
   "factoryLockTemplates": {
     "graphite-paper": {
-      "digest": "sha256:aa510a2a1108085bc4830fd1b22506bc0fae07343b36695550927c494267f9dd",
+      "digest": "sha256:2b27e2cb48a71a951caba2d70c878ff1d3bb2562ef531433ac807079ce98e0a1",
       "preset": "sales-reference",
       "theme": "graphite-paper"
     },
     "minimal": {
-      "digest": "sha256:4f2165cd45c546aa1a8c40fca455a3b3737c17958b6e42da836c1c10375c8ec1",
+      "digest": "sha256:d387c665afb2b8e1c913775062b3e06456033a2ed9b08f59ace6157251aa951f",
       "preset": "sales-reference",
       "theme": "minimal"
     },
     "neobrutalism": {
-      "digest": "sha256:50e102d651be663c18805a221c314d3c8bb8309d596e7021f41389e18f48f338",
+      "digest": "sha256:ec60a1caa97f9889b1dfcf577d7253526d9a4cbfb943ac822f30cf960f6db009",
       "preset": "sales-reference",
       "theme": "neobrutalism"
     }
@@ -39,7 +39,7 @@
       "version": "1.1.0"
     },
     {
-      "integrity": "sha512-aAD6wVmWXDbZgxkDVH8EFN+J8NKx1gacJGDET+e4HMLtHF/kzvlh9ZLHFwjjbkWK14q3wkexrw9d9c7B/TdtBA==",
+      "integrity": "sha512-Nq/bUA8zKHNCWLsiI1Lcsjn6tW9SptYxkyTYglXZ9QJllIM2MUQbsTslWtmdVcoVXRRLfKZ+B7RtHey4jn8nHA==",
       "package": "@k-nex/composition",
       "peerCompatibility": {
         "core": "1.1.0",
