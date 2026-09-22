@@ -1,13 +1,13 @@
 import type { ReactElement } from "react";
 import { KNeXDesignSystemProvider } from "@k-nex/ui-design-system-contracts";
-import { resolveMinimalThemeProfile } from "../src/index.js";
+import { minimalThemePackage, resolveMinimalThemeProfile } from "../src/index.js";
 
 export const hydrationProfile = {
   schemaVersion: 1,
   id: "theme-profile.public-default",
   surface: "public",
   themeId: "theme.minimal",
-  themeVersion: "1.0.0",
+  themeVersion: minimalThemePackage.version,
   palette: "dark",
   mode: "dark",
   values: {},

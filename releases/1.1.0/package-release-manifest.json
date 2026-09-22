@@ -2,17 +2,17 @@
   "$schema": "../../schemas/package-release-manifest.v1.schema.json",
   "factoryLockTemplates": {
     "graphite-paper": {
-      "digest": "sha256:2b27e2cb48a71a951caba2d70c878ff1d3bb2562ef531433ac807079ce98e0a1",
+      "digest": "sha256:079aaa08c68a5cdb40ae72360a5d378b9510e5da2242aef616c5c830ebfd08a9",
       "preset": "sales-reference",
       "theme": "graphite-paper"
     },
     "minimal": {
-      "digest": "sha256:d387c665afb2b8e1c913775062b3e06456033a2ed9b08f59ace6157251aa951f",
+      "digest": "sha256:fba38de6f0c0d7302e264dbd73fb6f0be3b6c55034f2e7f4c3d49aa6750c7955",
       "preset": "sales-reference",
       "theme": "minimal"
     },
     "neobrutalism": {
-      "digest": "sha256:ec60a1caa97f9889b1dfcf577d7253526d9a4cbfb943ac822f30cf960f6db009",
+      "digest": "sha256:f0da8d7fe5b69a3568231442ac673e842fdf83bd85fa592ae665a9aa6329d6c7",
       "preset": "sales-reference",
       "theme": "neobrutalism"
     }
@@ -208,7 +208,7 @@
       "version": "1.1.0"
     },
     {
-      "integrity": "sha512-+EYH+AP2pFY1Ot0slQgtF0jnIM2GRv7yTIvZlFwCxg2c0TSLO//z9gooUnWbNx7g/1iJXCbwZ2bu0/dxXOc9zQ==",
+      "integrity": "sha512-gwc9TdD2pzWrAfYgTL/zNSLL8h3rQPF8aeOrzvdG099cmRIwentKfEnF7GXzPRBKI1OGRP+0YiM34lfpod3gUw==",
       "package": "@k-nex/ui-design-system-contracts",
       "peerCompatibility": {
         "core": "1.1.0",

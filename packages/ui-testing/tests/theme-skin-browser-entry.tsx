@@ -45,7 +45,7 @@ const newGeneration = generation("skin-browser-2", "1.1.0", tokens("#111111", "#
 const skins = createThemeSkinRegistry([oldGeneration, newGeneration]);
 const registry = createThemeRegistry([minimalThemePackage], skins);
 const profile = (generationId: string, version: string, revision: number) => ({
-  schemaVersion: 1 as const, id: "theme-profile.browser-proof", surface: "public" as const, themeId: "theme.minimal", themeVersion: "1.0.0", palette: "light", mode: "light" as const, values: {},
+  schemaVersion: 1 as const, id: "theme-profile.browser-proof", surface: "public" as const, themeId: "theme.minimal", themeVersion: minimalThemePackage.version, palette: "light", mode: "light" as const, values: {},
   skin: { id: "skin.browser-proof", generationId, version, palette: "skin.default", values: {} },
   revision: { id: `theme-revision.browser-${revision}`, number: revision, state: "published" as const, createdAt: `2026-08-29T09:0${revision}:00.000Z`, publishedAt: `2026-08-29T09:0${revision}:01.000Z` }
 });

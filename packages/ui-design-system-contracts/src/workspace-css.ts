@@ -219,7 +219,14 @@ export function createWorkspaceCss(language: ThemeDesignLanguage): string {
     rule(['[data-k-nex-primitive="button"][data-variant="primary"]:hover:not(:disabled)', 'button[type="submit"]:hover:not(:disabled)'], "filter:brightness(.94);background:var(--k-accent)"),
     rule('[data-k-nex-primitive="button"][data-variant="quiet"]', "background:transparent;border-color:transparent;box-shadow:none"),
     rule('[data-k-nex-primitive="button"][data-variant="danger"]', "background:var(--k-critical);color:var(--k-accent-contrast);border-color:var(--k-critical)"),
-    rule('[data-k-nex-primitive="icon-button"]', "padding:0;width:calc(var(--k-control-height)*1px)"),
+    rule('[data-k-nex-primitive="icon-button"]', "padding:0;width:max(44px,calc(var(--k-control-height)*1px))"),
+    // A theme may draw a compact control, but a primitive's pointer target
+    // never shrinks below 44px: control height is a design language, target
+    // size is an accessibility floor no theme gets to lower.
+    rule(
+      ['[data-k-nex-primitive="button"]', '[data-k-nex-primitive="icon-button"]', '[data-k-nex-primitive="dialog-trigger"]', '[data-k-nex-primitive="popover-trigger"]', '[data-k-nex-primitive="tooltip-trigger"]'],
+      "min-width:44px;min-height:max(44px,calc(var(--k-control-height)*1px))"
+    ),
     rule('[data-k-nex-component="icon"]', "display:inline-grid;place-items:center;inline-size:1.25em;line-height:1"),
 
     // Fields.
