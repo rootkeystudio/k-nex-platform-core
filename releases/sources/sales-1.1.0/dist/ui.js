@@ -1,6 +1,6 @@
 import { createElement, useEffect, useRef, useState } from "react";
 import { defineUiContributionBinding } from "@k-nex/ui-runtime";
-import { Section, Status } from "@k-nex/ui-components";
+import { EmptyState, Section, Status } from "@k-nex/ui-components";
 import { DataList, DataTable, KeyValueList, Metric, PaginationControl, QueryBoundary, createDataTableState, defineDataTable } from "@k-nex/ui-data";
 import { Form, FormActions, Select, TextInput } from "@k-nex/ui-forms";
 import { salesAccountDetailDescriptor, salesAccountsDescriptor, salesContactDetailDescriptor, salesContactsDescriptor, salesDedupeCandidatesDescriptor, salesExportCancelDescriptor, salesExportCreateDescriptor, salesExportJobDetailDescriptor, salesExportJobListDescriptor, salesImportJobDetailDescriptor, salesImportJobListDescriptor, salesImportCancelDescriptor, salesImportCommitDescriptor, salesImportDryRunDescriptor, salesMergeCommitDescriptor, salesNotificationsDescriptor, salesProviderConfigurationsDescriptor, salesReportDescriptors, salesReportBlockId, salesReportRunDescriptor, salesReportScheduleDescriptor, salesRemindersDescriptor, salesNotificationReadDescriptor, salesNotificationArchiveDescriptor, salesReminderDismissDescriptor, salesReminderScheduleDescriptor, salesEmailSendDescriptor, salesCalendarSyncDescriptor, salesIntegrationConfigureDescriptor, salesLeadDetailDescriptor, salesLeadsDescriptor, salesOpportunityDetailDescriptor, salesRouteDescriptors, salesPageTemplates, salesUiBlockDescriptors, salesUiComponentDescriptors, salesOpportunityStageUpdateDescriptor, salesOwnershipAssignDescriptor, salesOpportunityKanbanBlockDescriptor, salesOpportunitiesDescriptor, salesPipelineArchiveDescriptor, salesPipelineSnapshotDescriptor, salesPipelineUpdateDescriptor, salesSavedViewArchiveDescriptor, salesSavedViewCalendarDescriptor, salesSavedViewCreateDescriptor, salesSavedViewDetailDescriptor, salesSavedViewKanbanDescriptor, salesSavedViewListDescriptor, salesSavedViewTableDescriptor, salesSavedViewUpdateDescriptor, salesTaskCreateDescriptor, salesTaskUpdateDescriptor, salesTaskTableBlockDescriptor, salesTaskTableComponentDescriptor, salesTasksDescriptor, salesTimelineDescriptor } from "./contracts.js";
@@ -1002,13 +1002,20 @@ function SalesSavedViewCalendar({ input, title }) {
     const page = pageResult(input);
     return componentElement(QueryBoundary, { state: queryRequestState(input.sourceResult), children: (value) => {
             const items = tableItems(value, ["subject", "scheduled-at", "occurred-at"]);
-            const agenda = componentElement(DataList, { key: "agenda", label: `${title} agenda`, items });
+            // An empty list renders an empty list: the calendar showed its heading over
+            // nothing at all, which reads as a page that failed rather than a period
+            // with no activities in it.
+            const agenda = items.length === 0
+                ? componentElement(EmptyState, { key: "agenda", title: "No activities in this period", message: "Activities scheduled on a record appear here." })
+                : componentElement(DataList, { key: "agenda", label: `${title} agenda`, items });
             const grouped = new Map();
             for (const item of items) {
                 const date = item.value.match(/(?:scheduled-at|occurred-at): ([^ ·]+)/u)?.[1]?.slice(0, 10) ?? "Unscheduled";
                 grouped.set(date, [...(grouped.get(date) ?? []), item]);
             }
-            const month = createElement("div", { key: "month", "data-slot": "calendar-month" }, [...grouped.entries()].map(([date, entries]) => createElement("section", { key: date, "aria-label": `${date} activities` }, [createElement("h3", { key: "date" }, date), createElement("ul", { key: "entries" }, entries.map((entry) => createElement("li", { key: entry.id }, entry.label)))])));
+            const month = grouped.size === 0
+                ? componentElement(EmptyState, { key: "month", title: "No activities in this period", message: "Activities scheduled on a record appear here." })
+                : createElement("div", { key: "month", "data-slot": "calendar-month" }, [...grouped.entries()].map(([date, entries]) => createElement("section", { key: date, "aria-label": `${date} activities` }, [createElement("h3", { key: "date" }, date), createElement("ul", { key: "entries" }, entries.map((entry) => createElement("li", { key: entry.id }, entry.label)))])));
             return createElement("section", { "aria-label": title, "data-k-nex-component": "sales-calendar", "data-calendar-mode": mode }, [createElement("h2", { key: "title" }, `${title} ${mode}`), mode === "agenda" ? agenda : month, page !== undefined && (page.number > 1 || page.hasNext) ? componentElement(PaginationControl, { key: "pagination", page: page.number, hasNext: page.hasNext, onPageChange: (next) => requestWorkspacePage(input, pagination, next) }) : null]);
         } });
 }
@@ -1115,10 +1122,25 @@ function componentName(kind) {
         return "DataList";
     return "Status";
 }
+/**
+ * A block with no author-supplied title still needs one a person can read. A
+ * report block's identity carries its namespace, so the plain substitution
+ * printed it: "Sales block.report.weighted forecast" is the report's ID with a
+ * word swapped, not its name. Reports are named by what they measure; every
+ * other block keeps the name it already had.
+ */
+function derivedBlockTitle(id) {
+    const withoutNamespace = id.replace(/^sales\./u, "");
+    const reportPrefix = "block.report.";
+    if (!withoutNamespace.startsWith(reportPrefix))
+        return `Sales ${withoutNamespace.replaceAll("-", " ")}`;
+    const name = withoutNamespace.slice(reportPrefix.length).replaceAll("-", " ");
+    return name.charAt(0).toUpperCase() + name.slice(1);
+}
 function contributionRenderer(id) {
     return (input) => {
         const props = input.props;
-        const title = props.title ?? id.replace(/^sales\./u, "Sales ").replaceAll("-", " ");
+        const title = props.title ?? derivedBlockTitle(id);
         const state = input.sourceResult?.state ?? "idle";
         const kind = rendererKind(id);
         return Object.freeze({

@@ -958,13 +958,13 @@ packages:
     resolution: {integrity: sha512-4JQNk+3mVzK3xh2rqd6RB4J46qUR19azEHBneZyTZM+c456qOrbbM/5xcR8huNCCcbVt7+UmizG6GuUvPvKUYg==}
 
   '@k-nex/builder-puck@file:.k-nex/packages/k-nex-builder-puck-1.1.0.tgz':
-    resolution: {integrity: sha512-2wf05M7dyLGJFzEb086CmYMznec0wqqVSxf0RXowK4rqzMynYOmrVyl1fybFcFEC9IAfnJz3AW+CvGODu0lhoQ==, tarball: file:.k-nex/packages/k-nex-builder-puck-1.1.0.tgz}
+    resolution: {integrity: sha512-/1SwU/YxRdTgQmVXkdevmfOLiFJ9yVCF+R7tukqbdkuscCl5eupwZyE+3LyIA5CsVvSDbvqRfXU8q/N+2lgfAQ==, tarball: file:.k-nex/packages/k-nex-builder-puck-1.1.0.tgz}
     version: 1.1.0
     peerDependencies:
       react: ^18.0.0 || ^19.0.0
 
   '@k-nex/composition@file:.k-nex/packages/k-nex-composition-1.1.0.tgz':
-    resolution: {integrity: sha512-YLLDkLQIg0Q9EXhp2DVZ0wyLoKzYmKvrcNWk6aCSkHhYh/I/NJI/P752GiPA51N5nRdycFdN2YqMS57Ll4IoyA==, tarball: file:.k-nex/packages/k-nex-composition-1.1.0.tgz}
+    resolution: {integrity: sha512-r1Be6Io/Gwz+A/N25Jiy0jsjqISdyfVAaALuECQaWXLSETOg33K12pBCAQGSA6iYykMF0AiffMEKqqdm0jgJmw==, tarball: file:.k-nex/packages/k-nex-composition-1.1.0.tgz}
     version: 1.1.0
 
   '@k-nex/contracts@file:.k-nex/packages/k-nex-contracts-1.1.0.tgz':
@@ -976,7 +976,7 @@ packages:
     version: 1.1.0
 
   '@k-nex/module-sales@file:.k-nex/packages/k-nex-module-sales-1.1.0.tgz':
-    resolution: {integrity: sha512-nk1Als+L4KGyLKh4zFEFEZXk/zS7U0WLPiv8vzxoPuBLiYaGS5n9wJXNYhaB9MDHE4+1QobfJf9pqQUfSrtpxg==, tarball: file:.k-nex/packages/k-nex-module-sales-1.1.0.tgz}
+    resolution: {integrity: sha512-TKsNwH47JlyeCLFWTfxCkmhyg7WW6TaMUcxARABbC4JqBajP1Vzl0Su0H4FLPJjsPASgR/VWWc2jBtKtOaYdoA==, tarball: file:.k-nex/packages/k-nex-module-sales-1.1.0.tgz}
     version: 1.1.0
     peerDependencies:
       '@k-nex/contracts': 1.1.0
@@ -1007,7 +1007,7 @@ packages:
         optional: true
 
   '@k-nex/payload-adapter@file:.k-nex/packages/k-nex-payload-adapter-1.1.0.tgz':
-    resolution: {integrity: sha512-3MwdtONU9gwW5Xf6Hlq5I0gV4d8bgq/AQ5q6V1ykrmb/HXJLO+IyNV4ub2izjri8F0zPpjUH3oVowFJyfpX0pA==, tarball: file:.k-nex/packages/k-nex-payload-adapter-1.1.0.tgz}
+    resolution: {integrity: sha512-IeE4JMn8J4FQkC9QreBpadW2S7x9b4XBwsw9npiH1//Ghu00KCr5WjgntXJ060at4OlUI4pDarAu4cIl87221A==, tarball: file:.k-nex/packages/k-nex-payload-adapter-1.1.0.tgz}
     version: 1.1.0
 
   '@k-nex/provider-realtime-socketio@file:.k-nex/packages/k-nex-provider-realtime-socketio-1.1.0.tgz':
@@ -1022,7 +1022,7 @@ packages:
     version: 1.1.0
 
   '@k-nex/theme-minimal@file:.k-nex/packages/k-nex-theme-minimal-1.1.0.tgz':
-    resolution: {integrity: sha512-QWqNVvrejWWBGkh7r11XhgBCaa/ILkFZACCDsEgLjfg61KmkbZPrmd+wE9Jfr/LRiKYTUPplRlxyHc9oigY1+g==, tarball: file:.k-nex/packages/k-nex-theme-minimal-1.1.0.tgz}
+    resolution: {integrity: sha512-T9J2MP/XxU2cd08KwKr13hAPU2LMI2ISfOQPdDTLYx65GjOesxxsiXVKWEq9WdFg7PWLRxHJnKGRYiyPDN8ejw==, tarball: file:.k-nex/packages/k-nex-theme-minimal-1.1.0.tgz}
     version: 1.1.0
     peerDependencies:
       react: ^18.0.0 || ^19.0.0
@@ -1042,13 +1042,13 @@ packages:
       react-dom: ^18.0.0 || ^19.0.0
 
   '@k-nex/ui-data@file:.k-nex/packages/k-nex-ui-data-1.1.0.tgz':
-    resolution: {integrity: sha512-Im6YmxHDJwH8Q2cycXh5qfayno8wVoCvHdg9R97+aS6J07sIJ1RziFPoVmf0brexaWCGVXkpQ5eeuJCJZ2GLwQ==, tarball: file:.k-nex/packages/k-nex-ui-data-1.1.0.tgz}
+    resolution: {integrity: sha512-qo6sZvyOyD13qsvvRWHtlqYWYs7YQzEHzfsb9/NXzkzxK15Q1+1Xv5R2dbSkHKBMSZ69vmNJVm/Kf0UPKh5H1w==, tarball: file:.k-nex/packages/k-nex-ui-data-1.1.0.tgz}
     version: 1.1.0
     peerDependencies:
       react: ^18.0.0 || ^19.0.0
 
   '@k-nex/ui-design-system-contracts@file:.k-nex/packages/k-nex-ui-design-system-contracts-1.1.0.tgz':
-    resolution: {integrity: sha512-4ykpes6qV0mcZy8G/Ca3wsMhZ52mCYf2W6Adex2NsVP5H7o7yDjgTEkfL9/g1cYJBsNph2sS6szCuC7C1mQNDA==, tarball: file:.k-nex/packages/k-nex-ui-design-system-contracts-1.1.0.tgz}
+    resolution: {integrity: sha512-T4HhQ7hBgTOvkb1gKSILC2gh074rJnySYi90ncl7Nvut2IfSz/Opxs8wH56k3/EXZDKVU5V9wiAWYxFdFcreYA==, tarball: file:.k-nex/packages/k-nex-ui-design-system-contracts-1.1.0.tgz}
     version: 1.1.0
     peerDependencies:
       react: ^18.0.0 || ^19.0.0
