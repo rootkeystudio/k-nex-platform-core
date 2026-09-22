@@ -1,8 +1,10 @@
+import type { SalesPresetTheme } from "./application-factory.js";
+
 export interface RunnableApplicationFilesOptions {
   readonly applicationId: string;
   readonly applicationName: string;
   readonly database: "docker-postgres" | "external";
-  readonly theme: "minimal" | "neobrutalism";
+  readonly theme: SalesPresetTheme;
 }
 
 function workspaceLayoutSource(applicationName: string): string {
@@ -51,7 +53,7 @@ export default withPayload(nextConfig, { devBundleServerPackages: false });
 
 ## Administration operator
 
-Before starting this application, deploy the K-Nex administration operator as a separate private service. This repository does not generate or run that deployment-owned authority. Provision a client certificate whose URI SAN is bound to this application and environment, then set the \`K_NEX_ADMINISTRATION_OPERATOR_HOST\`, \`K_NEX_ADMINISTRATION_OPERATOR_PORT\`, \`K_NEX_ADMINISTRATION_OPERATOR_CLIENT_CERT\`, \`K_NEX_ADMINISTRATION_OPERATOR_CLIENT_KEY\`, \`K_NEX_ADMINISTRATION_OPERATOR_CA_CERT\`, \`K_NEX_ADMINISTRATION_OPERATOR_URI_SAN\`, and \`K_NEX_ADMINISTRATION_OPERATOR_IDENTITY\` values in \`.env\`. The operator must be reachable over mutual TLS at \`/v1/commands\` before \`pnpm knex:doctor\` or the web process starts.
+Before starting this application, deploy the K-Nex administration operator as a separate private service. This repository does not generate or run that deployment-owned authority. Provision a client certificate whose URI SAN is bound to this application and environment, then set the \`K_NEX_ADMINISTRATION_OPERATOR_HOST\`, \`K_NEX_ADMINISTRATION_OPERATOR_PORT\`, \`K_NEX_ADMINISTRATION_OPERATOR_CLIENT_CERT\`, \`K_NEX_ADMINISTRATION_OPERATOR_CLIENT_KEY\`, \`K_NEX_ADMINISTRATION_OPERATOR_CA_CERT\`, \`K_NEX_ADMINISTRATION_OPERATOR_URI_SAN\`, and \`K_NEX_ADMINISTRATION_OPERATOR_IDENTITY\` values in \`.env\`. The operator must be reachable over mutual TLS at \`/v1/commands\` before extension operations can run. \`pnpm knex:doctor\` proves the configured endpoint accepts a connection and fails when it does not; the web process validates the configuration at startup but does not require the operator to be up to serve CRM work.
 
 ## Local development
 
@@ -61,13 +63,18 @@ Copy \`.env.example\` to \`.env\`, set every value, then run the steps in this o
 pnpm install --frozen-lockfile
 pnpm build
 ${options.database === "docker-postgres" ? "pnpm knex:db:up\n" : ""}pnpm knex:migrate
+pnpm knex:register-generation
 pnpm knex:issue-bootstrap-token -- --output .k-nex-bootstrap-token
 pnpm knex:bootstrap-owner -- --token-file .k-nex-bootstrap-token
 pnpm knex:doctor
 pnpm dev
 \`\`\`
 
-Run \`pnpm knex:worker\` alongside \`pnpm dev\`: reminders, notifications, exports, and provider delivery are processed by that worker, not by the web process.
+\`knex:register-generation\` records which Platform Plugin generation this image carries. Nothing else writes that record, and the Platform Plugin runtime projection stays empty without it: System Settings cannot resolve its descriptors, and the worker holds no execution fence, so it processes no reminders, notifications, exports, workflows, or provider delivery at all. It reads \`K_NEX_SOURCE_COMMIT\` and \`K_NEX_APPLICATION_DIGEST\` — the exact commit and application digest this image was built from. A container deployment should also set \`K_NEX_IMAGE_REFERENCE\` to the registry identity it was pulled from.
+
+Running it again for the same image changes nothing. It refuses to record a *different* image under the same generation identity, because that identity is what fences workers and binds Platform Plugin authority: a changed image is a new generation, promoted by a deployment supervisor. This release does not ship that supervisor, so a rebuilt image is registered against a fresh database, not an existing one.
+
+Run \`pnpm knex:worker\` alongside \`pnpm dev\`: reminders, notifications, exports, and provider delivery are processed by that worker, not by the web process. The worker takes the execution fence its generation owns and renews it while it runs; it refuses to process anything for a generation the deployment no longer serves.
 
 ## Communication providers
 
@@ -222,39 +229,81 @@ export const POST = refused;
 `,
     "src/app/(workspace)/page.tsx": workspacePageSource(options.applicationName),
     "src/app/layout.tsx": workspaceLayoutSource(options.applicationName),
-    "src/app/styles.css": `:root { color-scheme: light dark; font-family: ui-sans-serif, system-ui, sans-serif; }
+    // The workspace is laid out by the installed theme, which owns every
+    // surface under its own root. This file is what the theme cannot reach:
+    // the document itself, and the two screens shown before a theme resolves —
+    // sign-in and the unauthenticated landing page. It deliberately repeats no
+    // workspace rule, so the theme stays the only thing that decides how the
+    // application looks once a session exists.
+    "src/app/styles.css": `:root {
+  color-scheme: light dark;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --k-nex-entry-surface: light-dark(#ffffff, #1a1a1a);
+  --k-nex-entry-background: light-dark(#efeae0, #121212);
+  --k-nex-entry-foreground: light-dark(#1b1a17, #ededed);
+  --k-nex-entry-muted: light-dark(#6b6557, #8f8f8f);
+  --k-nex-entry-border: light-dark(#ddd5c6, #2a2a2a);
+  --k-nex-entry-accent: light-dark(#d1502a, #ff6b35);
+  --k-nex-entry-accent-contrast: light-dark(#ffffff, #0f0f0f);
+  --k-nex-entry-critical: light-dark(#b3261e, #f87171);
+}
 * { box-sizing: border-box; }
-body { margin: 0; min-height: 100vh; background: Canvas; color: CanvasText; }
-.workspace-home { margin: 0 auto; max-width: 64rem; padding: 5rem 2rem; }
-.eyebrow { color: LinkText; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
-h1 { font-size: clamp(2rem, 7vw, 4.5rem); margin: .25rem 0 1rem; }
-.workspace-shell { display: grid; grid-template-columns: 17rem minmax(0, 1fr); grid-template-rows: auto 1fr; min-height: 100vh; }
-.workspace-shell[data-sidebar="collapsed"] { grid-template-columns: 4rem minmax(0, 1fr); }
-.workspace-sidebar { grid-row: 1 / -1; min-width: 0; }
-.workspace-shell[data-sidebar="collapsed"] .workspace-brand, .workspace-shell[data-sidebar="collapsed"] .workspace-desktop-navigation-expanded { display: none; }
-.workspace-desktop-navigation-rail { display: none; }
-.workspace-shell[data-sidebar="collapsed"] .workspace-desktop-navigation-rail { display: block; }
-.workspace-desktop-navigation-rail ul { padding-inline-start: 0; }
-.workspace-desktop-navigation-rail .workspace-rail-item { align-items: center; display: flex; justify-content: center; min-block-size: 2rem; }
-.workspace-desktop-navigation-rail [data-k-nex-component="icon"] { display: inline-grid; font-size: 1.25rem; inline-size: 1.25rem; place-items: center; }
-.workspace-brand { display: grid; gap: .25rem; margin-block-end: 1rem; overflow-wrap: anywhere; }
-.workspace-header { align-items: center; display: flex; justify-content: space-between; min-width: 0; }
-.workspace-header ol { display: flex; flex-wrap: wrap; gap: .5rem; list-style: none; margin: 0; padding: 0; }
-.workspace-header li + li::before { content: "/"; margin-inline-end: .5rem; }
-.workspace-environment { border: 1px solid currentColor; border-radius: 999px; padding: .2rem .6rem; }
-.workspace-sidebar ul, .workspace-drawer ul { list-style: none; margin: 0; padding-inline-start: 1rem; }
-.workspace-sidebar > .workspace-desktop-navigation > nav > ul, .workspace-drawer nav > ul { padding-inline-start: 0; }
-.workspace-sidebar li, .workspace-drawer li { margin-block: .35rem; min-width: 0; overflow-wrap: anywhere; }
-.workspace-sidebar [data-navigation-label], .workspace-drawer [data-navigation-label] { display: block; font-weight: 700; margin-block-start: 1rem; }
-.workspace-skip-link { inset-block-start: .5rem; inset-inline-start: -100vw; position: fixed; z-index: 1000; }
-.workspace-skip-link:focus { inset-inline-start: .5rem; }
-.workspace-mobile-trigger { display: none; }
-.workspace-drawer-overlay { inset: 0; position: fixed; z-index: 100; }
-.workspace-drawer { block-size: 100%; inline-size: min(22rem, 90vw); inset-block: 0; inset-inline-start: 0; overflow: auto; position: fixed; }
-.workspace-drawer-heading { align-items: center; display: flex; justify-content: space-between; }
-a:focus-visible, button:focus-visible { outline: 3px solid Highlight; outline-offset: 3px; }
-@media (max-width: 48rem) { .workspace-shell, .workspace-shell[data-sidebar="collapsed"] { display: block; } .workspace-sidebar { display: none; } .workspace-mobile-trigger { display: inline-flex; } }
-@media (forced-colors: active) { .workspace-sidebar, .workspace-header, .workspace-environment { border-color: CanvasText; } }
+body { margin: 0; min-height: 100dvh; background: var(--k-nex-entry-background); color: var(--k-nex-entry-foreground); line-height: 1.5; }
+.workspace-home {
+  display: grid;
+  align-content: center;
+  justify-items: stretch;
+  gap: 1rem;
+  width: min(26rem, 100%);
+  margin: 0 auto;
+  padding: clamp(2rem, 8vh, 6rem) 1.5rem;
+  min-height: 100dvh;
+}
+.workspace-home > form,
+.workspace-home > :is(h1, p, button, section) { width: 100%; }
+.workspace-home h1 { margin: 0; font-size: 1.75rem; line-height: 1.2; letter-spacing: -0.01em; }
+.workspace-home > p { margin: 0; color: var(--k-nex-entry-muted); }
+.eyebrow { margin: 0; color: var(--k-nex-entry-accent); font-size: .75rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+.workspace-home form {
+  display: grid;
+  gap: .75rem;
+  padding: 1.5rem;
+  background: var(--k-nex-entry-surface);
+  border: 1px solid var(--k-nex-entry-border);
+  border-radius: 12px;
+  box-shadow: 0 1px 2px light-dark(#0000001f, #00000066);
+}
+.workspace-home label { font-size: .8125rem; font-weight: 600; }
+.workspace-home input {
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 12px;
+  font: inherit;
+  color: inherit;
+  background: var(--k-nex-entry-surface);
+  border: 1px solid var(--k-nex-entry-border);
+  border-radius: 8px;
+}
+.workspace-home input:hover { border-color: var(--k-nex-entry-muted); }
+.workspace-home button {
+  min-height: 40px;
+  margin-block-start: .25rem;
+  padding: 0 16px;
+  font: inherit;
+  font-weight: 600;
+  color: var(--k-nex-entry-accent-contrast);
+  background: var(--k-nex-entry-accent);
+  border: 1px solid var(--k-nex-entry-accent);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.workspace-home button:hover { filter: brightness(.94); }
+.workspace-home [aria-live] { margin: 0; min-height: 1.25rem; color: var(--k-nex-entry-critical); font-size: .8125rem; font-weight: 600; }
+.workspace-home [aria-live]:empty { min-height: 0; }
+a:focus-visible, button:focus-visible, input:focus-visible { outline: 3px solid var(--k-nex-entry-accent); outline-offset: 2px; }
+@media (forced-colors: active) {
+  .workspace-home form, .workspace-home input, .workspace-home button { border-color: CanvasText; }
+}
 `,
     "src/app/api/health/route.ts": `export const dynamic = "force-dynamic";
 

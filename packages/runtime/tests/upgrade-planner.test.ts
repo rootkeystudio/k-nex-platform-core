@@ -14,7 +14,8 @@ const migrations: UpgradeMigration[] = kinds.map((kind) => ({
 }));
 const factoryLockTemplates = {
   minimal: { preset: "sales-reference", theme: "minimal", digest: `sha256:${"1".repeat(64)}` },
-  neobrutalism: { preset: "sales-reference", theme: "neobrutalism", digest: `sha256:${"2".repeat(64)}` }
+  neobrutalism: { preset: "sales-reference", theme: "neobrutalism", digest: `sha256:${"2".repeat(64)}` },
+  "graphite-paper": { preset: "sales-reference", theme: "graphite-paper", digest: `sha256:${"3".repeat(64)}` }
 } as const;
 const targetReleaseManifest = {
   schemaVersion: 1, release: { version: "1.0.0", channel: "current", versioningPolicy: "semver-v1", compatibilityPolicy: "exact-framework-tuple" },

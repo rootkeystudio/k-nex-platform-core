@@ -19,12 +19,40 @@ import { pipelineSavedViewsMigrationSource } from "./pipeline-saved-views-migrat
 import { payloadPostgresPatchSource as embeddedPayloadPostgresPatchSource } from "./payload-postgres-patch.js";
 import { runnableApplicationFiles } from "./runnable-application-files.js";
 import { systemAccessApplicationFiles } from "./system-access-application-files.js";
+import { staticGenerationApplicationFiles } from "./static-generation-application-files.js";
 import { systemExtensionApplicationFiles } from "./system-extension-application-files.js";
 import { systemOperationsApplicationFiles } from "./system-operations-application-files.js";
 import { systemThemeSettingsApplicationFiles } from "./system-theme-settings-application-files.js";
 import { workspacePageApplicationFiles } from "./workspace-page-application-files.js";
 
-export type SalesPresetTheme = "minimal" | "neobrutalism";
+export type SalesPresetTheme = "minimal" | "neobrutalism" | "graphite-paper";
+
+/**
+ * The installed themes a generated application may choose between. The default
+ * is the one the product is designed as; the other two remain as the reference
+ * pair that proves a theme changes design language and never layout.
+ */
+export const supportedPresetThemes: readonly SalesPresetTheme[] = Object.freeze(["graphite-paper", "minimal", "neobrutalism"]);
+export const defaultPresetTheme: SalesPresetTheme = "graphite-paper";
+
+const presetThemeProfileResolvers: Readonly<Record<SalesPresetTheme, string>> = Object.freeze({
+  "graphite-paper": "resolveGraphitePaperThemeProfile",
+  minimal: "resolveMinimalThemeProfile",
+  neobrutalism: "resolveNeobrutalismThemeProfile"
+});
+const presetThemePalettes: Readonly<Record<SalesPresetTheme, string>> = Object.freeze({
+  "graphite-paper": "graphite",
+  minimal: "light",
+  neobrutalism: "primary"
+});
+
+export function themeProfileResolverName(theme: SalesPresetTheme): string {
+  return presetThemeProfileResolvers[theme];
+}
+
+export function themePaletteId(theme: SalesPresetTheme): string {
+  return presetThemePalettes[theme];
+}
 export type ApplicationDatabaseMode = "docker-postgres" | "external";
 
 /** The release-less factory path always plans against the one signed current tuple. */
@@ -47,7 +75,7 @@ export const salesReferenceCompilerBoundary = Object.freeze({
     "src/app/api/health/route.ts", "src/app/api/k-nex/account/credentials/route.ts", "src/app/api/k-nex/inventory/route.ts", "src/app/api/k-nex/navigation/revision/route.ts", "src/app/api/k-nex/navigation/sidebar/route.ts", "src/app/api/k-nex/workspace-folders/[folderId]/route.ts", "src/app/api/k-nex/workspace-folders/route.ts", "src/app/api/k-nex/workspace-pages/[pageId]/[operation]/route.ts", "src/app/api/k-nex/workspace-pages/[pageId]/actions/[actionId]/route.ts", "src/app/api/k-nex/workspace-pages/[pageId]/session/route.ts", "src/app/api/k-nex/workspace-pages/route.ts", "src/app/api/readiness/route.ts",
     "src/app/api/system/access/assignments/[assignmentId]/revoke/route.ts", "src/app/api/system/access/assignments/route.ts", "src/app/api/system/access/grants/[grantId]/remove/route.ts", "src/app/api/system/access/roles/[roleId]/permissions/route.ts", "src/app/api/system/access/roles/route.ts", "src/app/api/system/extensions/[extensionId]/operations/[operationId]/execute/route.ts", "src/app/api/system/extensions/[extensionId]/plan/route.ts", "src/app/api/system/settings/[settingsId]/route.ts", "src/app/api/system/themes/profiles/[profileId]/preview/route.ts", "src/app/api/system/themes/profiles/[profileId]/publish/route.ts", "src/app/api/system/themes/profiles/[profileId]/rollback/route.ts", "src/app/api/system/themes/profiles/[profileId]/stage/route.ts",
     "src/app/components/k-nex-workspace-page-editor.tsx", "src/app/components/k-nex-workspace-page-runtime.tsx", "src/app/components/k-nex-workspace-shell.tsx", "src/app/components/login-form.tsx", "src/app/components/logout-button.tsx", "src/app/layout.tsx", "src/app/styles.css",
-    "src/boot.ts", "src/k-nex-authority.ts", "src/k-nex-bootstrap-owner.ts", "src/k-nex-bootstrap-token.ts", "src/k-nex-doctor.ts", "src/k-nex-identity.ts", "src/k-nex-issue-bootstrap-token.ts", "src/k-nex-readiness.ts", "src/k-nex-realtime.ts", "src/k-nex-registry.ts", "src/k-nex-system-access.ts", "src/k-nex-system-extensions.ts", "src/k-nex-system-operations.ts", "src/k-nex-system-theme-settings.ts", "src/k-nex-theme-runtime.ts", "src/k-nex-users.ts", "src/k-nex-web.ts", "src/k-nex-worker.ts", "src/k-nex-workspace-navigation.ts", "src/k-nex-workspace-page-http.ts", "src/k-nex-workspace-pages.ts",
+    "src/boot.ts", "src/k-nex-authority.ts", "src/k-nex-bootstrap-owner.ts", "src/k-nex-bootstrap-token.ts", "src/k-nex-doctor.ts", "src/k-nex-identity.ts", "src/k-nex-issue-bootstrap-token.ts", "src/k-nex-readiness.ts", "src/k-nex-realtime.ts", "src/k-nex-register-generation.ts", "src/k-nex-registry.ts", "src/k-nex-static-generation.ts", "src/k-nex-system-access.ts", "src/k-nex-system-extensions.ts", "src/k-nex-system-operations.ts", "src/k-nex-system-theme-settings.ts", "src/k-nex-theme-runtime.ts", "src/k-nex-users.ts", "src/k-nex-web.ts", "src/k-nex-worker.ts", "src/k-nex-workspace-navigation.ts", "src/k-nex-workspace-page-http.ts", "src/k-nex-workspace-pages.ts",
     "src/migrations/20260827_000002_knex_bootstrap.ts", "src/migrations/20260829_000007_runtime_extensions.ts", "src/migrations/20260901_000019_authorization.ts", "src/migrations/20260901_000022_static_lifecycle_admission.ts", "src/migrations/20260902_000023_system_administration.ts", "src/migrations/20260903_000026_workspace_pages.ts", "src/migrations/20260903_000027_event_outbox.ts", "src/migrations/20260904_000028_workspace_sidebar_preferences.ts", "src/migrations/20260905_000026_release_preflight.ts", "src/migrations/20260909_000035_static_rebind_lock_protocol.ts", "src/migrations/20260909_000036_release_revision.ts", "src/migrations/index.ts", "src/payload.config.ts", "src/tests/generated-application.test.ts", "tsconfig.json", "tsconfig.scripts.json"
   ]),
   runtimePaths: Object.freeze([
@@ -296,7 +324,7 @@ function packageIdentity(archive: Uint8Array): { readonly name: string; readonly
 
 function registrySource(theme: SalesPresetTheme, applicationId: string, salesIntegrity: string, realtimeIntegrity: string, release: string, includeRealtime = true): string {
   if (!includeRealtime) return salesOnlyRegistrySource(theme, applicationId, salesIntegrity, release);
-  const themeExport = theme === "minimal" ? "resolveMinimalThemeProfile" : "resolveNeobrutalismThemeProfile";
+  const themeExport = themeProfileResolverName(theme);
   return `import { PluginManifestSchema } from "@k-nex/contracts";
 import manifestJson from "@k-nex/module-sales/manifest" with { type: "json" };
 import { salesCoreCollections, salesCoreCollectionSlugs, salesCrmPermissionDescriptors, salesCrmPermissionPolicyBindings, salesNavigationDescriptors, salesPermissionPolicyExecutors, salesReferenceMetadata, salesRegistration, salesRouteDescriptors } from "@k-nex/module-sales/server";
@@ -353,7 +381,7 @@ export const kNexInitialThemeProfile = Object.freeze({
   surface: "admin",
   themeId: "theme.${theme}",
   themeVersion: ${JSON.stringify(release)},
-  palette: "${theme === "minimal" ? "light" : "primary"}",
+  palette: "${themePaletteId(theme)}",
   mode: "system",
   values: {},
   revision: { id: "workspace.theme.initial", number: 1, state: "published", createdAt: initialThemeTime, publishedAt: initialThemeTime }
@@ -363,7 +391,7 @@ export const kNexThemePresentation = ${themeExport}(kNexInitialThemeProfile);
 }
 
 function salesOnlyRegistrySource(theme: SalesPresetTheme, applicationId: string, salesIntegrity: string, release: string): string {
-  const themeExport = theme === "minimal" ? "resolveMinimalThemeProfile" : "resolveNeobrutalismThemeProfile";
+  const themeExport = themeProfileResolverName(theme);
   return `import { PluginManifestSchema } from "@k-nex/contracts";
 import manifestJson from "@k-nex/module-sales/manifest" with { type: "json" };
 import { salesCoreCollections, salesCoreCollectionSlugs, salesCrmPermissionDescriptors, salesCrmPermissionPolicyBindings, salesNavigationDescriptors, salesPermissionPolicyExecutors, salesReferenceMetadata, salesRegistration, salesRouteDescriptors } from "@k-nex/module-sales/server";
@@ -394,7 +422,7 @@ export const kNexSalesRegistry = Object.freeze({
 });
 
 const initialThemeTime = new Date(0).toISOString();
-export const kNexInitialThemeProfile = Object.freeze({ schemaVersion: 1, id: "workspace.default-theme", surface: "admin", themeId: "theme.${theme}", themeVersion: ${JSON.stringify(release)}, palette: "${theme === "minimal" ? "light" : "primary"}", mode: "system", values: {}, revision: { id: "workspace.theme.initial", number: 1, state: "published", createdAt: initialThemeTime, publishedAt: initialThemeTime } });
+export const kNexInitialThemeProfile = Object.freeze({ schemaVersion: 1, id: "workspace.default-theme", surface: "admin", themeId: "theme.${theme}", themeVersion: ${JSON.stringify(release)}, palette: "${themePaletteId(theme)}", mode: "system", values: {}, revision: { id: "workspace.theme.initial", number: 1, state: "published", createdAt: initialThemeTime, publishedAt: initialThemeTime } });
 export const kNexThemePresentation = ${themeExport}(kNexInitialThemeProfile);
 `;
 }
@@ -1029,7 +1057,7 @@ function json(value: unknown): string {
 
 function validOptions(options: CreateKnexApplicationOptions): void {
   if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/u.test(options.applicationId) || options.applicationName.length < 1 || options.applicationName.length > 160 ||
-    !["minimal", "neobrutalism"].includes(options.theme) || !["docker-postgres", "external"].includes(options.database)) {
+    !supportedPresetThemes.includes(options.theme) || !["docker-postgres", "external"].includes(options.database)) {
     throw new Error("Application factory options are invalid.");
   }
   if (options.primaryCurrency !== undefined && !/^[A-Z]{3}$/u.test(options.primaryCurrency)) {
@@ -1093,7 +1121,11 @@ function planKnexApplication(options: CreateKnexApplicationOptions, includeRealt
       artifacts.set(filename, new Uint8Array(bytes));
       artifactDigests[filename] = `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
     }
+    // A release that predates a theme carries no lock template for it, and a
+    // generated application without its exact frozen lock is not one this
+    // factory can promise anything about.
     const lock = release.factoryLockTemplates[options.theme];
+    if (lock === undefined) throw new Error(`Release ${release.release.version} declares no ${options.theme} factory lock template.`);
     const filename = factoryLockFilename(options.theme, lock.digest);
     const path = resolve(options.packageSource.directory, filename);
     if (dirname(path) !== resolve(options.packageSource.directory) || !existsSync(path) || lstatSync(path).isSymbolicLink()) {
@@ -1124,10 +1156,11 @@ function planKnexApplication(options: CreateKnexApplicationOptions, includeRealt
     ...applicationAuthFiles({ applicationId: options.applicationId, applicationName: options.applicationName, ...(options.primaryCurrency === undefined ? {} : { primaryCurrency: options.primaryCurrency }), theme: options.theme, themeReleaseVersion: release?.release.version ?? currentReleaseVersion }),
     ...systemAccessApplicationFiles({ applicationId: options.applicationId }),
     ...systemExtensionApplicationFiles({ applicationId: options.applicationId }),
+    ...staticGenerationApplicationFiles({ applicationId: options.applicationId }),
     ...systemThemeSettingsApplicationFiles({ applicationId: options.applicationId }),
     ...systemOperationsApplicationFiles({ applicationId: options.applicationId }),
     ...workspacePageApplicationFiles({ applicationId: options.applicationId }),
-    ".env.example": "DATABASE_URL=\nK_NEX_ADMINISTRATION_OPERATOR_CA_CERT=\nK_NEX_ADMINISTRATION_OPERATOR_CLIENT_CERT=\nK_NEX_ADMINISTRATION_OPERATOR_CLIENT_KEY=\nK_NEX_ADMINISTRATION_OPERATOR_HOST=\nK_NEX_ADMINISTRATION_OPERATOR_IDENTITY=\nK_NEX_ADMINISTRATION_OPERATOR_PORT=\nK_NEX_ADMINISTRATION_OPERATOR_URI_SAN=\nK_NEX_ENVIRONMENT=\nK_NEX_GENERATION=\nK_NEX_OWNER_EMAIL=\nK_NEX_OWNER_PASSWORD=\nK_NEX_PROVIDER_SECRET_CALENDAR_REFERENCE=\nK_NEX_PROVIDER_SECRET_EMAIL_REFERENCE=\nK_NEX_PUBLIC_ORIGIN=\nK_NEX_REFERENCE_PROVIDER_ENDPOINT=\nK_NEX_WEBHOOK_SECRET_CALENDAR_REFERENCE=\nK_NEX_WEBHOOK_SECRET_EMAIL_REFERENCE=\nPAYLOAD_SECRET=\n",
+    ".env.example": "DATABASE_URL=\nK_NEX_ADMINISTRATION_OPERATOR_CA_CERT=\nK_NEX_ADMINISTRATION_OPERATOR_CLIENT_CERT=\nK_NEX_ADMINISTRATION_OPERATOR_CLIENT_KEY=\nK_NEX_ADMINISTRATION_OPERATOR_HOST=\nK_NEX_ADMINISTRATION_OPERATOR_IDENTITY=\nK_NEX_ADMINISTRATION_OPERATOR_PORT=\nK_NEX_ADMINISTRATION_OPERATOR_URI_SAN=\nK_NEX_APPLICATION_DIGEST=\nK_NEX_ENVIRONMENT=\nK_NEX_GENERATION=\nK_NEX_OWNER_EMAIL=\nK_NEX_OWNER_PASSWORD=\nK_NEX_PROVIDER_SECRET_CALENDAR_REFERENCE=\nK_NEX_PROVIDER_SECRET_EMAIL_REFERENCE=\nK_NEX_PUBLIC_ORIGIN=\nK_NEX_REFERENCE_PROVIDER_ENDPOINT=\nK_NEX_SOURCE_COMMIT=\nK_NEX_WEBHOOK_SECRET_CALENDAR_REFERENCE=\nK_NEX_WEBHOOK_SECRET_EMAIL_REFERENCE=\nPAYLOAD_SECRET=\n",
     [payloadPostgresPatchFilename]: payloadPostgresPatchSource(),
     "pnpm-workspace.yaml": generatedPnpmWorkspace(),
     ".k-nex/application-plan.json": json({
@@ -1161,6 +1194,7 @@ function planKnexApplication(options: CreateKnexApplicationOptions, includeRealt
         "knex:issue-attachment-upload-receipt": "node --env-file-if-exists=.env dist/k-nex-issue-attachment-upload-receipt.js",
         "knex:issue-bootstrap-token": "node --env-file-if-exists=.env dist/k-nex-issue-bootstrap-token.js",
         "knex:migrate": "node --env-file-if-exists=.env k-nex-migrate.mjs",
+        "knex:register-generation": "node --env-file-if-exists=.env dist/k-nex-register-generation.js",
         start: "node --env-file-if-exists=.env dist/k-nex-web.js",
         test: "node --test dist/tests/*.test.js",
         "knex:worker": "node --env-file-if-exists=.env dist/k-nex-worker.js"
@@ -1207,7 +1241,11 @@ function planKnexApplication(options: CreateKnexApplicationOptions, includeRealt
     files["pnpm-workspace.yaml"] = generatedPnpmWorkspace(overrides);
   }
   if (options.database === "docker-postgres") {
-    files["compose.yaml"] = "services:\n  postgres:\n    image: postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94\n    environment:\n      POSTGRES_DB: knex\n      POSTGRES_PASSWORD: knex\n      POSTGRES_USER: knex\n    ports:\n      - \"5432:5432\"\n    volumes:\n      - postgres-data:/var/lib/postgresql/data\nvolumes:\n  postgres-data:\n";
+    // The published port is a host fact, not a product one: a developer who
+    // already runs PostgreSQL on 5432 would otherwise have to edit a generated
+    // file to start this application at all. K_NEX_DB_PORT moves it, and the
+    // container port it maps to never changes, so DATABASE_URL stays readable.
+    files["compose.yaml"] = "services:\n  postgres:\n    image: postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94\n    environment:\n      POSTGRES_DB: knex\n      POSTGRES_PASSWORD: knex\n      POSTGRES_USER: knex\n    ports:\n      - \"127.0.0.1:${K_NEX_DB_PORT:-5432}:5432\"\n    volumes:\n      - postgres-data:/var/lib/postgresql/data\nvolumes:\n  postgres-data:\n";
   }
   // Declared last, so it covers the manifest this plan actually writes: the
   // closure is a statement about the files on disk, and the guard that checks
@@ -1266,8 +1304,8 @@ function assertSupportedUpgradeSourceManifest(sourceManifest: ApplicationManifes
   if (sourceManifest.builder?.plugin !== "builder.puck" || sourceManifest.builder.package !== "@k-nex/builder-puck" || canonicalJson(sourceManifest.builder.profiles) !== canonicalJson({ workspace: { enabled: true, drafts: true, surfaces: ["workspace"] } })) {
     throw new Error("Upgrade target cannot preserve this builder configuration.");
   }
-  const theme = sourceManifest.themes.active;
-  if ((theme !== "minimal" && theme !== "neobrutalism") || sourceManifest.themes.package !== `@k-nex/theme-${theme}` || Object.keys(sourceManifest.themes).sort().join(",") !== "active,package,version") {
+  const theme = sourceManifest.themes.active as SalesPresetTheme;
+  if (!supportedPresetThemes.includes(theme) || sourceManifest.themes.package !== `@k-nex/theme-${theme}` || Object.keys(sourceManifest.themes).sort().join(",") !== "active,package,version") {
     throw new Error("Upgrade target cannot preserve this theme configuration.");
   }
   const database = sourceManifest.development.database.mode;
@@ -1286,6 +1324,13 @@ export function planUpgradeTargetKnexApplication(options: UpgradeTargetKnexAppli
   const supported = assertSupportedUpgradeSourceManifest(sourceManifest);
   return planKnexApplication({ ...supported.options, ...(options.primaryCurrency === undefined ? {} : { primaryCurrency: options.primaryCurrency }), ...(options.packageSource === undefined ? {} : { packageSource: options.packageSource }) }, supported.includeRealtime, sourceManifest);
 }
+
+/**
+ * Files this factory seeds once and the framework owns afterwards. Their
+ * content is the framework's to change, so a difference in them is not a
+ * customer edit and not a reason to refuse.
+ */
+const frameworkManagedPaths: ReadonlySet<string> = new Set(["next-env.d.ts"]);
 
 export function applyCreateKnexApplication(plan: ApplicationFactoryPlan, targetDirectory: string): ApplicationFactoryApplyResult {
   const artifacts = verifiedPlanArtifacts.get(plan);
@@ -1315,6 +1360,11 @@ export function applyCreateKnexApplication(plan: ApplicationFactoryPlan, targetD
     if (relative(target, path).startsWith("..")) throw new Error("Application factory path escapes its target.");
     if (!existsSync(path)) { pending.push(relativePath); continue; }
     if (lstatSync(path).isSymbolicLink()) throw new Error("Application factory refuses symlinked destination paths.");
+    // Next rewrites its own type reference file on every build, so enforcing
+    // the bytes this factory seeded made re-running it fail on any application
+    // that had been built once — including a re-run of the identical release,
+    // whose only purpose is to report that the application already matches it.
+    if (frameworkManagedPaths.has(relativePath)) { unchanged.push(relativePath); continue; }
     if (readFileSync(path, "utf8") !== content) throw new Error(`Application factory refuses to overwrite ${relativePath}.`);
     unchanged.push(relativePath);
   }

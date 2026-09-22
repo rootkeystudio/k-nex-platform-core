@@ -26,7 +26,7 @@ const bundledReleaseManifestPath = join(repositoryRoot, `releases/${bundledRelea
 const target = value("--target");
 const applicationId = value("--id");
 const applicationName = value("--name");
-const theme = value("--theme") ?? "minimal";
+const theme = value("--theme") ?? "graphite-paper";
 const database = value("--database") ?? "docker-postgres";
 const primaryCurrency = value("--primary-currency");
 const releaseManifestPath = value("--release-manifest");
@@ -34,7 +34,7 @@ const packageMirror = value("--package-mirror");
 const workspace = args.includes("--workspace");
 const planOnly = args.includes("--plan-only");
 if (!target || !applicationId || !applicationName) {
-  throw new Error("Usage: create-knex-app --target <dir> --id <id> --name <name> --primary-currency <ISO-4217> [--theme minimal|neobrutalism] [--database docker-postgres|external] [--release-version <semver>] [--release-manifest <json> --package-mirror <dir>] [--plan-only|--no-install]\nDefaults to the verified bundled current release. --workspace is deterministic developer planning only and requires --plan-only.");
+  throw new Error("Usage: create-knex-app --target <dir> --id <id> --name <name> --primary-currency <ISO-4217> [--theme graphite-paper|minimal|neobrutalism] [--database docker-postgres|external] [--release-version <semver>] [--release-manifest <json> --package-mirror <dir>] [--plan-only|--no-install]\nDefaults to the verified bundled current release. --workspace is deterministic developer planning only and requires --plan-only.");
 }
 // Readiness requires system.general reporting settings, and only the factory
 // seeds them, so an application generated without a reporting currency can

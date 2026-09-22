@@ -983,6 +983,61 @@ export class PostgresStaticDeploymentStore {
     this.assertRecoveryTicketValue(input, row, current, fence);
   }
 
+  /**
+   * Lets the one worker identity a generation fences resume its own expired
+   * lease. Renewal alone cannot do this: a worker that was stopped for longer
+   * than its five-minute lease can never renew, and every fenced effect it owns
+   * — reminders, notifications, exports, workflows, reports — silently stops
+   * being processed with nothing to report it.
+   *
+   * The fence still separates generations. This takes the lease only for the
+   * generation the deployment currently serves, at that deployment's promotion
+   * revision, under the same fencing token, and only when the lease is either
+   * absent or expired or already this owner's. A live lease held by a different
+   * owner, a superseded generation, and a promoted revision are all rejected,
+   * so a zombie worker cannot reclaim a fence that moved on without it.
+   */
+  async acquireWorkerFence(input: Owner & Readonly<{ generationId: string; fencingToken: number; owner: string; leaseDurationMs: number }>): Promise<WorkerGenerationFence> {
+    assertOwner(input); assertFenceToken(input.fencingToken); this.assertWorkerLeaseRenewal(input.owner, input.leaseDurationMs);
+    return this.transaction(async (session) => {
+      await this.lock(session, input);
+      const deployment = await this.readLocked(session, input);
+      if (!deployment || deployment.active_generation_id !== input.generationId) {
+        fail("FENCE_REJECTED", "Worker fence generation is not the served static deployment generation.");
+      }
+      const promotionRevision = Number(deployment.revision);
+      if (!Number.isSafeInteger(promotionRevision) || promotionRevision < 0) fail("FENCE_REJECTED", "Static deployment revision is unavailable for worker authority.");
+      const current = await this.readFenceLocked(session, input);
+      const databaseNow = await this.databaseNow(session);
+      if (current) {
+        if (current.active_execution_generation !== input.generationId || Number(current.fencing_token) !== input.fencingToken ||
+          current.promotion_revision !== promotionRevision) {
+          fail("FENCE_REJECTED", "Worker fence authority was superseded by another generation.");
+        }
+        if (current.lease_owner !== input.owner && new Date(current.lease_expires_at).valueOf() > databaseNow.valueOf()) {
+          fail("FENCE_REJECTED", "Worker execution lease is held by a different owner.");
+        }
+      }
+      const acquired = await session.query<FenceRow>(
+        `insert into runtime_worker_generation_fences (
+           application_id, environment, active_execution_generation, fencing_token, lease_owner, lease_expires_at, promotion_revision
+         ) values ($1,$2,$3,$4,$5,now()+($6::integer*interval '1 millisecond'),$7)
+         on conflict (application_id, environment) do update
+           set lease_owner=excluded.lease_owner, lease_expires_at=excluded.lease_expires_at, updated_at=now()
+         where runtime_worker_generation_fences.active_execution_generation=excluded.active_execution_generation
+           and runtime_worker_generation_fences.fencing_token=excluded.fencing_token
+           and runtime_worker_generation_fences.promotion_revision=excluded.promotion_revision
+           and (runtime_worker_generation_fences.lease_owner=excluded.lease_owner
+             or runtime_worker_generation_fences.lease_expires_at<=now())
+         returning *`,
+        [input.applicationId, input.environment, input.generationId, input.fencingToken, input.owner, input.leaseDurationMs, promotionRevision]
+      );
+      const row = acquired.rows[0];
+      if (!row) fail("FENCE_REJECTED", "Worker execution lease could not be acquired.");
+      return this.fence(input, row);
+    });
+  }
+
   async renewWorkerFence(input: Owner & Readonly<{ generationId: string; fencingToken: number; owner: string; expectedPromotionRevision: number; leaseDurationMs: number }>): Promise<WorkerGenerationFence> {
     assertOwner(input); assertFenceToken(input.fencingToken); assertRevision(input.expectedPromotionRevision); this.assertWorkerLeaseRenewal(input.owner, input.leaseDurationMs);
     return this.transaction(async (session) => {

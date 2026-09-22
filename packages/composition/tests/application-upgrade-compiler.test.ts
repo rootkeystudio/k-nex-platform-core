@@ -69,7 +69,7 @@ function fixture(applicationId = "customer-alpha"): CompileApplicationUpgradeInp
   const targetReleaseManifest = {
     schemaVersion: 1, release: { version: "1.1.0", channel: "current", versioningPolicy: "semver-v1", compatibilityPolicy: "exact-framework-tuple" }, framework: targetFramework,
     packages: [{ package: "@k-nex/runtime", version: "1.1.0", role: "core", integrity: targetIntegrity, peerCompatibility: targetFramework }],
-    factoryLockTemplates: { minimal: { preset: "sales-reference", theme: "minimal", digest: digest("3") }, neobrutalism: { preset: "sales-reference", theme: "neobrutalism", digest: digest("4") } },
+    factoryLockTemplates: { minimal: { preset: "sales-reference", theme: "minimal", digest: digest("3") }, neobrutalism: { preset: "sales-reference", theme: "neobrutalism", digest: digest("4") }, "graphite-paper": { preset: "sales-reference", theme: "graphite-paper", digest: digest("5") } },
     supportWindow: { policy: "single-current-release", supportedReleases: ["1.1.0"], securityFixes: "all-supported-releases" }
   };
   const targetReleaseManifestDigest = applicationUpgradeCompilerDigests.value(targetReleaseManifest);

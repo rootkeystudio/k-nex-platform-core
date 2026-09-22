@@ -89,7 +89,7 @@ import { notFound } from "next/navigation";
 import { SystemOperationsPage } from "@k-nex/ui-pages";
 
 import { bootKnexApplication } from "../../../../boot.js";
-import { currentSystemAdministrationNavigation, kNexRequestContext } from "../../../../k-nex-authority.js";
+import { currentSystemAdministrationNavigation, kNexRequestContext, reportKnexRouteFailure } from "../../../../k-nex-authority.js";
 import { systemOperationReferenceId, systemOperationsAdministration } from "../../../../k-nex-system-operations.js";
 
 export const dynamic = "force-dynamic";
@@ -103,7 +103,7 @@ export default async function SystemOperationsRoute() {
       operations: operations.references.map((reference) => { const id = systemOperationReferenceId(reference); return { id, source: reference.source, href: "/system/operations/" + encodeURIComponent(id), state: reference.receiptId === undefined ? "receipt pending" : "receipt recorded", receipt: reference.receiptId ?? "—" }; }),
       health: operations.health.map((health) => ({ id: health.observationId, source: health.source, state: health.state, revision: String(health.revision), checks: health.checkIds.join(", ") }))
     }} />;
-  } catch { notFound(); }
+  } catch (error) { reportKnexRouteFailure(context, error); notFound(); }
 }
 
 `;
@@ -116,7 +116,7 @@ import { notFound } from "next/navigation";
 import { SystemOperationDetailPage } from "@k-nex/ui-pages";
 
 import { bootKnexApplication } from "../../../../../boot.js";
-import { currentSystemAdministrationNavigation, kNexRequestContext } from "../../../../../k-nex-authority.js";
+import { currentSystemAdministrationNavigation, kNexRequestContext, reportKnexRouteFailure } from "../../../../../k-nex-authority.js";
 import { systemOperationReferenceId, systemOperationRouteId, systemOperationsAdministration } from "../../../../../k-nex-system-operations.js";
 
 export const dynamic = "force-dynamic";
@@ -134,7 +134,7 @@ export default async function SystemOperationDetailRoute({ params }: Readonly<{ 
       operationState: reference.receiptId === undefined ? "receipt pending" : "receipt recorded", receipt: reference.receiptId ?? "—", inventory: operations.inventoryDigest,
       audit: reference.receiptId === undefined ? "No terminal receipt recorded." : "Durable receipt " + reference.receiptId
     }} />;
-  } catch { notFound(); }
+  } catch (error) { reportKnexRouteFailure(context, error); notFound(); }
 }
 
 `;

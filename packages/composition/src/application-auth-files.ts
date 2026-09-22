@@ -1,12 +1,13 @@
 import { supportedFrameworkTuple } from "@k-nex/contracts";
 
+import { themeProfileResolverName, type SalesPresetTheme } from "./application-factory.js";
 import { platformReleaseIdentity, platformReleaseRevision, platformReleaseState } from "./platform-release-revision.js";
 
 export interface ApplicationAuthFilesOptions {
   readonly applicationId: string;
   readonly applicationName: string;
   readonly primaryCurrency?: string;
-  readonly theme: "minimal" | "neobrutalism";
+  readonly theme: SalesPresetTheme;
   /** Verified package release selected by the factory; defaults to the canonical current tuple. */
   readonly themeReleaseVersion?: string;
 }
@@ -382,6 +383,19 @@ export async function currentSalesGeneration(payload: Payload) {
 export function kNexRequestContext(headers: Headers, boundary: string): KnexRequestContext {
   if (!/^[a-z][a-z0-9-]{1,63}$/u.test(boundary)) throw new TypeError("Authority boundary is invalid.");
   return Object.freeze({ headers, correlationId: \`\${boundary}-\${randomUUID()}\` });
+}
+
+/**
+ * A route that cannot answer says so with 404 and nothing else, so a caller
+ * cannot tell a record it may not see from one that is not there. That is the
+ * right answer to send and the wrong one to keep: without a server-side record
+ * a defect looks exactly like a denial, and the correlation ID the caller was
+ * given leads nowhere. This writes the diagnosis where only the deployment can
+ * read it, and changes no response.
+ */
+export function reportKnexRouteFailure(context: KnexRequestContext, error: unknown): void {
+  const detail = error instanceof Error ? (error.stack ?? \`\${error.name}: \${error.message}\`) : String(error);
+  console.error(\`K_NEX_ROUTE_FAILURE \${context.correlationId}\\n\${detail}\`);
 }
 
 /**
@@ -1464,6 +1478,8 @@ async function ensureInitialSystemSettings(payload: Awaited<ReturnType<typeof bo
   return `import { createHash } from "node:crypto";
 
 import { AuthorizationDecisionAuditSchema, canonicalJson, type BootstrapReceipt } from "@k-nex/contracts";
+import { salesSavedViewKanbanDescriptor, type SalesOpportunityStage } from "@k-nex/module-sales/contracts";
+import { salesPipelineStageId } from "@k-nex/module-sales/server";
 import { bootstrapFirstOwner, currentProtectedPlatformRoleBaselineRelease, protectedRoleBootstrapId } from "@k-nex/runtime";
 
 import { bootKnexApplication } from "./boot.js";
@@ -1491,6 +1507,80 @@ function crashAfterCommit(boundary: "protected-owner" | "sales-authority" | "tok
   if (process.env.NODE_ENV === "test" && process.env.K_NEX_BOOTSTRAP_CRASH_AFTER_COMMIT === boundary) process.exit(86);
 }
 ${initialSettingsSource}
+
+/**
+ * CRM work is built on exactly one active pipeline: Opportunities, the Kanban,
+ * lead qualification, and the pipeline reports all refuse to resolve without
+ * one. Nothing in the product creates the first pipeline — the Stage model is
+ * configured, not authored, and there is no create action — so an application
+ * that ships without this seed can never open an Opportunity, and the page that
+ * would configure the pipeline is exactly the page that fails closed.
+ *
+ * The six Stages are the canonical CRM lifecycle. Their identities are opaque
+ * to callers and derived deterministically from the application, environment,
+ * and pipeline, so a Stage can be renamed without any stored reference to it
+ * changing meaning.
+ */
+const initialPipelineStages: readonly Readonly<{ semantic: SalesOpportunityStage; name: string; allowed: readonly SalesOpportunityStage[]; probabilityBasisPoints: number; requiredFieldIds: readonly string[] }>[] = Object.freeze([
+  Object.freeze({ semantic: "qualification", name: "Qualification", allowed: Object.freeze(["discovery", "lost"] as const), probabilityBasisPoints: 1_000, requiredFieldIds: Object.freeze([] as readonly string[]) }),
+  Object.freeze({ semantic: "discovery", name: "Discovery", allowed: Object.freeze(["proposal", "lost"] as const), probabilityBasisPoints: 2_500, requiredFieldIds: Object.freeze([] as readonly string[]) }),
+  Object.freeze({ semantic: "proposal", name: "Proposal", allowed: Object.freeze(["negotiation", "lost"] as const), probabilityBasisPoints: 5_000, requiredFieldIds: Object.freeze([] as readonly string[]) }),
+  Object.freeze({ semantic: "negotiation", name: "Negotiation", allowed: Object.freeze(["won", "lost"] as const), probabilityBasisPoints: 7_500, requiredFieldIds: Object.freeze([] as readonly string[]) }),
+  Object.freeze({ semantic: "won", name: "Won", allowed: Object.freeze([] as readonly SalesOpportunityStage[]), probabilityBasisPoints: 10_000, requiredFieldIds: Object.freeze([] as readonly string[]) }),
+  Object.freeze({ semantic: "lost", name: "Lost", allowed: Object.freeze([] as readonly SalesOpportunityStage[]), probabilityBasisPoints: 0, requiredFieldIds: Object.freeze(["lossReason"]) })
+]);
+
+async function ensureInitialSalesPipeline(payload: Awaited<ReturnType<typeof bootKnexApplication>>, userId: string) {
+  const pool = payload.db.pool as { connect(): Promise<{ query(text: string, values?: readonly unknown[]): Promise<{ rows: readonly Record<string, unknown>[]; rowCount: number | null }>; release(): void }> };
+  const client = await pool.connect();
+  try {
+    await client.query("begin");
+    await client.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [canonicalJson([kNexIdentity.applicationId, kNexIdentity.environment, "sales-initial-pipeline"])]);
+    const existing = await client.query("select id from sales_pipelines where application_id=$1 and environment=$2 limit 1", [kNexIdentity.applicationId, kNexIdentity.environment]);
+    if (existing.rows.length > 0) { await client.query("commit"); return; }
+    const created = await client.query("insert into sales_pipelines (application_id,environment,owner_id,created_by,updated_by,name,ordered_stage_ids,is_active) values ($1,$2,$3,$3,$3,'Sales pipeline','[]'::jsonb,true) returning id", [kNexIdentity.applicationId, kNexIdentity.environment, userId]);
+    const pipelineId = created.rows[0]?.id;
+    if (created.rowCount !== 1 || pipelineId === undefined || pipelineId === null) throw new Error("Initial Sales pipeline could not be created.");
+    // Stage identities are opaque and derived, and the snapshot the product
+    // reads rejects any that it did not derive itself. Seeding with a private
+    // derivation produced a pipeline that existed and could never be read.
+    const stageId = (semantic: SalesOpportunityStage) => salesPipelineStageId(kNexIdentity.applicationId, kNexIdentity.environment, Number(pipelineId), semantic);
+    for (const [position, stage] of initialPipelineStages.entries()) {
+      await client.query(
+        "insert into sales_pipeline_stages (application_id,environment,created_by,updated_by,pipeline_id,stage_id,name,semantic,position,probability_basis_points,allowed_transition_stage_ids,required_field_ids) values ($1,$2,$3,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb)",
+        [kNexIdentity.applicationId, kNexIdentity.environment, userId, pipelineId, stageId(stage.semantic), stage.name, stage.semantic, position, stage.probabilityBasisPoints,
+          JSON.stringify(stage.allowed.map((semantic) => stageId(semantic))), JSON.stringify([...stage.requiredFieldIds])]
+      );
+    }
+    const ordered = await client.query("update sales_pipelines set ordered_stage_ids=$2::jsonb where id=$1 returning id", [pipelineId, JSON.stringify(initialPipelineStages.map(({ semantic }) => stageId(semantic)))]);
+    if (ordered.rowCount !== 1) throw new Error("Initial Sales pipeline Stage order could not be recorded.");
+    // The Kanban reads a saved view of its own kind, and a fresh application
+    // had none, so the board opened onto nothing. The first pipeline ships with
+    // the board that shows it, grouped by Stage. It belongs to the owner: a
+    // team-visible view is readable only through an authorized team, and the
+    // bootstrap owner holds application scope rather than a team membership.
+    await client.query(
+      "insert into sales_saved_views (application_id,environment,owner_id,created_by,updated_by,name,visibility,view_kind,target_object_id,definition) values ($1,$2,$3,$3,$3,'Opportunity pipeline','personal','kanban','sales.object.opportunity',$4::jsonb)",
+      [kNexIdentity.applicationId, kNexIdentity.environment, userId, JSON.stringify({
+        kind: "kanban",
+        targetObjectId: "sales.object.opportunity",
+        source: {
+          id: salesSavedViewKanbanDescriptor.id,
+          version: salesSavedViewKanbanDescriptor.version,
+          sourceSchema: { id: salesSavedViewKanbanDescriptor.id + ".output", version: 1 },
+          structuralCompatibilityHash: salesSavedViewKanbanDescriptor.structuralCompatibilityHash
+        },
+        fields: ["row-kind", "name", "stage-id", "stage-metadata", "revision"],
+        filters: [], sorts: [], grouping: "stage-id",
+        presentation: { density: "comfortable" }, pageSize: 25
+      })]
+    );
+    await client.query("commit");
+  } catch (error) {
+    await client.query("rollback").catch(() => undefined);
+    throw error;
+  } finally { client.release(); }
+}
 
 async function ensureInitialSalesOwner(payload: Awaited<ReturnType<typeof bootKnexApplication>>, userId: string) {
   const store = kNexAuthority(payload).store;
@@ -1613,6 +1703,7 @@ try {
     : (assertResumableOwnerReceipt(priorReceipt, String(user.id)), priorReceipt);
   crashAfterCommit("protected-owner");
   ${primaryCurrency === undefined ? "" : "await ensureInitialSystemSettings(payload);"}
+  await ensureInitialSalesPipeline(payload, String(user.id));
   await ensureInitialSalesOwner(payload, String(user.id));
   crashAfterCommit("sales-authority");
   await bootstrapApplicationTheme(payload);
@@ -1749,13 +1840,13 @@ export default async function WorkspaceHome() {
   const authentication = await payload.auth({ headers, canSetHeaders: false });
   if (!authentication.user) redirect("/login");
   if (!await authorizeRequest(payload, kNexRequestContext(headers, "workspace-home"), "system.workspace-pages.read", "system.workspace-pages")) redirect("/forbidden");
-  return <section className="workspace-home"><p className="eyebrow">K-Nex workspace</p><h1>${jsxStringExpression(applicationName)}</h1><p>Authenticated workspace ready.</p><LogoutButton /></section>;
+  return <section className="workspace-landing" data-k-nex-component="page-shell" data-slot="root"><header data-k-nex-component="page-header" data-slot="root"><div data-slot="title">${jsxStringExpression(applicationName)}</div><div data-slot="description">Pick a section from the navigation to start working.</div><div data-slot="actions"><LogoutButton /></div></header></section>;
 }
 `;
 }
 
 function themeRuntimeSource(theme: ApplicationAuthFilesOptions["theme"], themeReleaseVersion: string): string {
-  const resolver = theme === "minimal" ? "resolveMinimalThemeProfile" : "resolveNeobrutalismThemeProfile";
+  const resolver = themeProfileResolverName(theme);
   return `import { createHash } from "node:crypto";
 
 import { ThemeProfilePublicationEventSchema, ThemeProfileSchema, WorkspaceThemeProfileRefSchema, canonicalJson, type ThemeProfile } from "@k-nex/contracts";
@@ -1849,7 +1940,7 @@ export async function listPageThemeOverrides(payload: Payload) {
 `;
 }
 
-function loginPageSource(): string {
+function loginPageSource(applicationName: string): string {
   return `import { headers as getHeaders } from "next/headers";
 import { redirect } from "next/navigation";
 
@@ -1861,7 +1952,7 @@ export const dynamic = "force-dynamic";
 export default async function LoginPage() {
   const payload = await bootKnexApplication("workspace-web");
   if ((await payload.auth({ headers: await getHeaders(), canSetHeaders: false })).user) redirect("/");
-  return <main className="workspace-home"><h1>Sign in</h1><LoginForm /></main>;
+  return <main className="workspace-home"><p className="eyebrow">${jsxStringExpression(applicationName)}</p><h1>Sign in</h1><p>Use the account your administrator created for this workspace.</p><LoginForm /></main>;
 }
 `;
 }
@@ -3072,9 +3163,10 @@ export async function GET() {
 }
 
 function readinessSource(theme: ApplicationAuthFilesOptions["theme"], platformRelease: string): string {
-  const themeResolver = theme === "minimal" ? "resolveMinimalThemeProfile" : "resolveNeobrutalismThemeProfile";
+  const themeResolver = themeProfileResolverName(theme);
   return `import { createHash } from "node:crypto";
 import { lstatSync, readFileSync, readdirSync } from "node:fs";
+import { connect } from "node:net";
 import { join, relative, resolve } from "node:path";
 
 import { createAuthorizedPuckBuilderProfile } from "@k-nex/builder-puck";
@@ -3251,6 +3343,27 @@ export function assertAdministrationOperatorConfiguration(): void {
     });
   } catch { fail("Administration operator configuration is invalid."); }
 }
+
+/**
+ * Configuration that parses is not an operator that answers. Reporting the
+ * application ready while nothing listens on the configured endpoint hides the
+ * one failure the operator configuration exists to surface, so the doctor
+ * proves the endpoint accepts a connection before it says so.
+ */
+export async function assertAdministrationOperatorListening(): Promise<void> {
+  assertAdministrationOperatorConfiguration();
+  const host = requiredAdministrationOperatorConfiguration("K_NEX_ADMINISTRATION_OPERATOR_HOST");
+  const port = Number(requiredAdministrationOperatorConfiguration("K_NEX_ADMINISTRATION_OPERATOR_PORT"));
+  const reachable = await new Promise<boolean>((settle) => {
+    const socket = connect({ host, port });
+    const done = (value: boolean) => { socket.removeAllListeners(); socket.destroy(); settle(value); };
+    socket.setTimeout(5_000);
+    socket.once("connect", () => done(true));
+    socket.once("timeout", () => done(false));
+    socket.once("error", () => done(false));
+  });
+  if (!reachable) fail("Administration operator is not accepting connections at " + host + ":" + String(port) + ".");
+}
 function sha256(value: string | Buffer): string { return "sha256:" + createHash("sha256").update(value).digest("hex"); }
 function archiveName(packageName: string, version: string): string { return packageName.slice(1).replace("/", "-") + "-" + version + ".tgz"; }
 
@@ -3334,7 +3447,11 @@ function reconcileSource(root: string) {
   }
   const lockPath = join(root, "pnpm-lock.yaml");
   regular(lockPath, "Package lock");
-  if (sha256(readFileSync(lockPath)) !== release.factoryLockTemplates["${theme}"].digest) fail("Package lock digest mismatch.");
+  // A release that predates this theme carries no lock for it, and an
+  // application cannot prove its own lock against a template that is not there.
+  const factoryLock = release.factoryLockTemplates["${theme}"];
+  if (factoryLock === undefined) fail("Package release manifest declares no ${theme} factory lock template.");
+  if (sha256(readFileSync(lockPath)) !== factoryLock.digest) fail("Package lock digest mismatch.");
   if (!same(routeSources(root), expectedRouteSources)) fail("Generated route source inventory mismatch.");
 
   const salesManifest = PluginManifestSchema.parse(manifestJson);
@@ -3482,11 +3599,16 @@ export async function reconcileKnexReadiness(payload: Payload) {
 function doctorSource(): string {
   return `import { bootKnexApplication } from "./boot.js";
 import { shutdownKnexApplication } from "./k-nex-authority.js";
-import { kNexApplicationReadyMarker, reconcileKnexReadiness } from "./k-nex-readiness.js";
+import { assertAdministrationOperatorListening, kNexApplicationReadyMarker, reconcileKnexReadiness } from "./k-nex-readiness.js";
 
 const payload = await bootKnexApplication("doctor");
 try {
   await reconcileKnexReadiness(payload);
+  // Readiness proves the database, the release, and the operator configuration.
+  // The doctor additionally proves the operator answers: an application whose
+  // operator is unreachable cannot run a single extension operation, and a
+  // report of readiness that never checked is the report that hides it.
+  await assertAdministrationOperatorListening();
   console.log(kNexApplicationReadyMarker);
   console.log("K_NEX_DOCTOR_PASS");
 } finally { await shutdownKnexApplication(payload); }
@@ -3853,6 +3975,7 @@ import { processSalesDataMovement } from "./k-nex-sales-data-movement.js";
 import { createGeneratedBoundedReferenceProviderTransport, createGeneratedEnvironmentProviderSecretResolver, processGeneratedSalesCommunications, processGeneratedSalesReminders } from "./k-nex-sales-communications.js";
 import { processGeneratedSalesWorkflows } from "./k-nex-sales-workflows.js";
 import { processGeneratedSalesReports } from "./k-nex-sales-reports.js";
+import { ensureKnexWorkerFence, kNexWorkerLeaseRenewalIntervalMs, renewKnexWorkerFence } from "./k-nex-static-generation.js";
 
 const payload = await bootKnexApplication("authorization-worker");
 const channel = "k_nex_runtime_invalidation";
@@ -3980,6 +4103,19 @@ const dispatchReports = async () => {
   finally { reportsDispatching = false; }
 };
 const reportsTimer = setInterval(() => { void dispatchReports(); }, 100);
+// Every fenced effect this worker owns — reminders, notifications, exports,
+// workflows, reports, provider delivery — is skipped while no live lease names
+// this generation. Taking the lease here is what makes the worker do work at
+// all; without it the process starts, reports itself ready, and processes
+// nothing for as long as it runs.
+const workerFence = await ensureKnexWorkerFence(payload);
+// A lease this worker does not own is renewed by whoever does.
+const fenceTimer = workerFence.renewable
+  ? setInterval(() => {
+      void renewKnexWorkerFence(payload, workerFence.promotionRevision)
+        .catch(workerFailure("K_NEX_WORKER_FENCE_RENEWAL_ERROR"));
+    }, kNexWorkerLeaseRenewalIntervalMs)
+  : undefined;
 authorizationWorker.start();
 workspacePageWorker.start();
 workspaceNavigationWorker.start();
@@ -4009,6 +4145,7 @@ dataMovementStopping = true;
     workflowsStopping = true;
     reportsStopping = true;
 realtimeAbort.abort();
+if (fenceTimer !== undefined) clearInterval(fenceTimer);
 clearInterval(realtimeTimer);
 clearInterval(dataMovementTimer);
     clearInterval(communicationsTimer);
@@ -4037,7 +4174,7 @@ export function applicationAuthFiles(options: ApplicationAuthFilesOptions): Read
   const themeReleaseVersion = options.themeReleaseVersion ?? supportedFrameworkTuple.core;
   return {
     "src/app/(auth)/forbidden/page.tsx": `import { LogoutButton } from "../../components/logout-button.js";\n\nexport default function ForbiddenPage() { return <main className="workspace-home"><h1>Access denied</h1><LogoutButton /></main>; }\n`,
-    "src/app/(auth)/login/page.tsx": loginPageSource(),
+    "src/app/(auth)/login/page.tsx": loginPageSource(options.applicationName),
     "src/app/(workspace)/layout.tsx": workspaceLayoutSource(options.applicationName),
     "src/app/(workspace)/page.tsx": workspacePageSource(options.applicationName),
     "src/app/(workspace)/sales/page.tsx": salesRoutePageSource("sales.route.overview", "sales"),

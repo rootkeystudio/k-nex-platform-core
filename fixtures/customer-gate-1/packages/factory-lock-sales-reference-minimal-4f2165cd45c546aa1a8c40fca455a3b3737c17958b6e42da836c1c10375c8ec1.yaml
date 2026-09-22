@@ -13,6 +13,7 @@ overrides:
   '@k-nex/payload-adapter': file:.k-nex/packages/k-nex-payload-adapter-1.1.0.tgz
   '@k-nex/provider-realtime-socketio': file:.k-nex/packages/k-nex-provider-realtime-socketio-1.1.0.tgz
   '@k-nex/runtime': file:.k-nex/packages/k-nex-runtime-1.1.0.tgz
+  '@k-nex/theme-graphite-paper': file:.k-nex/packages/k-nex-theme-graphite-paper-1.1.0.tgz
   '@k-nex/theme-minimal': file:.k-nex/packages/k-nex-theme-minimal-1.1.0.tgz
   '@k-nex/theme-neobrutalism': file:.k-nex/packages/k-nex-theme-neobrutalism-1.1.0.tgz
   '@k-nex/ui-builder-blocks': file:.k-nex/packages/k-nex-ui-builder-blocks-1.1.0.tgz
@@ -958,17 +959,17 @@ packages:
     resolution: {integrity: sha512-4JQNk+3mVzK3xh2rqd6RB4J46qUR19azEHBneZyTZM+c456qOrbbM/5xcR8huNCCcbVt7+UmizG6GuUvPvKUYg==}
 
   '@k-nex/builder-puck@file:.k-nex/packages/k-nex-builder-puck-1.1.0.tgz':
-    resolution: {integrity: sha512-2wf05M7dyLGJFzEb086CmYMznec0wqqVSxf0RXowK4rqzMynYOmrVyl1fybFcFEC9IAfnJz3AW+CvGODu0lhoQ==, tarball: file:.k-nex/packages/k-nex-builder-puck-1.1.0.tgz}
+    resolution: {integrity: sha512-/1SwU/YxRdTgQmVXkdevmfOLiFJ9yVCF+R7tukqbdkuscCl5eupwZyE+3LyIA5CsVvSDbvqRfXU8q/N+2lgfAQ==, tarball: file:.k-nex/packages/k-nex-builder-puck-1.1.0.tgz}
     version: 1.1.0
     peerDependencies:
       react: ^18.0.0 || ^19.0.0
 
   '@k-nex/composition@file:.k-nex/packages/k-nex-composition-1.1.0.tgz':
-    resolution: {integrity: sha512-YLLDkLQIg0Q9EXhp2DVZ0wyLoKzYmKvrcNWk6aCSkHhYh/I/NJI/P752GiPA51N5nRdycFdN2YqMS57Ll4IoyA==, tarball: file:.k-nex/packages/k-nex-composition-1.1.0.tgz}
+    resolution: {integrity: sha512-aAD6wVmWXDbZgxkDVH8EFN+J8NKx1gacJGDET+e4HMLtHF/kzvlh9ZLHFwjjbkWK14q3wkexrw9d9c7B/TdtBA==, tarball: file:.k-nex/packages/k-nex-composition-1.1.0.tgz}
     version: 1.1.0
 
   '@k-nex/contracts@file:.k-nex/packages/k-nex-contracts-1.1.0.tgz':
-    resolution: {integrity: sha512-tRQOeO9YgJnhHNnkF7i5qBu8YNShfCS6CxPdto0r7Diraxl2MP7Vo2mN1ATmlMFVniXElfZs5WsOab4W5/eUPw==, tarball: file:.k-nex/packages/k-nex-contracts-1.1.0.tgz}
+    resolution: {integrity: sha512-PWwJB6htvCmAD9kPSjN7WUZD5YTnxbI9DJX/36r1OP9AGy7V4p1v1OvDqzHLTjgL1z8nK699+Uu+9SOPPqLNIQ==, tarball: file:.k-nex/packages/k-nex-contracts-1.1.0.tgz}
     version: 1.1.0
 
   '@k-nex/extension-bundler@file:.k-nex/packages/k-nex-extension-bundler-1.1.0.tgz':
@@ -976,7 +977,7 @@ packages:
     version: 1.1.0
 
   '@k-nex/module-sales@file:.k-nex/packages/k-nex-module-sales-1.1.0.tgz':
-    resolution: {integrity: sha512-nk1Als+L4KGyLKh4zFEFEZXk/zS7U0WLPiv8vzxoPuBLiYaGS5n9wJXNYhaB9MDHE4+1QobfJf9pqQUfSrtpxg==, tarball: file:.k-nex/packages/k-nex-module-sales-1.1.0.tgz}
+    resolution: {integrity: sha512-UiB4PNwWWlE8JMcyi5jHp2nwv5lRzznGPYrb+kcO2gmu1vfkDPIHSWC45UxctniTD7MYdY/9M6ZOD+FRVYreQA==, tarball: file:.k-nex/packages/k-nex-module-sales-1.1.0.tgz}
     version: 1.1.0
     peerDependencies:
       '@k-nex/contracts': 1.1.0
@@ -1007,7 +1008,7 @@ packages:
         optional: true
 
   '@k-nex/payload-adapter@file:.k-nex/packages/k-nex-payload-adapter-1.1.0.tgz':
-    resolution: {integrity: sha512-3MwdtONU9gwW5Xf6Hlq5I0gV4d8bgq/AQ5q6V1ykrmb/HXJLO+IyNV4ub2izjri8F0zPpjUH3oVowFJyfpX0pA==, tarball: file:.k-nex/packages/k-nex-payload-adapter-1.1.0.tgz}
+    resolution: {integrity: sha512-IeE4JMn8J4FQkC9QreBpadW2S7x9b4XBwsw9npiH1//Ghu00KCr5WjgntXJ060at4OlUI4pDarAu4cIl87221A==, tarball: file:.k-nex/packages/k-nex-payload-adapter-1.1.0.tgz}
     version: 1.1.0
 
   '@k-nex/provider-realtime-socketio@file:.k-nex/packages/k-nex-provider-realtime-socketio-1.1.0.tgz':
@@ -1022,7 +1023,7 @@ packages:
     version: 1.1.0
 
   '@k-nex/theme-minimal@file:.k-nex/packages/k-nex-theme-minimal-1.1.0.tgz':
-    resolution: {integrity: sha512-QWqNVvrejWWBGkh7r11XhgBCaa/ILkFZACCDsEgLjfg61KmkbZPrmd+wE9Jfr/LRiKYTUPplRlxyHc9oigY1+g==, tarball: file:.k-nex/packages/k-nex-theme-minimal-1.1.0.tgz}
+    resolution: {integrity: sha512-T9J2MP/XxU2cd08KwKr13hAPU2LMI2ISfOQPdDTLYx65GjOesxxsiXVKWEq9WdFg7PWLRxHJnKGRYiyPDN8ejw==, tarball: file:.k-nex/packages/k-nex-theme-minimal-1.1.0.tgz}
     version: 1.1.0
     peerDependencies:
       react: ^18.0.0 || ^19.0.0
@@ -1035,20 +1036,20 @@ packages:
       react: ^18.0.0 || ^19.0.0
 
   '@k-nex/ui-components@file:.k-nex/packages/k-nex-ui-components-1.1.0.tgz':
-    resolution: {integrity: sha512-xLYW1M2WKiTUo0hC/HV/oYOIDh8V5hx+WRdT8cC1eIHNUWrzwsCGLsvAWBw+btRFGDxbBJLGoES5BGZNSGBHOQ==, tarball: file:.k-nex/packages/k-nex-ui-components-1.1.0.tgz}
+    resolution: {integrity: sha512-BqpE3gXJAhRj5P1A213RJE/xRxASFfPzJA9TgFd3vQJg2j/u/K4G+CSXKaD1HDLCmJxTRfj6aCU4KJmr4HXM0g==, tarball: file:.k-nex/packages/k-nex-ui-components-1.1.0.tgz}
     version: 1.1.0
     peerDependencies:
       react: ^18.0.0 || ^19.0.0
       react-dom: ^18.0.0 || ^19.0.0
 
   '@k-nex/ui-data@file:.k-nex/packages/k-nex-ui-data-1.1.0.tgz':
-    resolution: {integrity: sha512-Im6YmxHDJwH8Q2cycXh5qfayno8wVoCvHdg9R97+aS6J07sIJ1RziFPoVmf0brexaWCGVXkpQ5eeuJCJZ2GLwQ==, tarball: file:.k-nex/packages/k-nex-ui-data-1.1.0.tgz}
+    resolution: {integrity: sha512-qo6sZvyOyD13qsvvRWHtlqYWYs7YQzEHzfsb9/NXzkzxK15Q1+1Xv5R2dbSkHKBMSZ69vmNJVm/Kf0UPKh5H1w==, tarball: file:.k-nex/packages/k-nex-ui-data-1.1.0.tgz}
     version: 1.1.0
     peerDependencies:
       react: ^18.0.0 || ^19.0.0
 
   '@k-nex/ui-design-system-contracts@file:.k-nex/packages/k-nex-ui-design-system-contracts-1.1.0.tgz':
-    resolution: {integrity: sha512-4ykpes6qV0mcZy8G/Ca3wsMhZ52mCYf2W6Adex2NsVP5H7o7yDjgTEkfL9/g1cYJBsNph2sS6szCuC7C1mQNDA==, tarball: file:.k-nex/packages/k-nex-ui-design-system-contracts-1.1.0.tgz}
+    resolution: {integrity: sha512-+EYH+AP2pFY1Ot0slQgtF0jnIM2GRv7yTIvZlFwCxg2c0TSLO//z9gooUnWbNx7g/1iJXCbwZ2bu0/dxXOc9zQ==, tarball: file:.k-nex/packages/k-nex-ui-design-system-contracts-1.1.0.tgz}
     version: 1.1.0
     peerDependencies:
       react: ^18.0.0 || ^19.0.0
@@ -2863,8 +2864,8 @@ packages:
   prosemirror-keymap@1.2.3:
     resolution: {integrity: sha512-4HucRlpiLd1IPQQXNqeo81BGtkY8Ai5smHhKW9jjPKRc2wQIxksg7Hl1tTI2IfT2B/LgX6bfYvXxEpJl7aKYKw==}
 
-  prosemirror-model@1.25.11:
-    resolution: {integrity: sha512-QWg9RhnpLlogAmp3p96uEFrE5txQpFynd4vhBAELkwgOCWQs/X0yCzB3/hrHqiPwf91RG5KyWq6553zs9JqIOQ==}
+  prosemirror-model@1.25.12:
+    resolution: {integrity: sha512-Ue2gTmXMa7EhpLNhC7J+h4+ykD8ha12K6rrZFFKKJHBForfIStw5gJ6Zrf1mqqAa9NmpmEB4wp9bKmA4eUVjWg==}
 
   prosemirror-schema-list@1.5.1:
     resolution: {integrity: sha512-927lFx/uwyQaGwJxLWCZRkjXG0p48KpMj6ueoYiu4JX05GGuGcgzAy62dfiV8eFZftgyBUvLx76RsMe20fJl+Q==}
@@ -2878,8 +2879,8 @@ packages:
   prosemirror-transform@1.12.1:
     resolution: {integrity: sha512-t4F5615FycnCqsX7ShTUs8+jfnwcf46kuFRvSl/3qFx2QTZ4DjgowesLHQXcFP7G//TjesqZG3WtgL7vdyVJyA==}
 
-  prosemirror-view@1.42.4:
-    resolution: {integrity: sha512-H/LErnE8Vms1GYkvhfj6G3K9rc2p+o5EHGmTwvPOl0f21wPPxlMVRB8ICOseH+COb2oPKFEoufbgY6yet/dR4w==}
+  prosemirror-view@1.42.5:
+    resolution: {integrity: sha512-7qcRaCWM48NC4utNQnx5Obvvs48/jMHXXvOXHH6WlBojmiK15eyxoHYlv5aJARHJHiFccSuWZ7ULW2SPrFAS/g==}
 
   proxy-addr@2.0.8:
     resolution: {integrity: sha512-5nnx0yGyVUcY6t9RnWcARWtwT9F1D8O9rt08htPvnd49W1IgZtmLkhu9WfMzQj1cFxjHIO6connUNVW5k7AVyQ==}
@@ -5111,12 +5112,12 @@ snapshots:
       prosemirror-history: 1.5.0
       prosemirror-inputrules: 1.5.1
       prosemirror-keymap: 1.2.3
-      prosemirror-model: 1.25.11
+      prosemirror-model: 1.25.12
       prosemirror-schema-list: 1.5.1
       prosemirror-state: 1.4.4
       prosemirror-tables: 1.8.5
       prosemirror-transform: 1.12.1
-      prosemirror-view: 1.42.4
+      prosemirror-view: 1.42.5
 
   '@tiptap/react@3.31.3(@floating-ui/dom@1.8.0)(@tiptap/core@3.31.3(@tiptap/pm@3.31.3))(@tiptap/pm@3.31.3)(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
     dependencies:
@@ -6160,7 +6161,7 @@ snapshots:
 
   prosemirror-commands@1.7.2:
     dependencies:
-      prosemirror-model: 1.25.11
+      prosemirror-model: 1.25.12
       prosemirror-state: 1.4.4
       prosemirror-transform: 1.12.1
 
@@ -6168,20 +6169,20 @@ snapshots:
     dependencies:
       prosemirror-state: 1.4.4
       prosemirror-transform: 1.12.1
-      prosemirror-view: 1.42.4
+      prosemirror-view: 1.42.5
 
   prosemirror-gapcursor@1.4.1:
     dependencies:
       prosemirror-keymap: 1.2.3
-      prosemirror-model: 1.25.11
+      prosemirror-model: 1.25.12
       prosemirror-state: 1.4.4
-      prosemirror-view: 1.42.4
+      prosemirror-view: 1.42.5
 
   prosemirror-history@1.5.0:
     dependencies:
       prosemirror-state: 1.4.4
       prosemirror-transform: 1.12.1
-      prosemirror-view: 1.42.4
+      prosemirror-view: 1.42.5
       rope-sequence: 1.3.4
 
   prosemirror-inputrules@1.5.1:
@@ -6194,37 +6195,37 @@ snapshots:
       prosemirror-state: 1.4.4
       w3c-keyname: 2.2.8
 
-  prosemirror-model@1.25.11:
+  prosemirror-model@1.25.12:
     dependencies:
       orderedmap: 2.1.1
 
   prosemirror-schema-list@1.5.1:
     dependencies:
-      prosemirror-model: 1.25.11
+      prosemirror-model: 1.25.12
       prosemirror-state: 1.4.4
       prosemirror-transform: 1.12.1
 
   prosemirror-state@1.4.4:
     dependencies:
-      prosemirror-model: 1.25.11
+      prosemirror-model: 1.25.12
       prosemirror-transform: 1.12.1
-      prosemirror-view: 1.42.4
+      prosemirror-view: 1.42.5
 
   prosemirror-tables@1.8.5:
     dependencies:
       prosemirror-keymap: 1.2.3
-      prosemirror-model: 1.25.11
+      prosemirror-model: 1.25.12
       prosemirror-state: 1.4.4
       prosemirror-transform: 1.12.1
-      prosemirror-view: 1.42.4
+      prosemirror-view: 1.42.5
 
   prosemirror-transform@1.12.1:
     dependencies:
-      prosemirror-model: 1.25.11
+      prosemirror-model: 1.25.12
 
-  prosemirror-view@1.42.4:
+  prosemirror-view@1.42.5:
     dependencies:
-      prosemirror-model: 1.25.11
+      prosemirror-model: 1.25.12
       prosemirror-state: 1.4.4
       prosemirror-transform: 1.12.1
 

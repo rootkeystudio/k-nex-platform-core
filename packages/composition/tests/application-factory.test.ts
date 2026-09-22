@@ -195,7 +195,7 @@ describe("create-knex-app", () => {
       ]
     });
 
-    expect(salesReferenceCompilerBoundary.platformPaths).toHaveLength(108);
+    expect(salesReferenceCompilerBoundary.platformPaths).toHaveLength(110);
     const options = { applicationId: "sales-boundary", applicationName: "Sales Boundary", theme: "minimal", database: "external", primaryCurrency: "USD" } as const;
     expect(() => planCreateKnexApplication(options)).not.toThrow();
     const expectRejectedPlan = (mutation: "add-sales-output" | "remove-sales-output" | "second-domain", error: RegExp): void => {
@@ -224,7 +224,9 @@ describe("create-knex-app", () => {
     for (const applicationName of ["Workspace {alpha}", 'Workspace "alpha"', "Workspace\nalpha", "Workspace\u0000\u001f\talpha"]) {
       const files = applicationAuthFiles({ applicationId: "customer-alpha", applicationName, theme: "minimal" });
       const expression = `{${JSON.stringify(applicationName)}}`;
-      expect(files["src/app/(workspace)/page.tsx"]).toContain(`<h1>${expression}</h1>`);
+      // The authenticated landing page uses the page header every other
+      // workspace page uses, so the name is the header's title slot.
+      expect(files["src/app/(workspace)/page.tsx"]).toContain(`<div data-slot="title">${expression}</div>`);
       expect(files["src/app/(workspace)/layout.tsx"]).toContain(`applicationLabel=${expression}`);
     }
   });

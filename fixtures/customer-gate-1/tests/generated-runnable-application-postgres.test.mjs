@@ -1024,6 +1024,11 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     const account = await pool.query(`insert into sales_accounts
       (application_id, environment, owner_id, created_by, updated_by, audit, name)
       values ($1,$2,$3,$3,$3,$4::jsonb,'Generated app account') returning id`, [applicationId, environmentName, ownerUserId, audit]);
+    // Bootstrap seeds the default pipeline, and exactly one may be active.
+    // This proof supplies its own, so it replaces the default first.
+    await pool.query("delete from sales_pipeline_stages where application_id=$1 and environment=$2", [applicationId, environmentName]);
+    await pool.query("delete from sales_pipelines where application_id=$1 and environment=$2", [applicationId, environmentName]);
+    await pool.query("delete from sales_saved_views where application_id=$1 and environment=$2", [applicationId, environmentName]);
     const pipeline = await pool.query(`insert into sales_pipelines
       (application_id, environment, created_by, updated_by, audit, name, ordered_stage_ids, is_active)
       values ($1,$2,$3,$3,$4::jsonb,'Generated app pipeline',$5::jsonb,true) returning id`,

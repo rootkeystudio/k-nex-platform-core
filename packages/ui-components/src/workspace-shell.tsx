@@ -21,19 +21,13 @@ export interface WorkspaceShellProps {
 
 const railIcons = Object.freeze({ apps: "▦", dashboard: "▤", folder: "▱", sales: "▥", system: "⚙" });
 
-const workspaceShellCss = `
-[data-k-nex-component="workspace-shell"]{background:var(--k-nex-admin-color-background);color:var(--k-nex-admin-color-foreground)}
-[data-k-nex-component="workspace-shell"] .workspace-sidebar{background:var(--k-nex-admin-color-background);border-inline-end:1px solid var(--k-nex-admin-color-border);padding:calc(var(--k-nex-admin-spacing-content)*1px)}
-[data-k-nex-component="workspace-shell"] .workspace-header{background:var(--k-nex-admin-color-background);border-block-end:1px solid var(--k-nex-admin-color-border);gap:calc(var(--k-nex-admin-spacing-content)*1px);padding:calc(var(--k-nex-admin-spacing-content)*.75px) calc(var(--k-nex-admin-spacing-content)*1px)}
-[data-k-nex-component="workspace-shell"] .workspace-brand{gap:calc(var(--k-nex-admin-spacing-content)*.25px);margin-block-end:calc(var(--k-nex-admin-spacing-content)*1px)}
-[data-k-nex-component="workspace-shell"] .workspace-sidebar > button,[data-k-nex-component="workspace-shell"] .workspace-mobile-trigger,[data-k-nex-component="workspace-shell"] .workspace-drawer button{background:var(--k-nex-admin-color-background);border:1px solid var(--k-nex-admin-color-border);border-radius:calc(var(--k-nex-admin-radius-control)*1px);color:var(--k-nex-admin-color-foreground);padding:calc(var(--k-nex-admin-spacing-content)*.5px)}
-[data-k-nex-component="workspace-shell"] .workspace-environment{border-color:var(--k-nex-admin-color-border);border-radius:calc(var(--k-nex-admin-radius-control)*1px);padding:calc(var(--k-nex-admin-spacing-content)*.2px) calc(var(--k-nex-admin-spacing-content)*.6px)}
-[data-k-nex-component="workspace-shell"] .workspace-desktop-navigation-rail .workspace-rail-item[data-active]{background:var(--k-nex-admin-color-accent);color:var(--k-nex-admin-color-foreground)}
-[data-k-nex-component="workspace-shell"] .workspace-skip-link:focus,[data-k-nex-component="workspace-shell"] :is(a,button):focus-visible{outline:3px solid var(--k-nex-admin-color-accent);outline-offset:3px}
-[data-k-nex-component="workspace-shell"] .workspace-skip-link:focus,[data-k-nex-component="workspace-shell"] .workspace-drawer{background:var(--k-nex-admin-color-background);color:var(--k-nex-admin-color-foreground);padding:calc(var(--k-nex-admin-spacing-content)*1px)}
-[data-k-nex-component="workspace-shell"] .workspace-drawer-overlay{background:color-mix(in srgb,var(--k-nex-admin-color-foreground) 45%,transparent)}
-@media (prefers-reduced-motion:no-preference){[data-k-nex-component="workspace-shell"]{transition:grid-template-columns calc(var(--k-nex-admin-motion-duration)*1ms) ease}}
-`;
+/**
+ * The shell no longer carries a stylesheet. It used to paint its own surfaces
+ * from raw tokens, which both duplicated and outranked the installed theme:
+ * the theme could change a color and never the layout it was painting over.
+ * Everything this block did is now part of the layout every theme ships.
+ */
+
 
 function railIcon(icon?: keyof typeof railIcons): ReactElement {
   return <Icon>{railIcons[icon ?? "apps"]}</Icon>;
@@ -71,9 +65,13 @@ export function WorkspaceShell({ applicationLabel, environment, currentHref, nav
     if (route === undefined) return "Workspace";
     return navigation.tree.nodes.find(({ target }) => target !== undefined && JSON.stringify(target) === JSON.stringify(route.target))?.label ?? "Workspace";
   }, [currentHref, navigation]);
-  return <div className="workspace-shell" data-k-nex-component="workspace-shell" data-k-nex-theme-profile={themePresentation.profileRevisionId} data-k-nex-theme-mode={themePresentation.mode} data-sidebar={collapsed ? "collapsed" : "expanded"}>
+  // The theme root wraps the shell rather than being it. A theme stylesheet may
+  // only reach its own descendants, so a root that was also the shell could be
+  // given colors and never a layout: every rule for the shell itself matched
+  // nothing at all.
+  return <div data-k-nex-component="workspace-theme-root" data-slot="root" data-k-nex-theme-profile={themePresentation.profileRevisionId} data-k-nex-theme-mode={themePresentation.mode}>
     <style>{themePresentation.cssText}</style>
-    <style>{workspaceShellCss}</style>
+    <div className="workspace-shell" data-k-nex-component="workspace-shell" data-sidebar={collapsed ? "collapsed" : "expanded"}>
     <a className="workspace-skip-link" href="#workspace-main">Skip to main content</a>
     <aside className="workspace-sidebar" aria-label="Desktop workspace navigation">
       <div className="workspace-brand"><strong>{applicationLabel}</strong><span>{environment}</span></div>
@@ -89,5 +87,6 @@ export function WorkspaceShell({ applicationLabel, environment, currentHref, nav
       <span className="workspace-environment">{environment}</span>
     </header>
     <main id="workspace-main" tabIndex={-1}>{children}</main>
+    </div>
   </div>;
 }
