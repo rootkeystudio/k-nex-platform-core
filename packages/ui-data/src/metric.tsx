@@ -4,7 +4,15 @@ import type { BrowserRequestState } from "@k-nex/ui-runtime";
 
 import { ForbiddenState, LoadingState, QueryErrorState } from "./table-controls.js";
 
+/**
+ * A metric with nothing to measure has no value, and saying so is the report's
+ * job. Formatting the absence instead produced "null%" and "null days" on
+ * every fresh application, which reads as a defect rather than as no data.
+ */
+const absentMetric = "—";
+
 function metricValue(value: MetricScalarValue): string {
+  if (value.value === null || value.value === undefined) return absentMetric;
   if (value.kind === "money") return `${value.value} ${value.currency}`;
   if (value.kind === "decimal") return `${value.value}${value.unit === undefined ? "" : ` ${value.unit}`}`;
   if (value.kind === "duration") return `${value.value} ${value.unit}`;

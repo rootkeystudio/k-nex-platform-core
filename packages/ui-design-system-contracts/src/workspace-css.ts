@@ -262,8 +262,21 @@ export function createWorkspaceCss(language: ThemeDesignLanguage): string {
     rule('[data-k-nex-component="metric"] [data-slot="label"]', `color:var(--k-muted);${labelTypography}`),
     rule('[data-k-nex-component="metric"] [data-slot="value"]', "font-size:calc(var(--k-font-title)*1px);font-weight:700;line-height:1.1;font-variant-numeric:tabular-nums"),
     rule(['[data-k-nex-component="key-value-list"]', '[data-k-nex-component="description-list"]', "dl"], "display:grid;grid-template-columns:minmax(8rem,14rem) minmax(0,1fr);gap:8px calc(var(--k-space-content)*1px);margin:0"),
+    // Each pair is wrapped, so the wrapper has to disappear for dt and dd to
+    // land in the list's own columns instead of stacking inside one cell.
+    rule('[data-k-nex-component="key-value-list"] [data-slot="item"]', "display:contents"),
     rule("dt", `color:var(--k-muted);${labelTypography}`),
     rule("dd", "margin:0;min-width:0;overflow-wrap:anywhere"),
+    // A label and its value are two spans with nothing between them. Without a
+    // layout they render as one run of text: "active" and the action that
+    // changed it read as a single word.
+    rule('[data-k-nex-component="data-list"] [data-slot="list"]', "display:grid;gap:calc(var(--k-space-tight)*1px)"),
+    rule('[data-k-nex-component="data-list"] [data-slot="item"]', `display:grid;grid-template-columns:minmax(10rem,18rem) minmax(0,1fr);gap:4px calc(var(--k-space-content)*1px);padding-block:8px;border-block-end:${border}`),
+    rule('[data-k-nex-component="data-list"] [data-slot="item"]:last-child', "border-block-end:0"),
+    rule('[data-k-nex-component="data-list"] [data-slot="label"]', "font-weight:600;min-width:0;overflow-wrap:anywhere"),
+    rule('[data-k-nex-component="data-list"] [data-slot="value"]', "color:var(--k-muted);min-width:0;overflow-wrap:anywhere;font-variant-numeric:tabular-nums"),
+    rule('[data-k-nex-component="timeline"] [data-slot="item"]', `display:grid;gap:4px;padding-block:calc(var(--k-space-tight)*1px);border-block-end:${border}`),
+    rule('[data-slot="label"] + [data-slot="value"],[data-slot="title"] + [data-slot="state"]', "margin-inline-start:0"),
     rule(
       ["[data-k-nex-primitive=\"empty-state\"]", "[data-k-nex-primitive=\"error-state\"]", "[data-k-nex-component=\"empty-state\"]", "[data-k-nex-component=\"error-state\"]", "[data-k-nex-component=\"forbidden-state\"]", "[data-k-nex-component=\"loading-state\"]"],
       `display:grid;justify-items:center;gap:calc(var(--k-space-tight)*1px);padding:calc(var(--k-space-section)*1px);background:var(--k-surface);border:${language.borderWidth}px dashed var(--k-border);border-radius:${surfaceRadius};color:var(--k-muted);text-align:center`
