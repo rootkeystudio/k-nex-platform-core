@@ -42,9 +42,15 @@ describe("P12.4 workspace shell", () => {
     expect(markup).toContain('data-k-nex-theme-profile="theme-profile-revision-42"');
     expect(markup).toContain('data-k-nex-theme-mode="light"');
     expect(markup).toContain(themePresentation.cssText);
-    expect(markup).toContain('workspace-drawer-overlay{background:color-mix(in srgb,var(--k-nex-admin-color-foreground) 45%,transparent)}');
-    expect(markup).toContain('workspace-environment{border-color:var(--k-nex-admin-color-border);border-radius:calc(var(--k-nex-admin-radius-control)*1px)');
-    expect(markup).toContain(':is(a,button):focus-visible{outline:3px solid var(--k-nex-admin-color-accent)');
+    // The shell used to inject a second stylesheet after the theme's, painting
+    // its own surfaces from raw tokens and outranking whatever the theme said.
+    // The installed theme is now the only thing that styles this surface, so
+    // the shell contributes exactly one stylesheet: the theme's own.
+    expect(markup.match(/<style>/gu)).toHaveLength(1);
+    // The theme root wraps the shell rather than being it: a theme stylesheet
+    // may only select descendants, so a root that was also the shell could
+    // never be laid out by the theme installed on it.
+    expect(markup).toMatch(/data-k-nex-theme-profile="theme-profile-revision-42"[\s\S]*class="workspace-shell"/u);
     expect(markup).toContain('href="#workspace-main"');
     expect(markup).toContain('aria-label="Desktop workspace navigation"');
     expect(markup).toContain('aria-label="Open navigation"');
