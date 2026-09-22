@@ -238,14 +238,14 @@ export const POST = refused;
     "src/app/styles.css": `:root {
   color-scheme: light dark;
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --k-nex-entry-surface: light-dark(#ffffff, #1c1f24);
-  --k-nex-entry-background: light-dark(#f4f6f8, #121417);
-  --k-nex-entry-foreground: light-dark(#15171a, #f7f8fa);
-  --k-nex-entry-muted: light-dark(#5b616e, #a3aab6);
-  --k-nex-entry-border: light-dark(#d6d9e0, #31363e);
-  --k-nex-entry-accent: light-dark(#2457ff, #7aa0ff);
-  --k-nex-entry-accent-contrast: light-dark(#ffffff, #10121a);
-  --k-nex-entry-critical: light-dark(#b3261e, #ff7b72);
+  --k-nex-entry-surface: light-dark(#ffffff, #1a1a1a);
+  --k-nex-entry-background: light-dark(#efeae0, #121212);
+  --k-nex-entry-foreground: light-dark(#1b1a17, #ededed);
+  --k-nex-entry-muted: light-dark(#6b6557, #8f8f8f);
+  --k-nex-entry-border: light-dark(#ddd5c6, #2a2a2a);
+  --k-nex-entry-accent: light-dark(#d1502a, #ff6b35);
+  --k-nex-entry-accent-contrast: light-dark(#ffffff, #0f0f0f);
+  --k-nex-entry-critical: light-dark(#b3261e, #f87171);
 }
 * { box-sizing: border-box; }
 body { margin: 0; min-height: 100dvh; background: var(--k-nex-entry-background); color: var(--k-nex-entry-foreground); line-height: 1.5; }
@@ -263,7 +263,7 @@ body { margin: 0; min-height: 100dvh; background: var(--k-nex-entry-background);
 .workspace-home > :is(h1, p, button, section) { width: 100%; }
 .workspace-home h1 { margin: 0; font-size: 1.75rem; line-height: 1.2; letter-spacing: -0.01em; }
 .workspace-home > p { margin: 0; color: var(--k-nex-entry-muted); }
-.eyebrow { margin: 0; color: var(--k-nex-entry-accent); font-size: .75rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.eyebrow { margin: 0; color: var(--k-nex-entry-accent); font-size: .75rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
 .workspace-home form {
   display: grid;
   gap: .75rem;
