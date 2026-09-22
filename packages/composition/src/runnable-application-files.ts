@@ -225,39 +225,81 @@ export const POST = refused;
 `,
     "src/app/(workspace)/page.tsx": workspacePageSource(options.applicationName),
     "src/app/layout.tsx": workspaceLayoutSource(options.applicationName),
-    "src/app/styles.css": `:root { color-scheme: light dark; font-family: ui-sans-serif, system-ui, sans-serif; }
+    // The workspace is laid out by the installed theme, which owns every
+    // surface under its own root. This file is what the theme cannot reach:
+    // the document itself, and the two screens shown before a theme resolves —
+    // sign-in and the unauthenticated landing page. It deliberately repeats no
+    // workspace rule, so the theme stays the only thing that decides how the
+    // application looks once a session exists.
+    "src/app/styles.css": `:root {
+  color-scheme: light dark;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --k-nex-entry-surface: light-dark(#ffffff, #1c1f24);
+  --k-nex-entry-background: light-dark(#f4f6f8, #121417);
+  --k-nex-entry-foreground: light-dark(#15171a, #f7f8fa);
+  --k-nex-entry-muted: light-dark(#5b616e, #a3aab6);
+  --k-nex-entry-border: light-dark(#d6d9e0, #31363e);
+  --k-nex-entry-accent: light-dark(#2457ff, #7aa0ff);
+  --k-nex-entry-accent-contrast: light-dark(#ffffff, #10121a);
+  --k-nex-entry-critical: light-dark(#b3261e, #ff7b72);
+}
 * { box-sizing: border-box; }
-body { margin: 0; min-height: 100vh; background: Canvas; color: CanvasText; }
-.workspace-home { margin: 0 auto; max-width: 64rem; padding: 5rem 2rem; }
-.eyebrow { color: LinkText; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
-h1 { font-size: clamp(2rem, 7vw, 4.5rem); margin: .25rem 0 1rem; }
-.workspace-shell { display: grid; grid-template-columns: 17rem minmax(0, 1fr); grid-template-rows: auto 1fr; min-height: 100vh; }
-.workspace-shell[data-sidebar="collapsed"] { grid-template-columns: 4rem minmax(0, 1fr); }
-.workspace-sidebar { grid-row: 1 / -1; min-width: 0; }
-.workspace-shell[data-sidebar="collapsed"] .workspace-brand, .workspace-shell[data-sidebar="collapsed"] .workspace-desktop-navigation-expanded { display: none; }
-.workspace-desktop-navigation-rail { display: none; }
-.workspace-shell[data-sidebar="collapsed"] .workspace-desktop-navigation-rail { display: block; }
-.workspace-desktop-navigation-rail ul { padding-inline-start: 0; }
-.workspace-desktop-navigation-rail .workspace-rail-item { align-items: center; display: flex; justify-content: center; min-block-size: 2rem; }
-.workspace-desktop-navigation-rail [data-k-nex-component="icon"] { display: inline-grid; font-size: 1.25rem; inline-size: 1.25rem; place-items: center; }
-.workspace-brand { display: grid; gap: .25rem; margin-block-end: 1rem; overflow-wrap: anywhere; }
-.workspace-header { align-items: center; display: flex; justify-content: space-between; min-width: 0; }
-.workspace-header ol { display: flex; flex-wrap: wrap; gap: .5rem; list-style: none; margin: 0; padding: 0; }
-.workspace-header li + li::before { content: "/"; margin-inline-end: .5rem; }
-.workspace-environment { border: 1px solid currentColor; border-radius: 999px; padding: .2rem .6rem; }
-.workspace-sidebar ul, .workspace-drawer ul { list-style: none; margin: 0; padding-inline-start: 1rem; }
-.workspace-sidebar > .workspace-desktop-navigation > nav > ul, .workspace-drawer nav > ul { padding-inline-start: 0; }
-.workspace-sidebar li, .workspace-drawer li { margin-block: .35rem; min-width: 0; overflow-wrap: anywhere; }
-.workspace-sidebar [data-navigation-label], .workspace-drawer [data-navigation-label] { display: block; font-weight: 700; margin-block-start: 1rem; }
-.workspace-skip-link { inset-block-start: .5rem; inset-inline-start: -100vw; position: fixed; z-index: 1000; }
-.workspace-skip-link:focus { inset-inline-start: .5rem; }
-.workspace-mobile-trigger { display: none; }
-.workspace-drawer-overlay { inset: 0; position: fixed; z-index: 100; }
-.workspace-drawer { block-size: 100%; inline-size: min(22rem, 90vw); inset-block: 0; inset-inline-start: 0; overflow: auto; position: fixed; }
-.workspace-drawer-heading { align-items: center; display: flex; justify-content: space-between; }
-a:focus-visible, button:focus-visible { outline: 3px solid Highlight; outline-offset: 3px; }
-@media (max-width: 48rem) { .workspace-shell, .workspace-shell[data-sidebar="collapsed"] { display: block; } .workspace-sidebar { display: none; } .workspace-mobile-trigger { display: inline-flex; } }
-@media (forced-colors: active) { .workspace-sidebar, .workspace-header, .workspace-environment { border-color: CanvasText; } }
+body { margin: 0; min-height: 100dvh; background: var(--k-nex-entry-background); color: var(--k-nex-entry-foreground); line-height: 1.5; }
+.workspace-home {
+  display: grid;
+  align-content: center;
+  justify-items: stretch;
+  gap: 1rem;
+  width: min(26rem, 100%);
+  margin: 0 auto;
+  padding: clamp(2rem, 8vh, 6rem) 1.5rem;
+  min-height: 100dvh;
+}
+.workspace-home > form,
+.workspace-home > :is(h1, p, button, section) { width: 100%; }
+.workspace-home h1 { margin: 0; font-size: 1.75rem; line-height: 1.2; letter-spacing: -0.01em; }
+.workspace-home > p { margin: 0; color: var(--k-nex-entry-muted); }
+.eyebrow { margin: 0; color: var(--k-nex-entry-accent); font-size: .75rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.workspace-home form {
+  display: grid;
+  gap: .75rem;
+  padding: 1.5rem;
+  background: var(--k-nex-entry-surface);
+  border: 1px solid var(--k-nex-entry-border);
+  border-radius: 12px;
+  box-shadow: 0 1px 2px light-dark(#0000001f, #00000066);
+}
+.workspace-home label { font-size: .8125rem; font-weight: 600; }
+.workspace-home input {
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 12px;
+  font: inherit;
+  color: inherit;
+  background: var(--k-nex-entry-surface);
+  border: 1px solid var(--k-nex-entry-border);
+  border-radius: 8px;
+}
+.workspace-home input:hover { border-color: var(--k-nex-entry-muted); }
+.workspace-home button {
+  min-height: 40px;
+  margin-block-start: .25rem;
+  padding: 0 16px;
+  font: inherit;
+  font-weight: 600;
+  color: var(--k-nex-entry-accent-contrast);
+  background: var(--k-nex-entry-accent);
+  border: 1px solid var(--k-nex-entry-accent);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.workspace-home button:hover { filter: brightness(.94); }
+.workspace-home [aria-live] { margin: 0; min-height: 1.25rem; color: var(--k-nex-entry-critical); font-size: .8125rem; font-weight: 600; }
+.workspace-home [aria-live]:empty { min-height: 0; }
+a:focus-visible, button:focus-visible, input:focus-visible { outline: 3px solid var(--k-nex-entry-accent); outline-offset: 2px; }
+@media (forced-colors: active) {
+  .workspace-home form, .workspace-home input, .workspace-home button { border-color: CanvasText; }
+}
 `,
     "src/app/api/health/route.ts": `export const dynamic = "force-dynamic";
 

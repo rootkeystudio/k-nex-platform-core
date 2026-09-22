@@ -1824,7 +1824,7 @@ export default async function WorkspaceHome() {
   const authentication = await payload.auth({ headers, canSetHeaders: false });
   if (!authentication.user) redirect("/login");
   if (!await authorizeRequest(payload, kNexRequestContext(headers, "workspace-home"), "system.workspace-pages.read", "system.workspace-pages")) redirect("/forbidden");
-  return <section className="workspace-home"><p className="eyebrow">K-Nex workspace</p><h1>${jsxStringExpression(applicationName)}</h1><p>Authenticated workspace ready.</p><LogoutButton /></section>;
+  return <section className="workspace-landing" data-k-nex-component="page-shell" data-slot="root"><header data-k-nex-component="page-header" data-slot="root"><div data-slot="title">${jsxStringExpression(applicationName)}</div><div data-slot="description">Pick a section from the navigation to start working.</div><div data-slot="actions"><LogoutButton /></div></header></section>;
 }
 `;
 }
@@ -1924,7 +1924,7 @@ export async function listPageThemeOverrides(payload: Payload) {
 `;
 }
 
-function loginPageSource(): string {
+function loginPageSource(applicationName: string): string {
   return `import { headers as getHeaders } from "next/headers";
 import { redirect } from "next/navigation";
 
@@ -1936,7 +1936,7 @@ export const dynamic = "force-dynamic";
 export default async function LoginPage() {
   const payload = await bootKnexApplication("workspace-web");
   if ((await payload.auth({ headers: await getHeaders(), canSetHeaders: false })).user) redirect("/");
-  return <main className="workspace-home"><h1>Sign in</h1><LoginForm /></main>;
+  return <main className="workspace-home"><p className="eyebrow">${jsxStringExpression(applicationName)}</p><h1>Sign in</h1><p>Use the account your administrator created for this workspace.</p><LoginForm /></main>;
 }
 `;
 }
@@ -4151,7 +4151,7 @@ export function applicationAuthFiles(options: ApplicationAuthFilesOptions): Read
   const themeReleaseVersion = options.themeReleaseVersion ?? supportedFrameworkTuple.core;
   return {
     "src/app/(auth)/forbidden/page.tsx": `import { LogoutButton } from "../../components/logout-button.js";\n\nexport default function ForbiddenPage() { return <main className="workspace-home"><h1>Access denied</h1><LogoutButton /></main>; }\n`,
-    "src/app/(auth)/login/page.tsx": loginPageSource(),
+    "src/app/(auth)/login/page.tsx": loginPageSource(options.applicationName),
     "src/app/(workspace)/layout.tsx": workspaceLayoutSource(options.applicationName),
     "src/app/(workspace)/page.tsx": workspacePageSource(options.applicationName),
     "src/app/(workspace)/sales/page.tsx": salesRoutePageSource("sales.route.overview", "sales"),
