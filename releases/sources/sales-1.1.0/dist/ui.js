@@ -559,6 +559,13 @@ function SalesOpportunityKanban({ table, title, input }) {
             return [];
         return opportunityTransitionTarget[source.stageSemantic].map((semantic) => stages.find((candidate) => candidate.stageSemantic === semantic)).filter((candidate) => candidate !== undefined);
     };
+    // A board with no rows at all is not a broken contract: the Kanban reads a
+    // saved view of its own kind, and an application that has none produced this
+    // exact state. Reporting it as unavailable data sent the reader to refresh a
+    // page that would never change.
+    if (table.rows.length === 0) {
+        return createElement("section", { "aria-label": title, "data-k-nex-component": "sales-opportunity-kanban", "data-state": "empty" }, componentElement(EmptyState, { title: "No Kanban view configured", message: "Create a saved view of kind kanban for Opportunities to see the pipeline board." }));
+    }
     if (!validStages)
         return createElement("section", { "aria-label": title, "data-k-nex-component": "sales-opportunity-kanban", "data-state": "invalid-contract" }, createElement("p", { role: "alert" }, "Pipeline data is unavailable. Refresh and try again."));
     return createElement("section", { "aria-label": title, "data-k-nex-component": "sales-opportunity-kanban", "data-density": density }, [

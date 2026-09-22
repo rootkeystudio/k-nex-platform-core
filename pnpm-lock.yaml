@@ -1706,7 +1706,7 @@ packages:
     resolution: {integrity: sha512-4JQNk+3mVzK3xh2rqd6RB4J46qUR19azEHBneZyTZM+c456qOrbbM/5xcR8huNCCcbVt7+UmizG6GuUvPvKUYg==}
 
   '@k-nex/module-sales@file:fixtures/customer-gate-1/packages/k-nex-module-sales-1.1.0.tgz':
-    resolution: {integrity: sha512-TKsNwH47JlyeCLFWTfxCkmhyg7WW6TaMUcxARABbC4JqBajP1Vzl0Su0H4FLPJjsPASgR/VWWc2jBtKtOaYdoA==, tarball: file:fixtures/customer-gate-1/packages/k-nex-module-sales-1.1.0.tgz}
+    resolution: {integrity: sha512-UiB4PNwWWlE8JMcyi5jHp2nwv5lRzznGPYrb+kcO2gmu1vfkDPIHSWC45UxctniTD7MYdY/9M6ZOD+FRVYreQA==, tarball: file:fixtures/customer-gate-1/packages/k-nex-module-sales-1.1.0.tgz}
     version: 1.1.0
     peerDependencies:
       '@k-nex/contracts': 1.1.0
