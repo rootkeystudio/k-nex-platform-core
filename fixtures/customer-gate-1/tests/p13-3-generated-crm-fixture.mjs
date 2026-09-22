@@ -266,6 +266,13 @@ async function seedRecords(pool, ids) {
   const repAccountId = await insertAccount("Representative account", ids.representative, `team:${ids.representative}`);
   const page2AccountName = "P13 page 2 account 26";
   for (let index = 1; index <= 26; index += 1) await insertAccount(index === 26 ? page2AccountName : `P13 pagination account ${index}`);
+  // Bootstrap seeds the default pipeline every generated application opens
+  // with, and exactly one pipeline may be active. This corpus supplies its own
+  // controlled pipeline and Stage probabilities, so it replaces the default
+  // rather than competing with it.
+  await pool.query("delete from sales_pipeline_stages where application_id=$1 and environment=$2", [applicationId, environmentName]);
+  await pool.query("delete from sales_pipelines where application_id=$1 and environment=$2", [applicationId, environmentName]);
+  await pool.query("delete from sales_saved_views where application_id=$1 and environment=$2", [applicationId, environmentName]);
   const pipeline = (await pool.query("insert into sales_pipelines (application_id,environment,created_by,updated_by,name,ordered_stage_ids,is_active) values ($1,$2,$3,$3,'Browser pipeline',$4::jsonb,true) returning id", [applicationId, environmentName, ids.owner, JSON.stringify(["qualification", "discovery", "proposal", "negotiation", "won", "lost"])])).rows[0];
   for (const [position, stageId] of ["qualification", "discovery", "proposal", "negotiation", "won", "lost"].entries()) {
     const opaqueId = opaqueStageId(pipeline.id, stageId);
