@@ -68,7 +68,9 @@ pnpm knex:doctor
 pnpm dev
 \`\`\`
 
-\`knex:register-generation\` records which Platform Plugin generation this image carries. Nothing else writes that record, and the Platform Plugin runtime projection stays empty without it: System Settings cannot resolve its descriptors, and the worker holds no execution fence, so it processes no reminders, notifications, exports, workflows, or provider delivery at all. It reads \`K_NEX_SOURCE_COMMIT\` and \`K_NEX_APPLICATION_DIGEST\` — the exact commit and application digest this image was built from — and it is idempotent, so run it after every deploy. A container deployment should also set \`K_NEX_IMAGE_REFERENCE\` to the registry identity it was pulled from.
+\`knex:register-generation\` records which Platform Plugin generation this image carries. Nothing else writes that record, and the Platform Plugin runtime projection stays empty without it: System Settings cannot resolve its descriptors, and the worker holds no execution fence, so it processes no reminders, notifications, exports, workflows, or provider delivery at all. It reads \`K_NEX_SOURCE_COMMIT\` and \`K_NEX_APPLICATION_DIGEST\` — the exact commit and application digest this image was built from. A container deployment should also set \`K_NEX_IMAGE_REFERENCE\` to the registry identity it was pulled from.
+
+Running it again for the same image changes nothing. It refuses to record a *different* image under the same generation identity, because that identity is what fences workers and binds Platform Plugin authority: a changed image is a new generation, promoted by a deployment supervisor. This release does not ship that supervisor, so a rebuilt image is registered against a fresh database, not an existing one.
 
 Run \`pnpm knex:worker\` alongside \`pnpm dev\`: reminders, notifications, exports, and provider delivery are processed by that worker, not by the web process. The worker takes the execution fence its generation owns and renews it while it runs; it refuses to process anything for a generation the deployment no longer serves.
 

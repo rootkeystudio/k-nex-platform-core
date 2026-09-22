@@ -111,14 +111,30 @@ export function kNexRuntimeExtensionStore(payload: Payload): PostgresRuntimeExte
 export async function registerKnexStaticGeneration(payload: Payload): Promise<Readonly<{ generationId: string; platformPlugins: number }>> {
   const generation = kNexStaticGeneration();
   const deployments = kNexStaticDeploymentStore(payload);
-  await deployments.initialize({
-    applicationId: kNexIdentity.applicationId,
-    environment: kNexIdentity.environment,
-    generation,
-    workerOwner: kNexWorkerFenceOwner,
-    workerFencingToken: kNexWorkerFencingToken,
-    workerLeaseExpiresAt: new Date(clock.now().valueOf() + kNexWorkerLeaseDurationMs).toISOString()
-  });
+  try {
+    await deployments.initialize({
+      applicationId: kNexIdentity.applicationId,
+      environment: kNexIdentity.environment,
+      generation,
+      workerOwner: kNexWorkerFenceOwner,
+      workerFencingToken: kNexWorkerFencingToken,
+      workerLeaseExpiresAt: new Date(clock.now().valueOf() + kNexWorkerLeaseDurationMs).toISOString()
+    });
+  } catch (error) {
+    // Registering the same generation twice is a no-op. Registering a
+    // different image under the same generation identity is the one thing this
+    // command must not do: the generation identity is what fences workers and
+    // binds Platform Plugin authority, and moving it underneath a running
+    // deployment is the supervisor's transition to make, not this command's.
+    if (error !== null && typeof error === "object" && "code" in error && error.code === "REVISION_CONFLICT") {
+      throw new Error(
+        "This database already records a different image for generation " + generation.generationId + ". " +
+        "A changed image is a new generation, promoted by the deployment supervisor; this command only records the generation its own image was built as. " +
+        "Registering a rebuilt image against an existing database is not a supported transition."
+      );
+    }
+    throw error;
+  }
   const inventory = await kNexRuntimeExtensionStore(payload).reconcileStaticHostInventory({
     applicationId: kNexIdentity.applicationId,
     environment: kNexIdentity.environment,
