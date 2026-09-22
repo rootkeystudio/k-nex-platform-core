@@ -151,6 +151,27 @@ export async function registerKnexStaticGeneration(payload: Payload): Promise<Re
   });
 }
 
+/**
+ * The worker needs a live fence naming its own generation. It takes one when
+ * nothing holds it, and accepts one a deployment supervisor already holds:
+ * ownership of the row is not the point, and a worker that demanded it would
+ * refuse to run under the very topology the fence exists for. A lease it does
+ * not own is also one it must not renew.
+ */
+export async function ensureKnexWorkerFence(payload: Payload): Promise<Readonly<{ promotionRevision: number; renewable: boolean }>> {
+  try {
+    const acquired = await acquireKnexWorkerFence(payload);
+    return Object.freeze({ promotionRevision: acquired.promotionRevision, renewable: true });
+  } catch (error) {
+    const held = await kNexStaticDeploymentStore(payload).readFence({ applicationId: kNexIdentity.applicationId, environment: kNexIdentity.environment });
+    if (held !== undefined && held.activeExecutionGeneration === kNexSalesRegistry.staticRelease.runtimeGenerationId &&
+      new Date(held.lease.expiresAt).valueOf() > clock.now().valueOf()) {
+      return Object.freeze({ promotionRevision: held.promotionRevision, renewable: false });
+    }
+    throw error;
+  }
+}
+
 /** Takes this worker's own execution lease, resuming an expired one it owns. */
 export async function acquireKnexWorkerFence(payload: Payload) {
   return kNexStaticDeploymentStore(payload).acquireWorkerFence({

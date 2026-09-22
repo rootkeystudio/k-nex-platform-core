@@ -3975,7 +3975,7 @@ import { processSalesDataMovement } from "./k-nex-sales-data-movement.js";
 import { createGeneratedBoundedReferenceProviderTransport, createGeneratedEnvironmentProviderSecretResolver, processGeneratedSalesCommunications, processGeneratedSalesReminders } from "./k-nex-sales-communications.js";
 import { processGeneratedSalesWorkflows } from "./k-nex-sales-workflows.js";
 import { processGeneratedSalesReports } from "./k-nex-sales-reports.js";
-import { acquireKnexWorkerFence, kNexWorkerLeaseRenewalIntervalMs, renewKnexWorkerFence } from "./k-nex-static-generation.js";
+import { ensureKnexWorkerFence, kNexWorkerLeaseRenewalIntervalMs, renewKnexWorkerFence } from "./k-nex-static-generation.js";
 
 const payload = await bootKnexApplication("authorization-worker");
 const channel = "k_nex_runtime_invalidation";
@@ -4108,11 +4108,14 @@ const reportsTimer = setInterval(() => { void dispatchReports(); }, 100);
 // this generation. Taking the lease here is what makes the worker do work at
 // all; without it the process starts, reports itself ready, and processes
 // nothing for as long as it runs.
-const workerFence = await acquireKnexWorkerFence(payload);
-const fenceTimer = setInterval(() => {
-  void renewKnexWorkerFence(payload, workerFence.promotionRevision)
-    .catch(workerFailure("K_NEX_WORKER_FENCE_RENEWAL_ERROR"));
-}, kNexWorkerLeaseRenewalIntervalMs);
+const workerFence = await ensureKnexWorkerFence(payload);
+// A lease this worker does not own is renewed by whoever does.
+const fenceTimer = workerFence.renewable
+  ? setInterval(() => {
+      void renewKnexWorkerFence(payload, workerFence.promotionRevision)
+        .catch(workerFailure("K_NEX_WORKER_FENCE_RENEWAL_ERROR"));
+    }, kNexWorkerLeaseRenewalIntervalMs)
+  : undefined;
 authorizationWorker.start();
 workspacePageWorker.start();
 workspaceNavigationWorker.start();
@@ -4142,7 +4145,7 @@ dataMovementStopping = true;
     workflowsStopping = true;
     reportsStopping = true;
 realtimeAbort.abort();
-clearInterval(fenceTimer);
+if (fenceTimer !== undefined) clearInterval(fenceTimer);
 clearInterval(realtimeTimer);
 clearInterval(dataMovementTimer);
     clearInterval(communicationsTimer);
