@@ -53,13 +53,13 @@ const WEB_ADMIN_READY_TIMEOUT_MS = 30_000;
 const WEB_ADMIN_PROBE_TIMEOUT_MS = 1_000;
 const sha256 = (value) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
 const digestJson = (value) => sha256(canonicalJson(value));
-const operatorPackages = Object.freeze([
-  { name: "@k-nex/contracts", version: "1.0.0", path: "static-deployment/operator-packages/k-nex-contracts-1.0.0.tgz" },
-  { name: "@k-nex/composition", version: "1.0.0", path: "static-deployment/operator-packages/k-nex-composition-1.0.0.tgz" },
-  { name: "@k-nex/extension-bundler", version: "1.0.0", path: "static-deployment/operator-packages/k-nex-extension-bundler-1.0.0.tgz" },
-  { name: "@k-nex/runtime", version: "1.0.0", path: "static-deployment/operator-packages/k-nex-runtime-1.0.0.tgz" },
-  { name: "@k-nex/payload-adapter", version: "1.0.0", path: "static-deployment/operator-packages/k-nex-payload-adapter-1.0.0.tgz" }
-]);
+// The customer image runs the workspace this proof packs, so each archive is
+// named by the version the workspace declares; a literal goes stale at every
+// release train.
+const releaseVersion = JSON.parse(await readFile(join(repositoryRoot, "modules", "sales", "package.json"), "utf8")).version;
+const operatorPackages = Object.freeze(["contracts", "composition", "extension-bundler", "runtime", "payload-adapter"].map((name) => ({
+  name: `@k-nex/${name}`, version: releaseVersion, path: `static-deployment/operator-packages/k-nex-${name}-${releaseVersion}.tgz`
+})));
 let supervisorControlToken;
 
 function scopedStaticRegistration(includeRealtimeProvider = false) {
@@ -398,24 +398,32 @@ async function prepareCustomerSource() {
   await mkdir(join(sourceDirectory, ".k-nex"), { recursive: true });
   await cp(join(fixtureDirectory, ".k-nex", "generated"), join(sourceDirectory, ".k-nex", "generated"), { recursive: true });
   await cp(join(fixtureDirectory, "..", "customer-alpha", "tsconfig.json"), join(sourceDirectory, "tsconfig.json"));
-  await cp(join(fixtureDirectory, "packages"), join(sourceDirectory, "packages"), { recursive: true });
+  // An empty destination makes a dependency on any archive this run did not
+  // pack fail to install, rather than resolve to a copied frozen release.
+  const packagesDirectory = join(sourceDirectory, "packages");
+  await mkdir(packagesDirectory);
   const salesPackageDirectory = join(repositoryRoot, "modules", "sales");
   await command("pnpm", ["build"], salesPackageDirectory);
-  await rm(join(sourceDirectory, "packages", "k-nex-module-sales-1.0.0.tgz"), { force: true });
-  await command("pnpm", ["pack", "--pack-destination", join(sourceDirectory, "packages")], salesPackageDirectory);
+  await command("pnpm", ["pack", "--pack-destination", packagesDirectory], salesPackageDirectory);
   for (const name of ["builder-puck", "composition", "contracts", "extension-bundler", "payload-adapter", "payload-builder-storage", "realtime-socketio", "runtime", "theme-minimal", "theme-neobrutalism", "ui-builder-blocks", "ui-components", "ui-data", "ui-design-system-contracts", "ui-forms", "ui-pages", "ui-runtime"]) {
-    await command("pnpm", ["pack", "--pack-destination", join(sourceDirectory, "packages")], join(repositoryRoot, "packages", name));
+    await command("pnpm", ["pack", "--pack-destination", packagesDirectory], join(repositoryRoot, "packages", name));
   }
+  const release = JSON.parse(await readFile(join(sourceDirectory, "static-deployment", "release.json"), "utf8"));
+  assert.equal(release.plugin.version, releaseVersion, "The base generation must release the Sales version its source installs.");
   const manifestPath = join(sourceDirectory, "k-nex.app.json");
   const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
-  manifest.plugins.push({ id: "provider.realtime.socketio", package: "@k-nex/provider-realtime-socketio", version: "1.0.0", enabled: true });
-  manifest.providers["realtime.gateway"] = { plugin: "provider.realtime.socketio", package: "@k-nex/provider-realtime-socketio", version: "1.0.0" };
+  // customer-alpha's manifest is the frozen 1.0.0 customer's; this source
+  // installs the workspace release, so it must name that release.
+  manifest.plugins.find(({ id }) => id === "module.sales").version = releaseVersion;
+  manifest.themes.version = releaseVersion;
+  manifest.plugins.push({ id: "provider.realtime.socketio", package: "@k-nex/provider-realtime-socketio", version: releaseVersion, enabled: true });
+  manifest.providers["realtime.gateway"] = { plugin: "provider.realtime.socketio", package: "@k-nex/provider-realtime-socketio", version: releaseVersion };
   manifest.runtime.realtime = { adapter: "memory", webInstances: 1, worker: "separate", workerInvalidationPath: "postgres-outbox-relay", realtimeGateway: "embedded", rollingDeployment: "stop-before-start" };
   await writeFile(manifestPath, `${canonicalJson(manifest)}\n`);
   const packagePath = join(sourceDirectory, "package.json");
   const pkg = JSON.parse(await readFile(packagePath, "utf8"));
-  pkg.dependencies["@k-nex/module-sales"] = "file:packages/k-nex-module-sales-1.0.0.tgz";
-  pkg.dependencies["@k-nex/provider-realtime-socketio"] = "file:packages/k-nex-provider-realtime-socketio-1.0.0.tgz";
+  pkg.dependencies["@k-nex/module-sales"] = `file:packages/k-nex-module-sales-${releaseVersion}.tgz`;
+  pkg.dependencies["@k-nex/provider-realtime-socketio"] = `file:packages/k-nex-provider-realtime-socketio-${releaseVersion}.tgz`;
   await writeFile(packagePath, `${canonicalJson(pkg)}\n`);
   await writeFile(join(sourceDirectory, "src", "k-nex-provider-registry.ts"), [
     'import { socketIoRealtimeProviderRegistration } from "@k-nex/provider-realtime-socketio/server";',
@@ -438,7 +446,7 @@ async function prepareCustomerSource() {
   await git(sourceDirectory, ["config", "user.email", "builder@k-nex.test"]);
   await git(sourceDirectory, ["config", "user.name", "K-Nex trusted builder"]);
   await git(sourceDirectory, ["add", "."]);
-  await git(sourceDirectory, ["commit", "--quiet", "-m", "customer: module.sales 1.0.0"]);
+  await git(sourceDirectory, ["commit", "--quiet", "-m", `customer: module.sales ${releaseVersion}`]);
   return sourceDirectory;
 }
 
@@ -457,7 +465,7 @@ async function sourceMaterials(sourceDirectory) {
   paths.push(...operatorPackages.map(({ path }) => path));
   const digests = Object.fromEntries(await Promise.all(paths.map(async (path) => [path, await fileDigest(join(sourceDirectory, path))])));
   const pluginVersion = JSON.parse(await readFile(join(sourceDirectory, "static-deployment", "release.json"), "utf8")).plugin.version;
-  const packageClosure = [{ name: "@k-nex/module-sales", version: pluginVersion, path: salesTarball }, ...(providerTarball ? [{ name: "@k-nex/provider-realtime-socketio", version: "1.0.0", path: providerTarball }] : []), ...operatorPackages]
+  const packageClosure = [{ name: "@k-nex/module-sales", version: pluginVersion, path: salesTarball }, ...(providerTarball ? [{ name: "@k-nex/provider-realtime-socketio", version: releaseVersion, path: providerTarball }] : []), ...operatorPackages]
     .map((item) => ({ ...item, digest: digests[item.path] }));
   const composition = {
     applicationManifestDigest: digests["k-nex.app.json"],
@@ -666,7 +674,7 @@ test("proves distinct customer binaries and deployment processes recover from Po
     const networkGateway = networkInspection.IPAM.Config[0].Gateway;
     const managedRequest = {
       applicationId: "customer-alpha", environment: "production", extension: { deliveryClass: "platform-plugin", id: "module.sales" },
-      operation: "update", targetVersion: "1.0.0", expectedRevision: 1,
+      operation: "update", targetVersion: releaseVersion, expectedRevision: 1,
       idempotencyKey: "static-web-admin-update-12", correlationId: "static-web-admin-correlation-12"
     };
     const managedRequestDigest = digestJson(managedRequest);
@@ -691,7 +699,7 @@ test("proves distinct customer binaries and deployment processes recover from Po
     await writeFile(builderTrustPolicyPath, `${canonicalJson({ builderIdentity: trustedBuilderAuthority.builderIdentity, publicKey: trustedBuilderKeys.publicKey.export({ type: "spki", format: "pem" }).toString(), authority: trustedBuilderAuthority })}\n`);
     const approvedInput = {
       operationId: managedOperationId,
-      applicationId: "customer-alpha", environment: "production", plugin: { id: "module.sales", version: "1.0.0", packageSpec: "file:packages/k-nex-module-sales-1.0.0.tgz" },
+      applicationId: "customer-alpha", environment: "production", plugin: { id: "module.sales", version: releaseVersion, packageSpec: `file:packages/k-nex-module-sales-${releaseVersion}.tgz` },
       authority: { identity: "github-app:k-nex-change-authority" }, authorization, baseApplicationDigest: blueBuild.applicationDigest,
       rollbackClosesAt: new Date(now.valueOf() + 86_400_000).toISOString()
     };
@@ -773,11 +781,11 @@ test("proves distinct customer binaries and deployment processes recover from Po
     assert.notEqual(blueBuild.applicationDigest, greenBuild.applicationDigest);
     const plan = greenBuild.change.change;
     const change = greenBuild.change;
-    assert.equal(plan.plugin.version, "1.0.0");
+    assert.equal(plan.plugin.version, releaseVersion);
     assert.equal(plan.base.composition.packageClosureDigest, plan.target.composition.packageClosureDigest,
       "Blue/green proof changes immutable source/image generation, not unreleased package versions.");
     const blueInventoryGeneration = {
-      authority: "static-build", generationId: "customer-alpha-blue-11", version: "1.0.0", sourceCommit: baseCommit,
+      authority: "static-build", generationId: "customer-alpha-blue-11", version: releaseVersion, sourceCommit: baseCommit,
       compositionChangePlanDigest: digestJson(plan.base), buildEvidenceDigest: digestJson({ sourceCommit: baseCommit, imageDigest: blueBuild.imageDigest }),
       applicationDigest: blueBuild.applicationDigest, imageDigest: blueBuild.imageDigest, migrationRevision: 11,
       workerFencingToken: 1, receiptId: "receipt-customer-alpha-blue-11"
@@ -1795,7 +1803,7 @@ test("proves distinct customer binaries and deployment processes recover from Po
     assert.deepEqual(await fetch(`http://127.0.0.1:${greenWorkerPort}/status`).then((response) => response.json()), {
       mode: "active", generationId: "customer-alpha-green-12", fencingToken: 2, inFlight: 0,
       sourceCommit: targetCommit, applicationDigest: greenBuild.applicationDigest, imageDigest: greenBuild.imageDigest,
-      module: "module.sales", pluginVersion: "1.0.0"
+      module: "module.sales", pluginVersion: releaseVersion
     });
     assert.equal((await fetch(`${processGatewayUrl}/inventory`).then((response) => response.json())).generation, "customer-alpha-green-12");
     assert.equal((await docker(["inspect", greenWorkerName])).stdout.length > 0, true);
@@ -2020,7 +2028,7 @@ test("proves distinct customer binaries and deployment processes recover from Po
     const overlap = await Promise.all([pool.query("select array_agg(legacy_value order by id) values from p9_static_overlap"), pool.query("select array_agg(expanded_value order by id) values from p9_static_overlap"), fetch(`${processGatewayUrl}/new-binary`).then((response) => response.json())]);
     assert.deepEqual(overlap[0].rows[0].values, ["one", "two", "three"]);
     assert.deepEqual(overlap[1].rows[0].values, ["ONE", "TWO", "THREE"]);
-    assert.deepEqual({ generation: overlap[2].generation, module: overlap[2].module, pluginVersion: overlap[2].pluginVersion }, { generation: "customer-alpha-green-12", module: "module.sales", pluginVersion: "1.0.0" });
+    assert.deepEqual({ generation: overlap[2].generation, module: overlap[2].module, pluginVersion: overlap[2].pluginVersion }, { generation: "customer-alpha-green-12", module: "module.sales", pluginVersion: releaseVersion });
     assert.deepEqual((await pool.query("select step_id, last_id from p9_static_backfill_checkpoint")).rows, [{ step_id: "migration-backfill-12", last_id: 3 }]);
 
     trafficProbe.transition("rollback", ["customer-alpha-green-12", blue.generationId]);
@@ -2495,7 +2503,7 @@ test("proves distinct customer binaries and deployment processes recover from Po
     const providerManifest = JSON.parse(await readFile(join(repositoryRoot, "packages", "realtime-socketio", "k-nex.plugin.json"), "utf8"));
     assert.doesNotThrow(() => assertPlatformPluginUninstallSupported(providerManifest));
     const providerExtension = { deliveryClass: "platform-plugin", id: "provider.realtime.socketio" };
-    const providerGeneration = { ...lifecycleSales.activeGeneration, version: "1.0.0" };
+    const providerGeneration = { ...lifecycleSales.activeGeneration, version: releaseVersion };
     assert.equal(providerGeneration.generationId, staticStateBeforeUninstall.active.generationId, "The bounded provider bootstrap fixture must bind the exact current static application generation.");
     assert.equal(staticStateBeforeUninstall.revision, 5, "The provider fixture bootstrap must bind the current static deployment revision.");
     const providerAuthorizationProjector = new AuthorizationLifecycleProjector(
@@ -2526,7 +2534,7 @@ test("proves distinct customer binaries and deployment processes recover from Po
     }
     const providerRequest = {
       applicationId: owner.applicationId, environment: owner.environment, extension: providerExtension,
-      operation: "uninstall", targetVersion: "1.0.0", expectedRevision: staticStateBeforeUninstall.revision,
+      operation: "uninstall", targetVersion: releaseVersion, expectedRevision: staticStateBeforeUninstall.revision,
       idempotencyKey: "static-uninstall-realtime-provider-13", correlationId: "static-uninstall-realtime-provider-13"
     };
     const providerRequestDigest = digestJson(providerRequest);
@@ -2543,7 +2551,7 @@ test("proves distinct customer binaries and deployment processes recover from Po
     const providerApproved = {
       operationId: providerOperationId,
       applicationId: owner.applicationId, environment: owner.environment,
-      plugin: { id: providerExtension.id, version: "1.0.0", packageSpec: "file:packages/k-nex-provider-realtime-socketio-1.0.0.tgz" },
+      plugin: { id: providerExtension.id, version: releaseVersion, packageSpec: `file:packages/k-nex-provider-realtime-socketio-${releaseVersion}.tgz` },
       operation: "uninstall", generationId: providerGenerationId, currentGenerationId: providerGeneration.generationId,
       expectedRevision: providerRequest.expectedRevision, releaseSequence: 13,
       authority: { identity: "github-app:k-nex-change-authority" }, authorization: providerAuthorization,
@@ -2631,7 +2639,7 @@ test("proves distinct customer binaries and deployment processes recover from Po
     deploymentBoundary.url = supervisorUrl;
     staticReleases.url = supervisorUrl;
     const providerPlan = {
-      schemaVersion: 1, planId: "provider-uninstall-13", operation: "uninstall", version: "1.0.0",
+      schemaVersion: 1, planId: "provider-uninstall-13", operation: "uninstall", version: releaseVersion,
       artifactDigest: providerBuild.change.change.plugin.releaseManifestDigest, expectedRevision: providerRequest.expectedRevision,
       currentGenerationId: providerGeneration.generationId, targetGenerationId: providerGenerationId,
       approvalRequired: true, rollback: { available: true, windowSeconds: 86_400 },

@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 import { execFile } from "node:child_process";
 import { createHash, sign } from "node:crypto";
-import { readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
@@ -28,13 +28,14 @@ if (!role || !databaseUrl || !instance) throw new Error("Phase 9 process topolog
 const pool = new pg.Pool({ connectionString: databaseUrl, max: 2 });
 const sha256 = (value) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
 const digestJson = (value) => sha256(canonicalJson(value));
-const operatorPackages = Object.freeze([
-  { name: "@k-nex/contracts", version: "1.0.0", path: "static-deployment/operator-packages/k-nex-contracts-1.0.0.tgz" },
-  { name: "@k-nex/composition", version: "1.0.0", path: "static-deployment/operator-packages/k-nex-composition-1.0.0.tgz" },
-  { name: "@k-nex/extension-bundler", version: "1.0.0", path: "static-deployment/operator-packages/k-nex-extension-bundler-1.0.0.tgz" },
-  { name: "@k-nex/runtime", version: "1.0.0", path: "static-deployment/operator-packages/k-nex-runtime-1.0.0.tgz" },
-  { name: "@k-nex/payload-adapter", version: "1.0.0", path: "static-deployment/operator-packages/k-nex-payload-adapter-1.0.0.tgz" }
-]);
+// The approved closure is the workspace release the proof packs, read from the
+// repository rather than from the approved input or customer source it checks.
+const releaseVersion = JSON.parse(readFileSync(new URL("../../../modules/sales/package.json", import.meta.url), "utf8")).version;
+const salesArchive = `packages/k-nex-module-sales-${releaseVersion}.tgz`;
+const providerArchive = `packages/k-nex-provider-realtime-socketio-${releaseVersion}.tgz`;
+const operatorPackages = Object.freeze(["contracts", "composition", "extension-bundler", "runtime", "payload-adapter"].map((name) => ({
+  name: `@k-nex/${name}`, version: releaseVersion, path: `static-deployment/operator-packages/k-nex-${name}-${releaseVersion}.tgz`
+})));
 const sourceFiles = Object.freeze([
   "k-nex.app.json", "package.json", "package-lock.json", ".k-nex/generated/environment-schema.ts", ".k-nex/generated/k-nex.resolved.json", ".k-nex/generated/payload-contributions.ts", ".k-nex/generated/plugin-registry.ts", ".k-nex/generated/runtime-registration.ts", ".k-nex/generated/resolved-graph.json",
   "tsconfig.json", "src/boot.ts", "src/current-authority.ts", "src/k-nex-readiness.ts", "src/k-nex-registry.ts", "src/payload.config.ts", ...readdirSync(new URL("../src/migrations/", import.meta.url)).sort().map((name) => `src/migrations/${name}`),
@@ -89,12 +90,12 @@ async function fileDigest(path) { return sha256(await readFile(path)); }
 async function composition(sourceDirectory) {
   const pkg = await readJson(join(sourceDirectory, "package.json"));
   const salesTarball = pkg.dependencies?.["@k-nex/module-sales"]?.replace("file:", "");
-  if (salesTarball !== "packages/k-nex-module-sales-1.0.0.tgz") throw new Error("Customer package closure is not an approved module.sales archive.");
+  if (salesTarball !== salesArchive) throw new Error("Customer package closure is not an approved module.sales archive.");
   const providerTarball = pkg.dependencies?.["@k-nex/provider-realtime-socketio"]?.replace("file:", "");
-  if (providerTarball && providerTarball !== "packages/k-nex-provider-realtime-socketio-1.0.0.tgz") throw new Error("Customer package closure contains an unapproved realtime provider archive.");
+  if (providerTarball && providerTarball !== providerArchive) throw new Error("Customer package closure contains an unapproved realtime provider archive.");
   const digests = Object.fromEntries(await Promise.all([...sourceFiles, salesTarball, ...(providerTarball ? ["src/k-nex-provider-registry.ts", providerTarball] : [])].map(async (path) => [path, await fileDigest(join(sourceDirectory, path))])));
   const pluginVersion = (await readJson(join(sourceDirectory, "static-deployment/release.json"))).plugin.version;
-  const packageClosure = [{ name: "@k-nex/module-sales", version: pluginVersion, path: salesTarball }, ...(providerTarball ? [{ name: "@k-nex/provider-realtime-socketio", version: "1.0.0", path: providerTarball }] : []), ...operatorPackages]
+  const packageClosure = [{ name: "@k-nex/module-sales", version: pluginVersion, path: salesTarball }, ...(providerTarball ? [{ name: "@k-nex/provider-realtime-socketio", version: releaseVersion, path: providerTarball }] : []), ...operatorPackages]
     .map((item) => ({ ...item, digest: digests[item.path] }));
   return {
     composition: {
@@ -243,8 +244,8 @@ async function sourceAuthority() {
   if (!approvedDigest || !/^[0-9a-f]{40}$/u.test(expectedBase ?? "")) throw new Error("Source authority requires fixed approved input and expected base digests.");
   if (await fileDigest(approvedPath) !== approvedDigest) throw new Error("Source authority rejected altered approved input.");
   const approved = await readJson(approvedPath);
-  const salesUpdate = approved.plugin?.id === "module.sales" && approved.plugin?.version === "1.0.0" && approved.plugin?.packageSpec === "file:packages/k-nex-module-sales-1.0.0.tgz" && (approved.operation ?? "update") === "update";
-  const providerUninstall = approved.plugin?.id === "provider.realtime.socketio" && approved.plugin?.version === "1.0.0" && approved.plugin?.packageSpec === "file:packages/k-nex-provider-realtime-socketio-1.0.0.tgz" && approved.operation === "uninstall";
+  const salesUpdate = approved.plugin?.id === "module.sales" && approved.plugin?.version === releaseVersion && approved.plugin?.packageSpec === `file:${salesArchive}` && (approved.operation ?? "update") === "update";
+  const providerUninstall = approved.plugin?.id === "provider.realtime.socketio" && approved.plugin?.version === releaseVersion && approved.plugin?.packageSpec === `file:${providerArchive}` && approved.operation === "uninstall";
   if (approved.applicationId !== "customer-alpha" || approved.environment !== "production" || (!salesUpdate && !providerUninstall)) {
     throw new Error("Source authority rejected an unapproved static composition request.");
   }
@@ -280,7 +281,7 @@ async function sourceAuthority() {
       .trim().split("\n").filter(Boolean).sort();
     if (mutated.length === 0) throw new Error("Source authority rejected an empty approved composition change.");
     await git(sourceDirectory, ["add", "--all"]);
-    await git(sourceDirectory, ["commit", "--quiet", "-m", providerUninstall ? "customer: uninstall realtime provider" : "customer: rebuild module.sales 1.0.0"]);
+    await git(sourceDirectory, ["commit", "--quiet", "-m", providerUninstall ? "customer: uninstall realtime provider" : `customer: rebuild module.sales ${releaseVersion}`]);
     const targetSourceCommit = await sourceCommit(sourceDirectory);
     const target = await composition(sourceDirectory);
     const result = { schemaVersion: 1, applicationId: approved.applicationId, environment: approved.environment, expectedBase, targetSourceCommit, base: base.composition, target: target.composition, plugin: { id: approved.plugin.id, version: approved.plugin.version }, approvedInputDigest: approvedDigest, mutated };
