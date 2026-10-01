@@ -75,7 +75,7 @@ function scopedStaticRegistration(includeRealtimeProvider = false) {
         integrity: "sha512-c2FsZXM=", required: [], optional: []
       })),
       capabilityProviders: includeRealtimeProvider
-        ? [{ capability: "realtime.gateway", plugin: providerManifest.id, version: providerManifest.version }]
+        ? [{ capability: "realtime.gateway", plugin: providerManifest.id, version: providerManifest.provides.find(({ capability }) => capability === "realtime.gateway").version }]
         : [],
       registrationOrder: plugins.map(({ manifest }) => manifest.id)
     },
