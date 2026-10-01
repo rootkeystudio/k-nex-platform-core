@@ -1,66 +1,31 @@
 # Project Status
 
-- **Updated:** 2026-09-18
-- **Phase:** Phase 13 — CRM-First Productization and Pilot Readiness
-- **Active task:** P13.10 — Gate 13 limited-beta closeout (re-review response)
+- **Updated:** 2026-10-01
+- **Phase:** Phase 13 — CRM-First Productization and Pilot Readiness (merged in PR #35; decision REWORK, automated fixture readiness only)
+- **Active task:** Generated-application first-run repair — PR #37, branch `fix/generated-application-first-run`
 - **State:** In progress
 
 ## Last completed
 
-PR #35's immutable `1.0.0`, coordinated `1.1.0` train, transition attestation, Sales boundary, upload budget, ADR identity, and real generated-repository upgrade blockers are closed. P13.9 executes the accepted Phase 12 factory from its frozen 1.0 closure, preserves the full source manifest/customer/template state, materializes deterministic isolated 1.1 worktrees, and proves the shipped factory's exact byte-stable nine-migration 1.0 prefix plus its ten 1.1 additions. The attested transition policy now derives that registry from the shipped compiler boundary instead of the hand-maintained fixture lineage, which had silently omitted `20260906_000029_attachment_upload_admissions` from the signed migration set. Focused Gate 13 now builds the fixture's exact transitive workspace prerequisites in clean checkouts before building the fixture.
-
-## Review findings closed
-
-From the first review round:
-
-- `create-knex-app` supplied no reporting currency and had no flag for one, while readiness requires the settings the factory seeds from it, so the default invocation could never report ready.
-- The current compiler generated applications pinned to the frozen 1.0.0 release whose packages lack the Phase 13 CRM exports, so `create-knex-app --release-version 1.0.0` produced an application that failed at `payload migrate`. Generation now fails closed for any release but this compiler's own.
-- The generated users collection allowed a session to rewrite its own sign-in credentials with no current-password challenge, verified reset, or administrative recovery anywhere in the product.
-- Hosted attestation calls let `gh` check only the repository; they now pass `--signer-workflow` and `--deny-self-hosted-runners` so the signer identity is enforced by the verifier rather than re-derived from its output.
-- Pull requests ran no unit suites at all. A fast unit job now runs every package and module suite; three suites had been failing unnoticed behind version literals a release bump left behind.
-
-From the exact-head re-review:
-
-- The attested transition policy was authored from the hand-maintained fixture migration lineage rather than the registry the factory ships, so the signed migration set omitted `20260906_000029_attachment_upload_admissions`. It now derives from the shipped compiler boundary, and a release-authority input check walks the import graph so no attested input can read that lineage again.
-- An application upgraded from 1.0 could never report ready: readiness exact-matches the release identity in `k_nex_release_revision`, the append-only 1.0 bootstrap still named 1.0.0, and nothing advanced it. A release is now one canonical record, written last as a completion receipt once the applied ledger is exactly the declared set, so a fresh installation and an upgraded database carry the identical tuple; a real PostgreSQL proof covers both histories, every refused state, and the predecessor the next release would name.
-- The deployment proof rewrote the transition's offline-required steps as overlap-safe online expansions and claimed zero-downtime eligibility. That reclassification is what opened the promotion path at all, so the proof now asserts the refusal the supervisor actually returns for the accepted set, and the promotion journey is labelled as the hypothetical online transition it is.
-- Generated-file ownership, release locks, and the transition policy named `@k-nex/runtime` as the generator while the factory and upgrade compiler live in `@k-nex/composition`, so the managed-output contract digest bound bytes that generate nothing.
-- The Sales-reference expiry guard read the generated customer `package.json`, whose version the factory hard-codes, and so could never fire; it is bound to the platform release.
-- `gate:13:focused` failed on a missing `dist` before reaching any evidence; it now builds the workspace it reads.
-- Corpus outcomes were literals the gate then asserted; they are derived from the executed-proof set, and the gate re-verifies that linkage through a tested module.
-
-From the third exact-head re-review:
-
-- A completed release bypassed the exact-ledger proof forever: both release steps returned on the canonical tuple before reading `payload_migrations`, and readiness checked two scalar fields. A release row that was correct once is no longer treated as evidence that the database still matches it - the completion step validates the ledger before accepting an already-complete tuple, and readiness reads the canonical tuple, the recorded migration-set digest, and the applied ledger together.
-- The exact migration set bound names, not bytes: a migration changed under its own filename executed different SQL, recorded the expected name, and collected the receipt. The generated application now carries the digest of its own migration sources, records it in the completion receipt, and verifies it against the sources on disk before any declared step's first statement.
-- Payload only runs pending migrations, so a canonical database whose ledger lost a row would have had that step re-executed against a schema already past it. Every declared step is now admitted against the exact ledger prefix it was ordered against, inside its own transaction, so a refusal leaves schema, data, and ledger unchanged.
-- `executeMigrationJob` finalized by setting `predecessor_revision = revision`, which would have recreated the lineage-dependent tuple the canonical release record removes. It now refuses platform release identities outright; it remains the plugin migration primitive.
-- The "next release" claim compared the same canonical row twice. It is narrowed to what is proved: both 1.1 histories converge on one record, and a release names its predecessor by that predecessor's canonical record. A three-release proof needs a declared 1.2.0.
-
-From the fourth exact-head re-review:
-
-- The migration digest covered leaf migration filenames only, so `src/migrations/index.ts` - the registry that decides which implementation runs under each ledger name, and whether it is admitted at all - could be re-pointed while every hashed file stayed identical. The digest is now a closure over every migration source, the registry, and the verified package release manifest that identifies the archives those implementations execute from.
-- The guard was generated into the application it guarded and verified a constant in its own file. It now ships in `@k-nex/runtime`; the generated tree carries only the declaration, and the durable authority is the closure the database recorded before any later edit.
-- `assertMigrationSetIntegrity` memoized its first success, so within one `payload migrate` process only the first step actually re-read the files, and the proof hid this by re-evaluating the function body with a fresh cache. The guard no longer caches, and the proofs import the real module and mutate between calls in one process.
-- `assertPlatformReleaseReadiness` read the release row and `payload_migrations` in two statements, which a concurrent restore could cross. Both are now read in one statement, and a unit test asserts exactly one query.
-- The settled-rejection worker proof injected its failure into a worker whose shutdown watchdog the previous phase had shortened to 150ms, so it raced the watchdog and both outcomes exit nonzero; CI lost that race on this head. It now injects into the unshortened worker, where reporting the failure in under two seconds can only mean the shutdown did not wait for its 30s deadline.
-
-From the fifth exact-head re-review:
-
-- The receipt bound the release-manifest *file*, not the package bytes that execute. Nothing verified the packed archives, the selected factory lock, or the installed modules before `payload migrate` ran, and several declared steps are wrappers whose SQL lives in package code - so a drifted installed package could change customer data, with readiness discovering it only afterwards, which cannot undo a forward-only migration. The generated `knex:migrate` is now a command that proves the executable closure first: archive integrities, factory lock, and every released package's installed bytes compared file by file against the archive that declares them, with a package installed twice refused rather than resolved. The completion receipt records that closure and readiness re-proves it.
+- First run: `knex:register-generation` records the image's generation and seeds the runtime projection, bootstrap seeds the first pipeline and its six Stages, and the worker takes and renews the fence its generation owns. Graphite & Paper is the default theme, so the 1.1 release declares 18 packages.
+- Worker fence: `acquireWorkerFence` resumes only the holder's own lease, live or expired. Another identity's lease is refused even once it expires, because an effect claim checks the token rather than the owner; expired authority changes hands only through recovery, which advances the token.
+- Sign-in: the light accent is `#a8401c` (6.15:1 under white, 5.13:1 as small text); a Composition test holds every entry pairing at WCAG AA in both color schemes.
+- Gate 8: the hosted evidence check compared committed `--repo` verification records against a signer-enforced verification, but gh's `verifiedIdentity` reports the policy it enforced, so the comparison failed on `main` since `9391dc5`. Each record is now re-derived under the policy that produced it and must match exactly, and a second, signer-enforced verification must accept the identical signed statement, admit only `release-evidence.yml` on a GitHub-hosted runner, and feed the release authorities.
+- Supply chain: the `repository-evidence` audit failed on advisories published since 2026-09-28, including a critical `next` RCE (GHSA-vcvr-r3jv-pc5j). `next` is 16.3.6 in the workspace and in every generated application, generated applications pin `undici@7` to 7.29.1, and the workspace overrides `undici`, `fast-uri`, `engine.io`, `brace-expansion@2`, and `@grpc/grpc-js` to patched releases older than the seven-day `minimumReleaseAge`.
+- Proofs repaired, none loosened: P13.9 admission derives the package count from the carried manifest; P13.10 dates its activities in the month it runs and generates the default theme; Phase 9 static deployment packs and approves the release under test, selects `realtime.gateway` by capability version, and resumes the blue lease under the deployment lock; the Gate 5 publication theme version, the Phase 9 reclaim split, the P12.9 home marker, and the factory-lock contract test follow the 1.1 train.
 
 ## Validation
 
-Node 24.19/pnpm 11.9: every workspace unit suite PASS (Contracts 244, Composition 188, Runtime 601, Payload adapter 320, Sales 83, themes/UI, plus Sales boundary and pack reproducibility checks). Real PostgreSQL/Chromium proofs run individually on this head: the release-state proofs (canonical receipt for both histories, and a completed release that keeps proving its migration set), P13.9 repository preparation, P13.9 backup/restore and source protection, and the P13.4 generated configuration journey - which builds, migrates, boots, and serves a real generated application through the new per-step admission - all PASS. The 1.1 closure chain was regenerated and all 17 archive integrities plus both factory lock digests match the release manifest. The release-state proofs now run inside focused Gate 13 rather than only under `test:postgres`.
+Node 24.19/pnpm 11.9, Docker PostgreSQL and Chromium, local. On this branch's latest changes: Contracts, Composition 254, and Payload adapter 320 unit suites PASS; P13.9 admission, P13.10 browser readiness on the default theme (before and after restore), P13.3 worker shutdown, the new worker-fence acquisition proof (fails against the old takeover rule), and Phase 9 static deployment (395 s) PASS; the 1.1 closure is regenerated in order and every closure check PASS, with 1.0.0 untouched. A sweep at `4b9e52e` plus its three fixes ran every other Gate 1–12 step: all unit and browser suites, Gates 2–7 and 10–12 scripts, every other `test:postgres` file, and the Phase 9 corpus without its Linux-only runtime journey PASS. With the repaired check, `check-phase-8-generated-evidence.mjs` and `gate-8.mjs` PASS against the hosted bundles; a tampered committed record and a foreign signer workflow each fail it. All ten Phase 13 corpus groups (64 proofs) PASS locally on 2026-10-01, and `validate` PASS in CI on `56572fc`. After the dependency update: `pnpm audit --audit-level high` reports no high or critical advisory; every workspace unit suite, the fixture build, Gate 1 artifacts and reproducibility, the Gate 5 storage proof, P13.3 CRM browser, and P13.10 readiness PASS; the 1.1 closure regenerated (Composition archive, three locks resolving `next` 16.3.6 and `undici` 7.29.1) and every closure check PASS.
 
-`pnpm gate:13` still requires network and an authenticated `gh` through the Phase 8 evidence check, so the cumulative chain has not completed on any head.
+## Next
+
+Watch the exact-head `validate` run (pull requests run only `gate:13:focused`), then dispatch the cumulative `gate:13` on this branch: it runs only on `main` pushes or dispatch and has not completed since the 1.1 train.
 
 ## Out of Phase 13 acceptance
 
-Phase 13 delivers the CRM product, its generated application, and attested upgrade preparation: the customer repository is compiled, verified, and attested for the `1.0.0 → 1.1.0` transition. A customer-executed upgrade is not delivered. Phase 13 does not deliver customer upgrade execution, restartable restore authority, or maintenance promotion.
-
-Five capabilities are excluded: a shipped upgrade/deployment coordinator, an executable maintenance-window release transition, a generated 1.0 database to generated 1.1 database transition journey, restartable application-bound backup receipts, and effect-level worker fencing. The P13.9 section of `docs/implementation/phase-13-crm-first-productization.md` states each of them exactly and is the normative source; this record names them rather than restating them, and claims nothing beyond the outcome above.
+Phase 13 delivers the CRM product, its generated application, and attested `1.0.0 → 1.1.0` upgrade preparation, not a customer-executed upgrade. The five excluded capabilities are stated once, in the P13.9 section of `docs/implementation/phase-13-crm-first-productization.md`, which is the normative source.
 
 ## Blockers
 
-Limited beta remains blocked by five consecutive business days, two active human users, closed Sev-1/Sev-2 evidence, observed RTO/RPO, and product/Sales/security/operations sign-offs. The five excluded capabilities must either ship or stay excluded by explicit decision before any claim of a supervised customer upgrade.
+- Limited beta remains blocked by five consecutive business days, two active human users, closed Sev-1/Sev-2 evidence, observed RTO/RPO, and product/Sales/security/operations sign-offs; the five excluded capabilities must ship or stay excluded by explicit decision.

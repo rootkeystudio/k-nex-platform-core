@@ -614,8 +614,12 @@ const dataMovementPermissionIds = Object.freeze([
   "sales.imports.execute", "sales.exports.execute", "sales.records.merge",
   "sales.leads.read", "sales.leads.write", "sales.accounts.read", "sales.accounts.write", "sales.contacts.read", "sales.contacts.write"
 ] as const);
+// The provider-configuration read gateway demands the sales.settings.read
+// grant before it reads a single configuration row. Projecting only the write
+// grant made every read fail closed for every actor, including one holding the
+// read grant, so the Sales settings page could only ever answer "no access".
 const communicationsPermissionIds = Object.freeze([
-  "sales.communications.email.send", "sales.communications.calendar.sync", "sales.communications.metadata.read", "sales.settings.write", "sales.reminders.write", "sales.notifications.write"
+  "sales.communications.email.send", "sales.communications.calendar.sync", "sales.communications.metadata.read", "sales.settings.read", "sales.settings.write", "sales.reminders.write", "sales.notifications.write"
 ] as const);
 const reportPermissionIds = Object.freeze(["sales.exports.execute", "sales.reports.read", "sales.reports.schedule"] as const);
 const reportObjectPermissionIds = Object.freeze(["sales.activities.read", "sales.leads.read", "sales.opportunities.read", "sales.pipelines.read", "sales.tasks.read"] as const);
@@ -2010,9 +2014,25 @@ export function workspaceRedirect(path: string): Response {
   return Response.redirect(new URL(path, kNexIdentity.publicOrigin), 303);
 }
 
-export function workspaceMutationError(error: unknown): Response {
+/**
+ * Every refusal this application answers is deliberately opaque to the caller:
+ * a code, never a reason, so a probe cannot read the shape of what it cannot
+ * see. That is the right answer to send and the wrong one to keep. Without a
+ * server-side record, an operator holding a correlation ID has nothing to look
+ * it up in, and a genuine defect is indistinguishable from a denial.
+ *
+ * This writes the diagnosis where only the deployment can read it. The response
+ * is unchanged.
+ */
+export function reportWorkspaceFailure(boundary: string, error: unknown, correlationId?: string): void {
+  const detail = error instanceof Error ? (error.stack ?? error.name + ": " + error.message) : String(error);
+  console.error("K_NEX_WORKSPACE_FAILURE " + boundary + (correlationId === undefined ? "" : " " + correlationId) + "\\n" + detail);
+}
+
+export function workspaceMutationError(error: unknown, boundary = "workspace-mutation"): Response {
   const code = typeof error === "object" && error !== null && "code" in error && typeof error.code === "string" ? error.code : "INVALID_INPUT";
   const status = code === "NOT_FOUND" ? 404 : code === "ACCESS_DENIED" ? 403 : code === "REVISION_CONFLICT" || code === "STALE_RECORD" ? 409 : 400;
+  reportWorkspaceFailure(boundary + ":" + code, error);
   return Response.json({ code }, { status, headers: { "cache-control": "no-store" } });
 }
 `;

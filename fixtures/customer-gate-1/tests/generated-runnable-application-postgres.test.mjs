@@ -1024,6 +1024,11 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     const account = await pool.query(`insert into sales_accounts
       (application_id, environment, owner_id, created_by, updated_by, audit, name)
       values ($1,$2,$3,$3,$3,$4::jsonb,'Generated app account') returning id`, [applicationId, environmentName, ownerUserId, audit]);
+    // Bootstrap seeds the default pipeline, and exactly one may be active.
+    // This proof supplies its own, so it replaces the default first.
+    await pool.query("delete from sales_pipeline_stages where application_id=$1 and environment=$2", [applicationId, environmentName]);
+    await pool.query("delete from sales_pipelines where application_id=$1 and environment=$2", [applicationId, environmentName]);
+    await pool.query("delete from sales_saved_views where application_id=$1 and environment=$2", [applicationId, environmentName]);
     const pipeline = await pool.query(`insert into sales_pipelines
       (application_id, environment, created_by, updated_by, audit, name, ordered_stage_ids, is_active)
       values ($1,$2,$3,$3,$4::jsonb,'Generated app pipeline',$5::jsonb,true) returning id`,
@@ -1187,7 +1192,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     await page.getByText("Beta expansion moved to proposal.", { exact: true }).waitFor();
     const moved = await pool.query("select name, stage_id from sales_opportunities order by id");
     assert.deepEqual(moved.rows, [{ name: "Alpha renewal", stage_id: stageIds.discovery }, { name: "Beta expansion", stage_id: stageIds.proposal }]);
-    assert.equal(await page.locator('[data-k-nex-component="workspace-shell"]').getAttribute("data-k-nex-theme-profile"), inventoryBody.theme.activeRevisionId);
+    assert.equal(await page.locator('[data-k-nex-component="workspace-theme-root"]').getAttribute("data-k-nex-theme-profile"), inventoryBody.theme.activeRevisionId);
     await page.close();
 
     const workspacePageUrl = `${applicationProcess.origin}/workspace/pages/${encodeURIComponent(pageId)}`;
@@ -2023,7 +2028,10 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     const retiredSalesNavigation = await fetch(`${applicationProcess.origin}/`, { headers: { cookie: manager.cookie.header }, redirect: "manual" });
     assert.equal(retiredSalesNavigation.status, 200);
     const retiredSalesHtml = await retiredSalesNavigation.text();
-    assert.match(retiredSalesHtml, /K-Nex workspace/u, "Disabling Sales must not deny the host workspace.");
+    // The authenticated home is the workspace landing: the page header every
+    // workspace page uses, titled with the application. A denied workspace
+    // redirects or renders no landing at all.
+    assert.match(retiredSalesHtml, /<section class="workspace-landing"[^>]*><header data-k-nex-component="page-header"[^>]*><div data-slot="title">P12 Auth Proof<\/div>/u, "Disabling Sales must not deny the host workspace.");
     const retiredSystem = await fetch(`${applicationProcess.origin}/system/workspace-pages`, { headers: { cookie: manager.cookie.header }, redirect: "manual" });
     assert.equal(retiredSystem.status, 200, "Disabling Sales must not redirect fixed System routes.");
     const retiredDependentPage = await fetch(`${applicationProcess.origin}/workspace/pages/${encodeURIComponent(pageId)}`, { headers: { cookie: manager.cookie.header }, redirect: "manual" });

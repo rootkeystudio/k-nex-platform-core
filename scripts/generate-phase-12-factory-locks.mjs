@@ -48,7 +48,7 @@ const overrides = Object.fromEntries([
 const workspace = generatedPnpmWorkspace(overrides);
 const generated = [];
 
-for (const theme of ["minimal", "neobrutalism"]) {
+for (const theme of ["minimal", "neobrutalism", "graphite-paper"]) {
   const directory = mkdtempSync(join(tmpdir(), `k-nex-factory-lock-${theme}-`));
   try {
     const matches = readdirSync(mirror).filter((name) => new RegExp(`^factory-lock-sales-reference-${theme}-[0-9a-f]{64}\\.yaml$`, "u").test(name))
@@ -93,14 +93,14 @@ for (const theme of ["minimal", "neobrutalism"]) {
 }
 
 if (check) {
-  const existing = ["minimal", "neobrutalism"].flatMap((theme) => readdirSync(mirror)
+  const existing = ["minimal", "neobrutalism", "graphite-paper"].flatMap((theme) => readdirSync(mirror)
     .filter((name) => new RegExp(`^factory-lock-sales-reference-${theme}-[0-9a-f]{64}\\.yaml$`, "u").test(name))
     .filter((name) => readFileSync(resolve(mirror, name), "utf8").includes(`-${releaseVersion}.tgz`))).sort();
   if (existing.length !== generated.length || generated.some(({ filename, content }) => !existing.includes(filename) || readFileSync(resolve(mirror, filename), "utf8") !== content)) {
     throw new Error("Phase 12 factory lock templates are stale.");
   }
 } else {
-  for (const theme of ["minimal", "neobrutalism"]) {
+  for (const theme of ["minimal", "neobrutalism", "graphite-paper"]) {
     const current = readdirSync(mirror).filter((name) => new RegExp(`^factory-lock-sales-reference-${theme}-[0-9a-f]{64}\\.yaml$`, "u").test(name))
       .filter((name) => readFileSync(resolve(mirror, name), "utf8").includes(`-${releaseVersion}.tgz`));
     for (const filename of current) rmSync(resolve(mirror, filename));

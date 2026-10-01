@@ -16,11 +16,11 @@ export const ReleasePackageSchema = z.strictObject({
   peerCompatibility: FrameworkTupleSchema
 });
 
-const factoryLockTemplate = <Theme extends "minimal" | "neobrutalism">(theme: Theme) => z.strictObject({
+const factoryLockTemplate = <Theme extends "minimal" | "neobrutalism" | "graphite-paper">(theme: Theme) => z.strictObject({
   preset: z.literal("sales-reference"), theme: z.literal(theme), digest: z.string().regex(sha256DigestPattern)
 });
 
-export const FactoryLockTemplateSchema = z.discriminatedUnion("theme", [factoryLockTemplate("minimal"), factoryLockTemplate("neobrutalism")]);
+export const FactoryLockTemplateSchema = z.discriminatedUnion("theme", [factoryLockTemplate("minimal"), factoryLockTemplate("neobrutalism"), factoryLockTemplate("graphite-paper")]);
 
 export const PackageReleaseManifestSchema = z.strictObject({
   "$schema": z.string().optional(),
@@ -33,9 +33,13 @@ export const PackageReleaseManifestSchema = z.strictObject({
   }),
   framework: FrameworkTupleSchema,
   packages: z.array(ReleasePackageSchema).min(1),
+  // A release manifest is attested and immutable. A theme introduced after a
+  // release cannot appear in the manifest that release already signed, so its
+  // lock template is optional here and required by the release that ships it.
   factoryLockTemplates: z.strictObject({
     minimal: factoryLockTemplate("minimal"),
-    neobrutalism: factoryLockTemplate("neobrutalism")
+    neobrutalism: factoryLockTemplate("neobrutalism"),
+    "graphite-paper": factoryLockTemplate("graphite-paper").optional()
   }),
   supportWindow: z.strictObject({
     policy: z.literal("single-current-release"),

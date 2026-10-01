@@ -7,6 +7,7 @@ export const officialFirstPartyPackages = Object.freeze([
   "@k-nex/payload-adapter",
   "@k-nex/provider-realtime-socketio",
   "@k-nex/runtime",
+  "@k-nex/theme-graphite-paper",
   "@k-nex/theme-minimal",
   "@k-nex/theme-neobrutalism",
   "@k-nex/ui-builder-blocks",

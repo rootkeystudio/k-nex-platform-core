@@ -42,6 +42,25 @@ describe("Minimal theme", () => {
     expect(presentation.cssVariables["--k-nex-admin-color-background"]).toBe("#ffffff");
   });
 
+  /**
+   * Layout ships with the theme, so the shell's own behavior is the theme's to
+   * carry. The generated application's stylesheet no longer holds these rules,
+   * and an installed theme that dropped them would collapse a sidebar into
+   * both navigations at once.
+   */
+  it("lays out the workspace shell, including its collapsed icon rail", () => {
+    const css = minimalThemePackage.structuralCss;
+    expect(css).toContain(".workspace-shell");
+    expect(css).toContain(".workspace-sidebar");
+    expect(css).toContain(".workspace-header");
+    expect(css).toContain('.workspace-shell[data-sidebar="collapsed"] .workspace-desktop-navigation-expanded');
+    expect(css).toContain('.workspace-shell[data-sidebar="collapsed"] .workspace-desktop-navigation-rail');
+    expect(css).toContain('.workspace-desktop-navigation-rail .workspace-rail-item[data-active]');
+    for (const component of ["data-grid", "page-header", "filter-bar", "empty-state", "form-actions", "builder-controls"]) {
+      expect(css).toContain(`[data-k-nex-component="${component}"]`);
+    }
+  });
+
   it("rejects unknown or malformed token overrides", () => {
     expect(() => resolveMinimalThemeProfile({ ...profile("light", "light"), values: { "color.unknown": "#ffffff" } })).toThrow("Theme profile values do not satisfy the installed package schema.");
     expect(() => resolveMinimalThemeProfile({ ...profile("light", "light"), values: { "color.accent": "red" } })).toThrow("Theme token strings must be bounded literal CSS values.");

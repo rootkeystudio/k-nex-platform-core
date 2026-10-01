@@ -190,7 +190,11 @@ export function AccessiblePuckControls({ state, dispatch, components = [] }: Acc
     if (actions !== undefined) for (const action of actions) dispatch(action);
   };
 
-  return createElement("section", { "aria-label": "Canvas block keyboard controls", "data-k-nex-accessible-builder-controls": true }, [
+  // The controls carry a component hook so the installed theme lays them out
+  // as one toolbar. Without it they stacked as bare labels and selects over the
+  // canvas, which is how a keyboard path that exists for accessibility ends up
+  // looking like a defect.
+  return createElement("section", { "aria-label": "Canvas block keyboard controls", "data-k-nex-accessible-builder-controls": true, "data-k-nex-component": "builder-controls", "data-slot": "root" }, [
     createElement("label", { key: "component" }, [
       createElement("span", { key: "label" }, "Block to add"),
       createElement("select", {

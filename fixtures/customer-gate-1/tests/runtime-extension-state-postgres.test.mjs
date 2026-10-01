@@ -920,7 +920,12 @@ test("reclaims expired operation leases without touching live work or double-rel
       storeA.reconcileExpiredOperations({ applicationId: "customer-alpha", environment: "production" }),
       storeB.reconcileExpiredOperations({ applicationId: "customer-alpha", environment: "production" })
     ]);
-    assert.deepEqual(reclaimed.sort((left, right) => left - right), [0, 2]);
+    // Reconcilers take each candidate's identity lock with a try-lock and skip
+    // identities another reconciler holds, instead of row-locking the batch, so
+    // two concurrent passes may split it between them. Which one reclaims an
+    // operation is a race; that each is reclaimed exactly once is not.
+    assert.equal(reclaimed.reduce((total, count) => total + count, 0), 2, "Concurrent reconcilers must reclaim each expired operation exactly once.");
+    assert.equal(await storeB.reconcileExpiredOperations({ applicationId: "customer-alpha", environment: "production" }), 0, "A completed reclamation must leave nothing to reclaim again.");
     assert.equal((await storeA.readOperation(abandonedA.operationId)).phase, "failed");
     assert.equal((await storeA.readOperation(abandonedBClaim.operation.operationId)).phase, "failed");
     assert.equal((await storeA.readOperation(live.operationId)).phase, "planning");

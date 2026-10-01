@@ -84,7 +84,7 @@ import { notFound } from "next/navigation";
 import { SystemRolesPage } from "@k-nex/ui-pages";
 
 import { bootKnexApplication } from "../../../../../boot.js";
-import { authorizeRequest, currentSystemAdministrationNavigation, kNexRequestContext } from "../../../../../k-nex-authority.js";
+import { authorizeRequest, currentSystemAdministrationNavigation, kNexRequestContext, reportKnexRouteFailure } from "../../../../../k-nex-authority.js";
 import { systemAccessAdministration } from "../../../../../k-nex-system-access.js";
 
 export const dynamic = "force-dynamic";
@@ -101,7 +101,7 @@ export default async function SystemAccessRolesPage() {
       roles: roles.roles.map((role, index) => ({ id: role.id, label: role.label, href: "/system/access/roles/" + encodeURIComponent(role.id), permissionCount: String(details[index]!.grants.length), assignmentCount: String(details[index]!.assignments.length), state: role.protectedRoleId === undefined ? "active" : "protected" })),
       ...(canManage ? { createRole: { label: "Create role", form: { actionUrl: "/api/system/access/roles", inputs: [{ name: "id", label: "Role ID", type: "text" }, { name: "label", label: "Role label", type: "text" }] } } } : {})
     }} />;
-  } catch { notFound(); }
+  } catch (error) { reportKnexRouteFailure(context, error); notFound(); }
 }
 
 `;
@@ -114,7 +114,7 @@ import { notFound } from "next/navigation";
 import { SystemRoleDetailPage } from "@k-nex/ui-pages";
 
 import { bootKnexApplication } from "../../../../../../boot.js";
-import { authorizeRequest, currentSystemAdministrationNavigation, kNexRequestContext } from "../../../../../../k-nex-authority.js";
+import { authorizeRequest, currentSystemAdministrationNavigation, kNexRequestContext, reportKnexRouteFailure } from "../../../../../../k-nex-authority.js";
 import { accessPermissionGroups, accessRouteId, systemAccessAdministration } from "../../../../../../k-nex-system-access.js";
 
 export const dynamic = "force-dynamic";
@@ -132,7 +132,7 @@ export default async function SystemAccessRoleDetailPage({ params }: Readonly<{ 
       activePermissionGroups: accessPermissionGroups(permissions.active, roleId, detail.grants, canManage && detail.role.protectedRoleId === undefined), templates: [],
       inactiveDiagnostics: detail.grants.filter((grant) => grant.state === "inactive").map((grant) => ({ id: grant.grant.id, label: grant.grant.permissionId, state: grant.inactiveReason ?? "inactive", detail: "This grant remains visible but cannot authorize." }))
     }} />;
-  } catch { notFound(); }
+  } catch (error) { reportKnexRouteFailure(context, error); notFound(); }
 }
 
 `;
@@ -145,7 +145,7 @@ import { notFound } from "next/navigation";
 import { SystemPermissionsPage } from "@k-nex/ui-pages";
 
 import { bootKnexApplication } from "../../../../../boot.js";
-import { currentSystemAdministrationNavigation, kNexRequestContext } from "../../../../../k-nex-authority.js";
+import { currentSystemAdministrationNavigation, kNexRequestContext, reportKnexRouteFailure } from "../../../../../k-nex-authority.js";
 import { systemAccessAdministration } from "../../../../../k-nex-system-access.js";
 
 export const dynamic = "force-dynamic";
@@ -159,7 +159,7 @@ export default async function SystemAccessPermissionsPage() {
       ...permissions.active.flatMap((group) => group.permissions.map((permission) => ({ id: permission.descriptor.id, label: permission.descriptor.title, owner: group.owner.kind === "platform" ? "Platform system" : group.owner.extensionId, resource: group.resource, operation: group.operation, state: "active" }))),
       ...permissions.inactive.map(({ snapshot }) => ({ id: snapshot.id, label: snapshot.permission.title, owner: snapshot.owner?.kind === "platform" ? "Platform system" : snapshot.owner?.extensionId ?? "Unavailable", resource: snapshot.permission.resource, operation: snapshot.permission.operation, state: snapshot.state, detail: "Administrative diagnostic only; it cannot authorize." }))
     ] }} />;
-  } catch { notFound(); }
+  } catch (error) { reportKnexRouteFailure(context, error); notFound(); }
 }
 
 `;
@@ -172,7 +172,7 @@ import { notFound } from "next/navigation";
 import { SystemAssignmentsPage } from "@k-nex/ui-pages";
 
 import { bootKnexApplication } from "../../../../../boot.js";
-import { authorizeRequest, currentSystemAdministrationNavigation, kNexRequestContext } from "../../../../../k-nex-authority.js";
+import { authorizeRequest, currentSystemAdministrationNavigation, kNexRequestContext, reportKnexRouteFailure } from "../../../../../k-nex-authority.js";
 import { systemAccessAdministration } from "../../../../../k-nex-system-access.js";
 
 export const dynamic = "force-dynamic";
@@ -192,7 +192,7 @@ export default async function SystemAccessAssignmentsPage() {
         ...(assignment.state === "active" && mutable ? { revoke: { label: "Revoke " + assignment.id, form: { actionUrl: "/api/system/access/assignments/" + encodeURIComponent(assignment.id) + "/revoke" } } } : {})
       }; })
     }} />;
-  } catch { notFound(); }
+  } catch (error) { reportKnexRouteFailure(context, error); notFound(); }
 }
 
 `;
@@ -205,7 +205,7 @@ import { notFound } from "next/navigation";
 import { SystemAuthorizationAuditPage } from "@k-nex/ui-pages";
 
 import { bootKnexApplication } from "../../../../../boot.js";
-import { currentSystemAdministrationNavigation, kNexRequestContext } from "../../../../../k-nex-authority.js";
+import { currentSystemAdministrationNavigation, kNexRequestContext, reportKnexRouteFailure } from "../../../../../k-nex-authority.js";
 import { systemAccessAdministration } from "../../../../../k-nex-system-access.js";
 
 export const dynamic = "force-dynamic";
@@ -216,7 +216,7 @@ export default async function SystemAccessAuditPage() {
   try {
     const audits = await systemAccessAdministration(payload).audits({ context, limit: 100 });
     return <SystemAuthorizationAuditPage view={{ navigation: await currentSystemAdministrationNavigation(payload, context), title: "Authorization audit", events: audits.map(({ audit, occurredAt }) => ({ id: audit.auditId, occurredAt, outcome: audit.outcome, reason: audit.reason, permission: audit.permissionId, owner: audit.owner.kind === "platform" ? "Platform system" : audit.owner.extensionId, revision: audit.authorizationRevision + "/" + audit.lifecycleRevision })) }} />;
-  } catch { notFound(); }
+  } catch (error) { reportKnexRouteFailure(context, error); notFound(); }
 }
 
 `;

@@ -54,7 +54,8 @@ const supportManifest = {
   ],
   factoryLockTemplates: {
     minimal: { preset: "sales-reference", theme: "minimal", digest: digest("1") },
-    neobrutalism: { preset: "sales-reference", theme: "neobrutalism", digest: digest("2") }
+    neobrutalism: { preset: "sales-reference", theme: "neobrutalism", digest: digest("2") },
+    "graphite-paper": { preset: "sales-reference", theme: "graphite-paper", digest: digest("3") }
   },
   supportWindow: { policy: "single-current-release", supportedReleases: ["1.0.0"], securityFixes: "all-supported-releases" }
 } as const satisfies PackageReleaseManifest;

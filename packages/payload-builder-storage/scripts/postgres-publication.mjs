@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
 import { postgresAdapter } from "@payloadcms/db-postgres";
-import { resolveMinimalThemeProfile } from "@k-nex/theme-minimal";
+import { minimalThemePackage, resolveMinimalThemeProfile } from "@k-nex/theme-minimal";
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import pg from "pg";
 import { buildConfig, createPayloadRequest, getPayload } from "payload";
@@ -80,7 +80,7 @@ try {
   });
 
   const themeProfile = {
-    schemaVersion: 1, id: "theme-profile.public-default", surface: "public", themeId: "theme.minimal", themeVersion: "1.0.0", palette: "light", mode: "light", values: {},
+    schemaVersion: 1, id: "theme-profile.public-default", surface: "public", themeId: "theme.minimal", themeVersion: minimalThemePackage.version, palette: "light", mode: "light", values: {},
     revision: { id: "theme-revision.minimal-1", number: 1, state: "published", createdAt: "2026-08-27T00:00:00.000Z", publishedAt: "2026-08-27T00:01:00.000Z" }
   };
   const themeRow = await payload.create({ collection: "k-nex-theme-profile-revisions", data: { revisionId: themeProfile.revision.id, state: "published", profile: themeProfile }, overrideAccess: true });

@@ -22,7 +22,7 @@ if (!/^\d+\.\d+\.\d+$/u.test(releaseVersion) || args.some((arg, index) => arg.st
 }
 
 function factoryLockTemplates() {
-  return Object.fromEntries(["minimal", "neobrutalism"].map((theme) => {
+  return Object.fromEntries(["minimal", "neobrutalism", "graphite-paper"].map((theme) => {
     const matches = readdirSync(artifacts).filter((name) => new RegExp(`^factory-lock-sales-reference-${theme}-[0-9a-f]{64}\\.yaml$`, "u").test(name));
     const versioned = matches.filter((name) => readFileSync(resolve(artifacts, name), "utf8").includes(`-${releaseVersion}.tgz`));
     if (versioned.length !== 1) throw new Error(`Expected exactly one ${releaseVersion} ${theme} factory lock template.`);

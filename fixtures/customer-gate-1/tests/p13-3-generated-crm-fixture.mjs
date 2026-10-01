@@ -266,6 +266,13 @@ async function seedRecords(pool, ids) {
   const repAccountId = await insertAccount("Representative account", ids.representative, `team:${ids.representative}`);
   const page2AccountName = "P13 page 2 account 26";
   for (let index = 1; index <= 26; index += 1) await insertAccount(index === 26 ? page2AccountName : `P13 pagination account ${index}`);
+  // Bootstrap seeds the default pipeline every generated application opens
+  // with, and exactly one pipeline may be active. This corpus supplies its own
+  // controlled pipeline and Stage probabilities, so it replaces the default
+  // rather than competing with it.
+  await pool.query("delete from sales_pipeline_stages where application_id=$1 and environment=$2", [applicationId, environmentName]);
+  await pool.query("delete from sales_pipelines where application_id=$1 and environment=$2", [applicationId, environmentName]);
+  await pool.query("delete from sales_saved_views where application_id=$1 and environment=$2", [applicationId, environmentName]);
   const pipeline = (await pool.query("insert into sales_pipelines (application_id,environment,created_by,updated_by,name,ordered_stage_ids,is_active) values ($1,$2,$3,$3,'Browser pipeline',$4::jsonb,true) returning id", [applicationId, environmentName, ids.owner, JSON.stringify(["qualification", "discovery", "proposal", "negotiation", "won", "lost"])])).rows[0];
   for (const [position, stageId] of ["qualification", "discovery", "proposal", "negotiation", "won", "lost"].entries()) {
     const opaqueId = opaqueStageId(pipeline.id, stageId);
@@ -338,7 +345,12 @@ async function seedRecords(pool, ids) {
   return { accountId, managerAccountId, managerOpportunityId, managerOpportunityAmount, managerOpportunityCurrency: "USD", repAccountId, representativeActorId: ids.representative, repOpportunityId, repOpportunityAmount, repOpportunityCurrency: "USD", page2AccountName, page2TimelineBody, candidateOwnerId: ids.candidate, pipelineId: String(pipeline.id), pipelineRevision: 1, qualificationStageId: opaqueStageId(pipeline.id, "qualification"), qualificationStageRevision: 1, contactId: String(contact.id), contactEmail: "owner-contact-secret@example.test", contactPhone, leadQualifyId: leadIds[0], leadArchiveId: leadIds[1], linkerLeadId: leadIds[2], leadEmail: "archive-secret@example.test", leadPhone, opportunityWinId, opportunityLossId, opportunityArchiveId, amount: "98765.43", activityId, activityCancelId, attachmentId: String(attachment.id), noteBody };
 }
 
-export async function withGeneratedCrmBrowserFixture(runBrowser) {
+/**
+ * `theme` selects the preset the factory generates the application with. The
+ * corpus defaults to the minimal reference theme; a proof about the product a
+ * customer receives passes the factory's own default.
+ */
+export async function withGeneratedCrmBrowserFixture(runBrowser, { theme = "minimal" } = {}) {
   const stage = (value) => process.stdout.write(`P13_3_CRM_FIXTURE_STAGE ${value}\n`);
   stage("container-start");
   const container = await new PostgreSqlContainer(image).withDatabase("p13_crm_browser").withStartupTimeout(120_000).start();
@@ -380,16 +392,18 @@ export async function withGeneratedCrmBrowserFixture(runBrowser) {
     const factory = await import(pathToFileURL(resolve(consumer, "node_modules/@k-nex/composition/dist/index.js")));
     const verifier = createFixtureDeploymentVerifier("b".repeat(40));
     const provisional = await verifier.verifyManifest(manifest);
-    for (const theme of ["minimal", "neobrutalism"]) {
-      const lockApp = resolve(directory, `lock-${theme}`);
-      factory.applyCreateKnexApplication(factory.planCreateKnexApplication({ applicationId: `p13-crm-lock-${theme}`, applicationName: "P13 CRM lock", theme, database: "external", primaryCurrency: "USD", packageSource: { kind: "packed-mirror", directory: mirror, authority: verifier.packageReleaseAuthority, release: provisional } }), lockApp);
+    // Every lock the release declares is rebuilt against the archives packed
+    // here, so any of its themes can be generated from this mirror.
+    for (const lockTheme of Object.keys(manifest.factoryLockTemplates)) {
+      const lockApp = resolve(directory, `lock-${lockTheme}`);
+      factory.applyCreateKnexApplication(factory.planCreateKnexApplication({ applicationId: `p13-crm-lock-${lockTheme}`, applicationName: "P13 CRM lock", theme: lockTheme, database: "external", primaryCurrency: "USD", packageSource: { kind: "packed-mirror", directory: mirror, authority: verifier.packageReleaseAuthority, release: provisional } }), lockApp);
       run("pnpm", ["install", "--lockfile-only", "--no-frozen-lockfile", "--ignore-scripts"], { cwd: lockApp, stdio: "pipe" });
       const lock = readFileSync(resolve(lockApp, "pnpm-lock.yaml")); const digest = `sha256:${createHash("sha256").update(lock).digest("hex")}`;
-      writeFileSync(resolve(mirror, `factory-lock-sales-reference-${theme}-${digest.slice(7)}.yaml`), lock); manifest.factoryLockTemplates[theme].digest = digest;
+      writeFileSync(resolve(mirror, `factory-lock-sales-reference-${lockTheme}-${digest.slice(7)}.yaml`), lock); manifest.factoryLockTemplates[lockTheme].digest = digest;
     }
     const release = await verifier.verifyManifest(manifest);
     const application = resolve(directory, "application");
-    factory.applyCreateKnexApplication(factory.planCreateKnexApplication({ applicationId, applicationName: "P13 CRM Browser", theme: "minimal", database: "external", primaryCurrency: "USD", packageSource: { kind: "packed-mirror", directory: mirror, authority: verifier.packageReleaseAuthority, release } }), application);
+    factory.applyCreateKnexApplication(factory.planCreateKnexApplication({ applicationId, applicationName: "P13 CRM Browser", theme, database: "external", primaryCurrency: "USD", packageSource: { kind: "packed-mirror", directory: mirror, authority: verifier.packageReleaseAuthority, release } }), application);
     run("pnpm", ["install", "--frozen-lockfile"], { cwd: application, stdio: "pipe" });
     const applicationRequire = createRequire(resolve(application, "package.json"));
     const payloadPostgresEntry = applicationRequire.resolve("@payloadcms/db-postgres");

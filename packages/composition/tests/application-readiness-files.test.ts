@@ -14,7 +14,12 @@ describe("generated application readiness", () => {
     expect(readiness).toContain('export const kNexApplicationReadyMarker = "K_NEX_APPLICATION_READY"');
     expect(readiness.indexOf("assertAdministrationOperatorConfiguration();")).toBeLessThan(readiness.indexOf("const { release } = reconcileSource(root);"));
     expect(route.match(/import \{ reconcileKnexReadiness \}/gu)).toHaveLength(1);
-    expect(doctor.match(/import \{ kNexApplicationReadyMarker, reconcileKnexReadiness \}/gu)).toHaveLength(1);
+    expect(doctor.match(/import \{ administrationOperatorListening, kNexApplicationReadyMarker, reconcileKnexReadiness \}/gu)).toHaveLength(1);
+    // Operator reachability is reported on every run, before the readiness
+    // marker, and only gates readiness when the deployment asks it to.
+    expect(doctor.indexOf("await administrationOperatorListening()")).toBeLessThan(doctor.indexOf("console.log(kNexApplicationReadyMarker)"));
+    expect(doctor).toContain("K_NEX_ADMINISTRATION_OPERATOR_UNREACHABLE");
+    expect(doctor).toContain("--require-operator");
     expect(route.match(/reconcileKnexReadiness\(payload\)/gu)).toHaveLength(1);
     expect(doctor.match(/reconcileKnexReadiness\(payload\)/gu)).toHaveLength(1);
     expect(doctor.indexOf("await reconcileKnexReadiness(payload)")).toBeLessThan(doctor.indexOf("console.log(kNexApplicationReadyMarker)"));

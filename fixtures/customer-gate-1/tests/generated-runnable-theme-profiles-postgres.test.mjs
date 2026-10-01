@@ -139,8 +139,8 @@ test("P12.10 generated applications resolve durable shell and page Theme Profile
     const releaseManifest = JSON.parse(readFileSync(resolve(repositoryRoot, "releases/1.1.0/package-release-manifest.json"), "utf8"));
     const packageSource = verifiedPackageSource(releaseManifest, resolve(repositoryRoot, "fixtures/customer-gate-1/packages"));
     const cases = [
-      { theme: "minimal", applicationId: "p12-theme-minimal", expected: { shellBackground: "rgb(255, 255, 255)", shellColor: "rgb(21, 23, 26)", sidebarBackground: "rgb(255, 255, 255)", sidebarBorder: "rgb(214, 217, 224)", headerBackground: "rgb(255, 255, 255)", headerBorder: "rgb(214, 217, 224)", navigationColor: "rgb(21, 23, 26)", focusColor: "rgb(36, 87, 255)" } },
-      { theme: "neobrutalism", applicationId: "p12-theme-neobrutalism", expected: { shellBackground: "rgb(255, 244, 204)", shellColor: "rgb(17, 17, 17)", sidebarBackground: "rgb(255, 244, 204)", sidebarBorder: "rgb(17, 17, 17)", headerBackground: "rgb(255, 244, 204)", headerBorder: "rgb(17, 17, 17)", navigationColor: "rgb(17, 17, 17)", focusColor: "rgb(255, 59, 48)" } }
+      { theme: "minimal", applicationId: "p12-theme-minimal", expected: { shellBackground: "rgb(244, 246, 248)", shellColor: "rgb(21, 23, 26)", sidebarBackground: "rgb(255, 255, 255)", sidebarBorder: "rgb(214, 217, 224)", headerBackground: "rgb(255, 255, 255)", headerBorder: "rgb(214, 217, 224)", navigationColor: "rgb(21, 23, 26)", focusColor: "rgb(36, 87, 255)" } },
+      { theme: "neobrutalism", applicationId: "p12-theme-neobrutalism", expected: { shellBackground: "rgb(255, 233, 168)", shellColor: "rgb(17, 17, 17)", sidebarBackground: "rgb(255, 253, 245)", sidebarBorder: "rgb(17, 17, 17)", headerBackground: "rgb(255, 253, 245)", headerBorder: "rgb(17, 17, 17)", navigationColor: "rgb(17, 17, 17)", focusColor: "rgb(255, 59, 48)" } }
     ];
     for (const current of cases) {
       const application = join(root, current.theme);

@@ -272,7 +272,7 @@ import { notFound } from "next/navigation";
 import { SystemExtensionsPage } from "@k-nex/ui-pages";
 
 import { bootKnexApplication } from "../../../../boot.js";
-import { currentSystemAdministrationNavigation, kNexRequestContext } from "../../../../k-nex-authority.js";
+import { currentSystemAdministrationNavigation, kNexRequestContext, reportKnexRouteFailure } from "../../../../k-nex-authority.js";
 import { systemExtensionAdministration } from "../../../../k-nex-system-extensions.js";
 
 export const dynamic = "force-dynamic";
@@ -283,7 +283,7 @@ export default async function SystemExtensionsRoute() {
   try {
     const extensions = await systemExtensionAdministration(payload).list({ context });
     return <SystemExtensionsPage view={{ navigation: await currentSystemAdministrationNavigation(payload, context), title: "Extensions", extensions: extensions.map((extension) => ({ id: extension.extension.deliveryClass + ":" + extension.extension.id + ":" + extension.version, label: extension.displayName, href: "/system/extensions/" + encodeURIComponent(extension.extension.id), deliveryClassLabel: extension.extension.deliveryClass, availabilityLabel: extension.availability, lifecycleLabel: extension.support + "/" + extension.review + "/" + extension.security, revision: extension.version })) }} />;
-  } catch { notFound(); }
+  } catch (error) { reportKnexRouteFailure(context, error); notFound(); }
 }
 
 `;
@@ -296,7 +296,7 @@ import { notFound } from "next/navigation";
 import { SystemExtensionDetailPage } from "@k-nex/ui-pages";
 
 import { bootKnexApplication } from "../../../../../boot.js";
-import { currentSystemAdministrationNavigation, kNexRequestContext } from "../../../../../k-nex-authority.js";
+import { currentSystemAdministrationNavigation, kNexRequestContext, reportKnexRouteFailure } from "../../../../../k-nex-authority.js";
 import { currentExtension, currentExtensionAction, extensionMutationContext, extensionOperationId, extensionStatusFor, extensionRouteId, issueExtensionPlanIntent, systemExtensionAdministration } from "../../../../../k-nex-system-extensions.js";
 
 export const dynamic = "force-dynamic";
@@ -320,7 +320,7 @@ export default async function SystemExtensionDetailRoute({ params, searchParams 
       actions: actions.map(({ action, intent }) => ({ label: "Plan " + action.action, form: { actionUrl: base + "/plan", hiddenFields: [{ name: "intent", value: intent }] } })),
       ...(operation && operation.phase !== "completed" ? { execute: { label: "Execute " + operation.operation, form: { actionUrl: base + "/operations/" + encodeURIComponent(operation.operationId) + "/execute", inputs: [{ name: "password", label: "Password", type: "password" }] } } } : {})
     }} />;
-  } catch { notFound(); }
+  } catch (error) { reportKnexRouteFailure(context, error); notFound(); }
 }
 
 `;

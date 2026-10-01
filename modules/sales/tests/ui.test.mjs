@@ -257,9 +257,12 @@ test("every Sales Puck block preserves source/action authority and DOM role pari
     assert.equal(editorMarkup, productionMarkup);
     const componentName = output.kind === "data-table" ? bridge.definition.id === "sales.saved-view-table" || bridge.definition.id.includes("task-table") ? "data-table" : "data-grid"
       : output.kind === "metric" || output.kind === "kanban" || output.kind === "detail" ? "query-boundary"
-        : output.kind === "calendar" ? "data-list"
+        : output.kind === "calendar" ? "sales-calendar"
         : output.kind === "data-list" ? "data-list" : output.kind === "form" ? "form" : "section";
     assert.match(productionMarkup, new RegExp(`data-k-nex-component="${componentName}"`));
+    // A period with no activities in it says so. It used to render the list
+    // element with nothing in it, which shows a heading over blank space.
+    if (output.kind === "calendar") assert.match(productionMarkup, /data-k-nex-component="(?:data-list|empty-state)"/u);
     if (bridge.definition.id.includes("task-table")) assert.match(productionMarkup, /<table\b/);
     if (bridge.definition.id.includes("metric")) assert.match(productionMarkup, /role="status"/);
     if (bridge.definition.id.includes("quick-create")) {

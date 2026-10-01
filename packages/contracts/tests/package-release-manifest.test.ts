@@ -9,7 +9,8 @@ const valid = {
   framework: supportedFrameworkTuple,
   factoryLockTemplates: {
     minimal: { preset: "sales-reference", theme: "minimal", digest: `sha256:${"1".repeat(64)}` },
-    neobrutalism: { preset: "sales-reference", theme: "neobrutalism", digest: `sha256:${"2".repeat(64)}` }
+    neobrutalism: { preset: "sales-reference", theme: "neobrutalism", digest: `sha256:${"2".repeat(64)}` },
+    "graphite-paper": { preset: "sales-reference", theme: "graphite-paper", digest: `sha256:${"3".repeat(64)}` }
   },
   packages: [
     { package: "@k-nex/runtime", version: "1.0.0", role: "core", integrity, peerCompatibility: supportedFrameworkTuple },
@@ -34,9 +35,13 @@ describe("package release manifest", () => {
     expect(PackageReleaseManifestSchema.safeParse({ ...valid, supportWindow: { ...valid.supportWindow, supportedReleases: ["1.0.0", "1.0.1"] } }).success).toBe(false);
   });
 
-  it("binds exactly the two content-addressed Sales factory lock templates", () => {
+  it("binds the content-addressed Sales factory lock templates, Graphite & Paper only from the release that ships it", () => {
     expect(PackageReleaseManifestSchema.safeParse({ ...valid, factoryLockTemplates: { minimal: valid.factoryLockTemplates.minimal } }).success).toBe(false);
     expect(PackageReleaseManifestSchema.safeParse({ ...valid, factoryLockTemplates: { ...valid.factoryLockTemplates, extra: valid.factoryLockTemplates.minimal } }).success).toBe(false);
     expect(PackageReleaseManifestSchema.safeParse({ ...valid, factoryLockTemplates: { ...valid.factoryLockTemplates, minimal: { ...valid.factoryLockTemplates.minimal, digest: "sha256:forged" } } }).success).toBe(false);
+    expect(PackageReleaseManifestSchema.safeParse({ ...valid, factoryLockTemplates: { ...valid.factoryLockTemplates, "graphite-paper": { ...valid.factoryLockTemplates["graphite-paper"], digest: "sha256:forged" } } }).success).toBe(false);
+    // A release signed before the theme existed cannot name its lock.
+    const { "graphite-paper": _introducedLater, ...signedBefore } = valid.factoryLockTemplates;
+    expect(PackageReleaseManifestSchema.safeParse({ ...valid, factoryLockTemplates: signedBefore }).success).toBe(true);
   });
 });

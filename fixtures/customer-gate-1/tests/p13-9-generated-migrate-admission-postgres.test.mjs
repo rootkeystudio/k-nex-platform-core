@@ -219,8 +219,13 @@ test("P13.9 generated migrate command proves the code it runs, and names what it
       const migrateStart = process.hrtime.bigint();
       const admitted = migrate(admittedDatabase.environment);
       const migrateMilliseconds = Number(process.hrtime.bigint() - migrateStart) / 1e6;
-      assert.match(admitted, /K_NEX_MIGRATE_ADMITTED sha256:[0-9a-f]{64} sha256:[0-9a-f]{64} 17/u,
-        "The generated command must report the executable closure and the recorded executable it admitted.");
+      // Every package the release this application carries declares, so a
+      // release that adds a theme moves the expectation with it, and a closure
+      // that proved fewer packages than the release names cannot pass.
+      const declaredPackages = JSON.parse(readFileSync(resolve(application, ".k-nex/package-release-manifest.json"), "utf8")).packages.length;
+      assert.ok(declaredPackages > 0, "The generated application must carry the release manifest its closure is proved against.");
+      assert.match(admitted, new RegExp(`^K_NEX_MIGRATE_ADMITTED sha256:[0-9a-f]{64} sha256:[0-9a-f]{64} ${declaredPackages}$`, "mu"),
+        "The generated command must report the executable closure, the recorded executable, and every package its release declares.");
       const receipt = (await admittedDatabase.pool.query("select revision, release_revision, migration_set_digest, release_closure from k_nex_release_revision")).rows;
       assert.equal(receipt.length, 1);
       assert.equal(receipt[0].release_revision, releaseIdentity, "An admitted migration must record the canonical release.");

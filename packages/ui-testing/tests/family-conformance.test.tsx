@@ -8,15 +8,15 @@ import { KNeXDesignSystemProvider, type SemanticPrimitives } from "@k-nex/ui-des
 import * as data from "@k-nex/ui-data";
 import * as forms from "@k-nex/ui-forms";
 import * as pages from "@k-nex/ui-pages";
-import { resolveMinimalThemeProfile } from "@k-nex/theme-minimal";
-import { resolveNeobrutalismThemeProfile } from "@k-nex/theme-neobrutalism";
+import { minimalThemePackage, resolveMinimalThemeProfile } from "@k-nex/theme-minimal";
+import { neobrutalismThemePackage, resolveNeobrutalismThemeProfile } from "@k-nex/theme-neobrutalism";
 import { createDataTableState, type DataTableDefinition } from "@k-nex/ui-data";
 import { salesUpdateTaskMutation } from "@k-nex/module-sales/browser";
 import { salesTasksTableDefinition } from "@k-nex/module-sales/pages";
 import { componentEvidenceMap, componentStateEvidence, validateComponentEvidenceMap } from "../src/index.js";
 
 const profile = (themeId: "theme.minimal" | "theme.neobrutalism", palette: string, revision: string) => ({
-  schemaVersion: 1, id: `theme-profile.${revision}`, surface: "public", themeId, themeVersion: "1.0.0", palette, mode: "light", values: {},
+  schemaVersion: 1, id: `theme-profile.${revision}`, surface: "public", themeId, themeVersion: themeId === "theme.minimal" ? minimalThemePackage.version : neobrutalismThemePackage.version, palette, mode: "light", values: {},
   revision: { id: `theme-revision.${revision}`, number: 1, state: "published", createdAt: "2026-08-27T00:00:00.000Z", publishedAt: "2026-08-27T00:01:00.000Z" }
 });
 const themes = [resolveMinimalThemeProfile(profile("theme.minimal", "light", "family-minimal")), resolveNeobrutalismThemeProfile(profile("theme.neobrutalism", "primary", "family-neo"))];
