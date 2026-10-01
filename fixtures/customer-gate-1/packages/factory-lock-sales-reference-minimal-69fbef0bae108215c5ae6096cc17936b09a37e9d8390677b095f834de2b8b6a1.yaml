@@ -24,6 +24,7 @@ overrides:
   '@k-nex/ui-pages': file:.k-nex/packages/k-nex-ui-pages-1.1.0.tgz
   '@k-nex/ui-runtime': file:.k-nex/packages/k-nex-ui-runtime-1.1.0.tgz
   '@puckeditor/core>@tanstack/react-virtual': 3.14.11
+  undici@7: 7.29.1
 
 patchedDependencies:
   '@payloadcms/db-postgres@3.88.0': 0889c7c61e08478410dfcb1112415677fa9f50267901ee15c99e3deb1c9edf2f
@@ -43,19 +44,19 @@ importers:
         version: file:.k-nex/packages/k-nex-contracts-1.1.0.tgz
       '@k-nex/module-sales':
         specifier: file:.k-nex/packages/k-nex-module-sales-1.1.0.tgz
-        version: file:.k-nex/packages/k-nex-module-sales-1.1.0.tgz(cd4b4a7a622eeea48a312e9d3f0e9b3e)
+        version: file:.k-nex/packages/k-nex-module-sales-1.1.0.tgz(532f79631824c04805eb5d1e7ef163af)
       '@k-nex/payload-adapter':
         specifier: file:.k-nex/packages/k-nex-payload-adapter-1.1.0.tgz
-        version: file:.k-nex/packages/k-nex-payload-adapter-1.1.0.tgz(graphql@16.14.2)(next@16.3.4(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4))(typescript@6.0.3)
+        version: file:.k-nex/packages/k-nex-payload-adapter-1.1.0.tgz(graphql@16.14.2)(next@16.3.6(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4))(typescript@6.0.3)
       '@k-nex/provider-realtime-socketio':
         specifier: file:.k-nex/packages/k-nex-provider-realtime-socketio-1.1.0.tgz
         version: file:.k-nex/packages/k-nex-provider-realtime-socketio-1.1.0.tgz(@k-nex/contracts@file:.k-nex/packages/k-nex-contracts-1.1.0.tgz)(@k-nex/runtime@file:.k-nex/packages/k-nex-runtime-1.1.0.tgz)
       '@k-nex/runtime':
         specifier: file:.k-nex/packages/k-nex-runtime-1.1.0.tgz
         version: file:.k-nex/packages/k-nex-runtime-1.1.0.tgz
-      '@k-nex/theme-graphite-paper':
-        specifier: file:.k-nex/packages/k-nex-theme-graphite-paper-1.1.0.tgz
-        version: file:.k-nex/packages/k-nex-theme-graphite-paper-1.1.0.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@k-nex/theme-minimal':
+        specifier: file:.k-nex/packages/k-nex-theme-minimal-1.1.0.tgz
+        version: file:.k-nex/packages/k-nex-theme-minimal-1.1.0.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@k-nex/ui-builder-blocks':
         specifier: file:.k-nex/packages/k-nex-ui-builder-blocks-1.1.0.tgz
         version: file:.k-nex/packages/k-nex-ui-builder-blocks-1.1.0.tgz(@floating-ui/dom@1.8.0)(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(typescript@6.0.3)(use-sync-external-store@1.7.0(react@19.2.8))(yjs@13.6.33)
@@ -82,13 +83,13 @@ importers:
         version: 3.88.0(patch_hash=0889c7c61e08478410dfcb1112415677fa9f50267901ee15c99e3deb1c9edf2f)(payload@3.88.0(graphql@16.14.2)(typescript@6.0.3))
       '@payloadcms/next':
         specifier: 3.88.0
-        version: 3.88.0(@types/react@19.2.18)(graphql@16.14.2)(monaco-editor@0.57.0)(next@16.3.4(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4))(payload@3.88.0(graphql@16.14.2)(typescript@6.0.3))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(typescript@6.0.3)
+        version: 3.88.0(@types/react@19.2.18)(graphql@16.14.2)(monaco-editor@0.57.0)(next@16.3.6(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4))(payload@3.88.0(graphql@16.14.2)(typescript@6.0.3))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(typescript@6.0.3)
       graphql:
         specifier: 16.14.2
         version: 16.14.2
       next:
-        specifier: 16.3.4
-        version: 16.3.4(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4)
+        specifier: 16.3.6
+        version: 16.3.6(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4)
       payload:
         specifier: 3.88.0
         version: 3.88.0(graphql@16.14.2)(typescript@6.0.3)
@@ -965,7 +966,7 @@ packages:
       react: ^18.0.0 || ^19.0.0
 
   '@k-nex/composition@file:.k-nex/packages/k-nex-composition-1.1.0.tgz':
-    resolution: {integrity: sha512-GLR1WzDBmXBaQyapSuKfoQp+DNAlqvbineKWQrPilI4L07Wbae36e3ygLDR9jqZHTMoOfZ7dCBXVElCKO4Xddw==, tarball: file:.k-nex/packages/k-nex-composition-1.1.0.tgz}
+    resolution: {integrity: sha512-qFbo3TjyfBjxliHzeWR7MX5WNMlRW3Y4GRCOkNqcYuUo/TODtPVHbfP1tOBjo3dP0dBTNJtPo05Rh8yqiriw6w==, tarball: file:.k-nex/packages/k-nex-composition-1.1.0.tgz}
     version: 1.1.0
 
   '@k-nex/contracts@file:.k-nex/packages/k-nex-contracts-1.1.0.tgz':
@@ -1022,8 +1023,8 @@ packages:
     resolution: {integrity: sha512-o2nn5JigzfnnFJTATPNEKnzPa8bx9EeieEaiWnlz1Sgd6cbOyfMs27zWGGqVmHEg1iAzy2TpjotFW312OBi11g==, tarball: file:.k-nex/packages/k-nex-runtime-1.1.0.tgz}
     version: 1.1.0
 
-  '@k-nex/theme-graphite-paper@file:.k-nex/packages/k-nex-theme-graphite-paper-1.1.0.tgz':
-    resolution: {integrity: sha512-2ex/bRIZukHeaZ3XMaKWRq4nnfDDEoHWTv0qR63hmVutSp7RL0CojAC1azNEgzCY5wpWwmVlmqs6Pzf7s2WsPg==, tarball: file:.k-nex/packages/k-nex-theme-graphite-paper-1.1.0.tgz}
+  '@k-nex/theme-minimal@file:.k-nex/packages/k-nex-theme-minimal-1.1.0.tgz':
+    resolution: {integrity: sha512-T9J2MP/XxU2cd08KwKr13hAPU2LMI2ISfOQPdDTLYx65GjOesxxsiXVKWEq9WdFg7PWLRxHJnKGRYiyPDN8ejw==, tarball: file:.k-nex/packages/k-nex-theme-minimal-1.1.0.tgz}
     version: 1.1.0
     peerDependencies:
       react: ^18.0.0 || ^19.0.0
@@ -1283,60 +1284,60 @@ packages:
       react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
       react-dom: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
 
-  '@next/env@15.5.26':
-    resolution: {integrity: sha512-NJBz9q10LU9h3KjHLEbdgWIV+ow/x+MYzKBRfqhm9/QmML3tPMhYmXF/UIV9SDVCNtOqFNc5oX7kZqeiigMCEA==}
+  '@next/env@15.5.27':
+    resolution: {integrity: sha512-WC5hvVqiuFOcRyz6gKPeJkiVvSMf3scNeAV49CdWtVqxmUlzh8UKR6YHt9yiNkh8LngtzqSlVz07/Ma3ZAzchA==}
 
-  '@next/env@16.3.4':
-    resolution: {integrity: sha512-cjWZnUUa6jZq2kFaNe/ZyJdZonOZ/QoN0Zka2nz/FLOrfx14pQuM9c5RaSVkWMqgdt4ksgPAMWPyHSs/CyV48Q==}
+  '@next/env@16.3.6':
+    resolution: {integrity: sha512-x9Vblze1EbtltQYnNH38xCPWU3TVfBd1eXqA3+w9+BTpedkkdNpAaltXlGQ/nsc1+E0mVTNrtcbX3GoO09zeLQ==}
 
-  '@next/swc-darwin-arm64@16.3.4':
-    resolution: {integrity: sha512-iBr3I5LZNk5/bgl5//iTgD2tcym14MX0Xo7fD//u9dYAEgGzza1y9oywluPtf74YnOswVdH1908aK9xVz7zQTw==}
+  '@next/swc-darwin-arm64@16.3.6':
+    resolution: {integrity: sha512-E/7GEqaUkt8mk/T8v9lAnrhzR06kdq1ZBkC12F8tAMkdIadwNp3H1KqHynDHrpcTlGCUdq/qu6vUL2aYVyYBdw==}
     engines: {node: '>= 10'}
     cpu: [arm64]
     os: [darwin]
 
-  '@next/swc-darwin-x64@16.3.4':
-    resolution: {integrity: sha512-2dpiSyl2Jw/NrBPaU2MAKGSa+2MR82pJIn4Sm5Rjr+gxAeuh0z158Su3Z2O8zn7UNNq+ej4bToed6RcRN/Lydg==}
+  '@next/swc-darwin-x64@16.3.6':
+    resolution: {integrity: sha512-yBE893/nDWTlaiBD1p+qgt7NUen4U5R6FXyH0s67Npq1S3E0cVSef1WIXC2xBRgQvwAvJq6DnS6Y6PrY0cy4Ew==}
     engines: {node: '>= 10'}
     cpu: [x64]
     os: [darwin]
 
-  '@next/swc-linux-arm64-gnu@16.3.4':
-    resolution: {integrity: sha512-+t+U8HZT+fApePCS5h89CSH3datz29MkzyfCn+6fpsZBG/oiEOhINcb9rtkv6sdpToLGFn2e6146NzaKCXkqrA==}
+  '@next/swc-linux-arm64-gnu@16.3.6':
+    resolution: {integrity: sha512-KJDpjBqBPYlvkivmyrp+Qys6k/7ksbqGQvRVc6ZEGfR+cjQxx+nUkJaWmNZJsmoOrqYNbaXByF8wa0lBwDhB3Q==}
     engines: {node: '>= 10'}
     cpu: [arm64]
     os: [linux]
     libc: [glibc]
 
-  '@next/swc-linux-arm64-musl@16.3.4':
-    resolution: {integrity: sha512-mx03GNs1ocQA5JQ4FxDMmIsNkdrZh8cuezKCrId28e5/gIPU/l7Kcy2+vmCCzdjnnmXJy+iOAu+7K0QppO6Urg==}
+  '@next/swc-linux-arm64-musl@16.3.6':
+    resolution: {integrity: sha512-mqNg2K+hvWskSRb/QM+Ix412DvBsuSF0XV+frTSw5vmoucNnIlynFwKYew8D01bfATErMOM7Bujrf0BA5DRKFA==}
     engines: {node: '>= 10'}
     cpu: [arm64]
     os: [linux]
     libc: [musl]
 
-  '@next/swc-linux-x64-gnu@16.3.4':
-    resolution: {integrity: sha512-YIhGY6fSMfha52bnVxnzc9zaVBzJg+cqQTOD8tXIBSx4fuv0pVMxQTE0PaS59YhnMOiYiG09IMwxJAf/CFm/Dw==}
+  '@next/swc-linux-x64-gnu@16.3.6':
+    resolution: {integrity: sha512-nFncBNGAYouRHjRVaITs9beZRfhX4ssVwpnvPIAbkZVH6LtGoAVlH4bJ8Cnf9SOo9bsXgPFer/GdHtEE3JNOkw==}
     engines: {node: '>= 10'}
     cpu: [x64]
     os: [linux]
     libc: [glibc]
 
-  '@next/swc-linux-x64-musl@16.3.4':
-    resolution: {integrity: sha512-+eaaX6axpDb0yF1GCpiERe6njplvdC+nks/fKfcHu3XPGRrald8P3/X7yv7QLdjA51knnxwl9pxdIJsg+w1L+Q==}
+  '@next/swc-linux-x64-musl@16.3.6':
+    resolution: {integrity: sha512-5Mf3cHDGR/Iz0ng2Bj3zUR3p5QS9YK3Hn2QiAfavFmyF48zwThAjpFoiTKNIcOHLYS4zEk+gzyJ/9deQ2ZB8yQ==}
     engines: {node: '>= 10'}
     cpu: [x64]
     os: [linux]
     libc: [musl]
 
-  '@next/swc-win32-arm64-msvc@16.3.4':
-    resolution: {integrity: sha512-0jcXW7Xs/uzICrmgV3MhDYDeRy++1CqnpDIerlPIqYO4bhzB4WNbX/aRnQclustsAyTkFKB0z6rbcjmNg5tR8A==}
+  '@next/swc-win32-arm64-msvc@16.3.6':
+    resolution: {integrity: sha512-0jkJy0C2kbrJWTk4YLa3xk80pVBpx8FCHJym7CnUfDAXe/FWv5qT7SQJbR0KuemyxaEDlEx5WT4VQJoTW+/9Qw==}
     engines: {node: '>= 10'}
     cpu: [arm64]
     os: [win32]
 
-  '@next/swc-win32-x64-msvc@16.3.4':
-    resolution: {integrity: sha512-vvBzwu1pYQCp92maZCFCIw/XgOTMR5tur9GjakwIo2cmwRTMKajRZZDS9+e4KsUZWKu1E007WUeAFXRRjZeuzw==}
+  '@next/swc-win32-x64-msvc@16.3.6':
+    resolution: {integrity: sha512-/YXjI1e5OXcZ7YpxRwgP/1jAV/SBKTzeVKqN2mk7mLpcICsyn3Gl5+dIfDTJp70M0ccMhyMMRso4v6mPDCGepg==}
     engines: {node: '>= 10'}
     cpu: [x64]
     os: [win32]
@@ -2643,8 +2644,8 @@ packages:
     resolution: {integrity: sha512-NMPBRMJgiQHjbd8phG3Vebdx4kZ1H121rbl5IkMqeOsahptB9BKo/d7oJ3zTXqTgagn2bWlNSXkh0QUGM31RYg==}
     engines: {node: '>=18'}
 
-  next@16.3.4:
-    resolution: {integrity: sha512-/Ztf6CeRH+ejEXUrYtqI4gkS66eFIHuSwqi60RgcpWKodxFZx2/dqVCMKBwILfAHXQ+F1b1vAudgj3mnxqtoIA==}
+  next@16.3.6:
+    resolution: {integrity: sha512-L+otWM/aQbYTx98aZhgEoMb4bZAXx1YVW4UMA/vuCyCoWG5HJyZUili8QAkqzrcC+5///tsz3s0M+SlyB5bLMw==}
     engines: {node: '>=20.9.0'}
     hasBin: true
     peerDependencies:
@@ -3272,8 +3273,8 @@ packages:
   undici-types@7.18.2:
     resolution: {integrity: sha512-AsuCzffGHJybSaRrmr5eHr81mwJU3kjw6M+uprWvCXiNeN9SOGwQ3Jn8jb8m3Z6izVgknn1R0FTCEAP2QrLY/w==}
 
-  undici@7.29.0:
-    resolution: {integrity: sha512-IDxfleLmmbSskfWSUATiN1nfn2rDuvnMOqb5CWR92iIfojA0Ud+ulOAAEQ57LPr9rWmsreUyf5lwyao+7GNNVw==}
+  undici@7.29.1:
+    resolution: {integrity: sha512-RYONW2MeafgYlkVOKYKkA/Ag7BmXqgIWCa8t1m0JcxrQg9pI9lEqRhAOruOBCbAohOa/gkCF+iPi9hrgvTzu6Q==}
     engines: {node: '>=20.18.1'}
 
   unpipe@1.0.0:
@@ -4097,10 +4098,10 @@ snapshots:
       es-module-lexer: 2.3.2
       zod: 4.4.3
 
-  '@k-nex/module-sales@file:.k-nex/packages/k-nex-module-sales-1.1.0.tgz(cd4b4a7a622eeea48a312e9d3f0e9b3e)':
+  '@k-nex/module-sales@file:.k-nex/packages/k-nex-module-sales-1.1.0.tgz(532f79631824c04805eb5d1e7ef163af)':
     dependencies:
       '@k-nex/contracts': file:.k-nex/packages/k-nex-contracts-1.1.0.tgz
-      '@k-nex/payload-adapter': file:.k-nex/packages/k-nex-payload-adapter-1.1.0.tgz(graphql@16.14.2)(next@16.3.4(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4))(typescript@6.0.3)
+      '@k-nex/payload-adapter': file:.k-nex/packages/k-nex-payload-adapter-1.1.0.tgz(graphql@16.14.2)(next@16.3.6(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4))(typescript@6.0.3)
       '@k-nex/runtime': file:.k-nex/packages/k-nex-runtime-1.1.0.tgz
       '@k-nex/ui-runtime': file:.k-nex/packages/k-nex-ui-runtime-1.1.0.tgz
     optionalDependencies:
@@ -4112,13 +4113,13 @@ snapshots:
       '@k-nex/ui-pages': file:.k-nex/packages/k-nex-ui-pages-1.1.0.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       react: 19.2.8
 
-  '@k-nex/payload-adapter@file:.k-nex/packages/k-nex-payload-adapter-1.1.0.tgz(graphql@16.14.2)(next@16.3.4(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4))(typescript@6.0.3)':
+  '@k-nex/payload-adapter@file:.k-nex/packages/k-nex-payload-adapter-1.1.0.tgz(graphql@16.14.2)(next@16.3.6(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4))(typescript@6.0.3)':
     dependencies:
       '@k-nex/contracts': file:.k-nex/packages/k-nex-contracts-1.1.0.tgz
       '@k-nex/extension-bundler': file:.k-nex/packages/k-nex-extension-bundler-1.1.0.tgz
       '@k-nex/runtime': file:.k-nex/packages/k-nex-runtime-1.1.0.tgz
       '@payloadcms/db-postgres': 3.88.0(patch_hash=0889c7c61e08478410dfcb1112415677fa9f50267901ee15c99e3deb1c9edf2f)(payload@3.88.0(graphql@16.14.2)(typescript@6.0.3))
-      '@payloadcms/plugin-mcp': 3.88.0(next@16.3.4(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4))(payload@3.88.0(graphql@16.14.2)(typescript@6.0.3))
+      '@payloadcms/plugin-mcp': 3.88.0(next@16.3.6(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4))(payload@3.88.0(graphql@16.14.2)(typescript@6.0.3))
       payload: 3.88.0(graphql@16.14.2)(typescript@6.0.3)
       zod: 3.25.76
     transitivePeerDependencies:
@@ -4175,7 +4176,7 @@ snapshots:
       '@k-nex/extension-bundler': file:.k-nex/packages/k-nex-extension-bundler-1.1.0.tgz
       semver: 7.8.5
 
-  '@k-nex/theme-graphite-paper@file:.k-nex/packages/k-nex-theme-graphite-paper-1.1.0.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+  '@k-nex/theme-minimal@file:.k-nex/packages/k-nex-theme-minimal-1.1.0.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
     dependencies:
       '@k-nex/contracts': file:.k-nex/packages/k-nex-contracts-1.1.0.tgz
       '@k-nex/ui-design-system-contracts': file:.k-nex/packages/k-nex-ui-design-system-contracts-1.1.0.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -4518,32 +4519,32 @@ snapshots:
       react: 19.2.8
       react-dom: 19.2.8(react@19.2.8)
 
-  '@next/env@15.5.26': {}
+  '@next/env@15.5.27': {}
 
-  '@next/env@16.3.4': {}
+  '@next/env@16.3.6': {}
 
-  '@next/swc-darwin-arm64@16.3.4':
+  '@next/swc-darwin-arm64@16.3.6':
     optional: true
 
-  '@next/swc-darwin-x64@16.3.4':
+  '@next/swc-darwin-x64@16.3.6':
     optional: true
 
-  '@next/swc-linux-arm64-gnu@16.3.4':
+  '@next/swc-linux-arm64-gnu@16.3.6':
     optional: true
 
-  '@next/swc-linux-arm64-musl@16.3.4':
+  '@next/swc-linux-arm64-musl@16.3.6':
     optional: true
 
-  '@next/swc-linux-x64-gnu@16.3.4':
+  '@next/swc-linux-x64-gnu@16.3.6':
     optional: true
 
-  '@next/swc-linux-x64-musl@16.3.4':
+  '@next/swc-linux-x64-musl@16.3.6':
     optional: true
 
-  '@next/swc-win32-arm64-msvc@16.3.4':
+  '@next/swc-win32-arm64-msvc@16.3.6':
     optional: true
 
-  '@next/swc-win32-x64-msvc@16.3.4':
+  '@next/swc-win32-x64-msvc@16.3.6':
     optional: true
 
   '@payloadcms/db-postgres@3.88.0(patch_hash=0889c7c61e08478410dfcb1112415677fa9f50267901ee15c99e3deb1c9edf2f)(payload@3.88.0(graphql@16.14.2)(typescript@6.0.3))':
@@ -4640,14 +4641,14 @@ snapshots:
     transitivePeerDependencies:
       - typescript
 
-  '@payloadcms/next@3.88.0(@types/react@19.2.18)(graphql@16.14.2)(monaco-editor@0.57.0)(next@16.3.4(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4))(payload@3.88.0(graphql@16.14.2)(typescript@6.0.3))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(typescript@6.0.3)':
+  '@payloadcms/next@3.88.0(@types/react@19.2.18)(graphql@16.14.2)(monaco-editor@0.57.0)(next@16.3.6(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4))(payload@3.88.0(graphql@16.14.2)(typescript@6.0.3))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(typescript@6.0.3)':
     dependencies:
       '@dnd-kit/core': 6.3.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@dnd-kit/modifiers': 9.0.0(@dnd-kit/core@6.3.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8)
       '@dnd-kit/sortable': 10.0.0(@dnd-kit/core@6.3.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8)
       '@payloadcms/graphql': 3.88.0(graphql@16.14.2)(payload@3.88.0(graphql@16.14.2)(typescript@6.0.3))(typescript@6.0.3)
       '@payloadcms/translations': 3.88.0
-      '@payloadcms/ui': 3.88.0(@types/react@19.2.18)(monaco-editor@0.57.0)(next@16.3.4(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4))(payload@3.88.0(graphql@16.14.2)(typescript@6.0.3))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(typescript@6.0.3)
+      '@payloadcms/ui': 3.88.0(@types/react@19.2.18)(monaco-editor@0.57.0)(next@16.3.6(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4))(payload@3.88.0(graphql@16.14.2)(typescript@6.0.3))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(typescript@6.0.3)
       busboy: 1.6.0
       dequal: 2.0.3
       file-type: 21.3.4
@@ -4655,7 +4656,7 @@ snapshots:
       graphql-http: 1.23.1(graphql@16.14.2)
       graphql-playground-html: 1.6.30
       http-status: 2.1.0
-      next: 16.3.4(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4)
+      next: 16.3.6(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4)
       path-to-regexp: 6.3.0
       payload: 3.88.0(graphql@16.14.2)(typescript@6.0.3)
       qs-esm: 8.0.1
@@ -4669,12 +4670,12 @@ snapshots:
       - supports-color
       - typescript
 
-  '@payloadcms/plugin-mcp@3.88.0(next@16.3.4(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4))(payload@3.88.0(graphql@16.14.2)(typescript@6.0.3))':
+  '@payloadcms/plugin-mcp@3.88.0(next@16.3.6(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4))(payload@3.88.0(graphql@16.14.2)(typescript@6.0.3))':
     dependencies:
       '@modelcontextprotocol/sdk': 1.30.0(zod@3.25.76)
       '@types/json-schema': 7.0.15
       json-schema-to-zod: 2.6.1
-      mcp-handler: 1.1.0(@modelcontextprotocol/sdk@1.30.0(zod@3.25.76))(next@16.3.4(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4))
+      mcp-handler: 1.1.0(@modelcontextprotocol/sdk@1.30.0(zod@3.25.76))(next@16.3.6(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4))
       payload: 3.88.0(graphql@16.14.2)(typescript@6.0.3)
       zod: 3.25.76
     transitivePeerDependencies:
@@ -4686,7 +4687,7 @@ snapshots:
     dependencies:
       date-fns: 4.1.0
 
-  '@payloadcms/ui@3.88.0(@types/react@19.2.18)(monaco-editor@0.57.0)(next@16.3.4(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4))(payload@3.88.0(graphql@16.14.2)(typescript@6.0.3))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(typescript@6.0.3)':
+  '@payloadcms/ui@3.88.0(@types/react@19.2.18)(monaco-editor@0.57.0)(next@16.3.6(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4))(payload@3.88.0(graphql@16.14.2)(typescript@6.0.3))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(typescript@6.0.3)':
     dependencies:
       '@date-fns/tz': 1.2.0
       '@dnd-kit/core': 6.3.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -4701,7 +4702,7 @@ snapshots:
       date-fns: 4.1.0
       dequal: 2.0.3
       md5: 2.3.0
-      next: 16.3.4(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4)
+      next: 16.3.6(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4)
       object-to-formdata: 4.5.1
       payload: 3.88.0(graphql@16.14.2)(typescript@6.0.3)
       qs-esm: 8.0.1
@@ -5883,14 +5884,14 @@ snapshots:
 
   math-intrinsics@1.1.0: {}
 
-  mcp-handler@1.1.0(@modelcontextprotocol/sdk@1.30.0(zod@3.25.76))(next@16.3.4(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4)):
+  mcp-handler@1.1.0(@modelcontextprotocol/sdk@1.30.0(zod@3.25.76))(next@16.3.6(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4)):
     dependencies:
       '@modelcontextprotocol/sdk': 1.30.0(zod@3.25.76)
       chalk: 5.6.2
       commander: 11.1.0
       redis: 4.7.1
     optionalDependencies:
-      next: 16.3.4(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4)
+      next: 16.3.6(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4)
 
   md5@2.3.0:
     dependencies:
@@ -5933,9 +5934,9 @@ snapshots:
     dependencies:
       content-type: 2.1.0
 
-  next@16.3.4(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4):
+  next@16.3.6(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4):
     dependencies:
-      '@next/env': 16.3.4
+      '@next/env': 16.3.6
       '@swc/helpers': 0.5.23
       baseline-browser-mapping: 2.11.26
       caniuse-lite: 1.0.30001814
@@ -5944,14 +5945,14 @@ snapshots:
       react-dom: 19.2.8(react@19.2.8)
       styled-jsx: 5.1.6(react@19.2.8)
     optionalDependencies:
-      '@next/swc-darwin-arm64': 16.3.4
-      '@next/swc-darwin-x64': 16.3.4
-      '@next/swc-linux-arm64-gnu': 16.3.4
-      '@next/swc-linux-arm64-musl': 16.3.4
-      '@next/swc-linux-x64-gnu': 16.3.4
-      '@next/swc-linux-x64-musl': 16.3.4
-      '@next/swc-win32-arm64-msvc': 16.3.4
-      '@next/swc-win32-x64-msvc': 16.3.4
+      '@next/swc-darwin-arm64': 16.3.6
+      '@next/swc-darwin-x64': 16.3.6
+      '@next/swc-linux-arm64-gnu': 16.3.6
+      '@next/swc-linux-arm64-musl': 16.3.6
+      '@next/swc-linux-x64-gnu': 16.3.6
+      '@next/swc-linux-x64-musl': 16.3.6
+      '@next/swc-win32-arm64-msvc': 16.3.6
+      '@next/swc-win32-x64-msvc': 16.3.6
       sass: 1.77.4
       sharp: 0.35.4(@types/node@24.13.3)
     transitivePeerDependencies:
@@ -6006,7 +6007,7 @@ snapshots:
 
   payload@3.88.0(graphql@16.14.2)(typescript@6.0.3):
     dependencies:
-      '@next/env': 15.5.26
+      '@next/env': 15.5.27
       '@payloadcms/translations': 3.88.0
       '@types/busboy': 1.5.4
       ajv: 8.18.0
@@ -6035,7 +6036,7 @@ snapshots:
       sanitize-filename: 1.6.3
       ts-essentials: 10.0.3(typescript@6.0.3)
       tsx: 4.22.4
-      undici: 7.29.0
+      undici: 7.29.1
       uuid: 13.0.2
       ws: 8.22.0
     transitivePeerDependencies:
@@ -6715,7 +6716,7 @@ snapshots:
 
   undici-types@7.18.2: {}
 
-  undici@7.29.0: {}
+  undici@7.29.1: {}
 
   unpipe@1.0.0: {}
 

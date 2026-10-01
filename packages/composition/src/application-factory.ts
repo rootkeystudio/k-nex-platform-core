@@ -193,7 +193,7 @@ const exactDependencies = Object.freeze({
   // required peer and its published types import from it, so the generated
   // application still has to resolve it to build.
   "graphql": "16.14.2",
-  "next": "16.3.4",
+  "next": "16.3.6",
   "payload": "3.88.0",
   "react": "19.2.8",
   "react-dom": "19.2.8",
@@ -215,7 +215,10 @@ const deterministicReleaseOverrides = Object.freeze({
   // @puckeditor/core declares this transitive dependency as ^3.13.9. Keep
   // generated customer installs tied to the reviewed release closure instead
   // of allowing registry time to change the frozen lock configuration.
-  "@puckeditor/core>@tanstack/react-virtual": "3.14.11"
+  "@puckeditor/core>@tanstack/react-virtual": "3.14.11",
+  // payload@3.88.0 pins undici 7.29.0 exactly, which GHSA-w293-vg96-wgc3 and
+  // GHSA-rfgv-xxqx-mfg5 affect; 7.29.1 is the patch release that fixes both.
+  "undici@7": "7.29.1"
 });
 
 export function payloadPostgresPatchSource(): string {
