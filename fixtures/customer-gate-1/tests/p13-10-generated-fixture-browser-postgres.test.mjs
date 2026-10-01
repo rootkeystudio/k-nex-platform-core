@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { availableParallelism, cpus, totalmem } from "node:os";
 import test from "node:test";
 
+import { defaultPresetTheme } from "@k-nex/composition";
 import { chromium } from "playwright";
 
 import { seriousAccessibilityViolations } from "./p13-3-browser-accessibility.mjs";
@@ -446,6 +447,8 @@ async function runPostRestoreSmoke(browser, origin, persona, role, records, timi
   }
 }
 
+// Readiness is claimed for the application a customer receives, so this proof
+// generates the factory's default theme rather than the corpus reference theme.
 test("P13.10 generated fixture proves controlled browser readiness before and after restore", { timeout: 900_000 }, async () => {
   await withGeneratedCrmBrowserFixture(async ({ origin, personas, records, pool, stopWorker, stopWeb, startWorker, startWeb, restoreToCleanDatabase }) => {
     assert.deepEqual(Object.keys(profile).sort(), ["architecture", "browserSamplesPerRoute", "cacheState", "concurrency", "cpuModel", "evidenceClass", "logicalCpus", "memoryBytes", "platform", "productionCapacityClaim", "serverSamplesPerOperation"], "controlled fixture profile is incomplete");
@@ -520,5 +523,5 @@ test("P13.10 generated fixture proves controlled browser readiness before and af
     } finally {
       await browser.close();
     }
-  });
+  }, { theme: defaultPresetTheme });
 });
