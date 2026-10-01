@@ -234,7 +234,9 @@ export const POST = refused;
     // the document itself, and the two screens shown before a theme resolves —
     // sign-in and the unauthenticated landing page. It deliberately repeats no
     // workspace rule, so the theme stays the only thing that decides how the
-    // application looks once a session exists.
+    // application looks once a session exists. The light accent is both the
+    // button fill under white text and small text on the page background, so
+    // it is a burnt orange that clears 4.5:1 against both.
     "src/app/styles.css": `:root {
   color-scheme: light dark;
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -243,7 +245,7 @@ export const POST = refused;
   --k-nex-entry-foreground: light-dark(#1b1a17, #ededed);
   --k-nex-entry-muted: light-dark(#6b6557, #8f8f8f);
   --k-nex-entry-border: light-dark(#ddd5c6, #2a2a2a);
-  --k-nex-entry-accent: light-dark(#d1502a, #ff6b35);
+  --k-nex-entry-accent: light-dark(#a8401c, #ff6b35);
   --k-nex-entry-accent-contrast: light-dark(#ffffff, #0f0f0f);
   --k-nex-entry-critical: light-dark(#b3261e, #f87171);
 }
