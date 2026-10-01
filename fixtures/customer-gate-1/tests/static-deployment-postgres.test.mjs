@@ -1196,11 +1196,22 @@ test("proves distinct customer binaries and deployment processes recover from Po
       ...owner, generationId: "customer-alpha-green-12", fencingToken: blueFenceBeforeEffect.fencingToken,
       owner: blueFenceBeforeEffect.lease.owner, leaseDurationMs: 240_000
     }), { code: "FENCE_REJECTED" });
-    await pool.query("update runtime_worker_generation_fences set lease_expires_at=now()-interval '1 minute' where application_id=$1 and environment=$2", [owner.applicationId, owner.environment]);
-    const resumed = await liveStore.acquireWorkerFence({
-      ...owner, generationId: blue.generationId, fencingToken: blueFenceBeforeEffect.fencingToken,
-      owner: blueFenceBeforeEffect.lease.owner, leaseDurationMs: 240_000
-    });
+    // The blue worker is running, not stopped: a heartbeat that saw the expired
+    // lease would lose it, and recovery would rotate the fence. Holding the
+    // deployment lock each renewal takes first stops the worker until its lease
+    // is resumed through the same session; ending the pool releases the lock.
+    const deploymentLock = new pg.Pool({ connectionString: postgres.getConnectionUri(), max: 1, idleTimeoutMillis: 0 });
+    let resumed;
+    try {
+      await deploymentLock.query("select pg_advisory_lock(hashtextextended($1, 0))", [canonicalJson([owner.applicationId, owner.environment, "static-deployment"])]);
+      await deploymentLock.query("update runtime_worker_generation_fences set lease_expires_at=now()-interval '1 minute' where application_id=$1 and environment=$2", [owner.applicationId, owner.environment]);
+      resumed = await new PostgresStaticDeploymentStore(deploymentLock, { now: () => new Date() }, build.authority).acquireWorkerFence({
+        ...owner, generationId: blue.generationId, fencingToken: blueFenceBeforeEffect.fencingToken,
+        owner: blueFenceBeforeEffect.lease.owner, leaseDurationMs: 240_000
+      });
+    } finally {
+      await deploymentLock.end();
+    }
     assert.equal(resumed.activeExecutionGeneration, blue.generationId);
     assert.equal(resumed.fencingToken, blueFenceBeforeEffect.fencingToken);
     assert.equal(resumed.promotionRevision, blueFenceBeforeEffect.promotionRevision);
