@@ -2028,7 +2028,10 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     const retiredSalesNavigation = await fetch(`${applicationProcess.origin}/`, { headers: { cookie: manager.cookie.header }, redirect: "manual" });
     assert.equal(retiredSalesNavigation.status, 200);
     const retiredSalesHtml = await retiredSalesNavigation.text();
-    assert.match(retiredSalesHtml, /K-Nex workspace/u, "Disabling Sales must not deny the host workspace.");
+    // The authenticated home is the workspace landing: the page header every
+    // workspace page uses, titled with the application. A denied workspace
+    // redirects or renders no landing at all.
+    assert.match(retiredSalesHtml, /<section class="workspace-landing"[^>]*><header data-k-nex-component="page-header"[^>]*><div data-slot="title">P12 Auth Proof<\/div>/u, "Disabling Sales must not deny the host workspace.");
     const retiredSystem = await fetch(`${applicationProcess.origin}/system/workspace-pages`, { headers: { cookie: manager.cookie.header }, redirect: "manual" });
     assert.equal(retiredSystem.status, 200, "Disabling Sales must not redirect fixed System routes.");
     const retiredDependentPage = await fetch(`${applicationProcess.origin}/workspace/pages/${encodeURIComponent(pageId)}`, { headers: { cookie: manager.cookie.header }, redirect: "manual" });
