@@ -366,3 +366,74 @@ test("rejected-generation retirement is atomic, durable, and owner scoped", { ti
     await container.stop();
   }
 });
+
+/**
+ * A worker that was stopped past its lease resumes it rather than staying
+ * fenced out forever, but only the identity that holds it may. The fencing
+ * token does not move on this path and an effect claim checks the token, not
+ * the owner, so letting another identity take even an expired lease would
+ * leave the previous holder with effect authority under the same token.
+ */
+test("a worker resumes only the execution lease its own identity holds", { timeout: 180_000 }, async () => {
+  const container = await new PostgreSqlContainer(POSTGRES_IMAGE).withDatabase("static_worker_fence_acquire").withStartupTimeout(120_000).start();
+  const pool = new pg.Pool({ connectionString: container.getConnectionUri(), max: 6 });
+  try {
+    await boot(container.getConnectionUri());
+    const delta = { applicationId: "customer-delta", environment: "production" };
+    const deltaRelease = await release(delta);
+    const store = new PostgresStaticDeploymentStore(pool, { now: () => new Date() }, { read: () => assert.fail("Worker fence acquisition must not read build authority.") });
+    const generation = baseGeneration(deltaRelease.change);
+    const acquisition = { ...delta, generationId: generation.generationId, fencingToken: 1, owner: "worker:delta", leaseDurationMs: 240_000 };
+    const fenceRow = async () => (await pool.query(
+      "select active_execution_generation, fencing_token::int, lease_owner, lease_expires_at, promotion_revision, lease_expires_at>now() live from runtime_worker_generation_fences where application_id=$1 and environment=$2",
+      [delta.applicationId, delta.environment]
+    )).rows[0];
+    const refused = async (input, message) => {
+      const before = await fenceRow();
+      await assert.rejects(store.acquireWorkerFence(input), { code: "FENCE_REJECTED" }, message);
+      assert.deepEqual(await fenceRow(), before, `${message} The refusal must leave the fence unchanged.`);
+    };
+
+    await refused(acquisition, "A deployment that serves no generation must grant no execution lease.");
+    assert.equal(await fenceRow(), undefined);
+    await store.initialize({ ...delta, generation, workerOwner: "worker:delta", workerFencingToken: 1, workerLeaseExpiresAt: new Date(Date.now() + 60_000).toISOString() });
+    await pool.query("delete from runtime_worker_generation_fences where application_id=$1 and environment=$2", [delta.applicationId, delta.environment]);
+
+    const contenders = await Promise.allSettled([store.acquireWorkerFence(acquisition), store.acquireWorkerFence({ ...acquisition, owner: "worker:delta-rival" })]);
+    assert.equal(contenders.filter(({ status }) => status === "fulfilled").length, 1, "Concurrent first acquisitions must grant exactly one execution lease.");
+    assert.equal(contenders.find(({ status }) => status === "rejected").reason.code, "FENCE_REJECTED");
+    const granted = contenders.find(({ status }) => status === "fulfilled").value;
+    const held = { ...acquisition, owner: granted.lease.owner };
+    const rival = { ...acquisition, owner: held.owner === "worker:delta" ? "worker:delta-rival" : "worker:delta" };
+    assert.deepEqual(
+      { generation: granted.activeExecutionGeneration, token: granted.fencingToken, promotionRevision: granted.promotionRevision },
+      { generation: generation.generationId, token: 1, promotionRevision: 0 },
+      "A first acquisition binds the served generation at its promotion revision under the caller's token."
+    );
+    assert.equal((await fenceRow()).lease_owner, held.owner);
+
+    const extended = await store.acquireWorkerFence(held);
+    assert.ok(Date.parse(extended.lease.expiresAt) >= Date.parse(granted.lease.expiresAt), "The holder re-acquiring a live lease must not shorten it.");
+    await refused(rival, "Another identity must not take a live lease.");
+    await refused({ ...held, generationId: "shared-green-12" }, "A generation the deployment does not serve must not take the lease.");
+    await refused({ ...held, fencingToken: 2 }, "A token the fence does not hold must not take the lease.");
+
+    await pool.query("update runtime_worker_generation_fences set lease_expires_at=now()-interval '1 minute' where application_id=$1 and environment=$2", [delta.applicationId, delta.environment]);
+    await refused(rival, "Another identity must not take an expired lease under the same token.");
+    await assert.rejects(store.renewWorkerFence({ ...held, expectedPromotionRevision: 0 }), { code: "FENCE_REJECTED" }, "Renewal alone must still never revive an expired lease.");
+    const resumed = await store.acquireWorkerFence(held);
+    assert.deepEqual(
+      { generation: resumed.activeExecutionGeneration, token: resumed.fencingToken, promotionRevision: resumed.promotionRevision, owner: resumed.lease.owner },
+      { generation: generation.generationId, token: 1, promotionRevision: 0, owner: held.owner },
+      "The holder resumes its own expired lease under the same authority."
+    );
+    assert.equal((await fenceRow()).live, true);
+    await store.renewWorkerFence({ ...held, expectedPromotionRevision: 0 });
+
+    await pool.query("update runtime_static_deployments set revision=revision+1 where application_id=$1 and environment=$2", [delta.applicationId, delta.environment]);
+    await refused(held, "A lease bound to a promotion revision the deployment has moved past must not be taken.");
+  } finally {
+    await pool.end();
+    await container.stop();
+  }
+});

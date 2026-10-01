@@ -4134,8 +4134,8 @@ const fenceTimer = setInterval(() => {
     if (!workerFence.renewable || Date.now() - lastFenceRenewal < kNexWorkerLeaseRenewalIntervalMs) return;
     try { await renewKnexWorkerFence(payload, workerFence.promotionRevision); lastFenceRenewal = Date.now(); }
     catch {
-      // The fence moved on — a promotion, or another owner took an expired
-      // lease. That is the fence working, not the worker failing.
+      // The fence moved on — a promotion, or a recovery that advanced the
+      // token. That is the fence working, not the worker failing.
       workerFence = undefined;
       console.error("K_NEX_WORKER_FENCED_OUT " + executionGeneration + " — the execution lease was superseded; fenced work is paused.");
     }

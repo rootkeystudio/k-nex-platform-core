@@ -992,10 +992,14 @@ export class PostgresStaticDeploymentStore {
    *
    * The fence still separates generations. This takes the lease only for the
    * generation the deployment currently serves, at that deployment's promotion
-   * revision, under the same fencing token, and only when the lease is either
-   * absent or expired or already this owner's. A live lease held by a different
-   * owner, a superseded generation, and a promoted revision are all rejected,
-   * so a zombie worker cannot reclaim a fence that moved on without it.
+   * revision, under the same fencing token, and only when no lease exists or
+   * the existing one is this owner's, live or expired. Another owner's lease is
+   * refused even once it expires: the fencing token does not move here and an
+   * effect claim checks the token rather than the owner, so a takeover under
+   * the same token would leave the previous owner holding effect authority.
+   * Expired authority changes hands only through recovery, which advances the
+   * token. A superseded generation and a promoted revision are rejected too, so
+   * a zombie worker cannot reclaim a fence that moved on without it.
    */
   async acquireWorkerFence(input: Owner & Readonly<{ generationId: string; fencingToken: number; owner: string; leaseDurationMs: number }>): Promise<WorkerGenerationFence> {
     assertOwner(input); assertFenceToken(input.fencingToken); this.assertWorkerLeaseRenewal(input.owner, input.leaseDurationMs);
@@ -1008,13 +1012,12 @@ export class PostgresStaticDeploymentStore {
       const promotionRevision = Number(deployment.revision);
       if (!Number.isSafeInteger(promotionRevision) || promotionRevision < 0) fail("FENCE_REJECTED", "Static deployment revision is unavailable for worker authority.");
       const current = await this.readFenceLocked(session, input);
-      const databaseNow = await this.databaseNow(session);
       if (current) {
         if (current.active_execution_generation !== input.generationId || Number(current.fencing_token) !== input.fencingToken ||
           current.promotion_revision !== promotionRevision) {
           fail("FENCE_REJECTED", "Worker fence authority was superseded by another generation.");
         }
-        if (current.lease_owner !== input.owner && new Date(current.lease_expires_at).valueOf() > databaseNow.valueOf()) {
+        if (current.lease_owner !== input.owner) {
           fail("FENCE_REJECTED", "Worker execution lease is held by a different owner.");
         }
       }
@@ -1027,8 +1030,7 @@ export class PostgresStaticDeploymentStore {
          where runtime_worker_generation_fences.active_execution_generation=excluded.active_execution_generation
            and runtime_worker_generation_fences.fencing_token=excluded.fencing_token
            and runtime_worker_generation_fences.promotion_revision=excluded.promotion_revision
-           and (runtime_worker_generation_fences.lease_owner=excluded.lease_owner
-             or runtime_worker_generation_fences.lease_expires_at<=now())
+           and runtime_worker_generation_fences.lease_owner=excluded.lease_owner
          returning *`,
         [input.applicationId, input.environment, input.generationId, input.fencingToken, input.owner, input.leaseDurationMs, promotionRevision]
       );
