@@ -35,6 +35,13 @@ const dailyRoutes = Object.freeze([
   { id: "reports", path: "/sales/reports", heading: "Reports" }
 ]);
 const minimumRows = Object.freeze({ accounts: 50, contacts: 100, leads: 100, opportunities: 50, activities: 200, tasks: 100 });
+// A calendar a persona creates covers the reporting month it is created in, so
+// the representative activities are dated at the start of the month this proof
+// runs in: a literal instant rots out of every calendar created after its month.
+const activityInstant = (() => {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
+})();
 
 function p95(values) {
   assert.ok(values.length > 0, "readiness sample set is empty");
@@ -176,7 +183,7 @@ async function seedRepresentativeMinimum(pool, records, personas) {
     const activityIndexes = range(await count("sales_activities") + 1, minimumRows.activities);
     const activityIds = await reserveIds(client, "sales_activities", activityIndexes.length);
     const activityRows = activityIndexes.map((index, offset) => ({ id: activityIds[offset], subject: `P13.10 readiness activity ${index}`, audit: JSON.stringify([auditEntry("sales.activity.create", activityIds[offset], representativeId, "absent", "scheduled", 1, `p13-10-readiness-activity-${index}-create`, ownershipGenesis), auditEntry("sales.activity.complete", activityIds[offset], representativeId, "scheduled", "completed", 2, `p13-10-readiness-activity-${index}-complete`)]) }));
-    if (activityRows.length > 0) await client.query("insert into sales_activities(id,application_id,environment,owner_id,team_id,created_by,updated_by,status,type,subject,actor_id,scheduled_at,occurred_at,related_record_id,related_record_type,revision,audit) select row.id,$1,$2,$3,$4,$3,$3,'completed','call',row.subject,$3,'2026-09-09T10:00:00.000Z','2026-09-09T10:00:00.000Z',$5,'sales.account',2,row.audit::jsonb from jsonb_to_recordset($6::jsonb) row(id int,subject text,audit text)", [applicationId, environment, representativeId, teamId, records.repAccountId, JSON.stringify(activityRows)]);
+    if (activityRows.length > 0) await client.query("insert into sales_activities(id,application_id,environment,owner_id,team_id,created_by,updated_by,status,type,subject,actor_id,scheduled_at,occurred_at,related_record_id,related_record_type,revision,audit) select row.id,$1,$2,$3,$4,$3,$3,'completed','call',row.subject,$3,$7,$7,$5,'sales.account',2,row.audit::jsonb from jsonb_to_recordset($6::jsonb) row(id int,subject text,audit text)", [applicationId, environment, representativeId, teamId, records.repAccountId, JSON.stringify(activityRows), activityInstant]);
 
     const taskIndexes = range(await count("sales_tasks") + 1, minimumRows.tasks);
     const taskIds = await reserveIds(client, "sales_tasks", taskIndexes.length);
@@ -212,6 +219,9 @@ async function createPersonaCalendarView(origin, persona, role) {
   assert.match(data?.id, /^[1-9][0-9]*$/u, "calendar fixture creation omitted canonical ID");
   assert.equal(data.revision, 1, "calendar fixture creation revision diverged");
   assert.equal(data.definition?.calendarRange?.timezone, "UTC", "calendar fixture creation omitted server-owned UTC range");
+  const { start, end } = data.definition.calendarRange;
+  assert.ok(Date.parse(start) <= Date.parse(activityInstant) && Date.parse(activityInstant) < Date.parse(end),
+    `the ${role} calendar covers ${start}..${end}, which excludes the representative activities at ${activityInstant}; a run that crosses a UTC month boundary must be repeated`);
   return Object.freeze({ id: Number(data.id), revision: data.revision });
 }
 
