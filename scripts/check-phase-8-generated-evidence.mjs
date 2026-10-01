@@ -48,17 +48,36 @@ const stableVerification = (entries) => entries.map(({ verificationResult }) => 
     timestamp: new Date(entry.timestamp).toISOString()
   }))
 }));
+const repository = "rootkeystudio/k-nex-platform-core";
+const signerWorkflow = `${repository}/.github/workflows/release-evidence.yml`;
+const attestationVerification = (subject, bundle, predicateType, policy) => JSON.parse(execFileSync("gh", ["attestation", "verify", subject, "--bundle", bundle,
+  "--repo", repository, ...policy, "--predicate-type", predicateType, "--format", "json"], { encoding: "utf8", maxBuffer: 8 * 1024 * 1024 }));
+/**
+ * gh reports, as verifiedIdentity, the identity policy it was asked to enforce
+ * rather than anything the attestation carries, so a record is reproducible only
+ * under the policy that produced it. The committed records are the hosted
+ * workflow's own output under `--repo`; each is re-derived under that policy and
+ * must match exactly. The signer workflow and hosted-runner policy is enforced
+ * by a second verification, which must accept the identical signed statement
+ * and is what the release authorities below consume.
+ */
 const verify = (subject, bundle, predicateType, committed) => {
-  const fresh = JSON.parse(execFileSync("gh", ["attestation", "verify", subject, "--bundle", bundle,
-    "--repo", "rootkeystudio/k-nex-platform-core",
-    "--signer-workflow", "rootkeystudio/k-nex-platform-core/.github/workflows/release-evidence.yml", "--deny-self-hosted-runners",
-    "--predicate-type", predicateType, "--format", "json"], { encoding: "utf8", maxBuffer: 8 * 1024 * 1024 }));
   const expected = readJson(committed);
   const statements = new Set(expected.map((entry) => canonicalJson(entry.verificationResult.statement)));
-  const selected = fresh.filter((entry) => statements.has(canonicalJson(entry.verificationResult.statement)));
-  assert.equal(canonicalJson(stableVerification(selected)), canonicalJson(stableVerification(expected)), `Committed ${predicateType} verification output is stale or does not verify the hosted bundle.`);
-  assert.equal(selected.length, 1, `Expected exactly one committed ${predicateType} attestation for ${subject}.`);
-  return selected[0];
+  const select = (entries) => entries.filter((entry) => statements.has(canonicalJson(entry.verificationResult.statement)));
+  const recorded = select(attestationVerification(subject, bundle, predicateType, []));
+  assert.equal(canonicalJson(stableVerification(recorded)), canonicalJson(stableVerification(expected)), `Committed ${predicateType} verification output is stale or does not verify the hosted bundle.`);
+  assert.equal(recorded.length, 1, `Expected exactly one committed ${predicateType} attestation for ${subject}.`);
+  const enforced = select(attestationVerification(subject, bundle, predicateType, ["--signer-workflow", signerWorkflow, "--deny-self-hosted-runners"]));
+  assert.equal(enforced.length, 1, `The ${predicateType} attestation for ${subject} must verify as signed by ${signerWorkflow} on a GitHub-hosted runner.`);
+  const { verifiedIdentity: enforcedPolicy, ...enforcedSigned } = stableVerification(enforced)[0];
+  const { verifiedIdentity: _recordedPolicy, ...recordedSigned } = stableVerification(recorded)[0];
+  assert.equal(canonicalJson(enforcedSigned), canonicalJson(recordedSigned), `The signer-enforced ${predicateType} verification must accept exactly the committed signed statement.`);
+  const admittedSigner = new RegExp(enforcedPolicy.subjectAlternativeName.regexp, "u");
+  assert.equal(enforcedPolicy.runnerEnvironment, "github-hosted", `The ${predicateType} verification did not deny self-hosted runners.`);
+  assert.ok(admittedSigner.test(`https://github.com/${signerWorkflow}@refs/heads/main`) && !admittedSigner.test(`https://github.com/${repository}/.github/workflows/architecture-contracts.yml@refs/heads/main`),
+    `The ${predicateType} verification must admit only ${signerWorkflow} as its signer.`);
+  return enforced[0];
 };
 
 const release = readJson(resolve(root, "releases/1.0.0/package-release-manifest.json"));
