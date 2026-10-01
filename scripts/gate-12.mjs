@@ -47,7 +47,7 @@ function vitest(id, workspace, files, selected) {
 
 const unitProofs = [
   vitest("contracts", "@k-nex/contracts", ["tests/package-release-manifest.test.ts", "tests/workspace-page.test.ts", "tests/ui-document.test.ts"], [
-    "binds exactly the two content-addressed Sales factory lock templates",
+    "binds the content-addressed Sales factory lock templates, Graphite & Paper only from the release that ships it",
     "freezes the exact fixed route classes without browser-authored paths",
     "accepts one closed server-produced shell and rejects foreign navigation identity",
     "rejects duplicate, cyclic, missing-parent, cross-owner, and System-shadowing navigation",
